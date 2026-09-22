@@ -1,0 +1,31 @@
+[package]
+name = "blazar-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "blazar"
+path = "src/main.rs"
+
+[dependencies]
+blazar-core-types.workspace = true
+blazar-db.workspace = true
+blazar-runtime.workspace = true
+blazar-transport.workspace = true
+blazar-netmesh.workspace = true
+blazar-vfs.workspace = true
+blazar-worktree.workspace = true
+
+anyhow.workspace = true
+chrono.workspace = true
+clap.workspace = true
+futures.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+tokio.workspace = true
+tracing-subscriber.workspace = true
+
+[lints]
+workspace = true

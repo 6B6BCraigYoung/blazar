@@ -1,0 +1,31 @@
+[package]
+name = "blazar-desktop"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "blazar-desktop"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+blazar-hub.workspace = true
+
+anyhow.workspace = true
+directories = "5"
+serde.workspace = true
+serde_json.workspace = true
+tauri = { version = "2", features = [] }
+tauri-plugin-shell = "2"
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+blazar-netmesh.workspace = true
+blazar-mcp.workspace = true
+
+[lints]
+workspace = true

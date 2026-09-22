@@ -1,0 +1,57 @@
+[workspace]
+resolver = "3"
+members = ["crates/*", "apps/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.90"
+license = "MIT"
+
+[workspace.dependencies]
+blazar-core-types = { path = "crates/core-types" }
+blazar-db = { path = "crates/db" }
+blazar-runtime = { path = "crates/runtime" }
+blazar-transport = { path = "crates/transport" }
+blazar-netmesh = { path = "crates/netmesh" }
+blazar-vfs = { path = "crates/vfs" }
+blazar-hub = { path = "crates/hub" }
+blazar-terminal = { path = "crates/terminal" }
+blazar-worktree = { path = "crates/worktree" }
+blazar-scheduler = { path = "crates/scheduler" }
+blazar-hooks = { path = "crates/hooks" }
+blazar-mcp = { path = "crates/mcp" }
+
+anyhow = "1"
+async-trait = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4", features = ["derive", "env"] }
+futures = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sqlx = { version = "0.8", default-features = false, features = [
+    "runtime-tokio",
+    "sqlite",
+    "chrono",
+    "uuid",
+    "json",
+    "macros",
+    "migrate",
+] }
+thiserror = "2"
+tokio = { version = "1", features = ["full"] }
+include_dir = "0.7"
+tokio-stream = "0.1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1", features = ["v7", "v5", "serde"] }
+axum = { version = "0.8", features = ["ws"] }
+tower-http = { version = "0.6", features = ["fs", "trace", "cors"] }
+json-patch = "4"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+dbg_macro = "deny"
+todo = "deny"

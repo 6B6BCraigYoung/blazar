@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Blazar</title>
+<link rel="icon" type="image/png" href="/img/icon-128.png">
+
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+
+<div id="progress"></div>
+<div id="scrim-side"></div>
+
+<aside id="side">
+  <div id="side-head">
+    <div class="brand">
+      <svg viewBox="262 240 500 500" fill="none" stroke="currentColor" stroke-linecap="round"><path d="M365 640 A208 208 0 1 1 659 640" stroke-width="58"/><path d="M471 502 L449 714 M553 502 L575 714" stroke-width="66"/></svg>
+      Blazar
+      <button class="side-toggle" id="btnSideHide" title="收起侧栏 ⌘\" aria-label="收起侧栏"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/></svg></button>
+    </div>
+    <button class="nav" id="btnPalette">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+      <span class="nm muted">搜索…</span><span class="cnt">⌘K</span>
+    </button>
+    <button class="btn btn-brand btn-sm" id="btnNew" style="width:100%">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+      新建工作区
+    </button>
+  </div>
+
+  <div id="side-body">
+    <div class="grp"><div class="grp-label">工作</div><div id="nav-quick"></div></div>
+    <div class="grp" id="nav-attention"></div>
+    <div class="grp" id="nav-projects"></div>
+    <div class="grp">
+      <div class="grp-label">AI</div>
+      <button class="nav" data-route="#/runtimes">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4M7 9l2 2-2 2M12 13h4"/></svg>
+        <span class="nm">运行时</span><span class="cnt" id="cnt-rt"></span></button>
+      <button class="nav" data-route="#/agents">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="7" width="16" height="12" rx="2"/><path d="M12 7V4M9 12h.01M15 12h.01M9 16h6"/></svg>
+        <span class="nm">智能体</span><span class="cnt" id="cnt-agents"></span></button>
+      <button class="nav" data-route="#/skills">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h5v15H4zM9.5 5h5v15h-5z"/><path d="M15.5 8.2l4.3-1.2 3 11.6-4.3 1.2z" transform="translate(-1.5 0)"/></svg>
+        <span class="nm">SKILLs</span><span class="cnt" id="cnt-skills"></span></button>
+    </div>
+    <div class="grp">
+      <div class="grp-label">办公</div>
+      <button class="nav" data-route="#/apps">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="2"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="2"/><path d="M17.25 14v6.500M14 17.250h6.500"/></svg>
+        <span class="nm">接入的软件</span><span class="cnt" id="cnt-apps"></span></button>
+      <button class="nav nav-sub" data-route="#/apps/lark"><img class="app-icon xs" src="/vendor/brands/lark.png" alt=""><span class="nm">飞书 / Lark</span></button>
+    </div>
+    <div class="grp">
+      <div class="grp-label">基础设施</div>
+      <button class="nav" data-route="#/nodes">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="2.2"/><circle cx="5" cy="18" r="2.2"/><circle cx="19" cy="18" r="2.2"/><path d="M10.9 6.9 6.1 16M13.1 6.9l4.8 9.1M7.2 18h9.6"/></svg>
+        <span class="nm">机器与组网</span><span class="cnt" id="cnt-nodes"></span></button>
+    </div>
+  </div>
+
+  <div id="side-foot">
+    <button class="nav" data-route="#/usage">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 20V10M9 20V4M15 20v-7M21 20V8"/></svg>
+      <span class="nm">用量</span></button>
+    <button class="nav" data-route="#/settings">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      <span class="nm">设置</span></button>
+    <div class="t-micro faint" style="padding:6px 8px 0" id="foot-status">—</div>
+  </div>
+</aside>
+
+<button class="side-toggle" id="btnSideShow" title="展开侧栏 ⌘\" aria-label="展开侧栏"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/></svg></button>
+<main id="main"><div id="page"></div></main>
+
+<div class="scrim" id="dlg"><div class="dialog" id="dlgBody"></div></div>
+<div class="scrim" id="palette">
+  <div class="dialog">
+    <input id="palInput" class="input" placeholder="跳转工作区、机器，或输入命令…">
+    <div id="palList"></div>
+  </div>
+</div>
+<div id="toast"></div>
+
+<link rel="stylesheet" href="/vendor/xterm.css">
+<script src="/vendor/xterm.js"></script>
+<script src="/vendor/addon-fit.js"></script>
+<script src="/vendor/vs/loader.js"></script>
+<script src="/js/core.js"></script>
+<script src="/js/state.js"></script>
+<script src="/js/monaco.js"></script>
+<script src="/js/router.js"></script>
+<script src="/js/sidebar.js"></script>
+<script src="/js/workspace-list.js"></script>
+<script src="/js/workspace.js"></script>
+<script src="/js/editor.js"></script>
+<script src="/js/composer.js"></script>
+<script src="/js/transcript.js"></script>
+<script src="/js/queue.js"></script>
+<script src="/js/review.js"></script>
+<script src="/js/preview.js"></script>
+<script src="/js/git.js"></script>
+<script src="/js/terminal.js"></script>
+<script src="/js/tasks.js"></script>
+<script src="/js/autopilot.js"></script>
+<script src="/js/inbox.js"></script>
+<script src="/js/skills.js"></script>
+<script src="/js/analytics.js"></script>
+<script src="/js/shortcuts.js"></script>
+<script src="/js/agents.js"></script>
+<script src="/js/agent-profile.js"></script>
+<script src="/js/agent-create.js"></script>
+<script src="/js/nodes.js"></script>
+<script src="/js/usage.js"></script>
+<script src="/js/settings.js"></script>
+<script src="/js/office.js"></script>
+<script src="/js/dialogs.js"></script>
+<script src="/js/runtimes.js"></script>
+<script src="/js/mesh.js"></script>
+<script src="/js/palette.js"></script>
+<script src="/js/realtime.js"></script>
+<script src="/js/boot.js"></script>
+</body>
+</html>

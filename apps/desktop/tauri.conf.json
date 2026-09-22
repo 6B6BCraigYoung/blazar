@@ -1,0 +1,50 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Blazar",
+  "version": "0.1.0",
+  "identifier": "ai.blazar.desktop",
+  "build": {
+    "frontendDist": "../../crates/hub/static"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "app",
+      "dmg",
+      "deb",
+      "appimage",
+      "msi"
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "category": "DeveloperTool",
+    "shortDescription": "多机 AI agent 工作区",
+    "longDescription": "把分布在多台机器上的工作区聚合进一个应用：代码浏览、agent 对话、跨机搜索。",
+    "resources": {
+      "engine/": "engine/"
+    },
+    "fileAssociations": [
+      {
+        "ext": [
+          "blazar"
+        ],
+        "name": "Blazar Invite",
+        "description": "Blazar 组网邀请",
+        "role": "Viewer",
+        "mimeType": "application/x-blazar-invite"
+      }
+    ]
+  }
+}

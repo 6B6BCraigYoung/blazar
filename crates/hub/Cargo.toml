@@ -1,0 +1,54 @@
+[package]
+name = "blazar-hub"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "blazar_hub"
+path = "src/lib.rs"
+
+[[bin]]
+name = "blazar-hub"
+path = "src/main.rs"
+
+[dependencies]
+blazar-core-types.workspace = true
+blazar-db.workspace = true
+blazar-netmesh.workspace = true
+blazar-runtime.workspace = true
+blazar-terminal.workspace = true
+blazar-hooks.workspace = true
+blazar-worktree.workspace = true
+blazar-scheduler.workspace = true
+blazar-transport.workspace = true
+blazar-vfs.workspace = true
+
+anyhow.workspace = true
+axum.workspace = true
+chrono.workspace = true
+clap.workspace = true
+futures.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+tokio.workspace = true
+tower-http.workspace = true
+include_dir.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+getrandom = "0.3"
+base64 = "0.22"
+directories = "5"
+jiff = { version = "0.2", default-features = false, features = ["std", "tz-system", "tzdb-zoneinfo"] }
+tracing-subscriber.workspace = true
+blazar-mcp.workspace = true
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+http-body-util = "0.1"
+tempfile = "3"
+tower = { version = "0.5", features = ["util"] }
