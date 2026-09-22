@@ -1,0 +1,85 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS (Apple Silicon)
+            os: macos-latest
+            target: aarch64-apple-darwin
+            engine: macos-aarch64
+          - name: macOS (Intel)
+            os: macos-latest
+            target: x86_64-apple-darwin
+            engine: macos-x86_64
+          - name: Linux (x86_64)
+            os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            engine: linux-x86_64
+          - name: Windows (x86_64, experimental)
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            engine: windows-x86_64
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.os == 'windows-latest' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tag must match the version in tauri.conf.json
+        shell: bash
+        run: |
+          v=$(sed -n 's/^ *"version": *"\([^"]*\)".*/\1/p' apps/desktop/tauri.conf.json | head -1)
+          [ "v$v" = "${GITHUB_REF_NAME}" ] || { echo "tag ${GITHUB_REF_NAME} != v$v"; exit 1; }
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.90"
+          targets: ${{ matrix.target }}
+      - name: Tauri prerequisites (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - name: Mesh engine
+        shell: bash
+        run: scripts/fetch-easytier.sh ${{ matrix.engine }}
+      - name: Desktop app
+        id: tauri
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: apps/desktop
+          tagName: ${{ github.ref_name }}
+          releaseName: Blazar ${{ github.ref_name }}
+          releaseBody: |
+            Desktop app for macOS (Apple Silicon and Intel), Linux and Windows, plus the `blazar` CLI, `blazar-hub` and `blazar-mcp` binaries.
+
+            The macOS builds are not signed or notarized. After copying Blazar.app to Applications, run `xattr -dr com.apple.quarantine /Applications/Blazar.app` once, or right-click the app and choose Open.
+          releaseDraft: true
+          prerelease: false
+          args: --target ${{ matrix.target }}
+      - name: CLI, hub and MCP server
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          cargo build --release --locked --target ${{ matrix.target }} -p blazar-cli -p blazar-hub -p blazar-mcp
+          out=target/${{ matrix.target }}/release
+          name=blazar-cli-${{ github.ref_name }}-${{ matrix.target }}.tar.gz
+          tar -C "$out" -czf "$name" blazar blazar-hub blazar-mcp
+          gh api --method POST -H "Content-Type: application/gzip" \
+            "https://uploads.github.com/repos/${{ github.repository }}/releases/${{ steps.tauri.outputs.releaseId }}/assets?name=$name" \
+            --input "$name" > /dev/null
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
