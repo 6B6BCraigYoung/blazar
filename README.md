@@ -96,9 +96,13 @@ files anywhere.
 
 ### Download
 
-Packaged builds for macOS (`.dmg`), Linux (`.deb`, `.AppImage`) and Windows (`.msi`) are
-produced by `scripts/package-macos.sh` and the Tauri bundler. Grab one from the releases page of
-your fork, or build from source below.
+Every tagged version is built by GitHub Actions and published on the
+[Releases](https://github.com/6B6BCraigYoung/blazar/releases) page: macOS (`.dmg`, Apple Silicon
+and Intel), Linux (`.deb`, `.AppImage`), Windows (`.msi`, experimental and untested), plus a
+tarball with the `blazar` CLI, `blazar-hub` and `blazar-mcp` binaries. The macOS builds are not
+signed or notarized: after copying Blazar.app to Applications, run
+`xattr -dr com.apple.quarantine /Applications/Blazar.app` once, or right-click the app and choose
+Open. Or build from source below.
 
 ### Build from source
 
@@ -332,8 +336,14 @@ Ground rules:
 Pull requests: one topic each; fmt, clippy (`-D warnings`) and tests must pass; add a unit test
 for logic that can be tested without a machine and say what you verified by hand for the rest;
 UI changes come with a 1600 px screenshot and a note on whether they were checked in the packaged
-app or only in a browser. The app icon is regenerated from `apps/desktop/icons/src/blazar-brand.svg`
+app or only in a browser. Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
+The app icon is regenerated from `apps/desktop/icons/src/blazar-brand.svg`
 with `node scripts/render-icon.mjs <svg> icon-1024.png 1024` followed by `cargo tauri icon`.
+
+**Releasing.** Bump `version` in `Cargo.toml` (`[workspace.package]`) and
+`apps/desktop/tauri.conf.json`, commit, then push a tag with the same number:
+`git tag v0.2.0 && git push origin v0.2.0`. The `release` workflow builds every platform and
+opens a **draft** release; review the notes and assets on the Releases page, then publish.
 
 ---
 

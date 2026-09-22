@@ -90,8 +90,11 @@ Blazar 把这一切放进一个窗口。一个**工作区**就是你机群里任
 
 ### 下载
 
-macOS（`.dmg`）、Linux（`.deb`、`.AppImage`）和 Windows（`.msi`）的安装包由 `scripts/package-macos.sh` 和 Tauri
-打包器生成。到你的 fork 的 Releases 页面下载，或者按下面从源码构建。
+每个打了标签的版本都由 GitHub Actions 构建并发布在 [Releases](https://github.com/6B6BCraigYoung/blazar/releases)
+页面：macOS（`.dmg`，Apple Silicon 和 Intel）、Linux（`.deb`、`.AppImage`）、Windows（`.msi`，实验性、未经测试），
+另有一个包含 `blazar` 命令行、`blazar-hub` 和 `blazar-mcp` 的压缩包。macOS 的包没有签名和公证：把 Blazar.app
+拷进「应用程序」后执行一次 `xattr -dr com.apple.quarantine /Applications/Blazar.app`，或者右键应用选「打开」。
+也可以按下面从源码构建。
 
 ### 从源码构建
 
@@ -288,8 +291,13 @@ Rust 1.90 钉在 `rust-toolchain.toml`。改了网页界面要重新构建 `blaz
 - **接入的软件只用产品自己的图标**（`crates/hub/static/vendor/brands/`）。
 
 PR：一个 PR 只做一件事；fmt、clippy（`-D warnings`）、测试必须通过；不依赖机器的逻辑补单元测试，其余的说明你手动验证了什么；
-界面改动附 1600 像素宽的截图，并说明是在打包的应用里验证的还是只在浏览器里。应用图标从 `apps/desktop/icons/src/blazar-brand.svg`
+界面改动附 1600 像素宽的截图，并说明是在打包的应用里验证的还是只在浏览器里。提交说明遵循
+[Conventional Commits](https://www.conventionalcommits.org/zh-hans/v1.0.0/)。应用图标从 `apps/desktop/icons/src/blazar-brand.svg`
 用 `node scripts/render-icon.mjs <svg> icon-1024.png 1024` 出图，再 `cargo tauri icon` 生成全套。
+
+**发版。** 把 `Cargo.toml`（`[workspace.package]`）和 `apps/desktop/tauri.conf.json` 里的 `version` 改成新号，提交，
+然后推一个同号的标签：`git tag v0.2.0 && git push origin v0.2.0`。`release` 工作流会在各平台打包并创建一个**草稿** Release，
+到 Releases 页面检查说明和附件后再发布。
 
 ---
 
