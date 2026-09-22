@@ -367,6 +367,7 @@ dependencies = [
  "http-body-util",
  "include_dir",
  "jiff",
+ "nix",
  "serde",
  "serde_json",
  "sqlx",

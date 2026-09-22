@@ -398,14 +398,11 @@ async fn read_loop(id: String, stream: usize, mut r: impl AsyncRead + Unpin, qr:
 
 async fn stop(child: &mut tokio::process::Child) {
     #[cfg(unix)]
-    if let Some(pid) = child.id() {
-        let _ = tokio::process::Command::new("kill")
-            .args(["-TERM", &format!("-{pid}")])
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .await;
+    if let Some(pid) = child.id().and_then(|p| i32::try_from(p).ok()) {
+        let pid = nix::unistd::Pid::from_raw(pid);
+        if nix::unistd::getpgid(Some(pid)).is_ok_and(|g| g == pid) {
+            let _ = nix::sys::signal::killpg(pid, nix::sys::signal::Signal::SIGTERM);
+        }
     }
     if tokio::time::timeout(Duration::from_secs(3), child.wait())
         .await
