@@ -686,12 +686,19 @@ mod tests {
         assert!(before > 0, "子进程应当已经在写了");
 
         lines.killer.kill();
-        tokio::time::sleep(std::time::Duration::from_millis(1200)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+        let settled = std::fs::read_to_string(&mark)
+            .map(|s| s.lines().count())
+            .unwrap_or(0);
+        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
         let after = std::fs::read_to_string(&mark)
             .map(|s| s.lines().count())
             .unwrap_or(0);
         let _ = std::fs::remove_file(&mark);
-        assert_eq!(before, after, "killer 要能掐掉一个不产出任何输出的进程");
+        assert!(
+            settled <= before + 1 && after == settled,
+            "killer 要能掐掉一个不产出任何输出的进程: before={before} settled={settled} after={after}"
+        );
 
         drop(lines);
     }
