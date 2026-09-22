@@ -99,10 +99,21 @@ files anywhere.
 Every tagged version is built by GitHub Actions and published on the
 [Releases](https://github.com/6B6BCraigYoung/blazar/releases) page: macOS (`.dmg`, Apple Silicon
 and Intel), Linux (`.deb`, `.AppImage`), Windows (`.msi`, experimental and untested), plus a
-tarball with the `blazar` CLI, `blazar-hub` and `blazar-mcp` binaries. The macOS builds are not
-signed or notarized: after copying Blazar.app to Applications, run
-`xattr -dr com.apple.quarantine /Applications/Blazar.app` once, or right-click the app and choose
-Open. Or build from source below.
+tarball with the `blazar` CLI, `blazar-hub` and `blazar-mcp` binaries. Or build from source below.
+
+The macOS builds are not notarized, so a copy downloaded with a browser is quarantined and
+macOS reports it as "damaged" (right-click → Open does not help). Drag Blazar.app to
+Applications, eject the disk image, then clear the quarantine flag once:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/Blazar.app
+```
+
+Downloads made with `curl` are not quarantined, so this also works without the extra step:
+
+```bash
+curl -L -o Blazar.dmg https://github.com/6B6BCraigYoung/blazar/releases/latest/download/Blazar_0.1.0_aarch64.dmg
+```
 
 ### Build from source
 
