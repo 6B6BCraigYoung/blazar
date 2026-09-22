@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use blazar_hub::state::AppState;
-use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
 mod profile;
 
@@ -194,7 +194,8 @@ fn accept_invite_file(state: &Arc<AppState>, path: &Path) -> bool {
     }
 }
 
-fn notify_page(handle: &AppHandle) {
+#[cfg(target_os = "macos")]
+fn notify_page(handle: &tauri::AppHandle) {
     if let Some(w) = handle.get_webview_window("main") {
         let _ = w.eval("window.blazarInvite && window.blazarInvite()");
         let _ = w.show();
