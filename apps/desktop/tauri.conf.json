@@ -30,6 +30,9 @@
       "icons/icon.ico"
     ],
     "category": "DeveloperTool",
+    "macOS": {
+      "signingIdentity": "-"
+    },
     "shortDescription": "多机 AI agent 工作区",
     "longDescription": "把分布在多台机器上的工作区聚合进一个应用：代码浏览、agent 对话、跨机搜索。",
     "resources": {
