@@ -37,13 +37,21 @@ echo "下载 $zip ..."
 curl -fsSL --retry 3 -o "$work/$zip" \
   "https://github.com/EasyTier/EasyTier/releases/download/v$VERSION/$zip"
 
-got="$(shasum -a 256 "$work/$zip" | cut -d' ' -f1)"
+if command -v shasum >/dev/null 2>&1; then
+  got="$(shasum -a 256 "$work/$zip" | cut -d' ' -f1)"
+else
+  got="$(sha256sum "$work/$zip" | cut -d' ' -f1)"
+fi
 if [[ "$got" != "$want" ]]; then
   echo "SHA-256 不符！期望 $want，实际 $got —— 拒绝使用" >&2
   exit 1
 fi
 
-unzip -q "$work/$zip" -d "$work/x"
+if command -v unzip >/dev/null 2>&1; then
+  unzip -q "$work/$zip" -d "$work/x"
+else
+  python3 -c 'import sys, zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])' "$work/$zip" "$work/x"
+fi
 src="$(dirname "$(find "$work/x" -type f \( -name easytier-core -o -name easytier-core.exe \) | head -1)")"
 rm -rf "$dest" && mkdir -p "$dest"
 for f in "$src"/*; do
