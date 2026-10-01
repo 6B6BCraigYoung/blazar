@@ -232,6 +232,7 @@ async function pageWorkspace(id) {
               <div id="cbRate" hidden></div>
               <div id="cbReview" hidden></div>
               <div id="cbQueue" hidden></div>
+              <div id="cbDock"></div>
               <div class="cc-box">
                 <div class="cb-atts" id="cbAtts" hidden></div>
                 <textarea id="prompt" rows="1" placeholder="Message the agent…"></textarea>

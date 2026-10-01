@@ -5,7 +5,7 @@ const relPath = p => {
   const root = S.ws?.path;
   return p && root && String(p).startsWith(root + '/') ? String(p).slice(root.length + 1) : (p || '');
 };
-const CC = { bgShown: new Map(), toolIn: new Map(), full: new Map(), fullSeq: 0, lastText: '', usage: null, model: '', rate: '', userSeen: new Set(), ask: new Map(), apprReq: new Map() };
+const CC = { apprKind: new Map(), bgShown: new Map(), toolIn: new Map(), full: new Map(), fullSeq: 0, lastText: '', usage: null, model: '', rate: '', userSeen: new Set(), ask: new Map(), apprReq: new Map() };
 
 function mdInline(escaped) {
   return escaped
@@ -72,7 +72,7 @@ function toolTitle(name, inp) {
     TodoWrite: () => '',
     ExitPlanMode: () => '',
   }[name];
-  const arg = SHELL_TOOLS.has(name) ? shortStr(String(cmd || '').split('\n')[0], 140)
+  const arg = SHELL_TOOLS.has(name) ? (inp.description ? shortStr(inp.description, 140) : shortStr(String(cmd || '').split('\n')[0], 140))
     : f ? f() : shortStr(JSON.stringify(inp), 100);
   const label = { TodoWrite: 'Update Todos', Shell: 'Bash', Task: 'Task', Agent: 'Task', ExitPlanMode: '计划' }[name] || name;
   return { label, arg };
@@ -143,7 +143,9 @@ function resultHtml(name, k, inp) {
 
 function toolBlock(k) {
   const t = toolTitle(k.name, k.input);
-  const extra = k.name === 'TodoWrite' ? todoList(k.input?.todos)
+  const cmd = SHELL_TOOLS.has(k.name) ? (Array.isArray(k.input?.command) ? k.input.command.join(' ') : k.input?.command) : '';
+  const extra = cmd ? `<div class="cc-io"><span class="lb">IN</span><div class="cc-pre">${esc(cmd)}</div></div>`
+    : k.name === 'TodoWrite' ? todoList(k.input?.todos)
     : (k.name === 'Edit' || k.name === 'MultiEdit') ? editDiff(k.input)
     : k.name === 'ExitPlanMode' && k.input?.plan ? `<details class="cc-planbody"><summary>计划内容</summary><div class="cc-md">${md(k.input.plan)}</div></details>` : '';
   return `<div class="cc-row cc-tool" data-tool="${esc(k.id)}" data-st="run" data-name="${esc(k.name)}">
@@ -152,47 +154,115 @@ function toolBlock(k) {
       ${extra}<div class="cc-res"></div></div></div>`;
 }
 
+// 审批卡片：跟 Claude Code 插件一样停在输入框上方。1 是 / 2 是，以后不再问 / 3 否 + 一直在的说明框；
+// 数字键直接选，↑↓ 换焦点，回车选焦点那项，Esc 等于「否」（带上说明框里的话）。
+function approvalHead(tn, inp, r) {
+  if (SHELL_TOOLS.has(tn)) return r.tool_name?.startsWith('mcp__blazar__') && S.ws && S.ws.node !== 'local'
+    ? `在 ${S.ws.node} 上执行这个 Bash 命令？` : '允许执行这个 Bash 命令？';
+  if (['Edit', 'MultiEdit', 'Write', 'NotebookEdit'].includes(tn)) return `允许修改 ${relPath(inp.file_path || inp.notebook_path) || '这个文件'}？`;
+  if (tn === 'WebFetch') return '允许抓取这个网页？';
+  return `允许使用 ${r.display_name || tn || '这个工具'}？`;
+}
 function approvalCard(k, resolved) {
   const r = k.request || {};
   const inp = r.input || {};
   const tn = toolName(r.tool_name);
-  const tool = r.display_name || tn || '工具';
-  const title = SHELL_TOOLS.has(tn) ? `Bash 命令${r.tool_name?.startsWith('mcp__blazar__') && S.ws ? ` · 在 ${S.ws.node} 上` : ''}` : tool;
   const what = inp.command ? (Array.isArray(inp.command) ? inp.command.join(' ') : inp.command)
-    : inp.file_path ? relPath(inp.file_path)
-    : JSON.stringify(inp, null, 2).slice(0, 800);
-  if (tn === 'ExitPlanMode') {
-
-    return `<div class="cc-appr cc-plan" data-appr="${esc(k.id)}" data-done="${resolved ? 'true' : 'false'}">
-    <div class="ah">计划</div>
-    <div class="cc-md aplan">${md(String(inp.plan || ''))}</div>
-    <div class="aq">按这个计划开始？</div>
-    <div class="aopts">
-      <button class="aopt" data-ok data-mode="acceptEdits"><span class="ak">1</span>是，并自动批准改动</button>
-      <button class="aopt" data-ok data-mode="default"><span class="ak">2</span>是，每次改动前问我</button>
-      <button class="aopt" data-no><span class="ak">3</span>否，继续规划 <span class="faint">(esc)</span></button>
-    </div>
-    <div class="adeny"><input class="input input-sm" placeholder="要怎么改计划，回车发送（可留空）"></div>
+    : inp.url || (inp.file_path ? relPath(inp.file_path) : JSON.stringify(inp, null, 2).slice(0, 800));
+  const head = (title, body, opts, ph) => `<div class="cc-appr" data-appr="${esc(k.id)}" data-done="${resolved ? 'true' : 'false'}" tabindex="0">
+    <div class="ahd"><span class="ah">${esc(title)}</span><button class="afold" data-afold title="收起 / 展开" aria-label="收起">${CHEVRON}</button></div>
+    <div class="abody">${body}</div>
+    <div class="aopts">${opts.map((o, i) => `<button class="aopt${i === 0 ? ' primary' : ''}" ${o.attr}><span class="ak">${i + 1}</span>${esc(o.label)}</button>`).join('')}
+      <input class="input input-sm areject" placeholder="${esc(ph)}"></div>
+    <div class="ahint">Esc 取消 · ↑↓ 选择 · 回车确认</div>
     <div class="apstate">${resolved ? esc(resolved) : ''}</div>
   </div>`;
+  if (tn === 'ExitPlanMode') {
+    return head('按这个计划开始？', `<div class="cc-md aplan">${md(String(inp.plan || ''))}</div>`, [
+      { attr: 'data-ok data-mode="acceptEdits"', label: '是，并自动批准改动' },
+      { attr: 'data-ok data-mode="default"', label: '是，改动前逐个确认' },
+      { attr: 'data-no', label: '否，继续规划' },
+    ], '告诉 agent 计划要怎么改（回车发送）');
   }
   const diff = (tn === 'Edit' || tn === 'MultiEdit') ? editDiff(inp) : '';
   CC.apprReq.set(k.id, r);
-  return `<div class="cc-appr" data-appr="${esc(k.id)}" data-done="${resolved ? 'true' : 'false'}">
-    <div class="ah">${esc(title)}</div>
-    <pre class="acmd">${esc(what)}</pre>${diff}
+  const body = `<pre class="acmd">${esc(what)}</pre>${diff}
     ${r.description ? `<div class="adesc">${esc(r.description)}</div>` : ''}
-    ${r.blocked_path ? `<div class="adesc">涉及路径：${esc(r.blocked_path)}</div>` : ''}
-    <div class="aq">要继续吗？</div>
-    <div class="aopts">
-      <button class="aopt" data-ok><span class="ak">1</span>是</button>
-      <button class="aopt" data-always><span class="ak">2</span>是，这个工作区里以后都允许</button>
-      <button class="aopt" data-no><span class="ak">3</span>否，告诉 agent 该怎么做 <span class="faint">(esc)</span></button>
-    </div>
-    <div class="adeny"><input class="input input-sm" placeholder="换个做法的说明，回车发送（可留空）"></div>
-    <div class="apstate">${resolved ? esc(resolved) : ''}</div>
-  </div>`;
+    ${r.blocked_path ? `<div class="adesc">涉及路径：${esc(r.blocked_path)}</div>` : ''}`;
+  return head(approvalHead(tn, inp, r), body, [
+    { attr: 'data-ok', label: '是' },
+    { attr: 'data-always', label: '是，并且这个工作区以后不再询问' },
+    { attr: 'data-no', label: '否' },
+  ], '告诉 agent 要怎么做（回车发送）');
 }
+
+const dockCards = () => [...document.querySelectorAll('#cbDock [data-appr][data-done="false"]')];
+// 有审批在等：对话变暗、转圈让位、折叠行写「等待你的批准…」。问题卡片不压暗对话。
+function drawDock() {
+  const log = $('#log'); if (!log) return;
+  const cards = dockCards();
+  log.dataset.dim = String(cards.some(c => !c.classList.contains('cc-ask')));
+  cards.forEach((c, i) => { c.hidden = i > 0; });
+  const top = cards[0];
+  if (top && !top.dataset.shown) {
+    top.dataset.shown = '1';
+    // 跟插件一样：出现半秒后把焦点给「是」，但不抢正在打字的输入框。
+    setTimeout(() => {
+      const a = document.activeElement;
+      if (a && a !== document.body && a.closest?.('input, textarea, [contenteditable]')) return;
+      top.querySelector('.aopt.primary, .aopt, .askopt')?.focus();
+    }, 500);
+  }
+  if (CC.fold) drawFold(CC.fold);
+  drawSpin();
+}
+function dockApproval(html, k) {
+  const dock = $('#cbDock');
+  if (!dock) return false;
+  if (!dock.querySelector(`[data-appr="${CSS.escape(k.id)}"]`)) dock.insertAdjacentHTML('beforeend', html);
+  drawDock();
+  return true;
+}
+function apprNote(k, text) {
+  const r = k.request || {};
+  const tn = toolName(r.tool_name);
+  return `<div class="cc-meta">${esc(text)} · ${esc(tn === 'AskUserQuestion' ? '问题' : SHELL_TOOLS.has(tn) ? 'Bash' : tn || '工具')}</div>`;
+}
+function cardKeys(card, e) {
+  if (card.dataset.done === 'true') return;
+  const inp = card.querySelector('.areject');
+  const opts = [...card.querySelectorAll(':scope > .aopts > .aopt')];
+  const items = inp ? [...opts, inp] : opts;
+  const inText = e.target === inp;
+  if (inText) {
+    if (e.key === 'Enter' && !e.shiftKey && !imeEnter(e)) { e.preventDefault(); rejectCard(card); }
+    else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); rejectCard(card); }
+    else if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !inp.value.includes('\n')) {
+      e.preventDefault(); const i = items.indexOf(inp); items[(i + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length].focus();
+    }
+    return;
+  }
+  if (e.target.closest?.('input, textarea')) return;
+  const n = /^[1-9]$/.test(e.key) ? +e.key : 0;
+  if (n && n <= opts.length) { e.preventDefault(); opts[n - 1].click(); return; }
+  if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); rejectCard(card); return; }
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    const i = items.indexOf(document.activeElement);
+    items[(i < 0 ? 0 : i + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length].focus();
+    return;
+  }
+  if (e.key === 'Enter' && !opts.includes(document.activeElement)) { e.preventDefault(); opts[0]?.click(); }
+}
+function rejectCard(card) {
+  if (card.classList.contains('cc-ask')) { decide(card.dataset.appr, false, ''); return; }
+  decide(card.dataset.appr, false, card.querySelector('.areject')?.value.trim() || '');
+}
+document.addEventListener('keydown', e => {
+  const card = e.target.closest?.('#cbDock [data-appr]');
+  if (!card) return;
+  if (card.classList.contains('cc-ask')) askKeys(card, e); else cardKeys(card, e);
+});
 
 function assistantHtml(text) {
   const key = ++CC.fullSeq; CC.full.set(key, text);
@@ -296,7 +366,9 @@ function drawFold(f, live = f === CC.fold && wsRunning()) {
   const thinks = body.querySelectorAll(':scope > .cc-think, :scope > .cc-thinkmark');
   const secs = [...thinks].reduce((n, t) => n + (+t.dataset.secs || 0), 0);
   let text;
-  if (live && run) text = `正在运行 ${run.querySelector('.cc-head b')?.textContent || run.dataset.name}…`;
+  const waiting = live && dockCards()[0];
+  if (waiting) text = waiting.classList.contains('cc-ask') ? '等待你的回答…' : '等待你的批准…';
+  else if (live && run) text = `正在运行 ${run.querySelector('.cc-head b')?.textContent || run.dataset.name}…`;
   else if (live && !tools.length) text = '思考中…';
   else if (tools.length) text = `${tools.length} 个工具调用${errs ? ` · ${errs} 个失败` : ''}`;
   else if (thinks.length) text = secs ? `思考了 ${secs}s` : '思考';
@@ -311,7 +383,7 @@ function renderKind(log, k, resolved, meta = {}) {
 
   const sub = meta.parent && SUB_KINDS.has(k.type) ? subBox(log, meta.parent) : null;
   if (sub && k.type === 'user_message') return;
-  const quiet = ['token_usage', 'rate_limit', 'input_consumed', 'approval_resolved', 'session_started'].includes(k.type)
+  const quiet = ['token_usage', 'rate_limit', 'input_consumed', 'approval_resolved', 'session_started', 'approval'].includes(k.type)
     || (k.type === 'assistant_message' && !k.text?.trim()) || (k.type === 'background_task' && k.status === 'started');
   if (!sub && !quiet && !FOLDED.has(k.type)) closeFold();
   const into = sub ? sub.querySelector('.cc-subl')
@@ -326,7 +398,7 @@ function renderKind(log, k, resolved, meta = {}) {
 
       const first = !!meta.sid && !CC.userSeen.has(meta.sid) && !meta.rewound;
       if (meta.sid) CC.userSeen.add(meta.sid);
-      add(`<div class="cc-user"${meta.sid ? ` data-sid="${esc(meta.sid)}" data-seq="${meta.seq}"` : ''} data-first="${first}"><div class="cc-ut">${esc(k.text)}</div><span class="cc-acts">${
+      add(`<div class="cc-user"${meta.sid ? ` data-sid="${esc(meta.sid)}" data-seq="${meta.seq}"` : ''} data-first="${first}" data-long="${String(k.text || '').split('\n').length > 12 || String(k.text || '').length > 900}"><div class="cc-ut">${esc(k.text)}</div><button class="cc-xp" data-xp>展开全部</button><span class="cc-acts">${
         first ? '<button class="cc-rw" data-edit title="改一改这条消息，从这里重来">✎ 编辑并重试</button><button class="cc-rw" data-regen title="原话不变，让 agent 重新回答这一轮">⟳ 重新生成</button>' : ''
       }<button class="cc-rw" data-rw title="把工作区的文件恢复到这条消息发出之前">↺ 回退到这里</button></span></div>`);
     }
@@ -366,9 +438,15 @@ function renderKind(log, k, resolved, meta = {}) {
       }
       break;
     }
-    case 'approval':
-      add((toolName(k.request?.tool_name) === 'AskUserQuestion' ? askCard : approvalCard)(k, resolved?.get(k.id)).replace('<div class="cc-appr', `<div${meta.sid ? ` data-sid="${esc(meta.sid)}"` : ''} class="cc-appr`));
+    case 'approval': {
+      CC.apprKind.set(k.id, k);
+      const done = resolved?.get(k.id);
+      if (done) { foldFor(log).insertAdjacentHTML('beforeend', apprNote(k, done)); break; }
+      const html = (toolName(k.request?.tool_name) === 'AskUserQuestion' ? askCard : approvalCard)(k, null)
+        .replace('<div class="cc-appr', `<div${meta.sid ? ` data-sid="${esc(meta.sid)}"` : ''} class="cc-appr`);
+      if (!dockApproval(html, k)) add(html);
       break;
+    }
     case 'approval_resolved':
       markApproval(k.id, decisionText(k.decision));
       break;
@@ -572,7 +650,7 @@ async function loadHistory() {
     if (!S.viewSession) {
 
       S.session = null; S.todos = null; drawTodos();
-      CC.toolIn.clear(); CC.full.clear(); CC.lastText = ''; CC.usage = null; CC.model = ''; CC.sess = null; CC.lastTs = 0; CC.userSeen.clear(); CC.fold = null; CC.bgShown.clear();
+      CC.toolIn.clear(); CC.full.clear(); CC.lastText = ''; CC.usage = null; CC.model = ''; CC.sess = null; CC.lastTs = 0; CC.userSeen.clear(); CC.fold = null; CC.bgShown.clear(); { const d = $('#cbDock'); if (d) d.innerHTML = ''; }
       drawQueue();
       S.seen = new Set();
       const empty = $('#log');
@@ -588,7 +666,7 @@ async function loadHistory() {
     S.seen = new Set(rows.map(r => r.session_id + ':' + r.seq));
     const log = $('#log');
     if (!log) return;
-    CC.toolIn.clear(); CC.full.clear(); CC.lastText = ''; CC.usage = null; CC.model = ''; CC.rate = ''; CC.sess = null; CC.lastTs = 0; CC.userSeen.clear(); CC.fold = null; CC.bgShown.clear();
+    CC.toolIn.clear(); CC.full.clear(); CC.lastText = ''; CC.usage = null; CC.model = ''; CC.rate = ''; CC.sess = null; CC.lastTs = 0; CC.userSeen.clear(); CC.fold = null; CC.bgShown.clear(); { const d = $('#cbDock'); if (d) d.innerHTML = ''; }
     drawQueue();
 
     const resolved = new Map(rows.filter(r => r.kind.type === 'approval_resolved')
@@ -634,7 +712,16 @@ function markApproval(id, text) {
   document.querySelectorAll(`[data-appr="${CSS.escape(id)}"]`).forEach(c => {
     c.dataset.done = 'true'; c.dataset.deny = 'false';
     const st = c.querySelector('.apstate'); if (st) st.textContent = text;
+    if (c.closest('#cbDock')) {
+      c.remove();
+      const k = CC.apprKind.get(id), log = $('#log');
+      if (k && log && !log.querySelector(`.cc-meta[data-appr-note="${CSS.escape(id)}"]`)) {
+        const into = CC.fold?.isConnected ? CC.fold.querySelector('.cc-fb') : log;
+        into.insertAdjacentHTML('beforeend', apprNote(k, text).replace('<div class="cc-meta"', `<div class="cc-meta" data-appr-note="${esc(id)}"`));
+      }
+    }
   });
+  drawDock();
 }
 
 async function decide(id, allow, message = '') {
@@ -662,6 +749,8 @@ document.addEventListener('click', e => {
     if (full != null) more.parentElement.textContent = full;
     return;
   }
+  const xp = e.target.closest('[data-xp]');
+  if (xp) { const u = xp.closest('.cc-user'); const open = u.dataset.open !== 'true'; u.dataset.open = String(open); xp.textContent = open ? '收起' : '展开全部'; return; }
   const rw = e.target.closest('[data-rw]');
   if (rw) { const u = rw.closest('.cc-user'); if (u?.dataset.cp) rewind(u.dataset.cp); return; }
   const ed = e.target.closest('[data-edit]');
@@ -669,12 +758,11 @@ document.addEventListener('click', e => {
   const rg = e.target.closest('[data-regen]');
   if (rg) { retryMessage(rg.closest('.cc-user'), null); return; }
   const ao = e.target.closest('.askopt');
-  if (ao && ao.closest('[data-appr]')?.dataset.done !== 'true') {
-    const box = ao.closest('.askq'), on = ao.getAttribute('aria-pressed') === 'true';
-    if (box.dataset.multi !== 'true') box.querySelectorAll('.askopt').forEach(x => x.setAttribute('aria-pressed', 'false'));
-    ao.setAttribute('aria-pressed', String(!on));
-    return;
-  }
+  if (ao && ao.closest('[data-appr]')?.dataset.done !== 'true') { askPick(ao); return; }
+  const at = e.target.closest('.atab');
+  if (at) { const c = at.closest('[data-appr]'); if (c?.dataset.folded === 'true') c.dataset.folded = 'false'; askGo(c, +at.dataset.qi); return; }
+  const ac = e.target.closest('[data-ask-close]');
+  if (ac) { const c = ac.closest('[data-appr]'); if (c?.dataset.done !== 'true') decide(c.dataset.appr, false, ''); return; }
   const ask1 = e.target.closest('[data-ask-ok]');
   if (ask1) { const c = ask1.closest('[data-appr]'); if (c?.dataset.done !== 'true') submitAsk(c); return; }
   if (e.target.closest('[data-td]')) {
@@ -695,13 +783,17 @@ document.addEventListener('click', e => {
     } else decide(card.dataset.appr, true);
   }
   else if (e.target.closest('[data-always]')) allowAlways(card);
-  else if (e.target.closest('[data-no]')) openDeny(card);
+  else if (e.target.closest('[data-no]')) rejectCard(card);
 });
+document.addEventListener('click', e => {
+  const f = e.target.closest?.('[data-afold]'); if (!f) return;
+  const c = f.closest('[data-appr]'); c.dataset.folded = String(c.dataset.folded !== 'true');
+}, true);
 
 document.addEventListener('keydown', e => {
   if (e.metaKey || e.ctrlKey || e.altKey || $('#dlg')?.dataset.open === 'true') return;
   if (e.target.closest?.('input, textarea, select, [contenteditable]')) return;
-  const card = document.querySelector('#log [data-appr][data-done="false"], #apprAll [data-appr][data-done="false"]');
+  const card = document.querySelector('#cbDock .cc-ask[data-appr][data-done="false"]:not([hidden]), #apprAll [data-appr][data-done="false"]');
   if (!card) return;
   const opts = card.querySelectorAll('.aopt');
   const n = /^[1-9]$/.test(e.key) ? +e.key : 0;
@@ -741,8 +833,28 @@ const MODES_CODEX = [
   ['danger-full-access', 'Full Access', 'Codex can read files, make edits, and run commands with network access, without approval. Exercise caution.', 'warn'],
 ];
 const modeList = () => modesFor(currentRuntime());
-const SPIN = ['·', '✢', '✳', '✶', '✻', '✽', '✻', '✶', '✳', '✢'];
-const WORD = ['思考中', '推敲中', '干活中', '琢磨中', '处理中'];
+// 跟 Claude Code 一样的局部「转圈」：字符在 · ✢ * ✶ ✻ ✽ 之间来回，后面一个随机动词，2s/3s/5s 后换词、之后每 5s 换一次。
+const SPIN = ['·', '✢', '*', '✶', '✻', '✽', '✽', '✻', '✶', '*', '✢', '·'];
+const WORD = ['思考中', '推敲中', '琢磨中', '酝酿中', '梳理中', '构思中', '斟酌中', '整理中', '盘算中', '打磨中', '捣鼓中', '钻研中'];
+const spinState = { word: '', at: 0, n: 0 };
+function drawSpin() {
+  const log = $('#log'); if (!log) return;
+  const busy = wsRunning() && !dockCards().length;
+  let el = $('#ccSpin');
+  if (!busy) { el?.remove(); spinState.word = ''; return; }
+  if (!el) {
+    log.insertAdjacentHTML('beforeend', '<div id="ccSpin" class="cc-spin"><span class="ic"></span><span class="tx"></span></div>');
+    el = $('#ccSpin');
+  } else if (el.nextElementSibling) log.appendChild(el);
+  const now = Date.now(), gap = [2000, 3000, 5000][spinState.n] ?? 5000;
+  if (!spinState.word || now - spinState.at > gap) {
+    let w; do { w = WORD[Math.floor(Math.random() * WORD.length)]; } while (w === spinState.word && WORD.length > 1);
+    spinState.word = w; spinState.at = now; spinState.n += 1;
+  }
+  el.dataset.mode = typeof effectiveMode === 'function' ? effectiveMode() || '' : '';
+  el.querySelector('.ic').textContent = SPIN[spinI % SPIN.length];
+  el.querySelector('.tx').textContent = (CC.sess?.compacting ? '压缩上下文中' : spinState.word) + '…';
+}
 let runSince = null, spinI = 0;
 function wsRunning() {
   const w = S.ws && S.workspaces.find(x => x.id === S.ws.id);
@@ -768,8 +880,10 @@ function drawStatus() {
   const pr = $('#prompt'), btn = $('#btnSend');
   const stop = running && !pr.value.trim();
   btn.dataset.mode = stop ? 'stop' : 'send';
+  btn.dataset.pmode = effectiveMode() || '';
   btn.title = stop ? 'Stop (esc)' : running ? 'Queue (enter)' : 'Send (enter)';
   pr.placeholder = running ? 'Queue a message…' : 'Message the agent…';
+  drawSpin();
 }
 setInterval(() => { spinI++; if (runSince || wsRunning()) drawStatus(); }, 120);
 

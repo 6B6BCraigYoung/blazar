@@ -1547,3 +1547,82 @@ body[data-side="off"] #page > .phead,body[data-side="off"] #page > * > .phead{pa
 /* 系统提示（中断、后台任务结束）：一行灰色斜体 */
 .cc-meta{color:var(--muted-fg);font-style:italic;margin:2px 0 10px 20px;font-size:12.5px}
 .cc-meta.bad{color:var(--destructive)}
+/* 不要全局进度条：等待都放在发生的地方（对话末尾的转圈、按钮自己的状态） */
+#progress{display:none!important}
+.cc-spin{display:flex;align-items:center;gap:4px;height:1.85em;margin:2px 0 8px;animation:ccfade .3s ease-in-out}
+.cc-spin .ic{display:inline-block;width:1.5em;text-align:center;font-family:var(--font-mono);font-size:1.3em;color:#d97757}
+.cc-spin[data-mode="acceptEdits"] .ic{color:var(--fg)}
+.cc-spin[data-mode="plan"] .ic{color:var(--brand)}
+.cc-spin[data-mode="bypassPermissions"] .ic,.cc-spin[data-mode="auto"] .ic{color:var(--destructive)}
+.cc-spin .tx{font-weight:500;color:var(--fg)}
+@keyframes ccfade{from{opacity:0}to{opacity:1}}
+
+/* ── 审批 / 提问：停在输入框上方（对齐 Claude Code 插件） ── */
+#cbDock:empty{display:none}
+#cbDock{margin:0 0 8px}
+#cbDock .cc-appr{position:relative;margin:0;padding:12px 14px 10px;border:1px solid var(--border);border-radius:10px;
+  background:var(--surface-raised);box-shadow:0 8px 24px -12px rgba(0,0,0,.45);outline:none;max-height:min(60vh,520px);overflow:auto}
+#cbDock .cc-appr[hidden]{display:none}
+#cbDock .ahd{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+#cbDock .ah{font-weight:600;flex:1;margin:0}
+#cbDock .afold{all:unset;cursor:pointer;width:20px;height:20px;display:grid;place-items:center;border-radius:4px;color:var(--muted-fg)}
+#cbDock .afold:hover{background:color-mix(in srgb,var(--fg) 8%,transparent);color:var(--fg)}
+#cbDock .afold .cc-fchev{transform:rotate(90deg)}
+#cbDock .cc-appr[data-folded="true"] .afold .cc-fchev{transform:rotate(0)}
+#cbDock .cc-appr[data-folded="true"] :is(.abody,.aopts,.ahint,.askq,.adeny){display:none}
+#cbDock .acmd{margin:0 0 8px;padding:8px 10px;border-radius:6px;background:color-mix(in srgb,var(--fg) 5%,transparent);
+  font-family:var(--font-mono);font-size:12px;white-space:pre-wrap;word-break:break-all;max-height:180px;overflow:auto}
+#cbDock .aplan{max-height:300px;overflow:auto;margin-bottom:8px}
+#cbDock .aopts{display:flex;flex-direction:column;gap:2px}
+#cbDock .aopt{all:unset;box-sizing:border-box;display:flex;align-items:center;gap:8px;width:100%;padding:6px 8px;border-radius:6px;cursor:pointer;color:var(--fg)}
+#cbDock .aopt .ak{display:inline-grid;place-items:center;min-width:18px;height:18px;border-radius:4px;font-size:11px;
+  color:var(--muted-fg);background:color-mix(in srgb,var(--fg) 8%,transparent)}
+#cbDock .aopt:hover,#cbDock .aopt:focus-visible,#cbDock .aopt:focus{background:color-mix(in srgb,var(--brand) 18%,transparent)}
+#cbDock .aopt.primary .ak{background:var(--brand);color:#fff}
+#cbDock .areject{margin:4px 0 0 34px;width:calc(100% - 34px)}
+#cbDock .ahint{margin-top:6px;font-size:11px;color:var(--faint-fg)}
+#cbDock .apstate:empty{display:none}
+#log[data-dim="true"]>:not(#ccSpin){opacity:.4;transition:opacity .15s}
+#cbDock .aopt::before{content:none!important}
+/* Bash 的 IN 行（命令），跟插件明细里一样 */
+#log .cc-io{display:flex;gap:8px;margin-top:6px;border:.5px solid var(--border);border-radius:6px;padding:6px 8px;background:color-mix(in srgb,var(--fg) 4%,transparent)}
+#log .cc-io .lb{font-family:var(--font-mono);font-size:11px;color:var(--faint-fg);flex:0 0 auto;padding-top:1px}
+#log .cc-io .cc-pre{-webkit-mask-image:none;max-height:none;white-space:pre-wrap}
+/* 提问卡片：标签页 + 一题一页 */
+#cbDock .anav{display:flex;align-items:center;gap:4px;margin:-2px 0 10px;border-bottom:1px solid var(--border);padding-bottom:6px;flex-wrap:wrap}
+#cbDock .atab{all:unset;cursor:pointer;padding:3px 9px;border-radius:999px;font-size:12px;color:var(--muted-fg);position:relative}
+#cbDock .atab:hover{color:var(--fg)}
+#cbDock .atab[data-on="true"]{color:var(--fg);background:color-mix(in srgb,var(--brand) 18%,transparent)}
+#cbDock .atab[data-done]::after{content:'✓';margin-left:4px;color:var(--success);font-size:11px}
+#cbDock .anav .grow{flex:1}
+#cbDock .askq[hidden]{display:none}
+#cbDock .askh{font-weight:600;margin-bottom:8px}
+#cbDock .askopts{display:flex;flex-direction:column;gap:2px}
+#cbDock .askopt{all:unset;box-sizing:border-box;display:flex;align-items:flex-start;gap:8px;width:100%;padding:6px 8px;border-radius:6px;cursor:pointer}
+#cbDock .askopt:hover,#cbDock .askopt:focus{background:color-mix(in srgb,var(--brand) 14%,transparent)}
+#cbDock .askopt .ak{display:inline-grid;place-items:center;min-width:18px;height:18px;border-radius:4px;font-size:11px;color:var(--muted-fg);background:color-mix(in srgb,var(--fg) 8%,transparent);flex:0 0 auto}
+#cbDock .askopt .ck{width:14px;height:14px;margin-top:2px;border:1.5px solid var(--muted-fg);border-radius:50%;flex:0 0 auto;box-sizing:border-box}
+#cbDock .askq[data-multi="true"] .askopt .ck{border-radius:3px}
+#cbDock .askopt[aria-pressed="true"] .ck{border-color:var(--brand);background:radial-gradient(circle,var(--brand) 45%,transparent 50%)}
+#cbDock .askq[data-multi="true"] .askopt[aria-pressed="true"] .ck{background:var(--brand)}
+#cbDock .askopt .at{display:flex;flex-direction:column;gap:1px;min-width:0}
+#cbDock .askopt .at span{color:var(--muted-fg);font-size:12px}
+#cbDock .askother{margin:4px 0 0 48px;width:calc(100% - 48px)}
+#cbDock .cc-ask .aopts{margin-top:10px}
+#cbDock .cc-ask[data-folded="true"] :is(.askq,.aopts,.ahint){display:none}
+/* 长消息：超过 250px 收起，底部渐隐，「展开全部 / 收起」（对齐插件） */
+.cc-xp{display:none}
+#log .cc-user[data-long="true"]{position:relative}
+#log .cc-user[data-long="true"]:not([data-open="true"]) .cc-ut{max-height:250px;overflow:hidden;-webkit-mask-image:linear-gradient(to bottom,#000 calc(100% - 50px),transparent)}
+#log .cc-user[data-long="true"] .cc-xp{all:unset;display:block;width:fit-content;margin:6px auto 0;padding:4px 10px;border-radius:4px;font-size:11.5px;cursor:pointer;
+  color:var(--surface-raised);background:var(--fg);transition:transform .15s}
+#log .cc-user[data-long="true"] .cc-xp:hover{transform:scale(1.05)}
+/* 输入框底栏（对齐插件）：按钮统一 26px；发送按钮陶土橙，颜色跟着权限模式变 */
+.cb-ic{width:26px;height:26px;border-radius:5px}
+.cb-chip{height:26px;border-radius:5px}
+.cb-send{width:26px;height:26px;border-radius:5px;background:#d97757!important;color:#faf9f5!important}
+.cb-send[data-pmode="acceptEdits"]{background:var(--fg)!important;color:var(--surface-raised)!important}
+.cb-send[data-pmode="plan"]{background:var(--brand)!important;color:#fff!important}
+.cb-send[data-pmode="bypassPermissions"],.cb-send[data-pmode="auto"]{background:var(--destructive)!important;color:#fff!important}
+.cb-send:hover:not(:disabled){filter:brightness(1.1)}
+.cb-send:disabled{opacity:.4}

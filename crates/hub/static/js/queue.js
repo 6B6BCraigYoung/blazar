@@ -94,20 +94,81 @@ async function retryMessage(u, text) {
   } catch (e) { toast('重试失败: ' + e.message); loadHistory(); }
 }
 
+// 提问卡片（对齐 Claude Code 插件）：一题一页、顶上是各题的标签；单选选完 0.3 秒自动翻到下一题；
+// 每题最后一个是「其他」，选中后出现输入框；×＝不回答。
 function askCard(k, resolved) {
   const qs = Array.isArray(k.request?.input?.questions) ? k.request.input.questions : [];
   CC.ask.set(k.id, qs);
-  return `<div class="cc-appr cc-ask" data-appr="${esc(k.id)}" data-done="${resolved ? 'true' : 'false'}">
-    <div class="ah">agent 有问题要问你</div>
-    ${qs.map((q, qi) => `<div class="askq" data-q="${qi}" data-multi="${!!q.multiSelect}">
-      <div class="askh">${q.header ? `<span class="badge badge-muted">${esc(q.header)}</span> ` : ''}${esc(q.question || '')}${q.multiSelect ? ' <span class="faint">（可多选）</span>' : ''}</div>
-      <div class="askopts">${(q.options || []).map((o, oi) => `<button class="askopt" data-o="${oi}" aria-pressed="false"><b>${esc(o.label)}</b>${o.description ? `<span>${esc(o.description)}</span>` : ''}</button>`).join('')}</div>
-      <input class="input input-sm askother" placeholder="其他（自己写）">
+  return `<div class="cc-appr cc-ask" data-appr="${esc(k.id)}" data-done="${resolved ? 'true' : 'false'}" data-cur="0" tabindex="0">
+    <div class="anav">${qs.map((q, qi) => `<button class="atab" data-qi="${qi}" data-on="${qi === 0}">${esc(q.header || `问题 ${qi + 1}`)}</button>`).join('')}
+      <span class="grow"></span><button class="afold" data-afold title="收起 / 展开" aria-label="收起">${CHEVRON}</button>
+      <button class="afold" data-ask-close title="不回答（Esc）" aria-label="不回答">×</button></div>
+    ${qs.map((q, qi) => `<div class="askq" data-q="${qi}" data-multi="${!!q.multiSelect}" ${qi ? 'hidden' : ''}>
+      <div class="askh">${esc(q.question || '')}${q.multiSelect ? ' <span class="faint">（可多选）</span>' : ''}</div>
+      <div class="askopts">${(q.options || []).map((o, oi) => `<button class="askopt" data-o="${oi}" aria-pressed="false"><span class="ak">${oi + 1}</span><span class="ck"></span><span class="at"><b>${esc(o.label)}</b>${o.description ? `<span>${esc(o.description)}</span>` : ''}</span></button>`).join('')}
+        <button class="askopt" data-o="other" aria-pressed="false"><span class="ak">${(q.options || []).length + 1}</span><span class="ck"></span><span class="at"><b>其他</b></span></button>
+        <input class="input input-sm askother" placeholder="输入你的回答…" hidden></div>
     </div>`).join('')}
-    <div class="aopts"><button class="aopt" data-ask-ok>提交回答</button><button class="aopt" data-no>不回答，告诉 agent 该怎么做 <span class="faint">(esc)</span></button></div>
-    <div class="adeny"><input class="input input-sm" placeholder="说明，回车发送（可留空）"></div>
+    <div class="aopts"><button class="aopt primary" data-ask-ok><span class="ak">⏎</span>提交回答</button></div>
+    <div class="ahint">←→ 切换问题 · 数字键选择 · 回车提交 · Esc 不回答</div>
     <div class="apstate">${resolved ? esc(resolved) : ''}</div>
   </div>`;
+}
+function askGo(card, qi) {
+  const boxes = [...card.querySelectorAll('.askq')];
+  if (qi < 0 || qi >= boxes.length) return;
+  card.dataset.cur = String(qi);
+  boxes.forEach((b, i) => { b.hidden = i !== qi; });
+  card.querySelectorAll('.atab').forEach((t, i) => { t.dataset.on = String(i === qi); });
+}
+function askAnswered(card) {
+  card.querySelectorAll('.askq').forEach((b, i) => {
+    const has = b.querySelector('.askopt[aria-pressed="true"]');
+    card.querySelectorAll('.atab')[i]?.toggleAttribute('data-done', !!has);
+  });
+}
+function askPick(opt) {
+  const card = opt.closest('[data-appr]'), box = opt.closest('.askq');
+  const multi = box.dataset.multi === 'true', on = opt.getAttribute('aria-pressed') === 'true';
+  if (!multi) box.querySelectorAll('.askopt').forEach(x => x.setAttribute('aria-pressed', 'false'));
+  opt.setAttribute('aria-pressed', String(multi ? !on : true));
+  const other = box.querySelector('.askother'), isOther = opt.dataset.o === 'other';
+  other.hidden = box.querySelector('.askopt[data-o="other"]').getAttribute('aria-pressed') !== 'true';
+  askAnswered(card);
+  if (isOther && !other.hidden) { other.focus(); return; }
+  if (!multi) {
+    const qi = +card.dataset.cur;
+    if (qi < card.querySelectorAll('.askq').length - 1) setTimeout(() => askGo(card, qi + 1), 300);
+    else card.querySelector('[data-ask-ok]')?.focus();
+  }
+}
+function askKeys(card, e) {
+  if (card.dataset.done === 'true') return;
+  const qi = +card.dataset.cur, box = card.querySelectorAll('.askq')[qi];
+  if (e.target.classList?.contains('askother')) {
+    if (e.key === 'Enter' && !e.shiftKey && !imeEnter(e)) {
+      e.preventDefault();
+      if (qi < card.querySelectorAll('.askq').length - 1) askGo(card, qi + 1); else submitAsk(card);
+    } else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); e.target.blur(); card.focus(); }
+    return;
+  }
+  if (e.target.closest?.('input, textarea')) return;
+  const opts = [...box.querySelectorAll('.askopt')];
+  const n = /^[1-9]$/.test(e.key) ? +e.key : 0;
+  if (n && n <= opts.length) { e.preventDefault(); askPick(opts[n - 1]); return; }
+  if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') { e.preventDefault(); askGo(card, qi + (e.key === 'ArrowRight' ? 1 : -1)); return; }
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    const i = opts.indexOf(document.activeElement);
+    opts[(i < 0 ? 0 : i + (e.key === 'ArrowDown' ? 1 : -1) + opts.length) % opts.length].focus();
+    return;
+  }
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    if (opts.includes(document.activeElement)) askPick(document.activeElement); else submitAsk(card);
+    return;
+  }
+  if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); decide(card.dataset.appr, false, ''); }
 }
 async function submitAsk(card) {
   const qs = CC.ask.get(card.dataset.appr) || [];
@@ -115,9 +176,10 @@ async function submitAsk(card) {
   for (const box of card.querySelectorAll('.askq')) {
     const q = qs[+box.dataset.q]; if (!q) continue;
     const picked = [...box.querySelectorAll('.askopt[aria-pressed="true"]')].map(b => q.options[+b.dataset.o]?.label).filter(Boolean);
+    const otherOn = box.querySelector('.askopt[data-o="other"]')?.getAttribute('aria-pressed') === 'true';
     const other = box.querySelector('.askother').value.trim();
-    if (other) picked.push(other);
-    if (!picked.length) { toast(`还有问题没回答：${q.header || q.question}`); return; }
+    if (otherOn && other) picked.push(other);
+    if (!picked.length) { askGo(card, +box.dataset.q); toast(`还有问题没回答：${q.header || q.question}`); return; }
     answers[q.question] = picked.join(', ');
   }
   try {
