@@ -60,6 +60,9 @@ impl ClaudeCliRuntime {
         for (k, v) in &spec.env {
             e = e.env(k, v);
         }
+        for (k, p) in &spec.env_files {
+            e = e.env_file(k, p);
+        }
         e
     }
 

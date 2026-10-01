@@ -133,6 +133,12 @@ fn render_cmd(spec: &ExecSpec) -> String {
     for (k, v) in &spec.env {
         s.push_str(&format!("export {k}={}\n", shell_quote(v)));
     }
+    for (k, p) in &spec.env_files {
+        s.push_str(&format!(
+            "export {k}=\"$(cat {})\"\n",
+            shell_quote(&p.display().to_string())
+        ));
+    }
     s.push_str("exec ");
     s.push_str(&shell_quote(&spec.program));
     for a in &spec.args {
@@ -568,6 +574,40 @@ mod tests {
             run.drain(0).await.unwrap().contains("BLZ_CMD_EOF"),
             "文本要原样到达 agent"
         );
+    }
+
+    #[tokio::test]
+    async fn secrets_from_env_files_reach_the_agent_but_not_the_run_dir() {
+        let secret = format!("sk-ant-oat01-test-{}", std::process::id());
+        let file = std::env::temp_dir().join(format!("blz-secret-{}", std::process::id()));
+        std::fs::write(&file, format!("{secret}\n")).unwrap();
+        let spec = ExecSpec::new("bash")
+            .arg("-c")
+            .arg(r#"printf '[%s]' "$TOKEN""#)
+            .env_file("TOKEN", &file);
+        let run = DetachedRun::launch(local(), &rid("secret"), &spec, None, RunMode::Null)
+            .await
+            .unwrap();
+        wait_exit(&run).await;
+        let out = run.drain(0).await.unwrap();
+        assert!(out.contains(&format!("[{secret}]")), "{out}");
+        let cmd = std::fs::read_to_string(std::path::Path::new(&run.dir).join("cmd.sh")).unwrap();
+        assert!(cmd.contains("$(cat "), "{cmd}");
+        for f in std::fs::read_dir(&run.dir).unwrap() {
+            let path = f.unwrap().path();
+            if path.ends_with("out.jsonl") {
+                continue;
+            }
+            if let Ok(text) = std::fs::read_to_string(&path) {
+                assert!(
+                    !text.contains(&secret),
+                    "{} 里出现了明文 token",
+                    path.display()
+                );
+            }
+        }
+        run.remove().await.unwrap();
+        let _ = std::fs::remove_file(&file);
     }
 
     #[tokio::test]

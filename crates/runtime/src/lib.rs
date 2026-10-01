@@ -32,6 +32,8 @@ pub struct SessionSpec {
 
     pub env: std::collections::BTreeMap<String, String>,
 
+    pub env_files: std::collections::BTreeMap<String, PathBuf>,
+
     pub extra_args: Vec<String>,
 
     pub remote_hands: Option<RemoteHands>,
@@ -133,6 +135,7 @@ impl SessionSpec {
             allowed_tools: Vec::new(),
             disallowed_tools: Vec::new(),
             env: std::collections::BTreeMap::new(),
+            env_files: std::collections::BTreeMap::new(),
             extra_args: Vec::new(),
             remote_hands: None,
             instructions: None,

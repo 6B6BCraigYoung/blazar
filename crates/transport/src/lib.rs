@@ -36,6 +36,9 @@ pub struct ExecSpec {
     pub cwd: Option<PathBuf>,
     pub env: BTreeMap<String, String>,
 
+    // 值从执行机器上的文件里读的环境变量：机密只落在那个文件里，不进命令行、也不进生成的脚本。
+    pub env_files: BTreeMap<String, PathBuf>,
+
     pub stdin: Option<Vec<u8>>,
 }
 
@@ -46,6 +49,7 @@ impl ExecSpec {
             args: Vec::new(),
             cwd: None,
             env: BTreeMap::new(),
+            env_files: BTreeMap::new(),
             stdin: None,
         }
     }
@@ -84,6 +88,12 @@ impl ExecSpec {
         self
     }
 
+    #[must_use]
+    pub fn env_file(mut self, k: impl Into<String>, path: impl Into<PathBuf>) -> Self {
+        self.env_files.insert(k.into(), path.into());
+        self
+    }
+
     pub(crate) fn to_shell(&self) -> String {
         let mut parts = Vec::new();
         if let Some(cwd) = &self.cwd {
@@ -91,6 +101,12 @@ impl ExecSpec {
         }
         for (k, v) in &self.env {
             parts.push(format!("{k}={}", shell_quote(v)));
+        }
+        for (k, p) in &self.env_files {
+            parts.push(format!(
+                "{k}=\"$(cat {})\"",
+                shell_quote(&p.display().to_string())
+            ));
         }
         parts.push(shell_quote(&self.program));
         parts.extend(self.args.iter().map(|a| shell_quote(a)));
@@ -314,6 +330,11 @@ impl LocalTransport {
         }
         for (k, v) in &spec.env {
             cmd.env(k, v);
+        }
+        for (k, p) in &spec.env_files {
+            if let Ok(v) = std::fs::read_to_string(p) {
+                cmd.env(k, v.trim());
+            }
         }
         cmd
     }

@@ -94,6 +94,9 @@ impl CliRuntime {
         for (k, v) in &session.env {
             e = e.env(k, v);
         }
+        for (k, p) in &session.env_files {
+            e = e.env_file(k, p);
+        }
         e
     }
 
@@ -341,6 +344,9 @@ impl CliRuntime {
         let mut spec = self.program_exec().args(args).cwd(&session.cwd);
         for (k, v) in &session.env {
             spec = spec.env(k, v);
+        }
+        for (k, p) in &session.env_files {
+            spec = spec.env_file(k, p);
         }
         DetachedPlan {
             spec,
