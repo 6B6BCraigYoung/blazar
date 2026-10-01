@@ -139,7 +139,7 @@ function wireAccounts(host, v) {
           try { await post(`/api/accounts/${encodeURIComponent(a.id)}/quota`); } catch (e) { toast(e.message); }
           redrawAccounts();
         } },
-        a.provider === 'claude' && !a.builtin && { label: tok ? '更换 token' : '改用长期 token', run: () => dlgAccountToken(a) },
+        a.provider === 'claude' && { label: tok ? '更换 token' : '改用长期 token', run: () => dlgAccountToken(a) },
         tok && { label: a.plan ? '改订阅类型' : '标订阅类型', run: () => dlgAccountPlan(a) },
         { label: '改名', run: async () => {
           const name = await askText('新的名字', a.label, { ok: '保存' });
@@ -223,7 +223,9 @@ function dlgAddAccount(provider = 'claude') {
 function dlgAccountToken(a) {
   openDlg(`<h3>${a.kind === 'token' ? '更换' : '改用'}长期 token · ${esc(a.label)}</h3>
     <div class="field"><input id="atTok" class="input mono" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-oat01-…"></div>
-    <div class="t-caption faint">${TOKEN_HELP}${a.kind === 'token' ? '' : '<br>改用 token 后，这个账号原来的浏览器登录就不再使用了。'}</div>
+    <div class="t-caption faint">${TOKEN_HELP}${a.kind === 'token' ? '' : a.builtin
+      ? '<br>改用 token 后，Blazar 里这个账号就用 token 运行（远端工作区也能用）；本机终端里 claude 的浏览器登录不受影响。'
+      : '<br>改用 token 后，这个账号原来的浏览器登录就不再使用了。'}</div>
     <div class="dfoot"><button class="btn btn-outline" id="atNo">取消</button><button class="btn btn-brand" id="atOk">保存</button></div>`);
   $('#atTok').focus();
   $('#atNo').onclick = closeDlg;

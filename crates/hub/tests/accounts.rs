@@ -136,3 +136,40 @@ async fn agent_profiles_remember_their_account() {
     assert_eq!(s, StatusCode::OK, "{v}");
     assert!(v["account"].is_null(), "空字符串表示跟随默认设置");
 }
+
+#[tokio::test]
+async fn the_default_login_can_switch_to_a_setup_token() {
+    let (app, _dir) = app().await;
+    let (s, _) = call(
+        &app,
+        "PUT",
+        "/api/accounts/claude-default/token",
+        Some(json!({ "token": "nope" })),
+    )
+    .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+
+    let (s, v) = call(
+        &app,
+        "PUT",
+        "/api/accounts/claude-default/token",
+        Some(json!({ "token": "sk-ant-oat01-blazar-test-token" })),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["kind"], "token");
+    assert_eq!(v["builtin"], false, "转换后有了自己的账号目录");
+    assert!(
+        !v.to_string().contains("sk-ant-oat01"),
+        "token 不能出现在接口返回里"
+    );
+
+    let (s, _) = call(
+        &app,
+        "PUT",
+        "/api/accounts/codex-default/token",
+        Some(json!({ "token": "sk-ant-oat01-x" })),
+    )
+    .await;
+    assert_eq!(s, StatusCode::CONFLICT);
+}

@@ -1142,18 +1142,29 @@ pub async fn set_token(
     let Some(a) = get(&st, &id).await else {
         return fail(StatusCode::NOT_FOUND, "没有这个账号");
     };
-    let Some(dir) = a.config_dir.clone().filter(|_| a.provider == "claude") else {
-        return fail(
-            StatusCode::CONFLICT,
-            "只有新添加的 Claude Code 账号能用长期 token；默认登录请保持浏览器登录",
-        );
-    };
+    if a.provider != "claude" {
+        return fail(StatusCode::CONFLICT, "只有 Claude Code 账号能用长期 token");
+    }
     let token = match valid_token(&req.token) {
         Ok(t) => t,
         Err(e) => return fail(StatusCode::BAD_REQUEST, e),
     };
-    let path = PathBuf::from(dir).join(TOKEN_FILE);
-    match tokio::task::spawn_blocking(move || write_token(&path, &token)).await {
+    // 默认登录转成 token 账号：给它建一个自己的账号目录，之后就和其它 token 账号一样。
+    // 本机 ~/.claude 里的浏览器登录原样留着，终端里的 claude 不受影响。
+    let (dir, adopt) = match a.config_dir.clone() {
+        Some(d) => (PathBuf::from(d), false),
+        None => (root(&st).join("claude").join(&a.id), true),
+    };
+    let shared = default_home("claude");
+    let (d, path) = (dir.clone(), dir.join(TOKEN_FILE));
+    let written = tokio::task::spawn_blocking(move || {
+        if adopt {
+            prepare_dir("claude", &d, shared.as_deref())?;
+        }
+        write_token(&path, &token)
+    })
+    .await;
+    match written {
         Ok(Ok(())) => {}
         Ok(Err(e)) => {
             return fail(
@@ -1163,8 +1174,12 @@ pub async fn set_token(
         }
         Err(e) => return fail(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
     }
-    let _ = sqlx::query("UPDATE accounts SET auth_mode = 'token' WHERE id = ?1")
-        .bind(&id)
+    let _ = sqlx::query(
+        "UPDATE accounts SET auth_mode = 'token', config_dir = COALESCE(config_dir, ?2), email = NULL
+         WHERE id = ?1",
+    )
+    .bind(&id)
+    .bind(dir.display().to_string())
         .execute(st.db.pool())
         .await;
     let Some(a) = get(&st, &id).await else {
