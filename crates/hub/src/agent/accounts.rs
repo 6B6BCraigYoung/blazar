@@ -27,7 +27,7 @@ const BLOCKED_MINUTES: i64 = 60;
 const STALE_HOURS: i64 = 5;
 
 // `claude setup-token` 生成的长期 token 放在账号目录里的这个文件（0600），启动时由 shell 读进环境变量。
-const TOKEN_FILE: &str = ".blazar-oauth-token";
+pub const TOKEN_FILE: &str = ".blazar-oauth-token";
 const TOKEN_ENV: &str = "CLAUDE_CODE_OAUTH_TOKEN";
 
 // setup-token 的权限查不了 /api/oauth/usage，只能发一个最小请求读响应头里的额度。
@@ -320,6 +320,9 @@ pub struct Chosen {
     pub token_file: Option<(String, PathBuf)>,
 
     pub auto: bool,
+
+    // 远端运行：凭据不出本机，经 SSH 隧道走 Blazar 的凭据代理。
+    pub proxy: bool,
 }
 
 impl From<&Account> for Chosen {
@@ -329,6 +332,7 @@ impl From<&Account> for Chosen {
             env: a.env(),
             token_file: a.token_file().map(|p| (TOKEN_ENV.to_owned(), p)),
             auto: false,
+            proxy: false,
         }
     }
 }
@@ -373,7 +377,8 @@ async fn mode_of(st: &Shared, provider: &str) -> String {
         .to_owned()
 }
 
-// 只有在本机跑的 Claude Code / Codex 才分账号；远端机器上的 CLI 用那台机器自己的登录态。
+// 本机运行：给 CLI 指账号目录 / 长期 token。远端运行：Claude 只能用长期 token，凭据留在本机、经凭据代理转过去；
+// Codex 用那台机器自己的登录。
 // `exclude` 是这一轮已经试过、失败了的账号：自动换号重发时传进来，挑不出新的就报错，不再重发。
 pub async fn resolve(
     st: &Shared,
@@ -384,9 +389,43 @@ pub async fn resolve(
     model: Option<&str>,
     exclude: &[String],
 ) -> Result<Option<Chosen>, String> {
-    if run_node != "local" || env_key(provider).is_none() {
+    if env_key(provider).is_none() {
         return Ok(None);
     }
+    let remote = run_node != "local";
+    if remote && provider != "claude" {
+        return Ok(None);
+    }
+    let chosen = pick(st, provider, remote, requested, prior, model, exclude).await?;
+    if !remote {
+        return Ok(chosen);
+    }
+    match chosen {
+        Some(c) if c.token_file.is_some() => Ok(Some(Chosen {
+            env: None,
+            token_file: None,
+            proxy: true,
+            ..c
+        })),
+        Some(c) => Err(format!(
+            "「{}」是浏览器登录的账号，凭据没法带到 {run_node} 上。远端请选长期 token 账号（claude setup-token）",
+            get(st, &c.id).await.map(|a| a.label).unwrap_or(c.id)
+        )),
+        None => Err(format!(
+            "{run_node} 上运行 Claude Code 需要一个长期 token 账号"
+        )),
+    }
+}
+
+async fn pick(
+    st: &Shared,
+    provider: &str,
+    remote: bool,
+    requested: Option<&str>,
+    prior: Option<&str>,
+    model: Option<&str>,
+    exclude: &[String],
+) -> Result<Option<Chosen>, String> {
     let mode = match requested.map(str::trim).filter(|m| !m.is_empty()) {
         Some(m) => m.to_owned(),
         None => mode_of(st, provider).await,
@@ -414,7 +453,9 @@ pub async fn resolve(
             let cands: Vec<Candidate> = all(st, Some(provider))
                 .await
                 .into_iter()
-                .filter(|a| a.usable() && !exclude.contains(&a.id))
+                .filter(|a| {
+                    a.usable() && !exclude.contains(&a.id) && (!remote || a.kind == "token")
+                })
                 .map(|a| Candidate {
                     score: windows.get(&a.id).map_or(0.0, |w| score(w, now)),
                     running: running.get(&a.id).copied().unwrap_or(0),
@@ -598,9 +639,18 @@ pub async fn on_run_finished(st: Shared, sid: blazar_core_types::SessionId, stat
     if status != "failed" {
         return;
     }
-    type Row = (String, Option<String>, i64, Option<String>, String, String);
+    type Row = (
+        String,
+        Option<String>,
+        i64,
+        Option<String>,
+        String,
+        String,
+        String,
+    );
     let row: Option<Row> = sqlx::query_as(
-        "SELECT workspace_id, account_id, account_auto, request, COALESCE(thread_id, id), runtime_kind
+        "SELECT workspace_id, account_id, account_auto, request, COALESCE(thread_id, id), runtime_kind,
+                COALESCE(node, 'local')
          FROM sessions WHERE id = ?1",
     )
     .bind(sid.to_string())
@@ -608,7 +658,7 @@ pub async fn on_run_finished(st: Shared, sid: blazar_core_types::SessionId, stat
     .await
     .ok()
     .flatten();
-    let Some((ws, Some(account), 1, Some(raw), thread, runtime)) = row else {
+    let Some((ws, Some(account), 1, Some(raw), thread, runtime, node)) = row else {
         return;
     };
     let worked: i64 = sqlx::query_scalar(
@@ -648,7 +698,7 @@ pub async fn on_run_finished(st: Shared, sid: blazar_core_types::SessionId, stat
     match resolve(
         &st,
         &runtime,
-        "local",
+        &node,
         Some("auto"),
         None,
         model.as_deref(),
@@ -1602,6 +1652,110 @@ pub async fn clear_model_block(
         .await;
     st.emit(ServerEvent::AccountsChanged);
     StatusCode::NO_CONTENT.into_response()
+}
+
+// 在远端机器上登录 Codex：经 SSH 在那台机器上跑设备码登录，你在本地浏览器里完成验证，凭据只落在那台机器上。
+pub async fn node_login_ws(
+    ws: WebSocketUpgrade,
+    State(st): State<Shared>,
+    Path((node, runtime)): Path<(String, String)>,
+    Query(q): Query<LoginQuery>,
+) -> Response {
+    if runtime != "codex" {
+        return fail(
+            StatusCode::BAD_REQUEST,
+            "远端只需要登录 Codex；Claude 用长期 token，经凭据代理转过去",
+        );
+    }
+    let known: Option<String> = sqlx::query_scalar("SELECT name FROM nodes WHERE name = ?1")
+        .bind(&node)
+        .fetch_optional(st.db.pool())
+        .await
+        .ok()
+        .flatten();
+    if known.is_none()
+        || node == "local"
+        || !node
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c))
+    {
+        return fail(StatusCode::NOT_FOUND, "没有这台机器");
+    }
+    let exports: String = crate::proxy::node_net_env(&st, &node)
+        .await
+        .iter()
+        .map(|(k, v)| format!("export {k}='{}'\n", v.replace('\'', "")))
+        .collect();
+    let script = format!("{exports}{}", shell("codex", "login --device-auth"));
+    let remote = format!("bash -lc '{}'", script.replace('\'', r"'\''"));
+    let home = directories::BaseDirs::new()
+        .map_or_else(std::env::temp_dir, |b| b.home_dir().to_path_buf());
+    let target = blazar_terminal::TerminalTarget::Command {
+        program: "ssh".into(),
+        args: vec![
+            "-tt".into(),
+            "-o".into(),
+            "BatchMode=yes".into(),
+            "-o".into(),
+            "ConnectTimeout=15".into(),
+            node.clone(),
+            "--".into(),
+            remote,
+        ],
+        env: Vec::new(),
+        cwd: home.display().to_string(),
+    };
+    ws.on_upgrade(move |socket| pty_bridge(socket, target, q))
+}
+
+async fn pty_bridge(socket: ws::WebSocket, target: blazar_terminal::TerminalTarget, q: LoginQuery) {
+    let (mut tx, mut rx) = socket.split();
+    let session = match blazar_terminal::TerminalSession::open(&target, q.cols, q.rows) {
+        Ok(s) => s,
+        Err(err) => {
+            let _ = tx
+                .send(ws::Message::Text(
+                    format!("\r\n打开终端失败: {err}\r\n").into(),
+                ))
+                .await;
+            return;
+        }
+    };
+    let (handle, mut output) = session.split();
+    let pump = tokio::spawn(async move {
+        while let Some(chunk) = output.recv().await {
+            if tx.send(ws::Message::Binary(chunk.into())).await.is_err() {
+                break;
+            }
+        }
+        let _ = tx.close().await;
+    });
+    let input = async {
+        while let Some(Ok(msg)) = rx.next().await {
+            match msg {
+                ws::Message::Text(t) => {
+                    match serde_json::from_str::<crate::api::TerminalClientMsg>(&t) {
+                        Ok(crate::api::TerminalClientMsg::Input { data }) => {
+                            if handle.write(data.as_bytes()).await.is_err() {
+                                break;
+                            }
+                        }
+                        Ok(crate::api::TerminalClientMsg::Resize { cols, rows }) => {
+                            let _ = handle.resize(cols, rows).await;
+                        }
+                        Err(_) => {}
+                    }
+                }
+                ws::Message::Close(_) => break,
+                _ => {}
+            }
+        }
+    };
+    let stop = pump.abort_handle();
+    tokio::select! {
+        () = input => stop.abort(),
+        _ = pump => {}
+    }
 }
 
 #[derive(Debug, Deserialize)]

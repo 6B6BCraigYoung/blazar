@@ -233,6 +233,19 @@ pub async fn prompt(
     )
     .await
     .map_err(|e| ApiError(anyhow::anyhow!(e)))?;
+    // 远端用代理账号：先把隧道建好，建不起来就别往下走、别留下一个永远「运行中」的会话。
+    let proxy_env = match account.as_ref().filter(|a| a.proxy) {
+        Some(a) => {
+            let port = crate::proxy::ensure_tunnel(&st, &run_node)
+                .await
+                .map_err(|e| ApiError(anyhow::anyhow!(e)))?;
+            let secret = crate::proxy::secret(&st, &a.id)
+                .await
+                .map_err(|e| ApiError(anyhow::anyhow!(e)))?;
+            Some((format!("http://127.0.0.1:{port}"), secret))
+        }
+        None => None,
+    };
     let stored_request = account
         .as_ref()
         .filter(|a| a.auto)
@@ -424,6 +437,17 @@ pub async fn prompt(
         && !spec.env.contains_key(&k)
     {
         spec.env_files.insert(k, p);
+    }
+    if run_node != "local" {
+        for (k, v) in crate::proxy::node_net_env(&st, &run_node).await {
+            spec.env.entry(k).or_insert(v);
+        }
+    }
+    if let Some((base, secret)) = proxy_env {
+        spec.env.insert("ANTHROPIC_BASE_URL".into(), base);
+        spec.env.insert("CLAUDE_CODE_OAUTH_TOKEN".into(), secret);
+        spec.env.remove("ANTHROPIC_API_KEY");
+        spec.env.remove("ANTHROPIC_AUTH_TOKEN");
     }
     if local_brain {
         let exe = std::env::current_exe()

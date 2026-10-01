@@ -6,7 +6,8 @@ function sendOptions() {
     permission_mode: $('#permMode').value || null,
     agent: $('#agentSel').value.startsWith('r:') ? $('#agentSel').value.slice(2) : null,
     profile: $('#agentSel').value.startsWith('p:') ? $('#agentSel').value.slice(2) : null,
-    brain: 'local',
+    // 远端工作区：CLI 直接在那台机器上跑，能力和在那边敲 claude / codex 一样；账号经 Blazar 的凭据代理带过去。
+    brain: S.ws && S.ws.node !== 'local' ? 'node' : 'local',
     account: $('#agentSel').value.startsWith('r:') && accSupported(currentRuntime()) ? (accSel() || null) : null,
     ...prefBody(),
   };

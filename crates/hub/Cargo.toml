@@ -39,6 +39,8 @@ include_dir.workspace = true
 tracing.workspace = true
 uuid.workspace = true
 getrandom = "0.3"
+reqwest = { version = "0.13", features = ["stream"] }
+sha2 = "0.10"
 base64 = "0.22"
 directories = "5"
 jiff = { version = "0.2", default-features = false, features = ["std", "tz-system", "tzdb-zoneinfo"] }

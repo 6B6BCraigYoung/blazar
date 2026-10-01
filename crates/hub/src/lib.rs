@@ -14,7 +14,7 @@ pub mod mesh;
 pub mod office;
 mod skills;
 mod work;
-pub use agent::{accounts, agents, catalog, chat, checkpoint, run, titles};
+pub use agent::{accounts, agents, catalog, chat, checkpoint, proxy, run, titles};
 pub use skills::{library, skillhub};
 pub use work::{analytics, autopilot, inbox, rules, scripts, snippets, tasks};
 pub mod state;
@@ -75,6 +75,7 @@ pub async fn build_state(cfg: &HubConfig) -> Result<Arc<AppState>> {
     );
 
     tokio::spawn(run::reattach_all(st.clone()));
+    tokio::spawn(proxy::restore(st.clone()));
 
     let cat = st.clone();
     tokio::spawn(async move {
@@ -361,6 +362,10 @@ pub fn build_router(st: Arc<AppState>) -> Router {
             delete(accounts::clear_model_block),
         )
         .route("/api/accounts/{id}/login/ws", get(accounts::login_ws))
+        .route(
+            "/api/nodes/{name}/login/{runtime}/ws",
+            get(accounts::node_login_ws),
+        )
         .route("/api/workspaces/{id}/detail", get(api::workspace_detail))
         .route("/api/search", get(api::search))
         .route("/api/workspaces/{id}/terminal/ws", get(api::terminal_ws))

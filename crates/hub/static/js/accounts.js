@@ -238,9 +238,40 @@ function dlgAccountToken(a) {
 }
 
 function dlgAccountLogin(a) {
-  const cmd = a.provider === 'claude' ? 'claude auth login' : 'codex login';
-  openDlg(`<h3>登录 ${esc(a.label)}</h3>
-    <div class="t-caption faint" style="margin-bottom:8px">正在运行 <span class="mono">${esc(cmd)}</span>${a.config_dir ? '（独立配置目录）' : '（默认登录）'}。浏览器没自动打开的话，复制终端里的链接去登录。</div>
+  dlgTermLogin({
+    title: `登录 ${a.label}`,
+    hint: `正在运行 <span class="mono">${esc(a.provider === 'claude' ? 'claude auth login' : 'codex login')}</span>${a.config_dir ? '（独立配置目录）' : '（默认登录）'}。浏览器没自动打开的话，复制终端里的链接去登录。`,
+    path: `/api/accounts/${encodeURIComponent(a.id)}/login/ws`,
+    after: async () => {
+      try {
+        const r = await post(`/api/accounts/${encodeURIComponent(a.id)}/check`);
+        toast(r.status === 'ok' ? `「${r.label}」已登录${r.email ? '：' + r.email : ''}` : `「${r.label}」还没有登录成功`);
+      } catch (e) { toast(e.message); }
+      redrawAccounts();
+    },
+  });
+}
+
+// 在远端机器上登录 Codex：设备码方式，链接和验证码在下面的终端里，用本地浏览器打开完成验证。
+function dlgNodeLogin(node, rt = 'codex') {
+  dlgTermLogin({
+    title: `在 ${node} 上登录 Codex`,
+    hint: `正在 ${esc(node)} 上运行 <span class="mono">codex login --device-auth</span>。在本地浏览器打开下面的链接、输入验证码即可，凭据只保存在 ${esc(node)} 上。`,
+    path: `/api/nodes/${encodeURIComponent(node)}/login/${encodeURIComponent(rt)}/ws`,
+    after: async () => {
+      try {
+        const found = await api(`/api/nodes/${encodeURIComponent(node)}/agents`);
+        S.scan = S.scan || {}; S.scan[node] = found;
+        const c = found.find(x => x.id === rt);
+        toast(c?.authed ? `${node} 上的 Codex 已登录` : `${node} 上的 Codex 还没有登录成功`);
+      } catch (e) { toast(e.message); }
+    },
+  });
+}
+
+function dlgTermLogin({ title, hint, path, after }) {
+  openDlg(`<h3>${esc(title)}</h3>
+    <div class="t-caption faint" style="margin-bottom:8px">${hint}</div>
     <div id="accTerm" style="height:320px;background:var(--muted);border-radius:var(--r-md);padding:6px"></div>
     <div class="dfoot"><span class="t-caption faint grow" id="accTermState">登录中…</span><button class="btn btn-brand" id="accTermDone">完成</button></div>`);
   $('#dlgBody').classList.add('wide');
@@ -250,7 +281,7 @@ function dlgAccountLogin(a) {
   const fit = new FitAddon.FitAddon();
   term.loadAddon(fit); term.open($('#accTerm')); fit.fit();
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  const sock = new WebSocket(`${proto}://${location.host}/api/accounts/${encodeURIComponent(a.id)}/login/ws?cols=${term.cols}&rows=${term.rows}`);
+  const sock = new WebSocket(`${proto}://${location.host}${path}?cols=${term.cols}&rows=${term.rows}`);
   sock.binaryType = 'arraybuffer';
   sock.onmessage = e => term.write(e.data instanceof ArrayBuffer ? new Uint8Array(e.data) : e.data);
   sock.onclose = () => { const s = $('#accTermState'); if (s) s.textContent = '登录流程已结束'; };
@@ -261,11 +292,7 @@ function dlgAccountLogin(a) {
     clearInterval(watch);
     try { sock.close(); } catch (_) {}
     term.dispose(); closeDlg();
-    try {
-      const r = await post(`/api/accounts/${encodeURIComponent(a.id)}/check`);
-      toast(r.status === 'ok' ? `「${r.label}」已登录${r.email ? '：' + r.email : ''}` : `「${r.label}」还没有登录成功`);
-    } catch (e) { toast(e.message); }
-    redrawAccounts();
+    await after();
   };
   const watch = setInterval(() => { if ($('#dlg').dataset.open !== 'true') finish(); }, 400);
   $('#accTermDone').onclick = finish;
@@ -304,12 +331,20 @@ function currentAccount(rt) {
 }
 
 // 运行时选择器里，某个运行时下面的账号行。
+const wsRemote = () => !!S.ws && S.ws.node !== 'local';
 function accountRows(rt, current) {
+  // 远端工作区：Codex 用那台机器自己的登录；Claude 只能用长期 token（浏览器登录的凭据带不过去）。
+  if (wsRemote() && rt === 'codex') {
+    const authed = S.scan?.[S.ws.node]?.find(x => x.id === 'codex')?.authed;
+    return `<button class="cp-row cp-sub" data-node-login="${esc(S.ws.node)}"><span class="cp-t"><b>${esc(S.ws.node)} 上的 Codex 登录</b></span>
+      <span class="cp-r">${authed === true ? '已登录 · 点击重新登录' : authed === false ? '未登录 · 点击登录' : '点击登录'}</span></button>`;
+  }
   const list = (S.accounts?.accounts || []).filter(a => a.provider === rt);
   const cur = current ? currentAccount(rt) : null;
   return list.map(a => {
-    const off = !accUsable(a);
-    const note = off ? (a.disabled ? '已停用' : a.kind === 'token' ? 'token 无效' : '未登录') : accQuotaShort(a);
+    const away = wsRemote() && a.kind !== 'token';
+    const off = !accUsable(a) || away;
+    const note = away ? '远端需长期 token' : off ? (a.disabled ? '已停用' : a.kind === 'token' ? 'token 无效' : '未登录') : accQuotaShort(a);
     return `<button class="cp-row cp-sub" data-av="r:${esc(rt)}" data-acc="${esc(a.id)}" ${off ? 'disabled' : ''}>
       <span class="cp-t"><b>${esc(a.label)}</b></span>${note ? `<span class="cp-r">${esc(note)}</span>` : ''}${a.id === cur ? '<span class="cp-ok">✓</span>' : ''}</button>`;
   }).join('');
@@ -340,4 +375,8 @@ async function continueOnAnotherAccount() {
     };
   });
 }
-document.addEventListener('click', e => { if (e.target.closest?.('[data-acc-continue]')) continueOnAnotherAccount(); });
+document.addEventListener('click', e => {
+  if (e.target.closest?.('[data-acc-continue]')) continueOnAnotherAccount();
+  const nl = e.target.closest?.('[data-node-login]');
+  if (nl) { e.stopPropagation(); closePop(); dlgNodeLogin(nl.dataset.nodeLogin); }
+}, true);

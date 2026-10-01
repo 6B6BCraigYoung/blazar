@@ -277,6 +277,10 @@ async function pageWorkspace(id) {
   mountEditor();
   fillAgentSel();
   loadAccounts().then(drawAccChip);
+  if (S.ws.node !== 'local') {
+    const node = S.ws.node;
+    api(`/api/nodes/${encodeURIComponent(node)}/agents`).then(v => { S.scan = S.scan || {}; S.scan[node] = v; }).catch(() => {});
+  }
 
   $('#tgEx').onclick = () => toggleRegion('ex');
   $('#tgPanel').onclick = () => toggleRegion('panel');

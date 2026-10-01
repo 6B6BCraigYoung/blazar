@@ -205,13 +205,14 @@ async function pageNodeDetail(name) {
       S.scan = S.scan || {}; S.scan[name] = found;
       const inst = found.filter(a => a.path);
       $('#ag').innerHTML = inst.length ? `<table class="tb"><thead><tr>
-          <th>Agent</th><th>版本</th><th>登录</th><th>路径</th></tr></thead><tbody>
+          <th>Agent</th><th>版本</th><th>登录</th><th>路径</th><th></th></tr></thead><tbody>
         ${inst.map(a => `<tr>
           <td>${esc(a.label)}</td><td class="m">${esc(a.version || '—')}</td>
           <td>${a.authed === true ? '<span class="badge badge-ok">已登录</span>'
               : a.authed === false ? '<span class="badge badge-danger">未登录</span>'
               : `<span class="badge badge-warn" title="${esc(a.auth_hint || '')}">无法判断</span>`}</td>
-          <td class="m">${esc(a.path)}</td></tr>`).join('')}</tbody></table>
+          <td class="m">${esc(a.path)}</td>
+          <td style="text-align:right">${a.id === 'codex' && name !== 'local' ? `<button class="btn btn-ghost btn-xs" data-node-login="${esc(name)}">${a.authed === true ? '重新登录' : '登录'}</button>` : ''}</td></tr>`).join('')}</tbody></table>
         <div class="t-caption faint" style="margin-top:8px">
           </div>`
         : '<div class="empty">这台机器上没有发现任何 agent CLI</div>';
