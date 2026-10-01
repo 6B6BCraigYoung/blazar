@@ -34,6 +34,68 @@ pub struct LiveState {
     pub user_no: u32,
     pub eof_sent: bool,
     pub interrupt_requested: bool,
+
+    // 还在跑的后台任务。有它们在就不给 CLI 发 EOF：跟 Claude Code 一样，后台任务跑完会通知 agent 接着处理。
+    pub bg: std::collections::HashSet<String>,
+    // 这一轮已经答完、进程只是为了等后台任务而活着：这时再发消息就直接送进去，不用排队。
+    pub idle: bool,
+}
+
+#[must_use]
+pub fn bg_alive(status: &str) -> bool {
+    matches!(status, "started" | "running" | "pending")
+}
+
+// 后台任务都结束了但 CLI 没有接着开一轮：等一会儿还是没动静就收尾。
+const BG_SETTLE: Duration = Duration::from_secs(20);
+
+fn settle_later(live: Arc<Live>) {
+    tokio::spawn(async move {
+        let seq = live.state.lock().await.next_seq;
+        tokio::time::sleep(BG_SETTLE).await;
+        let mut s = live.state.lock().await;
+        if s.idle && s.bg.is_empty() && s.pending_user == 0 && !s.eof_sent && s.next_seq == seq {
+            match live.run.eof().await {
+                Ok(_) => s.eof_sent = true,
+                Err(e) => tracing::warn!(target: "blazar::run", "发 EOF 失败: {e}"),
+            }
+        }
+    });
+}
+
+// 进程在等后台任务、这一轮已经答完：新消息直接送进这个会话，跟在 Claude Code 里一样接着聊。
+pub async fn send_to_idle(
+    st: &Shared,
+    ws: WorkspaceId,
+    thread: Option<&str>,
+    text: &str,
+    sent: &str,
+    images: &[ImageInput],
+) -> Option<(SessionId, String)> {
+    let (sid, live) = {
+        let r = st.running.read().await;
+        let (sid, run) = r.iter().find(|(_, x)| x.workspace_id == ws)?;
+        (*sid, run.live.clone()?)
+    };
+    {
+        let s = live.state.lock().await;
+        if !live.interactive || !s.idle || s.eof_sent {
+            return None;
+        }
+    }
+    let its_thread: String =
+        sqlx::query_scalar("SELECT COALESCE(thread_id, id) FROM sessions WHERE id = ?1")
+            .bind(sid.to_string())
+            .fetch_optional(st.db.pool())
+            .await
+            .ok()
+            .flatten()?;
+    if thread.is_some_and(|t| t != its_thread) {
+        return None;
+    }
+    live.state.lock().await.idle = false;
+    interject(st, sid, text, sent, images).await.ok()?;
+    Some((sid, its_thread))
 }
 
 impl Live {
@@ -156,6 +218,21 @@ async fn process_line(ctx: &Ctx, line: &str, at: u64, p: &mut Progress) -> Line 
                     kind = EntryKind::Finished(Outcome::Interrupted);
                 }
             }
+            EntryKind::BackgroundTask {
+                task_id, status, ..
+            } => {
+                let mut s = ctx.live.state.lock().await;
+                if bg_alive(status) {
+                    s.bg.insert(task_id.clone());
+                } else if s.bg.remove(task_id) && s.bg.is_empty() && s.idle {
+                    settle_later(ctx.live.clone());
+                }
+            }
+            EntryKind::AssistantMessage { .. }
+            | EntryKind::ToolUse { .. }
+            | EntryKind::Thinking { .. } => {
+                ctx.live.state.lock().await.idle = false;
+            }
             _ => {}
         }
         entries.push(NormalizedEntry {
@@ -220,9 +297,13 @@ async fn process_line(ctx: &Ctx, line: &str, at: u64, p: &mut Progress) -> Line 
         if ctx.live.interactive {
             let mut s = ctx.live.state.lock().await;
             if s.pending_user == 0 && !s.eof_sent {
-                match ctx.live.run.eof().await {
-                    Ok(_) => s.eof_sent = true,
-                    Err(e) => tracing::warn!(target: "blazar::run", "发 EOF 失败: {e}"),
+                if s.bg.is_empty() {
+                    match ctx.live.run.eof().await {
+                        Ok(_) => s.eof_sent = true,
+                        Err(e) => tracing::warn!(target: "blazar::run", "发 EOF 失败: {e}"),
+                    }
+                } else {
+                    s.idle = true;
                 }
             }
         }
@@ -704,6 +785,27 @@ pub async fn reattach_all(st: Shared) {
 
         let slash = count(r#"{"type":"user_message","text":"/%"#).await;
         let consumed = count(r#"{"type":"input_consumed"%"#).await;
+        let mut bg = std::collections::HashSet::new();
+        for p in sqlx::query_scalar::<_, String>(
+            "SELECT payload FROM events WHERE session_id = ?1
+               AND payload LIKE '{\"type\":\"background_task\"%' ORDER BY seq",
+        )
+        .bind(sid.to_string())
+        .fetch_all(st.db.pool())
+        .await
+        .unwrap_or_default()
+        {
+            let Ok(v) = serde_json::from_str::<serde_json::Value>(&p) else {
+                continue;
+            };
+            if let (Some(id), Some(status)) = (v["task_id"].as_str(), v["status"].as_str()) {
+                if bg_alive(status) {
+                    bg.insert(id.to_owned());
+                } else {
+                    bg.remove(id);
+                }
+            }
+        }
         let live = Arc::new(Live {
             interactive: runtime.interactive(),
             run,
@@ -713,6 +815,8 @@ pub async fn reattach_all(st: Shared) {
                 user_no: u32::try_from(users).unwrap_or(0),
                 eof_sent: false,
                 interrupt_requested: false,
+                bg,
+                idle: false,
             }),
         });
         let hook = blazar_hooks::HookContext {
@@ -761,8 +865,12 @@ pub async fn reattach_all(st: Shared) {
         .is_some_and(|p| p.starts_with(r#"{"type":"finished""#));
         if last_finished && live.interactive {
             let mut s = live.state.lock().await;
-            if s.pending_user == 0 && !s.eof_sent && live.run.eof().await.is_ok() {
-                s.eof_sent = true;
+            if s.pending_user == 0 && !s.eof_sent {
+                if !s.bg.is_empty() {
+                    s.idle = true;
+                } else if live.run.eof().await.is_ok() {
+                    s.eof_sent = true;
+                }
             }
         }
         tracing::info!(target: "blazar::run", "已重新附着会话 {sid}（偏移 {off}）");
@@ -776,4 +884,19 @@ pub fn new_provider_session_id() -> ProviderSessionId {
 
 pub fn parse_approval_id(s: &str) -> Option<ApprovalId> {
     s.parse().ok().map(ApprovalId)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_unfinished_background_tasks_keep_the_cli_alive() {
+        for st in ["started", "running", "pending"] {
+            assert!(bg_alive(st), "{st}");
+        }
+        for st in ["completed", "killed", "stopped", "failed"] {
+            assert!(!bg_alive(st), "{st}");
+        }
+    }
 }

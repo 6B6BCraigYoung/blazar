@@ -123,6 +123,26 @@ pub async fn prompt(
     let _admit = match st.admit(workspace_id).await {
         Ok(g) => g,
         Err(reason) => {
+            if let Some((sid, thread)) = crate::run::send_to_idle(
+                &st,
+                workspace_id,
+                req.resume_session.as_deref().filter(|s| !s.is_empty()),
+                &req.text,
+                &with_editor_context(&req.text, req.context_file.as_deref()),
+                &req.images,
+            )
+            .await
+            {
+                return Ok(Json(serde_json::json!({
+                    "session_id": sid.to_string(),
+                    "thread_id": thread,
+                    "resumed": true,
+                    "interjected": true,
+                    "node": node,
+                    "activity": { "started": true },
+                    "interactive": true,
+                })));
+            }
             let running_session = st
                 .running
                 .read()
@@ -565,6 +585,8 @@ pub async fn prompt(
             user_no: 1,
             eof_sent: false,
             interrupt_requested: false,
+            bg: std::collections::HashSet::new(),
+            idle: false,
         }),
     });
 
