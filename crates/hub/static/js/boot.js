@@ -18,7 +18,7 @@ $('#palInput').oninput = () => { palSel = 0; drawPalette(); };
 $('#palInput').onkeydown = e => {
   if (e.key === 'ArrowDown') { e.preventDefault(); palSel++; drawPalette(); }
   else if (e.key === 'ArrowUp') { e.preventDefault(); palSel = Math.max(0, palSel - 1); drawPalette(); }
-  else if (e.key === 'Enter') {
+  else if (e.key === 'Enter' && !imeEnter(e)) {
     e.preventDefault();
     const hit = palHits[palSel];
     if (hit) { $('#palette').dataset.open = 'false'; hit.go(); }

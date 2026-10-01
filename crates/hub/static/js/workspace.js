@@ -336,10 +336,10 @@ async function pageWorkspace(id) {
         slashSel = (slashSel + (e.key === 'ArrowDown' ? 1 : -1) + S.slashItems.length) % Math.max(1, S.slashItems.length);
         drawSlash(); return;
       }
-      if ((e.key === 'Enter' && !e.isComposing) || e.key === 'Tab') { e.preventDefault(); runSlash(slashSel); return; }
+      if ((e.key === 'Enter' && !imeEnter(e)) || e.key === 'Tab') { e.preventDefault(); runSlash(slashSel); return; }
     }
 
-    if (e.key === 'Enter' && !e.isComposing && (uiPrefs().sendKey === 'mod' ? (e.metaKey || e.ctrlKey) : !e.shiftKey)) { e.preventDefault(); send().then(grow); }
+    if (e.key === 'Enter' && !imeEnter(e) && (uiPrefs().sendKey === 'mod' ? (e.metaKey || e.ctrlKey) : !e.shiftKey)) { e.preventDefault(); send().then(grow); }
     else if (e.key === 'Tab' && e.shiftKey) { e.preventDefault(); cycleMode(); }
     else if (e.key === 'Escape' && !$('#cbPop').hidden) { e.preventDefault(); closePop(); }
     else if (e.key === 'Escape' && wsRunning()) { e.preventDefault(); e.stopPropagation(); stopSession(); }

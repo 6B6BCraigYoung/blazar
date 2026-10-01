@@ -408,7 +408,7 @@ async function openCmdPop() {
         const at = Math.max(0, rows.indexOf(cpSel));
         cpSel = rows[(at + (e.key === 'ArrowDown' ? 1 : -1) + rows.length) % rows.length] ?? 0;
         draw();
-      } else if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); pick(cpSel); }
+      } else if (e.key === 'Enter' && !imeEnter(e)) { e.preventDefault(); pick(cpSel); }
       else if (e.key === 'Escape') { e.preventDefault(); closePop(); $('#prompt').focus(); }
     };
   };
@@ -528,7 +528,7 @@ function openFilePop() {
   };
   q.oninput = draw;
   q.onkeydown = e => {
-    if (e.key === 'Enter') { e.preventDefault(); host.querySelector('.cp-snip, .cp-file')?.click(); }
+    if (e.key === 'Enter' && !imeEnter(e)) { e.preventDefault(); host.querySelector('.cp-snip, .cp-file')?.click(); }
     if (e.key === 'Escape') { closePop(); $('#prompt').focus(); }
   };
   $('#cpSnipMgr').onclick = () => { closePop(); dlgSnippets(); };

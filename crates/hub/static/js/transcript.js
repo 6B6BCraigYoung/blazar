@@ -594,7 +594,7 @@ function openDeny(card) {
   const inp = card.querySelector('.adeny input');
   inp.focus();
   inp.onkeydown = e => {
-    if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); decide(card.dataset.appr, false, inp.value.trim()); }
+    if (e.key === 'Enter' && !imeEnter(e)) { e.preventDefault(); decide(card.dataset.appr, false, inp.value.trim()); }
     if (e.key === 'Escape') { e.stopPropagation(); card.dataset.deny = 'false'; }
   };
 }

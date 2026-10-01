@@ -47,7 +47,7 @@ async function drawMarket() {
   const q = $('#mkQ');
   if (cur.id === 'github') {
     const go = () => { setMkPrefs({ repo: q.value.trim() }); loadMarket(); };
-    $('#mkGo').onclick = go; q.onkeydown = e => { if (e.key === 'Enter') go(); };
+    $('#mkGo').onclick = go; q.onkeydown = e => { if (e.key === 'Enter' && !imeEnter(e)) go(); };
     $$('.mk-chips [data-repo]').forEach(b => { b.onclick = () => { q.value = b.dataset.repo; go(); }; });
   } else {
     let t; q.oninput = () => { clearTimeout(t); t = setTimeout(() => { setMkPrefs({ q: q.value.trim() }); loadMarket(); }, 450); };

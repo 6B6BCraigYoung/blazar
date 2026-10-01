@@ -67,7 +67,7 @@ function wirePreview() {
     else if (a === 'max') { togglePanelMax(); drawPreview(); }
   });
   bar.addEventListener('keydown', e => {
-    if (e.target.id === 'pvUrl' && e.key === 'Enter') { S.pvUrl = e.target.value.trim(); const f = $('#pvFrame'); if (f) f.dataset.url = ''; drawPreview(); }
+    if (e.target.id === 'pvUrl' && e.key === 'Enter' && !imeEnter(e)) { S.pvUrl = e.target.value.trim(); const f = $('#pvFrame'); if (f) f.dataset.url = ''; drawPreview(); }
   });
 }
 

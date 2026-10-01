@@ -47,7 +47,7 @@ function dlgNewWorkspace() {
   $('#bUp').onclick = () => { if (NW.listing?.parent) { NW.path = NW.listing.parent; loadBrowse(); } };
   $('#bGo').onclick = () => { NW.path = $('#bPath').value.trim(); loadBrowse(); };
   $('#bPath').onkeydown = e => {
-    if (e.key === 'Enter' && !e.isComposing) { NW.path = e.target.value.trim(); loadBrowse(); }
+    if (e.key === 'Enter' && !imeEnter(e)) { NW.path = e.target.value.trim(); loadBrowse(); }
   };
   $('#mOk').onclick = createFromBrowser;
   $('#mIso').onchange = () => {
