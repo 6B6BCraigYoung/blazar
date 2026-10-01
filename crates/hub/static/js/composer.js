@@ -241,7 +241,7 @@ function drawAgentChip() {
   if (!el || !sel) return;
   const name = sel.selectedOptions[0]?.textContent || '选择 Agent';
   el.innerHTML = `${rtIcon(currentRuntime())}<span>${esc(name)}</span>`;
-  el.title = name;
+  el.title = accSupported(currentRuntime()) ? `${name}（点开切换运行时与账号，换账号后上下文不变）` : name;
 }
 function openAgentPop() {
   const sel = $('#agentSel');
@@ -251,7 +251,8 @@ function openAgentPop() {
     if (g.tagName === 'OPTGROUP') {
       html += `<div class="cp-sec">${esc(g.label)}</div>` + [...g.children].map(o => {
         const rt = o.value.startsWith('r:') ? o.value.slice(2) : (S.profiles || []).find(p => p.id === o.value.slice(2))?.runtime;
-        return `<button class="cp-row" data-av="${esc(o.value)}">${rtMark(rt, 'sm')}<span class="cp-t"><b>${esc(o.textContent)}</b></span>${o.value === sel.value ? '<span class="cp-ok">✓</span>' : ''}</button>`;
+        const subs = o.value.startsWith('r:') && accSupported(rt) ? accountRows(rt, o.value === sel.value) : '';
+        return `<button class="cp-row" data-av="${esc(o.value)}">${rtMark(rt, 'sm')}<span class="cp-t"><b>${esc(o.textContent)}</b></span>${o.value === sel.value && !subs ? '<span class="cp-ok">✓</span>' : ''}</button>${subs}`;
       }).join('');
     } else if (g.value === 'new') {
       html += `<button class="cp-row" data-av="new"><span class="cp-t"><b>＋ New Agent…</b></span></button>`;
@@ -260,7 +261,16 @@ function openAgentPop() {
   if (!html) html = `<div class="t-caption faint" style="padding:8px 10px">本机还没有可用的运行时。去「运行时」页登录 Claude Code 或 Codex${
     S.ws?.node !== 'local' ? '（远端工作区只能由这两个驱动）' : ''}。</div>`;
   const p = openPop(html);
-  p.querySelectorAll('[data-av]').forEach(b => { b.onclick = () => { closePop(); sel.value = b.dataset.av; sel.onchange?.(); drawAgentChip(); }; });
+  p.querySelectorAll('[data-av]').forEach(b => {
+    b.onclick = () => {
+      closePop(); sel.value = b.dataset.av; sel.onchange?.();
+      if (b.dataset.acc !== undefined) {
+        setAccSel(b.dataset.acc);
+        if (wsRunning()) toast('这一轮跑完后，下一条消息起换账号');
+      }
+      drawAgentChip();
+    };
+  });
 }
 
 function openPlusPop() {

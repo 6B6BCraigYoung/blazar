@@ -28,6 +28,9 @@ function connectWs() {
       refreshInboxSoon();
     } else if (m.kind === 'autopilots_changed') {
       refreshAutopilotsSoon();
+    } else if (m.kind === 'accounts_changed') {
+      clearTimeout(S.accTimer);
+      S.accTimer = setTimeout(redrawAccounts, 300);
     } else if (m.kind === 'tasks_changed') {
       refreshTasksSoon();
     } else if (m.kind === 'session_titled') {

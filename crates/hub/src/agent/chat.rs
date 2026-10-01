@@ -374,7 +374,7 @@ pub struct RetryBody {
     pub options: Value,
 }
 
-async fn preface(st: &Shared, thread: &str, before: &str) -> String {
+pub(crate) async fn preface(st: &Shared, thread: &str, before: &str, note: &str) -> String {
     let rows: Vec<String> = sqlx::query_scalar(
         "SELECT e.payload FROM events e JOIN sessions s ON s.id = e.session_id
          WHERE COALESCE(s.thread_id, s.id) = ?1 AND s.rewound_at IS NULL AND s.created_at < ?2
@@ -416,7 +416,7 @@ async fn preface(st: &Shared, thread: &str, before: &str) -> String {
         out = format!("{t}\n\n{out}");
     }
     format!(
-        "（以下是这段对话此前的记录，供你了解上文；文件已经恢复到当时的状态。）\n\n{}\n（记录结束。下面是用户现在的消息。）\n\n",
+        "（以下是这段对话此前的记录，供你了解上文；{note}）\n\n{}\n（记录结束。下面是用户现在的消息。）\n\n",
         out.trim_end()
     )
 }
@@ -546,7 +546,10 @@ pub async fn retry(
         req["text"] = json!(text);
     } else {
         req["resume"] = json!(false);
-        req["text"] = json!(format!("{}{text}", preface(&st, &thread, &created).await));
+        req["text"] = json!(format!(
+            "{}{text}",
+            preface(&st, &thread, &created, "文件已经恢复到当时的状态。").await
+        ));
     }
     let parsed: PromptRequest = match serde_json::from_value(req) {
         Ok(p) => p,

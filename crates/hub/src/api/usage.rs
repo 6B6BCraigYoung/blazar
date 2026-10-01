@@ -140,6 +140,8 @@ pub async fn workspace_sessions(
                    ORDER BY x.created_at DESC LIMIT 1) AS status,
                 (SELECT x.id FROM sessions x WHERE COALESCE(x.thread_id, x.id) = t.thread
                    ORDER BY x.created_at DESC LIMIT 1) AS latest,
+                (SELECT x.account_id FROM sessions x WHERE COALESCE(x.thread_id, x.id) = t.thread
+                   ORDER BY x.created_at DESC LIMIT 1) AS account,
                 (SELECT COUNT(*) FROM events e JOIN sessions x ON x.id = e.session_id
                    WHERE COALESCE(x.thread_id, x.id) = t.thread) AS events,
                 (SELECT e.payload FROM events e WHERE e.session_id = t.thread
@@ -175,6 +177,7 @@ pub async fn workspace_sessions(
                 serde_json::json!({
                     "id": r.try_get::<String, _>("thread").unwrap_or_default(),
                     "latest": r.try_get::<Option<String>, _>("latest").unwrap_or(None),
+                    "account": r.try_get::<Option<String>, _>("account").unwrap_or(None),
                     "runtime": r.try_get::<String, _>("runtime_kind").unwrap_or_default(),
                     "status": r.try_get::<Option<String>, _>("status").unwrap_or(None),
                     "profile": r.try_get::<Option<String>, _>("agent_profile").unwrap_or(None),

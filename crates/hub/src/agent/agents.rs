@@ -47,6 +47,9 @@ pub struct Agent {
     pub custom_args: Vec<String>,
     #[serde(default = "one")]
     pub max_concurrent: i64,
+
+    #[serde(default)]
+    pub account: Option<String>,
     #[serde(default)]
     pub archived_at: Option<String>,
     #[serde(default)]
@@ -163,6 +166,11 @@ fn validate(a: &Agent) -> Result<(), String> {
     if !(1..=50).contains(&a.max_concurrent) {
         return Err("并发数 1–50".into());
     }
+    if let Some(acc) = &a.account
+        && (acc.len() > 64 || !acc.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'))
+    {
+        return Err("账号不合法".into());
+    }
     Ok(())
 }
 
@@ -194,6 +202,10 @@ fn normalize(mut a: Agent) -> Agent {
         .map(|s| s.trim().to_owned())
         .filter(|s| !s.is_empty())
         .collect();
+    a.account = a
+        .account
+        .map(|s| s.trim().to_owned())
+        .filter(|s| !s.is_empty());
     a
 }
 
@@ -220,6 +232,7 @@ fn from_row(r: &sqlx::sqlite::SqliteRow) -> Agent {
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default(),
         max_concurrent: r.try_get("max_concurrent").unwrap_or(1),
+        account: r.try_get("account").ok().flatten(),
         archived_at: r.try_get("archived_at").ok().flatten(),
         created_at: r.try_get("created_at").unwrap_or_default(),
         updated_at: r.try_get("updated_at").unwrap_or_default(),
@@ -458,8 +471,8 @@ async fn save(st: &Shared, a: &Agent, create: bool) -> Result<(), Response> {
         sqlx::query(
             "INSERT INTO agents (id, name, runtime, description, instructions, model, permission_mode,
                                  custom_env, color, avatar, starters, thinking_level, custom_args,
-                                 max_concurrent, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?15)",
+                                 max_concurrent, account, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?16, ?15, ?15)",
         )
         .bind(&a.id)
         .bind(&a.name)
@@ -476,6 +489,7 @@ async fn save(st: &Shared, a: &Agent, create: bool) -> Result<(), Response> {
         .bind(&args)
         .bind(a.max_concurrent)
         .bind(&now)
+        .bind(&a.account)
         .execute(st.db.pool())
         .await
     } else {
@@ -483,7 +497,7 @@ async fn save(st: &Shared, a: &Agent, create: bool) -> Result<(), Response> {
             "UPDATE agents SET name = ?2, runtime = ?3, description = ?4, instructions = ?5,
                     model = ?6, permission_mode = ?7, custom_env = ?8, color = ?9, avatar = ?10,
                     starters = ?11, thinking_level = ?12, custom_args = ?13, max_concurrent = ?14,
-                    updated_at = ?15
+                    updated_at = ?15, account = ?16
              WHERE id = ?1",
         )
         .bind(&a.id)
@@ -501,6 +515,7 @@ async fn save(st: &Shared, a: &Agent, create: bool) -> Result<(), Response> {
         .bind(&args)
         .bind(a.max_concurrent)
         .bind(&now)
+        .bind(&a.account)
         .execute(st.db.pool())
         .await
     };
@@ -688,6 +703,7 @@ mod tests {
             thinking_level: Some("high".into()),
             custom_args: vec!["--no-memory".into()],
             max_concurrent: 2,
+            account: Some("auto".into()),
             archived_at: None,
             created_at: String::new(),
             updated_at: String::new(),
@@ -723,6 +739,9 @@ mod tests {
         assert!(validate(&x).is_err());
         let mut x = a();
         x.max_concurrent = 0;
+        assert!(validate(&x).is_err());
+        let mut x = a();
+        x.account = Some("../etc".into());
         assert!(validate(&x).is_err());
     }
 }

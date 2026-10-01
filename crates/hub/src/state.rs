@@ -24,6 +24,7 @@ pub enum ServerEvent {
 
     TasksChanged,
     AutopilotsChanged,
+    AccountsChanged,
     InboxChanged,
 
     ScriptsChanged {

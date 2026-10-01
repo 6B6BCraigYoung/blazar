@@ -1,6 +1,6 @@
 use super::*;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct PromptRequest {
     pub text: String,
 
@@ -55,7 +55,16 @@ pub struct PromptRequest {
 
     #[serde(default)]
     pub retry_thread: Option<String>,
+
+    #[serde(default)]
+    pub account: Option<String>,
+
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub exclude_accounts: Vec<String>,
 }
+
+// 自动选号的会话把原始请求存下来，第一轮因为账号的原因失败时换号重发要用；太大的（多图）不存。
+const MAX_STORED_REQUEST: usize = 2 * 1024 * 1024;
 
 pub(crate) fn with_editor_context(text: &str, file: Option<&str>) -> String {
     let file = file
@@ -138,9 +147,16 @@ pub async fn prompt(
 
     let now = Utc::now().to_rfc3339();
 
-    let prior: Option<(String, Option<String>, Option<String>)> = if req.resume {
+    type Prior = (
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        String,
+    );
+    let prior: Option<Prior> = if req.resume {
         sqlx::query_as(
-            "SELECT COALESCE(thread_id, id) AS thread, provider_session_id, last_uuid FROM sessions
+            "SELECT COALESCE(thread_id, id) AS thread, provider_session_id, last_uuid, account_id, runtime_kind FROM sessions
              WHERE workspace_id = ?1 AND provider_session_id IS NOT NULL
                AND rewound_at IS NULL
                AND COALESCE(node, ?2) = ?2
@@ -155,12 +171,6 @@ pub async fn prompt(
     } else {
         None
     };
-    let resume_id = prior.as_ref().and_then(|(_, p, _)| p.clone());
-    let resume_at = prior
-        .as_ref()
-        .filter(|_| req.resume_at_last && resume_id.is_some())
-        .and_then(|(_, _, u)| u.clone());
-
     let profile = match req.profile.as_deref().filter(|p| !p.is_empty()) {
         Some(pid) => {
             let p = crate::agents::get(&st, pid)
@@ -183,6 +193,18 @@ pub async fn prompt(
         .unwrap_or_else(|| "claude".into());
     let agent_id = agent_id.as_str();
 
+    // 会话 id 只对产生它的那个 CLI 有效。对话中途换了运行时（比如 Claude 换成 Codex）就没法原生续接，
+    // 改成把此前的对话整理成前情提要带过去，消息仍然留在同一个对话里。
+    let switched = prior.as_ref().is_some_and(|p| p.4 != agent_id);
+    let resume_id = prior
+        .as_ref()
+        .filter(|_| !switched)
+        .and_then(|p| p.1.clone());
+    let resume_at = prior
+        .as_ref()
+        .filter(|_| req.resume_at_last && resume_id.is_some())
+        .and_then(|p| p.2.clone());
+
     if local_brain && !blazar_runtime::supports_remote_hands(agent_id) {
         return Err(ApiError(anyhow::anyhow!(
             "{} 只能用于本机工作区：它没法把文件与命令送到 {node} 上执行",
@@ -190,10 +212,37 @@ pub async fn prompt(
         )));
     }
 
+    let want_model = req
+        .model
+        .clone()
+        .filter(|m| !m.trim().is_empty())
+        .or_else(|| profile.as_ref().and_then(|p| p.model.clone()));
+    let account = crate::accounts::resolve(
+        &st,
+        agent_id,
+        &run_node,
+        req.account
+            .as_deref()
+            .or_else(|| profile.as_ref().and_then(|p| p.account.as_deref())),
+        prior
+            .as_ref()
+            .filter(|_| !switched)
+            .and_then(|p| p.3.as_deref()),
+        want_model.as_deref(),
+        &req.exclude_accounts,
+    )
+    .await
+    .map_err(|e| ApiError(anyhow::anyhow!(e)))?;
+    let stored_request = account
+        .as_ref()
+        .filter(|a| a.auto)
+        .and_then(|_| serde_json::to_string(&req).ok())
+        .filter(|s| s.len() <= MAX_STORED_REQUEST);
+
     let session_id = SessionId::new();
 
-    let thread_id = match (&prior, resume_id.is_some()) {
-        (Some((t, _, _)), true) => t.clone(),
+    let thread_id = match (&prior, resume_id.is_some() || switched) {
+        (Some(p), true) => p.0.clone(),
         _ => req
             .retry_thread
             .clone()
@@ -201,8 +250,9 @@ pub async fn prompt(
             .unwrap_or_else(|| session_id.to_string()),
     };
     sqlx::query(
-        "INSERT INTO sessions (id, workspace_id, runtime_kind, status, created_at, agent_profile, thread_id)
-         VALUES (?1, ?2, ?4, 'running', ?3, ?5, ?6)",
+        "INSERT INTO sessions (id, workspace_id, runtime_kind, status, created_at, agent_profile, thread_id,
+                               account_id, account_auto, request)
+         VALUES (?1, ?2, ?4, 'running', ?3, ?5, ?6, ?7, ?8, ?9)",
     )
     .bind(session_id.to_string())
     .bind(&id)
@@ -210,6 +260,9 @@ pub async fn prompt(
     .bind(agent_id)
     .bind(profile.as_ref().map(|p| p.id.clone()))
     .bind(&thread_id)
+    .bind(account.as_ref().map(|a| a.id.clone()))
+    .bind(i64::from(account.as_ref().is_some_and(|a| a.auto)))
+    .bind(&stored_request)
     .execute(st.db.pool())
     .await?;
 
@@ -259,9 +312,24 @@ pub async fn prompt(
     } else {
         path.clone()
     };
+    let handover = match prior.as_ref().filter(|_| switched) {
+        Some(p) => {
+            crate::chat::preface(
+                &st,
+                &p.0,
+                &now,
+                "此前由另一个 AI 助手完成，工作区里的文件就是它改过之后的样子。",
+            )
+            .await
+        }
+        None => String::new(),
+    };
     let mut spec = SessionSpec::new(
         &cwd,
-        with_editor_context(&req.text, req.context_file.as_deref()),
+        format!(
+            "{handover}{}",
+            with_editor_context(&req.text, req.context_file.as_deref())
+        ),
     );
 
     let mut env: std::collections::BTreeMap<String, String> = if local_brain {
@@ -348,6 +416,14 @@ pub async fn prompt(
         }
 
         spec.extra_args = c.custom_args.clone();
+    }
+    if let Some((k, v)) = account.as_ref().and_then(|a| a.env.clone()) {
+        spec.env.entry(k).or_insert(v);
+    }
+    if let Some((k, p)) = account.as_ref().and_then(|a| a.token_file.clone())
+        && !spec.env.contains_key(&k)
+    {
+        spec.env_files.insert(k, p);
     }
     if local_brain {
         let exe = std::env::current_exe()
@@ -495,6 +571,7 @@ pub async fn prompt(
         "node": node,
 
         "brain": if local_brain { "local" } else { "node" },
+        "account": account.as_ref().map(|a| a.id.clone()),
         "run_node": run_node,
         "activity": activity,
 

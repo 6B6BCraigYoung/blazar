@@ -52,55 +52,56 @@ async function pageRuntimes() {
     <div class="scroll"><div id="rtBody"><div class="card"><div class="t-caption faint">扫描本机的 agent CLI…</div></div></div></div>`;
   wireHeader();
   $('#rtScan').onclick = () => drawRuntimes();
-  drawRuntimes();
+  await drawRuntimes();
+  post('/api/accounts/check').then(() => { if ((S.route || '').split('?')[0] === '#/runtimes') drawRuntimes(); }).catch(() => {});
 }
 async function drawRuntimes() {
   const host = $('#rtBody'); if (!host) return;
-  S.runtimes = null;
-  let v;
-  try { v = await api('/api/runtimes'); }
+  let v, acc;
+  try { [v, acc] = await Promise.all([api('/api/runtimes'), loadAccounts()]); }
   catch (e) { host.innerHTML = `<div class="card"><div class="empty">${esc(e.message)}</div></div>`; return; }
+  if (!$('#rtBody')) return;
   const m = v.machine, all = v.runtimes;
   S.runtimes = all;
   const inst = all.filter(r => r.installed), missing = all.filter(r => !r.installed);
-  const usable = inst.filter(r => r.authed !== false);
+  const accsOf = id => acc.accounts.filter(a => a.provider === id);
+  // 支持多账号的运行时：有一个账号能用就算能用。
+  const usableRt = r => accSupported(r.id) ? accsOf(r.id).some(a => !a.disabled && a.status === 'ok') || r.authed === true : r.authed !== false;
+  const usable = inst.filter(usableRt);
   const cnt = $('#cnt-rt'); if (cnt) cnt.textContent = usable.length || '';
   const auth = r => r.authed === true
       ? `<span class="rt-ok" title="${esc(r.auth_hint || '')}"><span class="dot"></span>已登录</span>`
     : r.authed === false ? '<span class="rt-bad"><span class="dot"></span>未登录</span>'
     : `<span class="faint" title="${esc(r.auth_hint || '')}">无法判断</span>`;
+  const accSummary = r => {
+    const a = accsOf(r.id).find(x => x.id === activeAccountId(acc, r.id));
+    if (!a) return '<span class="faint">没选账号</span>';
+    return `<span class="${accUsable(a) ? 'rt-ok' : 'rt-bad'}"><span class="dot"></span>在用：${esc(a.label)}</span>`;
+  };
   const brains = usable.filter(r => r.remote_hands);
   host.innerHTML = `
     <div class="card rt-machine">
       <div class="rt-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></div>
       <div class="rt-mh">
         <div class="rt-name" title="Blazar v${esc(m.blazar_version)} · ${esc(m.os)} ${esc(m.arch)}">${esc(m.hostname || '本机')} <span class="rt-ok"><span class="dot"></span>在线</span>
-          <span class="badge badge-brand">本机</span></div>
-
+          <span class="badge badge-brand">本机</span>
+          ${TIP(`本机登录的 CLI 负责思考，读写文件、跑命令经 SSH 落到工作区所在机器执行。远端机器不用装 CLI、不用登录，凭据不离开本机。<br><br>只有 Claude Code 与 Codex 能这样驱动远端工作区；其它运行时只能用于本机工作区。<br><br>Claude Code 与 Codex 可以挂多个账号：浏览器登录的由官方 CLI 自己保管凭据，Blazar 不读取；长期 token 存在只有你能读的文件里。账号目录在 <span class="mono">${esc(acc.root || '')}</span>。`)}</div>
       </div>
     </div>
-    <div class="card">
-      <h3>运行时 <span class="badge badge-muted num">${inst.length}</span>${TIP(`本机登录的 CLI 负责思考，读写文件、跑命令经 SSH 落到工作区所在机器执行。远端机器不用装 CLI、不用登录，凭据不离开本机。<br><br>只有 Claude Code 与 Codex 能这样驱动远端工作区；其它运行时只能用于本机工作区。<br><br>登录态只检查凭据是否存在，不读取内容。`)}</h3>
-      <table class="tb rt-tb"><thead><tr><th>运行时</th><th>登录</th><th>用途</th><th style="text-align:right">近 7 天</th><th>CLI</th><th></th></tr></thead><tbody>
-      ${inst.map(r => `<tr>
-        <td><span class="rt-row">${rtMark(r.id)}<b>${esc(r.label)}</b><span class="badge badge-muted">内置</span></span></td>
-        <td>${auth(r)}</td>
-        <td class="t-caption">${r.remote_hands
-          ? '<span class="badge badge-brand">任意工作区</span>'
-          : '<span class="muted">仅本机工作区</span>'}</td>
-        <td class="num" style="text-align:right">${r.cost_7d ? '$' + r.cost_7d.toFixed(2) : '<span class="faint">—</span>'}
-</td>
-        <td class="m" title="${esc(r.path || '')}">${esc(r.version || '—')}</td>
-        <td style="text-align:right;white-space:nowrap">
-          <button class="btn btn-brand btn-xs" data-new-agent="${esc(r.id)}" ${r.authed === false ? 'disabled title="先登录这个 CLI"' : ''}>创建 Agent</button>
-          <a class="btn btn-ghost btn-xs" href="#/runtimes/${encodeURIComponent(r.id)}">设置</a></td></tr>`).join('')}
-      </tbody></table>
-
-    </div>
-    ${brains.length ? '' : `<div class="card"><div class="notice warn" style="margin:0">本机还没有可用的 Claude Code / Codex ${TIP('在终端运行 <span class="mono">claude</span> 或 <span class="mono">codex login</span> 登录一次即可。')}</div></div>`}
+    ${inst.map(r => `<div class="card rt-card">
+      <div class="rt-head">
+        <span class="rt-row" title="${esc([r.version && 'v' + r.version, r.path, r.remote_hands ? '可用于任意工作区' : '只能用于本机工作区', r.cost_7d ? `近 7 天 $${r.cost_7d.toFixed(2)}` : ''].filter(Boolean).join(' · '))}">${rtMark(r.id)}<b>${esc(r.label)}</b></span>
+        ${accSupported(r.id) ? accSummary(r) : auth(r)}
+        <span class="grow"></span>
+        <button class="btn btn-brand btn-xs" data-new-agent="${esc(r.id)}" ${usableRt(r) ? '' : 'disabled title="先登录这个 CLI"'}>创建 Agent</button>
+        <a class="btn btn-ghost btn-xs" href="#/runtimes/${encodeURIComponent(r.id)}">设置</a>
+      </div>
+      ${accSupported(r.id) ? accountsSection(acc, r.id) : ''}
+    </div>`).join('')}
+    ${brains.length ? '' : `<div class="card"><div class="notice warn" style="margin:0">本机还没有可用的 Claude Code / Codex ${TIP('在终端运行 <span class="mono">claude</span> 或 <span class="mono">codex login</span> 登录一次，或者在上面添加一个账号。')}</div></div>`}
     ${missing.length ? `<div class="card"><div class="t-caption faint">还能识别但本机没装：${missing.map(r => esc(r.label)).join('、')}</div></div>` : ''}`;
   $$('#rtBody [data-new-agent]').forEach(b => { b.onclick = () => dlgAgent({ runtime: b.dataset.newAgent }); });
-
+  wireAccounts(host, acc);
 }
 
 const INV_STATE = {

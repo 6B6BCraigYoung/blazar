@@ -362,7 +362,11 @@ function renderKind(log, k, resolved, meta = {}) {
       if (k.usage) CC.usage = k.usage;
       if (k.status !== 'success') {
         const why = k.status === 'interrupted' ? '已中断' : (k.message || k.status);
-        add(`<div class="cc-row cc-err"><span class="cc-dot"></span><div class="cc-main">${esc(why)}</div></div>`);
+        // 因为账号（额度、模型权限、认证）失败的，给一个「换个账号继续」：同一个对话接着做，上下文不变。
+        const byAccount = k.status !== 'interrupted' && accSupported(currentRuntime())
+          && /rate.?limit|usage|quota|credits|429|401|authenticat|额度|限流|not logged in/i.test(why);
+        add(`<div class="cc-row cc-err"><span class="cc-dot"></span><div class="cc-main">${esc(why)}${
+          byAccount ? '<div><button class="linkbtn" data-acc-continue>换个账号继续</button></div>' : ''}</div></div>`);
       } else {
 
         if (k.text?.trim() && k.text.trim() !== CC.lastText) {
@@ -423,11 +427,11 @@ async function initChatTabs() {
 function drawChatTabs() {
   const host = $('#chatTabs'); if (!host || !S.tabs) return;
   const runningThread = id => (S.threads || []).find(t => t.id === id)?.status === 'running';
-  host.innerHTML = S.tabs.map(t => `<button class="ctab" data-tid="${esc(t.id || '')}" data-active="${t.id === S.viewSession}" title="${esc(threadTitle(t.id))}（双击改名）">${
-    t.id ? rtIcon((S.threads || []).find(x => x.id === t.id)?.runtime) : ''}<span class="t">${esc(threadTitle(t.id))}</span>${
+  host.innerHTML = S.tabs.map(t => `<button class="ctab" data-tid="${esc(t.id || '')}" data-active="${t.id === S.viewSession}" title="${esc(threadTitle(t.id))}（双击改名）"><span class="t">${esc(threadTitle(t.id))}</span>${
     runningThread(t.id) ? '<span class="live"></span>' : ''}<span class="x" data-close="${esc(t.id || '')}" title="关闭标签">×</span></button>`).join('')
     + '<button class="ctab add" data-add title="新对话">＋</button>';
   host.querySelector('[data-active="true"]')?.scrollIntoView({ inline: 'nearest', block: 'nearest' });
+  drawAccChip();
 }
 async function activateTab(id) {
   if (!S.tabs.some(t => t.id === id)) S.tabs.push({ id });
@@ -453,6 +457,7 @@ function noteSent(r) {
   if (r.thread_id && r.thread_id !== S.viewSession) {
     const cur = S.tabs.find(t => t.id === S.viewSession);
     if (cur && S.viewSession === null) cur.id = r.thread_id; else if (!S.tabs.some(t => t.id === r.thread_id)) S.tabs.push({ id: r.thread_id });
+    if (S.viewSession === null) adoptAccSel(r.thread_id);
     S.viewSession = r.thread_id;
     setFresh(false);
     loadThreads().then(drawChatTabs);

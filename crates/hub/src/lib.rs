@@ -14,7 +14,7 @@ pub mod mesh;
 pub mod office;
 mod skills;
 mod work;
-pub use agent::{agents, catalog, chat, checkpoint, run, titles};
+pub use agent::{accounts, agents, catalog, chat, checkpoint, run, titles};
 pub use skills::{library, skillhub};
 pub use work::{analytics, autopilot, inbox, rules, scripts, snippets, tasks};
 pub mod state;
@@ -346,6 +346,21 @@ pub fn build_router(st: Arc<AppState>) -> Router {
         .route("/api/sessions/{id}/events", get(api::session_events))
         .route("/api/sessions/{id}/interrupt", post(api::interrupt))
         .route("/api/usage", get(api::usage))
+        .route("/api/accounts", get(accounts::list).post(accounts::create))
+        .route("/api/accounts/mode", put(accounts::set_mode))
+        .route("/api/accounts/check", post(accounts::check_all))
+        .route(
+            "/api/accounts/{id}",
+            put(accounts::update).delete(accounts::remove),
+        )
+        .route("/api/accounts/{id}/check", post(accounts::check_one))
+        .route("/api/accounts/{id}/token", put(accounts::set_token))
+        .route("/api/accounts/{id}/quota", post(accounts::quota))
+        .route(
+            "/api/accounts/{id}/models/{model}",
+            delete(accounts::clear_model_block),
+        )
+        .route("/api/accounts/{id}/login/ws", get(accounts::login_ws))
         .route("/api/workspaces/{id}/detail", get(api::workspace_detail))
         .route("/api/search", get(api::search))
         .route("/api/workspaces/{id}/terminal/ws", get(api::terminal_ws))

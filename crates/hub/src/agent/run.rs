@@ -182,7 +182,13 @@ async fn process_line(ctx: &Ctx, line: &str, at: u64, p: &mut Progress) -> Line 
             EntryKind::ApprovalResolved { id, .. } => {
                 crate::inbox::resolve_ref(&ctx.st, &id.to_string()).await;
             }
-            EntryKind::RateLimit(rl) => crate::inbox::note_rate_limit(&ctx.st, rl).await,
+            EntryKind::RateLimit(rl) => {
+                crate::inbox::note_rate_limit(&ctx.st, rl).await;
+                crate::accounts::note_rate_limit(&ctx.st, ctx.sid, rl).await;
+            }
+            EntryKind::Finished(Outcome::Failed { message }) | EntryKind::Error { message } => {
+                crate::accounts::note_failure(&ctx.st, ctx.sid, message).await;
+            }
             _ => {}
         }
     }
@@ -318,6 +324,9 @@ async fn finalize(ctx: &Ctx, code: Option<i32>, p: &Progress) {
                 },
             }
         };
+        if let Outcome::Failed { message } = &outcome {
+            crate::accounts::note_failure(&ctx.st, ctx.sid, message).await;
+        }
         let e = NormalizedEntry {
             seq: ctx.live.take_seq().await,
             ts: Utc::now(),
@@ -366,6 +375,12 @@ async fn finalize(ctx: &Ctx, code: Option<i32>, p: &Progress) {
         status,
     ));
     tokio::spawn(crate::autopilot::on_run_finished(
+        ctx.st.clone(),
+        ctx.sid,
+        status,
+    ));
+
+    tokio::spawn(crate::accounts::on_run_finished(
         ctx.st.clone(),
         ctx.sid,
         status,

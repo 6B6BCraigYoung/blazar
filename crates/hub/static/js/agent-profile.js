@@ -26,6 +26,7 @@ async function pageAgentProfile(id) {
       <a class="btn btn-outline btn-sm" href="#/agents" style="margin-top:10px">返回智能体列表</a></div>`; return;
   }
   if (!S.runtimes) { try { S.runtimes = (await api('/api/runtimes')).runtimes; } catch (_) { S.runtimes = []; } }
+  await loadAccounts();
   const qs = new URLSearchParams(location.hash.split('?')[1] || '');
   const view = ['overview', 'work', 'capabilities', 'settings'].includes(qs.get('view')) ? qs.get('view') : 'overview';
   const subs = AG_SUB[view] || [];
@@ -107,6 +108,7 @@ function drawAgentOverview(pane, a) {
       <div class="kv"><span class="k">模型</span><span class="v mono t-caption">${esc(a.model || '默认')}</span></div>
       <div class="kv"><span class="k">思考</span><span class="v">${esc(THINK_LABEL[a.thinking_level] || '跟随 CLI 配置')}</span></div>
       <div class="kv"><span class="k">权限模式</span><span class="v">${esc(PERM_TEXT[a.permission_mode] || '按运行时设置')}</span></div>
+      ${accSupported(a.runtime) ? `<div class="kv"><span class="k">账号</span><span class="v">${esc(a.account === 'auto' ? '自动选择' : accOf(a.account)?.label || `跟随运行时（${accModeLabel(a.runtime)}）`)}</span></div>` : ''}
       <div class="kv"><span class="k">并发</span><span class="v num">${a.max_concurrent}</span></div>
       <div class="kv"><span class="k">创建时间</span><span class="v">${ago(a.created_at)}</span></div>
       <div class="kv"><span class="k">更新时间</span><span class="v">${ago(a.updated_at)}</span></div>
@@ -171,7 +173,7 @@ function drawAgentInstructions(pane, a) {
 function drawAgentGeneral(pane, a) {
   const editable = !a.archived_at, dis = editable ? '' : 'disabled';
   const rts = (S.runtimes || []).filter(r => r.installed);
-  const rtOpts = rts.map(r => `<option value="${esc(r.id)}" ${r.id === a.runtime ? 'selected' : ''}>${esc(r.label)}${r.authed === false ? '（离线：未登录）' : ''}</option>`).join('')
+  const rtOpts = runtimeAccountOpts(rts, a.runtime, a.account)
     + (rts.some(r => r.id === a.runtime) ? '' : `<option value="${esc(a.runtime)}" selected>${esc(a.runtime_label)}（本机没装）</option>`);
   pane.innerHTML = `
     <div class="set-sec"><div class="set-h"><h3>资料</h3><span class="t-caption faint" id="agSaveState"></span></div>
@@ -182,7 +184,7 @@ function drawAgentGeneral(pane, a) {
       </div></div>
     <div class="set-sec"><div class="set-h"><h3>执行配置</h3></div>
       <div class="card set-card">
-        <div class="set-row"><label>运行时</label><select id="agRt" class="input" ${dis}>${rtOpts}</select></div>
+        <div class="set-row"><label>运行时与账号</label><div><select id="agRt" class="input" ${dis}>${rtOpts}</select><div class="t-caption faint">账号只对在本机运行的会话生效，在「运行时」页添加与登录。</div></div></div>
         <div class="set-row"><label>模型</label><div><input id="agModel" class="input mono" list="agModelList" value="${esc(a.model || '')}" placeholder="默认（提供方）" ${dis}><datalist id="agModelList"></datalist><div class="t-caption faint">搜索或输入模型 ID；清空 = 使用提供方默认</div></div></div>
         <div class="set-row"><label>思考</label><select id="agThink" class="input" ${dis}><option value="">跟随 CLI 配置</option>${Object.entries(THINK_LABEL).map(([v, t]) => `<option value="${v}" ${a.thinking_level === v ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
         <div class="set-row"><label>权限模式</label><select id="agPerm" class="input" ${dis}>${permOpts(a.runtime, a.permission_mode)}</select></div>
@@ -214,8 +216,10 @@ function drawAgentGeneral(pane, a) {
   for (const id of ['#agName', '#agDesc', '#agAv']) $(id).onblur = flush;
   $('#agRt').onchange = () => {
 
-    $('#agPerm').innerHTML = permOpts($('#agRt').value, ''); $('#agModel').value = ''; $('#agThink').value = '';
-    now({ runtime: $('#agRt').value, model: null, thinking_level: null, permission_mode: null });
+    if (rtPart($('#agRt').value) !== a.runtime) { $('#agPerm').innerHTML = permOpts(rtPart($('#agRt').value), ''); $('#agModel').value = ''; $('#agThink').value = ''; }
+    const rt = rtPart($('#agRt').value), acc = accPart($('#agRt').value);
+    if (rt === a.runtime) { now({ account: acc }); return; }
+    now({ runtime: rt, model: null, thinking_level: null, permission_mode: null, account: acc });
     fillModels();
   };
   $('#agModel').onchange = () => now({ model: $('#agModel').value.trim() || null });
@@ -223,7 +227,7 @@ function drawAgentGeneral(pane, a) {
   $('#agPerm').onchange = () => now({ permission_mode: $('#agPerm').value || null });
   $('#agConc').onchange = () => { const n = Math.max(1, Math.min(50, +$('#agConc').value || 1)); $('#agConc').value = n; now({ max_concurrent: n }); };
   const fillModels = async () => {
-    const list = await modelsFor($('#agRt').value);
+    const list = await modelsFor(rtPart($('#agRt').value));
     $('#agModelList').innerHTML = list.filter(m => m.id).map(m => `<option value="${esc(m.id)}">${esc(m.label)}</option>`).join('');
   };
   fillModels();

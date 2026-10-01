@@ -1,6 +1,7 @@
 async function pageAgentCreate() {
   const qs = new URLSearchParams(location.hash.split('?')[1] || '');
   if (!S.runtimes) { try { S.runtimes = (await api('/api/runtimes')).runtimes; } catch (_) { S.runtimes = []; } }
+  await loadAccounts();
   const rts = S.runtimes.filter(r => r.installed);
   let tpl = null;
   if (qs.get('template')) { try { tpl = await api(`/api/agent-profiles/${encodeURIComponent(qs.get('template'))}`); } catch (_) {} }
@@ -24,7 +25,7 @@ async function pageAgentCreate() {
         <div class="set-row top"><label>对话开场建议</label><div><div class="t-caption faint" style="margin-bottom:6px">最多三条。点击后填入输入框，不会发送。</div><div id="cStarters"></div></div></div>
       </div></div>
       <div class="set-sec"><div class="set-h"><h3>执行配置</h3><span class="t-caption faint">未指定的选项沿用运行时默认值。</span></div><div class="card set-card">
-        <div class="set-row"><label>运行时</label>${rts.length ? `<select id="cRt" class="input">${rts.map(r => `<option value="${esc(r.id)}" ${r.id === base.runtime ? 'selected' : ''}>${esc(r.label)}${r.authed === false ? '（未登录）' : ''}</option>`).join('')}</select>` : '<span class="muted">暂无可用运行时 —— 先去「运行时」页安装或登录一个 CLI</span>'}</div>
+        <div class="set-row"><label>运行时与账号</label>${rts.length ? `<select id="cRt" class="input">${runtimeAccountOpts(rts, base.runtime, base.account)}</select>` : '<span class="muted">暂无可用运行时 —— 先去「运行时」页安装或登录一个 CLI</span>'}</div>
         <div class="set-row"><label>模型</label><input id="cModel" class="input mono" list="cModelList" value="${esc(base.model || '')}" placeholder="默认（提供方）"><datalist id="cModelList"></datalist></div>
         <div class="set-row"><label>思考</label><select id="cThink" class="input"><option value="">跟随 CLI 配置</option>${Object.entries(THINK_LABEL).map(([v, t]) => `<option value="${v}" ${base.thinking_level === v ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
         <div class="set-row"><label>权限模式</label><select id="cPermA" class="input">${permOpts(base.runtime, base.permission_mode)}</select></div>
@@ -44,9 +45,15 @@ async function pageAgentCreate() {
   drawSt();
   const count = () => { const n = $('#cDesc').value.length; $('#cDescN').textContent = `${n} / 255${n > 255 ? ` · 超出 ${n - 255} 字` : ''}`; };
   count(); $('#cDesc').oninput = count;
-  const fillModels = async () => { if (!$('#cRt')) return; const list = await modelsFor($('#cRt').value); $('#cModelList').innerHTML = list.filter(m => m.id).map(m => `<option value="${esc(m.id)}">${esc(m.label)}</option>`).join(''); };
+  const fillModels = async () => { if (!$('#cRt')) return; const list = await modelsFor(rtPart($('#cRt').value)); $('#cModelList').innerHTML = list.filter(m => m.id).map(m => `<option value="${esc(m.id)}">${esc(m.label)}</option>`).join(''); };
   fillModels();
-  $('#cRt')?.addEventListener('change', () => { $('#cPermA').innerHTML = permOpts($('#cRt').value, ''); $('#cModel').value = ''; $('#cThink').value = ''; fillModels(); });
+  let lastRt = rtPart($('#cRt')?.value);
+  $('#cRt')?.addEventListener('change', () => {
+    const rt = rtPart($('#cRt').value);
+    if (rt === lastRt) return;
+    lastRt = rt;
+    $('#cPermA').innerHTML = permOpts(rt, ''); $('#cModel').value = ''; $('#cThink').value = ''; fillModels();
+  });
   $('#cName').focus();
   $('#cCreate').onclick = async () => {
     const name = $('#cName').value.trim();
@@ -55,8 +62,9 @@ async function pageAgentCreate() {
     const clean = starters.map(x => ({ label: x.label.trim(), prompt: x.prompt.trim() })).filter(x => x.label || x.prompt);
     if (clean.some(x => !x.label || !x.prompt)) { toast('请填写完整或移除每条建议后再保存。'); return; }
     const body = { name, avatar: $('#cAv').value.trim(), description: $('#cDesc').value.trim(), instructions: $('#cIns').value, starters: clean,
-      runtime: $('#cRt').value, model: $('#cModel').value.trim() || null, thinking_level: $('#cThink').value || null, permission_mode: $('#cPermA').value || null,
-      custom_args: tpl?.custom_args || [], max_concurrent: tpl?.max_concurrent || 1, env: {}, color: '' };
+      runtime: rtPart($('#cRt').value), model: $('#cModel').value.trim() || null, thinking_level: $('#cThink').value || null, permission_mode: $('#cPermA').value || null,
+      custom_args: tpl?.custom_args || [], max_concurrent: tpl?.max_concurrent || 1, env: {}, color: '',
+      account: accPart($('#cRt').value) };
     const btn = $('#cCreate'); btn.disabled = true; btn.textContent = '正在创建…';
     try {
       const r = await api('/api/agent-profiles', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
@@ -88,7 +96,7 @@ async function pageAgentDetail(id) {
       ...patch,
     };
   };
-  const view = new URLSearchParams(location.hash.split('?')[1] || '').get('view') || 'general';
+  const view = new URLSearchParams(location.hash.split('?')[1] || '').get('view') || (accSupported(id) ? 'accounts' : 'general');
 
   $('#page').innerHTML = `
     <div class="phead">
@@ -101,6 +109,7 @@ async function pageAgentDetail(id) {
     </div>
     <div style="flex:1;display:flex;min-height:0">
       <nav class="vtabs">
+        ${accSupported(id) ? '<button class="vtab" data-v="accounts">账号</button>' : ''}
         <button class="vtab" data-v="general">配置</button>
         <button class="vtab" data-v="env">环境变量</button>
         <button class="vtab" data-v="args">自定义参数</button>
@@ -217,7 +226,7 @@ async function pageAgentDetail(id) {
       } catch (e) { toast('保存失败: ' + e.message); }
     };
   };
-  const draws = { general: drawGeneral, env: drawEnv, args: drawArgs };
+  const draws = { accounts: () => drawAccountsTab(id), general: drawGeneral, env: drawEnv, args: drawArgs };
   const select = v => {
     $$('.vtab').forEach(t => { t.dataset.active = String(t.dataset.v === v); });
     (draws[v] || drawGeneral)();

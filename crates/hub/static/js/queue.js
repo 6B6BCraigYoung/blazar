@@ -7,6 +7,7 @@ function sendOptions() {
     agent: $('#agentSel').value.startsWith('r:') ? $('#agentSel').value.slice(2) : null,
     profile: $('#agentSel').value.startsWith('p:') ? $('#agentSel').value.slice(2) : null,
     brain: 'local',
+    account: $('#agentSel').value.startsWith('r:') && accSupported(currentRuntime()) ? (accSel() || null) : null,
     ...prefBody(),
   };
 }

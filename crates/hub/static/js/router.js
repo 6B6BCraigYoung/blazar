@@ -18,6 +18,7 @@ const ROUTES = [
   [/^#\/agents\/(.+)$/,     (m) => navigate('#/runtimes/' + m[1])],
   [/^#\/agents$/,           () => pageAgents()],
   [/^#\/runtimes$/,         () => pageRuntimes()],
+  [/^#\/accounts$/,         () => navigate('#/runtimes')],
   [/^#\/nodes\/(.+)$/,      (m) => pageNodeDetail(decodeURIComponent(m[1]))],
   [/^#\/nodes$/,            () => pageNodes()],
   [/^#\/mesh$/,             () => navigate('#/nodes')],

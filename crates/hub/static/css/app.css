@@ -1475,3 +1475,31 @@ body[data-side="off"] #page > .phead,body[data-side="off"] #page > * > .phead{pa
 .cb-att img{width:100%;height:100%;object-fit:cover;display:block}
 .cb-att button{position:absolute;top:3px;right:3px;width:18px;height:18px;border:0;border-radius:50%;
   background:rgb(0 0 0/.6);color:#fff;font-size:12px;line-height:18px;cursor:pointer;padding:0}
+.acc-q{min-width:260px}
+.qbar{display:flex;align-items:center;gap:8px;font-size:12px;line-height:20px}
+.qbar .ql{width:84px;color:var(--muted-fg);white-space:nowrap}
+.qbar .trk{flex:1;min-width:70px;height:6px;border-radius:3px;background:var(--muted);overflow:hidden}
+.qbar .fill{display:block;height:100%;border-radius:3px;background:var(--success)}
+.qbar[data-lvl="warn"] .fill{background:var(--warning)}
+.qbar[data-lvl="bad"] .fill{background:var(--destructive)}
+.qbar .qv{width:36px;text-align:right}
+.qbar .qr{width:92px;white-space:nowrap}
+.set-row[hidden]{display:none}
+.acc-mb{margin-top:4px;color:var(--muted-fg)}
+.acc-mb .badge{display:inline-flex;align-items:center;gap:4px}
+.acc-mb .x{border:0;background:none;color:inherit;cursor:pointer;padding:0 0 0 2px;font-size:12px;line-height:1;opacity:.7}
+.acc-mb .x:hover{opacity:1}
+.rt-card .rt-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.rt-card .acc-sec{margin-top:12px;border-top:1px solid var(--border);padding-top:10px}
+.acc-pol{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px}
+.acc-pol select{max-width:340px}
+.cp-row.cp-sub{padding:5px 10px 5px 40px}
+.cp-row.cp-sub b{font-weight:500}
+.cp-row.cp-sub[disabled]{opacity:.45;cursor:default}
+.cp-row.cp-sub[disabled]:hover{background:none}
+.acc-pick{width:100%;text-align:left}
+.acc-tb tr.acc-on td{background:color-mix(in srgb,var(--brand) 10%,transparent)}
+.acc-tb tr.acc-on td:first-child{box-shadow:inset 3px 0 0 var(--brand)}
+.acc-use-on{display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:500;color:var(--brand);background:color-mix(in srgb,var(--brand) 16%,transparent)}
+.acc-more{min-width:26px}
+.acc-tb tr:not(.acc-on) b{font-weight:500}

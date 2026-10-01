@@ -276,6 +276,7 @@ async function pageWorkspace(id) {
 
   mountEditor();
   fillAgentSel();
+  loadAccounts().then(drawAccChip);
 
   $('#tgEx').onclick = () => toggleRegion('ex');
   $('#tgPanel').onclick = () => toggleRegion('panel');

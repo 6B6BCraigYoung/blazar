@@ -80,8 +80,8 @@ async function drawInbox() {
     const open = async () => {
       if (!it.read) await post('/api/inbox', { action: 'read', ids: [it.id] }).catch(() => {});
       if (it.kind === 'autopilot_paused') navigate('#/autopilots?id=' + it.ref_id);
-      else if (it.kind === 'rate_limit') navigate('#/usage');
       else if (it.workspace_id && it.thread_id) openThreadIn(it.workspace_id, it.thread_id);
+      else if (it.kind === 'rate_limit') navigate('#/runtimes');
       else if (it.workspace_id) navigate('#/workspaces/' + it.workspace_id);
       else drawInbox();
     };
