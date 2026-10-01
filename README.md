@@ -52,6 +52,7 @@ files anywhere.
 - **Tasks →** A board of work items. Assign one to an agent and it starts on the workspace it belongs to.
 - **Autopilots →** Cron-scheduled or webhook-triggered runs: nightly audits, weekly reports, "fix the flaky test" every morning. Three consecutive failures pause an autopilot.
 - **Inbox and attention queue →** Approvals, questions, failures and finished runs in one list; desktop badge and sounds only for the kinds you choose. Rules auto-approve the boring ones.
+- **Multiple accounts →** Sign in to several Claude Code and Codex accounts side by side (or paste a `claude setup-token` token per Claude account), see each one's 5-hour and weekly quota, and bind an agent to an account or let Blazar start every run on the account with the most quota left.
 - **SKILLs →** A library of agent skills, importable from `~/.claude/skills`, discoverable from skills.sh, SkillsMP, ClawHub and GitHub, attachable per agent — plus MCP servers with write-only secrets.
 
 <p align="center">
@@ -82,7 +83,7 @@ files anywhere.
 
 ## Stay in control
 
-- **Credentials stay where they are →** Blazar drives the CLIs you have already authenticated. It never stores or forwards a token, and it only checks whether a credential exists — it never reads one.
+- **Credentials stay where they are →** Blazar drives the CLIs you have already authenticated. It never stores or forwards a token, and it only checks whether a credential exists — it never reads one. Extra accounts are separate CLI config directories that the official CLI signs in to; Blazar only points `CLAUDE_CONFIG_DIR` / `CODEX_HOME` at the right one when it starts a run. The one exception is opt-in: a Claude Code account can instead use a long-lived token from `claude setup-token` that you paste in. Blazar keeps it in a `0600` file inside that account's directory and the launch script reads it from there, so it never appears in the UI, the API, logs or the run directory.
 - **Permission modes per run →** From "ask for everything" to "bypass", plus auto-approval rules with an explicit denylist for shell metacharacters.
 - **Local data →** One SQLite file. No accounts, no telemetry, no server to run.
 - **Scriptable →** The `blazar` CLI and an MCP server expose everything the UI can do, so agents can drive Blazar too.
@@ -365,7 +366,7 @@ a public issue; include steps to reproduce and the commit you tested. Only the l
 receives fixes.
 
 The model: the hub listens on loopback only and rejects cross-origin requests, and has no
-authentication of its own. Credentials are never stored, read or forwarded. Agents run with the
+authentication of its own. Apart from Claude long-lived tokens you choose to paste in (kept only in a local `0600` file), credentials are never stored, read or forwarded. Agents run with the
 permission mode you choose; auto-approval rules refuse shell metacharacters and approvals are
 logged. Integrations are opt-in per capability. The mesh engine runs as root because it creates a
 network interface; it is the unmodified upstream binary, verified at download, installed into a
