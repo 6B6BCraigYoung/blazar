@@ -5,7 +5,7 @@ const relPath = p => {
   const root = S.ws?.path;
   return p && root && String(p).startsWith(root + '/') ? String(p).slice(root.length + 1) : (p || '');
 };
-const CC = { toolIn: new Map(), full: new Map(), fullSeq: 0, lastText: '', usage: null, model: '', rate: '', userSeen: new Set(), ask: new Map(), apprReq: new Map() };
+const CC = { bgShown: new Map(), toolIn: new Map(), full: new Map(), fullSeq: 0, lastText: '', usage: null, model: '', rate: '', userSeen: new Set(), ask: new Map(), apprReq: new Map() };
 
 function mdInline(escaped) {
   return escaped
@@ -148,7 +148,7 @@ function toolBlock(k) {
     : k.name === 'ExitPlanMode' && k.input?.plan ? `<details class="cc-planbody"><summary>计划内容</summary><div class="cc-md">${md(k.input.plan)}</div></details>` : '';
   return `<div class="cc-row cc-tool" data-tool="${esc(k.id)}" data-st="run" data-name="${esc(k.name)}">
     <span class="cc-dot"></span><div class="cc-main">
-      <div class="cc-head"><b>${esc(t.label)}</b>${t.arg ? `<span class="cc-arg">(${esc(t.arg)})</span>` : ''}</div>
+      <div class="cc-head"><b>${esc(t.label)}</b>${t.arg ? `<span class="cc-arg">${esc(t.arg)}</span>` : ''}</div>
       ${extra}<div class="cc-res"></div></div></div>`;
 }
 
@@ -193,6 +193,17 @@ function approvalCard(k, resolved) {
     <div class="apstate">${resolved ? esc(resolved) : ''}</div>
   </div>`;
 }
+
+function assistantHtml(text) {
+  const key = ++CC.fullSeq; CC.full.set(key, text);
+  return `<div class="cc-row cc-msg"><span class="cc-dot"></span><div class="cc-main"><div class="cc-md">${md(text)}</div>
+    <div class="cc-acts2"><button class="cc-copy" data-copy="${key}" title="复制">${svgI('copy')}</button></div></div></div>`;
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest?.('[data-copy]'); if (!b) return;
+  const t = CC.full.get(+b.dataset.copy); if (t == null) return;
+  navigator.clipboard?.writeText(t).then(() => { b.dataset.done = 'true'; setTimeout(() => { delete b.dataset.done; }, 1200); }).catch(() => toast('复制失败'));
+});
 
 const SUB_KINDS = new Set(['user_message', 'assistant_message', 'thinking', 'tool_use', 'tool_result']);
 
@@ -262,11 +273,49 @@ async function rewind(cp, isUndo = false) {
   } catch (e) { toast('回退失败: ' + e.message); }
 }
 
+// ── 跟 Claude Code 插件一样：一轮里连续的中间步骤（工具调用、思考、后台任务）收成一行可展开的摘要，
+//    助手说的话、要你操作的卡片照常显示，并把前后的步骤分成两组。
+const FOLDED = new Set(['thinking', 'tool_use', 'tool_result']);
+const CHEVRON = '<svg class="cc-fchev" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+function foldFor(into) {
+  if (CC.fold && CC.fold.isConnected && CC.fold.parentElement === into) return CC.fold.querySelector('.cc-fb');
+  into.insertAdjacentHTML('beforeend', `<div class="cc-row cc-fold" data-st="run"><span class="cc-dot"></span><div class="cc-main">
+    <details class="cc-fd"><summary><span class="cc-fl"></span>${CHEVRON}</summary><div class="cc-fb"></div></details></div></div>`);
+  CC.fold = into.lastElementChild;
+  return CC.fold.querySelector('.cc-fb');
+}
+function closeFold() {
+  const f = CC.fold; CC.fold = null;
+  if (f) drawFold(f);
+}
+function drawFold(f, live = f === CC.fold && wsRunning()) {
+  const body = f.querySelector('.cc-fb'); if (!body) return;
+  const tools = body.querySelectorAll(':scope > .cc-tool');
+  const errs = body.querySelectorAll(':scope > .cc-tool[data-st="err"]').length;
+  const run = [...body.querySelectorAll(':scope > .cc-tool[data-st="run"]')].pop();
+  const thinks = body.querySelectorAll(':scope > .cc-think, :scope > .cc-thinkmark');
+  const secs = [...thinks].reduce((n, t) => n + (+t.dataset.secs || 0), 0);
+  let text;
+  if (live && run) text = `正在运行 ${run.querySelector('.cc-head b')?.textContent || run.dataset.name}…`;
+  else if (live && !tools.length) text = '思考中…';
+  else if (tools.length) text = `${tools.length} 个工具调用${errs ? ` · ${errs} 个失败` : ''}`;
+  else if (thinks.length) text = secs ? `思考了 ${secs}s` : '思考';
+  else text = `${body.children.length} 个步骤`;
+  f.querySelector('.cc-fl').textContent = text;
+  f.dataset.st = live ? 'run' : errs ? 'err' : 'ok';
+  f.dataset.live = String(live);
+}
+const settleFolds = root => root.querySelectorAll('.cc-fold').forEach(f => drawFold(f, false));
+
 function renderKind(log, k, resolved, meta = {}) {
 
   const sub = meta.parent && SUB_KINDS.has(k.type) ? subBox(log, meta.parent) : null;
   if (sub && k.type === 'user_message') return;
-  const into = sub ? sub.querySelector('.cc-subl') : log;
+  const quiet = ['token_usage', 'rate_limit', 'input_consumed', 'approval_resolved', 'session_started'].includes(k.type)
+    || (k.type === 'assistant_message' && !k.text?.trim()) || (k.type === 'background_task' && k.status === 'started');
+  if (!sub && !quiet && !FOLDED.has(k.type)) closeFold();
+  const into = sub ? sub.querySelector('.cc-subl')
+    : FOLDED.has(k.type) || (k.type === 'background_task' && k.status === 'started') ? foldFor(log) : log;
   const add = html => into.insertAdjacentHTML('beforeend', html);
   const prevTs = CC.lastTs;
   if (meta.ts) { const t = Date.parse(meta.ts); if (t) CC.lastTs = t; }
@@ -277,7 +326,7 @@ function renderKind(log, k, resolved, meta = {}) {
 
       const first = !!meta.sid && !CC.userSeen.has(meta.sid) && !meta.rewound;
       if (meta.sid) CC.userSeen.add(meta.sid);
-      add(`<div class="cc-user"${meta.sid ? ` data-sid="${esc(meta.sid)}" data-seq="${meta.seq}"` : ''} data-first="${first}"><span class="cc-gt">&gt;</span><div class="cc-ut">${esc(k.text)}</div><span class="cc-acts">${
+      add(`<div class="cc-user"${meta.sid ? ` data-sid="${esc(meta.sid)}" data-seq="${meta.seq}"` : ''} data-first="${first}"><div class="cc-ut">${esc(k.text)}</div><span class="cc-acts">${
         first ? '<button class="cc-rw" data-edit title="改一改这条消息，从这里重来">✎ 编辑并重试</button><button class="cc-rw" data-regen title="原话不变，让 agent 重新回答这一轮">⟳ 重新生成</button>' : ''
       }<button class="cc-rw" data-rw title="把工作区的文件恢复到这条消息发出之前">↺ 回退到这里</button></span></div>`);
     }
@@ -285,15 +334,15 @@ function renderKind(log, k, resolved, meta = {}) {
     case 'assistant_message':
       if (!k.text?.trim()) break;
       CC.lastText = k.text.trim();
-      add(`<div class="cc-row cc-msg"><span class="cc-dot"></span><div class="cc-main cc-md">${md(k.text)}</div></div>`);
+      add(assistantHtml(k.text));
       break;
     case 'thinking': {
 
       const secs = meta.ts && CC.lastTs ? Math.max(1, Math.round((Date.parse(meta.ts) - CC.lastTs) / 1000)) : 0;
       const head = `✻ Thought${secs ? ` for ${secs}s` : ''}`;
       add(k.text?.trim()
-        ? `<details class="cc-think"><summary>${head}</summary><div class="cc-md">${md(k.text)}</div></details>`
-        : `<div class="cc-thinkmark">${head}</div>`);
+        ? `<details class="cc-think" data-secs="${secs}"><summary>${head}</summary><div class="cc-md">${md(k.text)}</div></details>`
+        : `<div class="cc-thinkmark" data-secs="${secs}">${head}</div>`);
       break;
     }
     case 'tool_use': {
@@ -311,6 +360,7 @@ function renderKind(log, k, resolved, meta = {}) {
       if (el) {
         el.dataset.st = k.ok ? 'ok' : 'err';
         el.querySelector('.cc-res').innerHTML = resultHtml(el.dataset.name, k, t?.input);
+        const f = el.closest('.cc-fold'); if (f) drawFold(f);
       } else {
         add(`<div class="cc-row cc-orphan">${resultHtml(t?.name || '', k, t?.input)}</div>`);
       }
@@ -330,8 +380,6 @@ function renderKind(log, k, resolved, meta = {}) {
       CC.sess = { output_style: k.output_style, fast_mode: k.fast_mode, fast_mode_reason: k.fast_mode_reason,
         mcp_servers: k.mcp_servers || [] };
       drawMcpBtn();
-      add(`<div class="cc-sep" title="${esc([k.model, PERM_TEXT[k.permission_mode] || k.permission_mode].filter(Boolean).join(' · '))}">新会话${
-        /\/brain\//.test(k.cwd || '') && S.ws ? ` · ${esc(S.ws.node)}` : ''}</div>`);
       break;
     case 'token_usage':
       CC.usage = k;
@@ -347,21 +395,25 @@ function renderKind(log, k, resolved, meta = {}) {
       const bad = ['killed', 'stopped', 'failed'].includes(k.status);
       const what = k.description || k.task_id;
       if (k.status === 'started') {
-        add(`<div class="cc-row cc-bg"><span class="cc-dot"></span><div class="cc-main"><b>后台任务</b><span class="cc-arg">(${esc(shortStr(what, 100))})</span></div></div>`);
-      } else {
-        add(`<div class="cc-row cc-bg">${resLines(bad
-          ? `后台任务「${what}」随这一轮结束被终止了（${k.status}），没有跑完。需要长时间跑的，让 agent 用 tmux new -d / setsid nohup 脱离，或在终端面板里跑。`
-          : `后台任务「${what}」：${k.status}`, bad ? 'err' : 'sum', 6)}</div>`);
+        add(`<div class="cc-row cc-bg"><span class="cc-dot"></span><div class="cc-main"><div class="cc-head"><b>后台任务</b><span class="cc-arg">${esc(shortStr(what, 100))}</span></div></div></div>`);
+      } else if (CC.bgShown.get(k.task_id) !== k.status) {
+        // CLI 对同一个任务会先后发 task_updated 和 task_notification，结局只说一次。
+        CC.bgShown.set(k.task_id, k.status);
+        add(`<div class="cc-meta${bad ? ' bad' : ''}">后台任务「${esc(shortStr(what, 100))}」${
+          k.status === 'completed' ? '已完成' : bad ? `已停止（${esc(k.status)}）` : esc(k.status)}</div>`);
       }
       break;
     }
     case 'finished': {
 
-      log.querySelectorAll('.cc-tool[data-st="run"]').forEach(e => { e.dataset.st = 'ok'; });
+      log.querySelectorAll('.cc-tool[data-st="run"]').forEach(e => { e.dataset.st = k.status === 'interrupted' ? 'err' : 'ok'; });
+      settleFolds(log);
       setTimeout(drawTodos, 0);
       if (k.usage) CC.usage = k.usage;
-      if (k.status !== 'success') {
-        const why = k.status === 'interrupted' ? '已中断' : (k.message || k.status);
+      if (k.status === 'interrupted') {
+        add('<div class="cc-meta">已中断</div>');
+      } else if (k.status !== 'success') {
+        const why = k.message || k.status;
         // 因为账号（额度、模型权限、认证）失败的，给一个「换个账号继续」：同一个对话接着做，上下文不变。
         const byAccount = k.status !== 'interrupted' && accSupported(currentRuntime())
           && /rate.?limit|usage|quota|credits|429|401|authenticat|额度|限流|not logged in/i.test(why);
@@ -370,7 +422,7 @@ function renderKind(log, k, resolved, meta = {}) {
       } else {
 
         if (k.text?.trim() && k.text.trim() !== CC.lastText) {
-          add(`<div class="cc-row cc-msg"><span class="cc-dot"></span><div class="cc-main cc-md">${md(k.text)}</div></div>`);
+          add(assistantHtml(k.text));
         }
         if (k.denied?.length) {
           add(`<div class="cc-row cc-warn"><span class="cc-dot"></span><div class="cc-main">${k.denied.length} 次操作被权限拦下，没有执行：${
@@ -378,14 +430,18 @@ function renderKind(log, k, resolved, meta = {}) {
             ${TIP('无头模式下 agent 不会停下来问你，而是直接拒绝。需要放行就把权限模式换成「自动批准改动」。')}</div></div>`);
         }
       }
-      const u = CC.usage;
-      add(`<div class="cc-sep" title="${u ? `↑${fmt(u.input)} ↓${fmt(u.output)}` : ''}">${k.status === 'success' ? '本轮完成' : '本轮结束'}${
-        u?.cost_usd ? ` · $${u.cost_usd.toFixed(2)}` : ''}</div>`);
+      // 本轮花费不再单独占一行，挂在最后一条回答的操作栏上（悬停可见）。
+      const u = CC.usage, last = [...into.querySelectorAll(':scope > .cc-msg')].pop();
+      const acts = last?.querySelector('.cc-acts2');
+      if (acts && u?.cost_usd && !acts.querySelector('.cc-cost')) {
+        acts.insertAdjacentHTML('beforeend', `<span class="cc-cost" title="↑${fmt(u.input)} ↓${fmt(u.output)}">$${u.cost_usd.toFixed(2)}</span>`);
+      }
       CC.lastText = '';
       break;
     }
     default: break;
   }
+  if (!sub && CC.fold && (FOLDED.has(k.type) || k.type === 'background_task')) drawFold(CC.fold);
   drawStatus();
 }
 
@@ -516,7 +572,7 @@ async function loadHistory() {
     if (!S.viewSession) {
 
       S.session = null; S.todos = null; drawTodos();
-      CC.toolIn.clear(); CC.full.clear(); CC.lastText = ''; CC.usage = null; CC.model = ''; CC.sess = null; CC.lastTs = 0; CC.userSeen.clear();
+      CC.toolIn.clear(); CC.full.clear(); CC.lastText = ''; CC.usage = null; CC.model = ''; CC.sess = null; CC.lastTs = 0; CC.userSeen.clear(); CC.fold = null; CC.bgShown.clear();
       drawQueue();
       S.seen = new Set();
       const empty = $('#log');
@@ -532,7 +588,7 @@ async function loadHistory() {
     S.seen = new Set(rows.map(r => r.session_id + ':' + r.seq));
     const log = $('#log');
     if (!log) return;
-    CC.toolIn.clear(); CC.full.clear(); CC.lastText = ''; CC.usage = null; CC.model = ''; CC.rate = ''; CC.sess = null; CC.lastTs = 0; CC.userSeen.clear();
+    CC.toolIn.clear(); CC.full.clear(); CC.lastText = ''; CC.usage = null; CC.model = ''; CC.rate = ''; CC.sess = null; CC.lastTs = 0; CC.userSeen.clear(); CC.fold = null; CC.bgShown.clear();
     drawQueue();
 
     const resolved = new Map(rows.filter(r => r.kind.type === 'approval_resolved')
@@ -554,6 +610,7 @@ async function loadHistory() {
       } else rwBox = null;
       renderKind(into, r.kind, resolved, { parent: r.parent, sid: r.session_id, seq: r.seq, ts: r.ts, rewound: r.rewound });
     }
+    if (!wsRunning()) { CC.fold = null; settleFolds(log); } else if (CC.fold) drawFold(CC.fold);
     drawTodos(); refreshCheckpoints();
     if (!log.children.length) log.innerHTML = emptyChatHtml();
     log.scrollTop = log.scrollHeight;
@@ -667,6 +724,7 @@ const IC = {
   globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18"/>',
   user: '<circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/>',
   cpu: '<rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 3v3M15 3v3M9 18v3M15 18v3M3 9h3M3 15h3M18 9h3M18 15h3"/>',
+  copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/>',
 };
 const svgI = (k, cls = '') => `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${IC[k]}</svg>`;
 

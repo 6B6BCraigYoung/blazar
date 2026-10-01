@@ -1503,3 +1503,47 @@ body[data-side="off"] #page > .phead,body[data-side="off"] #page > * > .phead{pa
 .acc-use-on{display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:500;color:var(--brand);background:color-mix(in srgb,var(--brand) 16%,transparent)}
 .acc-more{min-width:26px}
 .acc-tb tr:not(.acc-on) b{font-weight:500}
+
+/* ── 对话区：对齐 Claude Code 插件 ───────────────────────────── */
+#log{font-family:var(--font-sans);font-size:13.5px;line-height:1.65}
+#log .cc-arg,#log .cc-pre,#log .cc-diff,#log .acmd,#log code{font-family:var(--font-mono);font-size:12px}
+/* 时间线：圆点用竖线串起来，颜色表示状态 */
+#log .cc-row{position:relative}
+#log .cc-row::after{content:'';position:absolute;left:5.5px;top:16px;bottom:-12px;width:1px;background:var(--border)}
+#log .cc-row:not(:has(+ .cc-row))::after{display:none}
+#log .cc-msg .cc-dot{color:var(--muted-fg)}
+#log .cc-fold[data-st="ok"]>.cc-dot{color:var(--success)}
+#log .cc-fold[data-st="err"]>.cc-dot{color:var(--destructive)}
+#log .cc-fold[data-st="run"]>.cc-dot{color:var(--faint-fg);animation:ccblink 1s steps(2,start) infinite}
+/* 折叠的中间步骤 */
+.cc-fd>summary{list-style:none;cursor:pointer;display:inline-flex;align-items:center;gap:4px;color:var(--muted-fg);user-select:none}
+.cc-fd>summary::-webkit-details-marker{display:none}
+.cc-fd>summary:hover{color:var(--fg)}
+.cc-fchev{width:14px;height:14px;transition:transform .15s}
+.cc-fd[open]>summary .cc-fchev{transform:rotate(90deg)}
+.cc-fold[data-live="true"] .cc-fl{animation:ccpulse 1.6s ease-in-out infinite}
+@keyframes ccpulse{0%,100%{opacity:1}50%{opacity:.45}}
+.cc-fb{margin:8px 0 0;padding-left:2px}
+.cc-fb>.cc-row{margin-bottom:8px}
+.cc-fb>.cc-row::after{display:none}
+/* 工具：加粗的名字 + 等宽的目标；输出放进带边框的框里 */
+#log .cc-tool .cc-head b{font-weight:600}
+#log .cc-tool .cc-arg,#log .cc-bg .cc-arg{color:var(--cc-accent,var(--brand));margin-left:6px}
+#log .cc-out{display:block;margin-top:6px;border:.5px solid var(--border);border-radius:6px;background:color-mix(in srgb,var(--fg) 4%,transparent);padding:6px 8px}
+#log .cc-elbow{display:none}
+#log .cc-pre{max-height:7.2em;overflow:hidden;-webkit-mask-image:linear-gradient(to bottom,#000 70%,transparent)}
+#log .cc-pre:has(.cc-more){-webkit-mask-image:none;max-height:none}
+/* 用户消息：气泡 */
+#log .cc-user{display:block;width:fit-content;max-width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:10px;margin:14px 0 12px}
+#log .cc-user .cc-ut{font-family:var(--font-sans)}
+/* 助手回答的操作栏：悬停出现 */
+.cc-acts2{display:flex;align-items:center;gap:6px;height:18px;margin:0 0 -6px;opacity:0;transition:opacity .12s}
+.cc-msg:hover .cc-acts2,.cc-acts2:focus-within{opacity:1}
+.cc-copy{all:unset;cursor:pointer;width:20px;height:20px;display:grid;place-items:center;border-radius:4px;color:var(--faint-fg)}
+.cc-copy:hover{color:var(--fg);background:color-mix(in srgb,var(--fg) 8%,transparent)}
+.cc-copy svg{width:14px;height:14px}
+.cc-copy[data-done="true"]{color:var(--success)}
+.cc-cost{font-size:11px;color:var(--faint-fg)}
+/* 系统提示（中断、后台任务结束）：一行灰色斜体 */
+.cc-meta{color:var(--muted-fg);font-style:italic;margin:2px 0 10px 20px;font-size:12.5px}
+.cc-meta.bad{color:var(--destructive)}
