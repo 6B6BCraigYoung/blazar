@@ -30,6 +30,13 @@ pub enum TerminalTarget {
         cwd: String,
         tmux_session: Option<String>,
     },
+
+    Command {
+        program: String,
+        args: Vec<String>,
+        env: Vec<(String, String)>,
+        cwd: String,
+    },
 }
 
 fn shell_command(cwd: &str, session: Option<&str>) -> String {
@@ -61,6 +68,7 @@ impl TerminalTarget {
             Self::Local { tmux_session, .. } | Self::Ssh { tmux_session, .. } => {
                 tmux_session.is_some()
             }
+            Self::Command { .. } => false,
         }
     }
 
@@ -96,6 +104,21 @@ impl TerminalTarget {
                 ]);
                 cmd
             }
+            Self::Command {
+                program,
+                args,
+                env,
+                cwd,
+            } => {
+                let mut cmd = CommandBuilder::new(program);
+                cmd.args(args);
+                cmd.cwd(cwd);
+                cmd.env("TERM", TERM);
+                for (k, v) in env {
+                    cmd.env(k, v);
+                }
+                cmd
+            }
         }
     }
 
@@ -105,6 +128,7 @@ impl TerminalTarget {
             Self::Ssh {
                 host, tmux_session, ..
             } => (Some(host.as_str()), tmux_session.as_deref()?),
+            Self::Command { .. } => return None,
         };
         let inner = format!("tmux detach-client -s {} 2>/dev/null", shell_quote(name));
         Some(match host {
