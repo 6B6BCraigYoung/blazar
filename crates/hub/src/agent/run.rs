@@ -311,11 +311,20 @@ async fn finalize(ctx: &Ctx, code: Option<i32>, p: &Progress) {
             Outcome::Failed {
                 message: match code {
                     Some(c) => format!(
-                        "agent 异常退出（退出码 {c}）{}",
+                        "agent 异常退出（退出码 {c}）{}{}",
                         if tail.is_empty() {
                             String::new()
                         } else {
                             format!("。stderr: {tail}")
+                        },
+                        // Blazar 拼的参数照本机 CLI 来；远端版本旧了就会不认。
+                        if ctx.node != "local" && tail.contains("unknown option") {
+                            format!(
+                                "。{} 上的 CLI 比本机旧，不认这个参数：到「机器 → {}」里把它更新到和本机一致",
+                                ctx.node, ctx.node
+                            )
+                        } else {
+                            String::new()
                         }
                     ),
                     None => "agent 进程已经不在了（机器重启、被整组杀掉或目录被删），\

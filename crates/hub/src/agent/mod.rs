@@ -4,5 +4,6 @@ pub mod catalog;
 pub mod chat;
 pub mod checkpoint;
 pub mod proxy;
+pub mod remote_cli;
 pub mod run;
 pub mod titles;

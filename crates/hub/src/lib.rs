@@ -14,7 +14,7 @@ pub mod mesh;
 pub mod office;
 mod skills;
 mod work;
-pub use agent::{accounts, agents, catalog, chat, checkpoint, proxy, run, titles};
+pub use agent::{accounts, agents, catalog, chat, checkpoint, proxy, remote_cli, run, titles};
 pub use skills::{library, skillhub};
 pub use work::{analytics, autopilot, inbox, rules, scripts, snippets, tasks};
 pub mod state;
@@ -365,6 +365,11 @@ pub fn build_router(st: Arc<AppState>) -> Router {
         .route(
             "/api/nodes/{name}/login/{runtime}/ws",
             get(accounts::node_login_ws),
+        )
+        .route("/api/nodes/{name}/cli-versions", get(remote_cli::versions))
+        .route(
+            "/api/nodes/{name}/update/{runtime}",
+            post(remote_cli::update),
         )
         .route("/api/workspaces/{id}/detail", get(api::workspace_detail))
         .route("/api/search", get(api::search))

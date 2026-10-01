@@ -204,10 +204,14 @@ async function pageNodeDetail(name) {
       const found = await api(`/api/nodes/${encodeURIComponent(name)}/agents`);
       S.scan = S.scan || {}; S.scan[name] = found;
       const inst = found.filter(a => a.path);
+      // 远端的 Claude Code / Codex 要和本机同版本：Blazar 的命令行参数照本机来，旧版本会不认。
+      const vers = name === 'local' ? {} : await api(`/api/nodes/${encodeURIComponent(name)}/cli-versions`).catch(() => ({}));
       $('#ag').innerHTML = inst.length ? `<table class="tb"><thead><tr>
           <th>Agent</th><th>版本</th><th>登录</th><th>路径</th><th></th></tr></thead><tbody>
         ${inst.map(a => `<tr>
-          <td>${esc(a.label)}</td><td class="m">${esc(a.version || '—')}</td>
+          <td>${esc(a.label)}</td><td class="m">${esc(a.version || '—')}${vers[a.id]?.behind
+            ? ` <span class="badge badge-warn" title="本机是 ${esc(vers[a.id].local)}">比本机旧</span>
+               <button class="btn btn-outline btn-xs" data-cli-update="${esc(a.id)}">更新到 ${esc(vers[a.id].local)}</button>` : ''}</td>
           <td>${a.authed === true ? '<span class="badge badge-ok">已登录</span>'
               : a.authed === false ? '<span class="badge badge-danger">未登录</span>'
               : `<span class="badge badge-warn" title="${esc(a.auth_hint || '')}">无法判断</span>`}</td>
@@ -216,6 +220,15 @@ async function pageNodeDetail(name) {
         <div class="t-caption faint" style="margin-top:8px">
           </div>`
         : '<div class="empty">这台机器上没有发现任何 agent CLI</div>';
+      $$('#ag [data-cli-update]').forEach(b => {
+        b.onclick = async () => {
+          const rt = b.dataset.cliUpdate;
+          b.disabled = true; b.textContent = '更新中…（可能要几分钟）';
+          try { const r = await post(`/api/nodes/${encodeURIComponent(name)}/update/${rt}`); toast(r.message); }
+          catch (e) { toast('更新失败：' + e.message); }
+          $('#btnScan').click();
+        };
+      });
     } catch (e) { $('#ag').innerHTML = `<div class="empty">${esc(e.message)}</div>`; }
   };
   wireHeader();
