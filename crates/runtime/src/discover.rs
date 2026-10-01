@@ -37,10 +37,8 @@ pub async fn discover(
     Ok(parse(&out.stdout, BUILTIN))
 }
 
-fn build_script(specs: &[AgentSpec]) -> String {
-    let names: Vec<&str> = specs.iter().map(|s| s.program).collect();
-    format!(
-        r#"
+/// 把 agent CLI 常见的安装前缀补进 PATH 的 shell 片段，凡是要在 bash 里找 CLI 的地方都先跑它。
+pub const PATH_PRELUDE: &str = r#"
 # 有些 CLI 只在登录 shell 的 PATH 里；先把常见安装前缀补进来，
 # 比 fork 一个登录 shell 便宜，且对非交互会话同样有效。
 for d in "$HOME/.local/bin" "$HOME/.npm-global/bin" "$HOME/bin" \
@@ -56,7 +54,13 @@ for base in "$HOME/.nvm/versions/node" "$HOME/.local/share/fnm/node-versions"; d
   [ -n "$latest" ] && [ -d "$base/$latest/installation/bin" ] && PATH="$base/$latest/installation/bin:$PATH"
 done
 export PATH
+"#;
 
+fn build_script(specs: &[AgentSpec]) -> String {
+    let names: Vec<&str> = specs.iter().map(|s| s.program).collect();
+    format!(
+        r#"
+{prelude}
 # macOS 默认没有 timeout(1)。缺了它就退化成直接执行 ——
 # 宁可偶尔慢，也不要因为命令不存在而拿不到任何版本号。
 T=""
@@ -115,6 +119,7 @@ fi
 [ -n "$DEEPSEEK_API_KEY" ] && echo "AUTH|dsh|1|DEEPSEEK_API_KEY"
 [ -f "$HOME/.dsh/.credentials.yaml" ] && echo "AUTH|dsh|?|有 .credentials.yaml，是否配了 DeepSeek 的 key 要运行 dsh 才知道"
 "#,
+        prelude = PATH_PRELUDE,
         names = names.join(" "),
     )
 }
