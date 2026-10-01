@@ -153,14 +153,19 @@ pub async fn prompt(
         Option<String>,
         Option<String>,
         String,
+        String,
     );
+    // 只续接 CLI 真正起来过的那一轮：启动就失败的（比如远端 CLI 不认参数）预先记下的会话 id 在 CLI 那边并不存在。
     let prior: Option<Prior> = if req.resume {
         sqlx::query_as(
-            "SELECT COALESCE(thread_id, id) AS thread, provider_session_id, last_uuid, account_id, runtime_kind FROM sessions
+            "SELECT COALESCE(thread_id, id) AS thread, provider_session_id, last_uuid, account_id, runtime_kind,
+                    COALESCE(node, ?2) AS node
+             FROM sessions
              WHERE workspace_id = ?1 AND provider_session_id IS NOT NULL
                AND rewound_at IS NULL
-               AND COALESCE(node, ?2) = ?2
                AND (?3 IS NULL OR COALESCE(thread_id, id) = ?3)
+               AND EXISTS (SELECT 1 FROM events e WHERE e.session_id = sessions.id
+                           AND e.payload LIKE '{\"type\":\"session_started\"%')
              ORDER BY created_at DESC LIMIT 1",
         )
         .bind(&id)
@@ -193,9 +198,11 @@ pub async fn prompt(
         .unwrap_or_else(|| "claude".into());
     let agent_id = agent_id.as_str();
 
-    // 会话 id 只对产生它的那个 CLI 有效。对话中途换了运行时（比如 Claude 换成 Codex）就没法原生续接，
-    // 改成把此前的对话整理成前情提要带过去，消息仍然留在同一个对话里。
-    let switched = prior.as_ref().is_some_and(|p| p.4 != agent_id);
+    // 没法原生续接时，把此前的对话整理成前情提要带过去，消息仍然留在同一个对话里。
+    // 会话记录只在跑它的那台机器、那个 CLI 里：换了运行时或换了机器（包括从本机大脑换到远端）都没法原生续接。
+    let switched = prior
+        .as_ref()
+        .is_some_and(|p| p.4 != agent_id || p.5 != run_node);
     let resume_id = prior
         .as_ref()
         .filter(|_| !switched)
@@ -254,12 +261,28 @@ pub async fn prompt(
 
     let session_id = SessionId::new();
 
+    // 指明了对话、但里面没有能续接的一轮（比如唯一的一轮启动就失败了）：新消息仍然留在这个对话里，只是 CLI 重开会话。
+    let named_thread: Option<String> = match req.resume_session.as_deref().filter(|s| !s.is_empty())
+    {
+        Some(t) if req.resume => {
+            sqlx::query_scalar(
+                "SELECT COALESCE(thread_id, id) FROM sessions
+             WHERE workspace_id = ?1 AND COALESCE(thread_id, id) = ?2 LIMIT 1",
+            )
+            .bind(&id)
+            .bind(t)
+            .fetch_optional(st.db.pool())
+            .await?
+        }
+        _ => None,
+    };
     let thread_id = match (&prior, resume_id.is_some() || switched) {
         (Some(p), true) => p.0.clone(),
         _ => req
             .retry_thread
             .clone()
             .filter(|t| !t.is_empty())
+            .or(named_thread)
             .unwrap_or_else(|| session_id.to_string()),
     };
     sqlx::query(
