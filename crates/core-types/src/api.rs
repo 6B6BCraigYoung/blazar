@@ -11,6 +11,48 @@ pub struct DiffStat {
     pub files: u64,
 }
 
+/// 工作区文件树里的一项（相对工作区根目录）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TreeEntry {
+    pub path: String,
+    pub is_dir: bool,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub change: Option<ChangeKind>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChangeKind {
+    Added,
+    Modified,
+    Deleted,
+    Untracked,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FileContent {
+    pub path: String,
+    pub content: String,
+    pub size: u64,
+
+    pub too_large: bool,
+
+    pub binary: bool,
+
+    #[serde(default)]
+    pub mtime: u64,
+}
+
+/// 写文件的结果。`saved == false` 表示文件在读之后被别人改过（mtime 对不上），没写。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Written {
+    pub saved: bool,
+
+    pub mtime: u64,
+    pub size: u64,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NodeView {
     pub name: String,

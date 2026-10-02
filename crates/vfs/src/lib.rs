@@ -54,58 +54,18 @@ git add -N . >/dev/null 2>&1"#;
 
 const REMOTE_SEARCH_TIMEOUT_SECS: u64 = 10;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TreeEntry {
-    pub path: String,
-    pub is_dir: bool,
+pub use blazar_core_types::api::{ChangeKind, FileContent, TreeEntry, Written};
 
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub change: Option<ChangeKind>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ChangeKind {
-    Added,
-    Modified,
-    Deleted,
-    Untracked,
-}
-
-impl ChangeKind {
-    fn from_porcelain(code: &str) -> Self {
-        match code.trim() {
-            "??" => Self::Untracked,
-            c if c.contains('A') => Self::Added,
-            c if c.contains('D') => Self::Deleted,
-            _ => Self::Modified,
-        }
+fn change_from_porcelain(code: &str) -> ChangeKind {
+    match code.trim() {
+        "??" => ChangeKind::Untracked,
+        c if c.contains('A') => ChangeKind::Added,
+        c if c.contains('D') => ChangeKind::Deleted,
+        _ => ChangeKind::Modified,
     }
 }
 
 pub const MAX_READ_BYTES: u64 = 2 * 1024 * 1024;
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FileContent {
-    pub path: String,
-    pub content: String,
-    pub size: u64,
-
-    pub too_large: bool,
-
-    pub binary: bool,
-
-    #[serde(default)]
-    pub mtime: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Written {
-    pub saved: bool,
-
-    pub mtime: u64,
-    pub size: u64,
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DirEntry {
@@ -528,10 +488,7 @@ fn parse_tree(raw: &str) -> Vec<TreeEntry> {
 
                 let path = path.rsplit(" -> ").next().unwrap_or(path);
 
-                files.insert(
-                    unquote_git_path(path),
-                    Some(ChangeKind::from_porcelain(code)),
-                );
+                files.insert(unquote_git_path(path), Some(change_from_porcelain(code)));
             }
             _ => {}
         }
