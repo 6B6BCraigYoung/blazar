@@ -322,7 +322,7 @@ pub fn tool_title(name: &str, input: &Value, root: &str) -> (String, String) {
         "TodoWrite" => "Update Todos",
         "Shell" => "Bash",
         "Agent" => "Task",
-        "ExitPlanMode" => "计划",
+        "ExitPlanMode" => "Plan",
         other => other,
     };
     (label.to_owned(), arg)
@@ -441,18 +441,22 @@ pub fn result_of(name: &str, ok: bool, content: &str, input: &Value, root: &str)
         text.split('\n').count()
     };
     if !ok {
-        return Some(res(if text.is_empty() { "失败" } else { text }, "err", 6));
+        return Some(res(if text.is_empty() { "Error" } else { text }, "err", 6));
     }
     Some(match name {
-        "Read" => res(&format!("读取了 {n} 行"), "sum", 4),
+        "Read" => res(
+            &format!("Read {n} line{}", if n == 1 { "" } else { "s" }),
+            "sum",
+            4,
+        ),
         "TodoWrite" => return None,
-        "ExitPlanMode" => res("计划已批准", "sum", 4),
+        "ExitPlanMode" => res("User approved the plan", "sum", 4),
         "Edit" | "MultiEdit" => {
             let f = rel_path(s(input, "file_path"), root);
             res(
                 &format!(
-                    "已修改 {}",
-                    if f.is_empty() { "文件".to_owned() } else { f }
+                    "Updated {}",
+                    if f.is_empty() { "file".to_owned() } else { f }
                 ),
                 "sum",
                 4,
@@ -461,32 +465,40 @@ pub fn result_of(name: &str, ok: bool, content: &str, input: &Value, root: &str)
         "Write" => {
             let w = s(input, "content").split('\n').count();
             res(
-                &format!("写入 {w} 行 → {}", rel_path(s(input, "file_path"), root)),
+                &format!(
+                    "Wrote {w} line{} to {}",
+                    if w == 1 { "" } else { "s" },
+                    rel_path(s(input, "file_path"), root)
+                ),
                 "sum",
                 4,
             )
         }
         "Glob" | "LS" => res(
             &if n > 0 {
-                format!("找到 {n} 项\n{text}")
+                format!("Found {n} file{}\n{text}", if n == 1 { "" } else { "s" })
             } else {
-                "没有匹配".to_owned()
+                "No matches found".to_owned()
             },
             "sum",
             1,
         ),
         "Grep" => res(
             &if n > 0 {
-                format!("找到 {n} 处\n{text}")
+                format!("Found {n} match{}\n{text}", if n == 1 { "" } else { "es" })
             } else {
-                "没有匹配".to_owned()
+                "No matches found".to_owned()
             },
             "sum",
             1,
         ),
-        "Task" | "Agent" => res(if text.is_empty() { "完成" } else { text }, "", 3),
+        "Task" | "Agent" => res(if text.is_empty() { "Done" } else { text }, "", 3),
         _ => res(
-            if text.is_empty() { "(无输出)" } else { text },
+            if text.is_empty() {
+                "(No content)"
+            } else {
+                text
+            },
             if text.is_empty() { "sum" } else { "" },
             4,
         ),
@@ -495,23 +507,25 @@ pub fn result_of(name: &str, ok: bool, content: &str, input: &Value, root: &str)
 
 pub fn decision_text(d: &ApprovalDecision) -> String {
     match d {
-        ApprovalDecision::AutoAllowed { rule } if !rule.is_empty() => format!("自动批准 · {rule}"),
-        ApprovalDecision::AutoAllowed { .. } => "自动批准".into(),
-        ApprovalDecision::Allow => "已允许".into(),
-        ApprovalDecision::Deny { .. } => "已拒绝".into(),
-        ApprovalDecision::Cancelled => "agent 撤回了这次询问".into(),
-        ApprovalDecision::Aborted => "会话已结束，作废".into(),
+        ApprovalDecision::AutoAllowed { rule } if !rule.is_empty() => {
+            format!("Auto-approved · {rule}")
+        }
+        ApprovalDecision::AutoAllowed { .. } => "Auto-approved".into(),
+        ApprovalDecision::Allow => "Allowed".into(),
+        ApprovalDecision::Deny { .. } => "Denied".into(),
+        ApprovalDecision::Cancelled => "Withdrawn by the agent".into(),
+        ApprovalDecision::Aborted => "Session ended".into(),
     }
 }
 
 fn appr_kind_label(request: &Value) -> String {
     let tn = tool_name(s(request, "tool_name"));
     if tn == "AskUserQuestion" {
-        "问题".into()
+        "question".into()
     } else if SHELL_TOOLS.contains(&tn.as_str()) {
         "Bash".into()
     } else if tn.is_empty() {
-        "工具".into()
+        "tool".into()
     } else {
         tn
     }
@@ -849,16 +863,16 @@ impl Builder<'_> {
                     self.bg_shown.insert(task_id, status.clone());
                     let bad = matches!(status.as_str(), "killed" | "stopped" | "failed");
                     let end = if status == "completed" {
-                        "已完成".to_owned()
+                        "completed".to_owned()
                     } else if bad {
-                        format!("已停止（{status}）")
+                        format!("stopped ({status})")
                     } else {
                         status
                     };
                     self.push(
                         key,
                         BBody::Meta {
-                            text: format!("后台任务「{what}」{end}"),
+                            text: format!("Background task \"{what}\" {end}"),
                             bad,
                         },
                     );
@@ -963,7 +977,7 @@ impl Builder<'_> {
             Outcome::Interrupted => self.push(
                 key,
                 BBody::Meta {
-                    text: "已中断".into(),
+                    text: "Interrupted".into(),
                     bad: false,
                 },
             ),
@@ -1065,17 +1079,18 @@ fn fold_summary(steps: &[Step], live: bool, waiting: Option<bool>) -> (String, S
         })
         .collect();
     let text = match (live, waiting) {
-        (true, Some(true)) => "等待你的回答…".to_owned(),
-        (true, Some(false)) => "等待你的批准…".to_owned(),
+        (true, Some(true)) => "Waiting for your answer…".to_owned(),
+        (true, Some(false)) => "Waiting for your approval…".to_owned(),
         _ if live && running.is_some() => {
-            format!("正在运行 {}…", running.map_or("", |t| t.label.as_str()))
+            format!("Running {}…", running.map_or("", |t| t.label.as_str()))
         }
-        _ if live && tools.is_empty() => "思考中…".to_owned(),
+        _ if live && tools.is_empty() => "Thinking…".to_owned(),
         _ if !tools.is_empty() => format!(
-            "{} 个工具调用{}",
+            "{} tool call{}{}",
             tools.len(),
+            if tools.len() == 1 { "" } else { "s" },
             if errs > 0 {
-                format!(" · {errs} 个失败")
+                format!(" · {errs} failed")
             } else {
                 String::new()
             }
@@ -1083,12 +1098,16 @@ fn fold_summary(steps: &[Step], live: bool, waiting: Option<bool>) -> (String, S
         _ if !thinks.is_empty() => {
             let secs: i64 = thinks.iter().sum();
             if secs > 0 {
-                format!("思考了 {secs}s")
+                format!("Thought for {secs}s")
             } else {
-                "思考".to_owned()
+                "Thought".to_owned()
             }
         }
-        _ => format!("{} 个步骤", steps.len()),
+        _ => format!(
+            "{} step{}",
+            steps.len(),
+            if steps.len() == 1 { "" } else { "s" }
+        ),
     };
     let st = if live {
         St::Run
@@ -1227,9 +1246,9 @@ pub fn approval_title(request: &Value, root: &str, remote_node: Option<&str>) ->
     if SHELL_TOOLS.contains(&tn.as_str()) {
         return match remote_node {
             Some(n) if s(request, "tool_name").starts_with("mcp__blazar__") => {
-                format!("在 {n} 上执行这个 Bash 命令？")
+                format!("Run this Bash command on {n}?")
             }
-            _ => "允许执行这个 Bash 命令？".to_owned(),
+            _ => "Allow this Bash command?".to_owned(),
         };
     }
     if matches!(tn.as_str(), "Edit" | "MultiEdit" | "Write" | "NotebookEdit") {
@@ -1237,17 +1256,20 @@ pub fn approval_title(request: &Value, root: &str, remote_node: Option<&str>) ->
             .into_iter()
             .find(|x| !x.is_empty())
             .map(|f| rel_path(f, root));
-        return format!("允许修改 {}？", f.unwrap_or_else(|| "这个文件".to_owned()));
+        return format!(
+            "Allow edits to {}?",
+            f.unwrap_or_else(|| "this file".to_owned())
+        );
     }
     if tn == "WebFetch" {
-        return "允许抓取这个网页？".to_owned();
+        return "Allow fetching this page?".to_owned();
     }
     let shown = [s(request, "display_name"), tn.as_str()]
         .into_iter()
         .find(|x| !x.is_empty())
-        .unwrap_or("这个工具")
+        .unwrap_or("this tool")
         .to_owned();
-    format!("允许使用 {shown}？")
+    format!("Allow {shown}?")
 }
 
 /// 审批卡片正文里展示的「要做什么」。
@@ -1342,7 +1364,7 @@ mod tests {
         let Body::Fold(f) = &t.items[1].body else {
             panic!()
         };
-        assert_eq!(f.summary, "1 个工具调用");
+        assert_eq!(f.summary, "1 tool call");
         assert!(matches!(&f.steps[0], Step::Thinking { secs: 1, .. }));
         let Step::Tool(tool) = &f.steps[1] else {
             panic!()
@@ -1380,11 +1402,11 @@ mod tests {
             panic!()
         };
         assert!(f.live);
-        assert_eq!(f.summary, "等待你的批准…");
+        assert_eq!(f.summary, "Waiting for your approval…");
         assert_eq!(t.pending.len(), 1);
         assert_eq!(
             approval_title(&t.pending[0].request, "/w", None),
-            "允许修改 src/a.rs？"
+            "Allow edits to src/a.rs?"
         );
         let Step::Tool(tool) = &f.steps[0] else {
             panic!()
@@ -1405,7 +1427,7 @@ mod tests {
         let Body::Fold(f2) = &t2.items[1].body else {
             panic!()
         };
-        assert!(matches!(&f2.steps[1], Step::Note(n) if n == "已允许 · Edit"));
+        assert!(matches!(&f2.steps[1], Step::Note(n) if n == "Allowed · Edit"));
         assert_ne!(t.items[1].sig, t2.items[1].sig, "内容变了签名要变");
         assert_eq!(t.items[0].sig, t2.items[0].sig, "没变的条目签名不变");
     }

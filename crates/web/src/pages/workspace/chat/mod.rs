@@ -71,7 +71,9 @@ pub fn ChatPane(
             chat.new_chat();
             chat.prompt.set(text);
             chat.show_aux.run(());
-            crate::components::toast::toast("已在新对话里写好请求：选好 agent 再发送");
+            crate::components::toast::toast(
+                "Drafted in a new conversation. Pick an agent, then send.",
+            );
         }
     });
 
@@ -105,13 +107,13 @@ pub fn ChatPane(
                         let active = move || chat.view.get() == t2;
                         let live = move || t3.as_deref().is_some_and(|id| chat.thread_running(id));
                         view! {
-                            <button class="ctab" data-active=move || active().to_string() title=move || format!("{}（双击改名）", title.get())
+                            <button class="ctab" data-active=move || active().to_string() title=move || format!("{} (double-click to rename)", title.get())
                                 on:click={ let t = t.clone(); move |_| if chat.view.get_untracked() != t { chat.activate(t.clone()) } }
                                 on:dblclick={ let t = t4.clone(); move |_| {
                                     let Some(id) = t.clone() else { return };
                                     let cur = chat.thread_title(Some(&id));
                                     chat.spawn(async move {
-                                        let name = window().prompt_with_message_and_default("对话标题", &cur).ok().flatten();
+                                        let name = window().prompt_with_message_and_default("Conversation title", &cur).ok().flatten();
                                         if let Some(n) = name.map(|n| n.trim().to_owned()).filter(|n| !n.is_empty()) {
                                             chat.rename(id, n);
                                         }
@@ -119,15 +121,15 @@ pub fn ChatPane(
                                 }}>
                                 <span class="t">{move || title.get()}</span>
                                 {move || live().then(|| view! { <span class="live"></span> })}
-                                <span class="x" title="关闭标签" on:click={ let t = t.clone(); move |e| { e.stop_propagation(); chat.close_tab(t.clone()); } }>"×"</span>
+                                <span class="x" title="Close" on:click={ let t = t.clone(); move |e| { e.stop_propagation(); chat.close_tab(t.clone()); } }>"×"</span>
                             </button>
                         }
                     }
                 </For>
-                <button class="ctab add" title="新对话" on:click=move |_| chat.new_chat()>"＋"</button>
+                <button class="ctab add" title="New conversation" on:click=move |_| chat.new_chat()>"＋"</button>
             </div>
             <span class="more">
-                <button class="laybtn" title="对话历史" on:click=move |_| {
+                <button class="laybtn" title="Past conversations" on:click=move |_| {
                     hist.update(|h| *h = !*h);
                     if hist.get_untracked() { chat.spawn(async move { chat.load_threads().await }); }
                 } inner_html=r#"<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7M3 4v4h4"/><path d="M12 7v5l3 2"/></svg>"#></button>
@@ -150,8 +152,8 @@ pub fn ChatPane(
                     </div>
                 </Show>
             </span>
-            <button class="laybtn" title="新对话" on:click=move |_| chat.new_chat() inner_html=r#"<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>"#></button>
-            <button class="laybtn" title="收起 ⌘⌥B" on:click=move |_| on_hide.run(())>"×"</button>
+            <button class="laybtn" title="New conversation" on:click=move |_| chat.new_chat() inner_html=r#"<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>"#></button>
+            <button class="laybtn" title="Hide ⌘⌥B" on:click=move |_| on_hide.run(())>"×"</button>
         </div>
         <div class="chat-body">
             <Log chat tick/>

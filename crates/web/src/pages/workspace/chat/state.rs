@@ -157,6 +157,13 @@ impl Default for Prefs {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct PendingMsg {
+    pub id: u32,
+    pub text: String,
+    pub images: usize,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct Attach {
     pub media_type: String,
     pub data: String,
@@ -225,6 +232,14 @@ pub const MODES_CODEX: [Mode; 3] = [
     ),
 ];
 
+/// 跟插件一样默认 Auto（Codex 的 Auto 是 workspace-write）。
+pub fn default_mode(rt: &str) -> &'static str {
+    match rt {
+        "codex" => "workspace-write",
+        _ => "auto",
+    }
+}
+
 pub fn modes_for(rt: &str) -> &'static [Mode] {
     match rt {
         "claude" => &MODES_CLAUDE,
@@ -260,6 +275,11 @@ pub struct Chat {
     pub decided: RwSignal<HashSet<String>>,
     /// 对话栏所在的组件：异步任务挂在它下面，离开页面时一起取消。
     owner: StoredValue<Owner>,
+    /// 刚发出、还没等到服务端回显的消息：先显示出来
+    pub pending: RwSignal<Vec<PendingMsg>>,
+    next_pending: StoredValue<u32>,
+    /// 发送期间收到的、还不知道属于哪个对话的事件（等认出自己发的那条再并进来）
+    orphans: StoredValue<HashMap<String, Vec<Row>>>,
     /// 发送失败之类只在本地显示的错误
     pub local_errors: RwSignal<Vec<String>>,
     pub loading: RwSignal<bool>,
@@ -329,6 +349,9 @@ impl Chat {
             transcript: RwSignal::new_local(Rc::new(Transcript::default())),
             decided: RwSignal::new(HashSet::new()),
             owner: StoredValue::new(Owner::current().unwrap_or_default()),
+            pending: RwSignal::new(Vec::new()),
+            next_pending: StoredValue::new(0),
+            orphans: StoredValue::new(HashMap::new()),
             local_errors: RwSignal::new(Vec::new()),
             loading: RwSignal::new(true),
             queue: RwSignal::new(Vec::new()),
@@ -405,7 +428,7 @@ impl Chat {
         let rt = a.strip_prefix("r:").unwrap_or("");
         self.agents
             .with(|l| l.iter().find(|x| x.id == rt).map(|x| x.label.clone()))
-            .unwrap_or_else(|| "选择 Agent".into())
+            .unwrap_or_else(|| "Select agent".into())
     }
 
     pub fn modes(self) -> &'static [Mode] {
@@ -423,6 +446,7 @@ impl Chat {
                     .and_then(|x| x.permission_mode)
                     .and_then(|m| pick(&m))
             })
+            .or_else(|| pick(default_mode(&self.runtime())))
             .or_else(|| list.first().copied())
     }
 
@@ -438,7 +462,7 @@ impl Chat {
         if prev.model != v.model {
             self.live(
                 json!({ "model": v.model.clone().unwrap_or_default() }),
-                "模型",
+                "model",
             );
         }
     }
@@ -507,7 +531,7 @@ impl Chat {
                 rt.clone(),
                 vec![ModelInfo {
                     id: String::new(),
-                    label: "默认".into(),
+                    label: "Default".into(),
                     desc: String::new(),
                     efforts: vec![],
                 }],
@@ -664,7 +688,7 @@ impl Chat {
                 .threads
                 .with(|t| t.iter().find(|x| x.id == id).and_then(|x| x.title.clone()))
                 .filter(|t| !t.is_empty())
-                .unwrap_or_else(|| "对话".to_owned()),
+                .unwrap_or_else(|| "Conversation".to_owned()),
         }
     }
 
@@ -781,8 +805,8 @@ impl Chat {
                         }
                     });
                 }
-                Ok(r) => toast(r["reason"].as_str().unwrap_or("改名失败").to_owned()),
-                Err(e) => toast(format!("改名失败：{e}")),
+                Ok(r) => toast(r["reason"].as_str().unwrap_or("Rename failed").to_owned()),
+                Err(e) => toast(format!("Rename failed: {e}")),
             }
         });
     }
@@ -879,20 +903,16 @@ impl Chat {
                     self.git.reload.update(|n| *n = n.wrapping_add(1));
                     self.spawn(async move { self.load_threads().await });
                 }
+                let row = Row::from_live(sid.clone(), (**entry).clone());
                 if self.sessions.with_value(|s| s.contains(&sid)) {
-                    let key = format!("{sid}:{}", entry.seq);
-                    if self.seen.with_value(|s| s.contains(&key)) {
-                        return;
-                    }
-                    self.seen.update_value(|s| {
-                        s.insert(key);
-                    });
-                    let is_user =
-                        matches!(entry.kind, blazar_core_types::EntryKind::UserMessage { .. });
-                    let row = Row::from_live(sid, (**entry).clone());
-                    self.rows.update(|r| r.push(row));
-                    if is_user {
-                        self.load_checkpoints();
+                    self.push_row(row);
+                } else if self.pending.with_untracked(|p| !p.is_empty()) {
+                    // 刚发出去、服务端还没告诉我们是哪个会话：先攒着，认出自己发的那条就并进来。
+                    let mine = matches!(&row.kind, blazar_core_types::EntryKind::UserMessage { text } if self.matches_pending(text));
+                    self.orphans
+                        .update_value(|o| o.entry(sid.clone()).or_default().push(row));
+                    if mine {
+                        self.adopt(&sid);
                     }
                 } else {
                     self.refresh_threads_soon();
@@ -957,9 +977,10 @@ impl Chat {
     /// 发出去了：记下会话；新对话拿到 id 后换成真的标签。
     pub fn note_sent(self, session_id: Option<String>, thread_id: Option<String>) {
         let Some(sid) = session_id else { return };
-        self.sessions.update_value(|s| {
-            s.insert(sid);
-        });
+        // 事件已经（或刚刚）收到了：并进来就行，不用整段重拉。
+        let known = self.sessions.with_value(|s| s.contains(&sid))
+            || self.orphans.with_value(|o| o.contains_key(&sid));
+        self.adopt(&sid);
         let view = self.view.get_untracked();
         if let Some(t) = thread_id.filter(|t| Some(t) != view.as_ref()) {
             self.tabs.update(|tabs| {
@@ -984,7 +1005,59 @@ impl Chat {
             self.save_tabs();
             self.spawn(async move { self.load_threads().await });
         }
-        self.load_history();
+        if !known {
+            self.load_history();
+        }
+    }
+
+    fn push_row(self, row: Row) {
+        let key = format!("{}:{}", row.session_id, row.seq);
+        if self.seen.with_value(|s| s.contains(&key)) {
+            return;
+        }
+        self.seen.update_value(|s| {
+            s.insert(key);
+        });
+        if let blazar_core_types::EntryKind::UserMessage { text } = &row.kind {
+            self.take_pending(text);
+            self.load_checkpoints();
+        }
+        self.rows.update(|r| r.push(row));
+    }
+
+    /// 认领一个会话：之后它的事件都进这个对话，之前攒下的一并补上。
+    fn adopt(self, sid: &str) {
+        self.sessions.update_value(|s| {
+            s.insert(sid.to_owned());
+        });
+        let rows = self
+            .orphans
+            .try_update_value(|o| o.remove(sid))
+            .flatten()
+            .unwrap_or_default();
+        for r in rows {
+            self.push_row(r);
+        }
+    }
+
+    fn matches_pending(self, text: &str) -> bool {
+        let t = text.trim();
+        self.pending
+            .with_untracked(|p| p.iter().any(|m| t.starts_with(m.text.trim())))
+    }
+
+    /// 服务端回显了自己发的那条：去掉先放上去的那个。
+    fn take_pending(self, text: &str) {
+        let t = text.trim().to_owned();
+        self.pending.update(|p| {
+            if let Some(i) = p.iter().position(|m| t.starts_with(m.text.trim())) {
+                p.remove(i);
+            }
+        });
+    }
+
+    fn drop_pending(self, id: u32) {
+        let _ = self.pending.try_update(|p| p.retain(|m| m.id != id));
     }
 
     // ───────── 发送 ─────────
@@ -1000,11 +1073,9 @@ impl Chat {
         o.insert("resume".into(), json!(!self.fresh.get_untracked()));
         o.insert("model".into(), json!(sel.model.filter(|m| !m.is_empty())));
         o.insert("effort".into(), json!(sel.effort));
-        let perm = self.perm.get_untracked();
-        o.insert(
-            "permission_mode".into(),
-            json!((!perm.is_empty()).then_some(perm)),
-        );
+        // 没手动选过也把实际生效的模式发过去（默认 Auto），别让后端回落到逐个确认。
+        let perm = untrack(move || self.effective_mode()).map(|m| m.0);
+        o.insert("permission_mode".into(), json!(perm));
         o.insert("agent".into(), json!(agent.strip_prefix("r:")));
         o.insert("profile".into(), json!(agent.strip_prefix("p:")));
         // 远端工作区：CLI 直接在那台机器上跑，能力和在那边敲 claude / codex 一样；账号经 Blazar 的凭据代理带过去。
@@ -1094,6 +1165,17 @@ impl Chat {
         }
         let wire = format!("{text}{}", Self::review_block(&reviews));
         self.prompt.set(String::new());
+        // 先把自己发的这条放上去、开始转圈，不等网络。
+        let pid = self.next_pending.get_value();
+        self.next_pending.set_value(pid.wrapping_add(1));
+        self.pending.update(|p| {
+            p.push(PendingMsg {
+                id: pid,
+                text: wire.clone(),
+                images: images.len(),
+            })
+        });
+        self.orphans.set_value(HashMap::new());
         self.show_aux.run(());
         self.busy.update(|n| *n += 1);
         let mut body = self.send_options();
@@ -1130,16 +1212,18 @@ impl Chat {
                     .await;
                     match q {
                         Ok(q) => {
+                            self.drop_pending(pid);
                             self.queue.set(q);
                             if !reviews.is_empty() {
                                 self.clear_review();
                             }
                             self.attach.set(Vec::new());
-                            toast("已排队：这一轮结束后自动发出");
+                            toast("Queued. It sends when this turn ends.");
                         }
                         Err(e) => {
+                            self.drop_pending(pid);
                             self.prompt.set(text);
-                            toast(format!("没排上：{e}"));
+                            toast(format!("Couldn't queue: {e}"));
                         }
                     }
                 }
@@ -1156,32 +1240,37 @@ impl Chat {
                     }
                     self.fresh.set(false);
                     if started == Some(false) {
+                        self.drop_pending(pid);
                         let why = r["activity"]["reason"].as_str().unwrap_or("").to_owned();
                         toast(if why.is_empty() {
-                            "agent 未能启动".to_owned()
+                            "The agent did not start".to_owned()
                         } else {
                             why.clone()
                         });
                         let class = r["activity"]["failure_class"]
                             .as_str()
-                            .map(|c| format!("（分类：{c}）"))
+                            .map(|c| format!(" ({c})"))
                             .unwrap_or_default();
                         self.local_errors
-                            .update(|e| e.push(format!("agent 没能启动：{why}{class}")));
+                            .update(|e| e.push(format!("The agent did not start: {why}{class}")));
                     }
                 }
                 Err(e) => {
+                    self.drop_pending(pid);
                     self.prompt.set(text);
-                    toast(format!("发送失败：{e}"));
+                    toast(format!("Send failed: {e}"));
                 }
             }
+            // 万一回显丢了：一分钟后不再显示这条占位。
+            gloo_timers::future::TimeoutFuture::new(60_000).await;
+            self.drop_pending(pid);
         });
     }
 
     /// 中断当前这一轮。
     pub fn stop(self) {
         let Some(sid) = self.transcript.with_untracked(|t| t.last_session.clone()) else {
-            toast("这个对话里没有运行中的会话");
+            toast("Nothing is running in this conversation");
             return;
         };
         self.spawn(async move {
@@ -1192,9 +1281,14 @@ impl Chat {
             )
             .await
             {
-                Ok(r) if r["interrupted"].as_bool() == Some(true) => toast("已中断"),
-                Ok(r) => toast(r["reason"].as_str().unwrap_or("未能中断").to_owned()),
-                Err(e) => toast(format!("中断失败：{e}")),
+                Ok(r) if r["interrupted"].as_bool() == Some(true) => toast("Interrupted"),
+                Ok(r) => toast(
+                    r["reason"]
+                        .as_str()
+                        .unwrap_or("Couldn't interrupt")
+                        .to_owned(),
+                ),
+                Err(e) => toast(format!("Interrupt failed: {e}")),
             }
         });
     }
@@ -1210,13 +1304,13 @@ impl Chat {
         self.spawn(async move {
             match api::send::<Value>("POST", &format!("/api/sessions/{sid}/control"), &body).await {
                 Ok(r) if r["accepted"].as_bool() == Some(true) => {
-                    toast(format!("已切换{what}，当前这一轮立即生效"))
+                    toast(format!("Changed {what} for the current turn"))
                 }
                 Ok(r) => toast(format!(
-                    "{what}将在下一轮生效（{}）",
+                    "The {what} change applies from the next turn ({})",
                     r["reason"].as_str().unwrap_or("")
                 )),
-                Err(_) => toast(format!("{what}将在下一轮生效")),
+                Err(_) => toast(format!("The {what} change applies from the next turn")),
             }
         });
     }
@@ -1224,7 +1318,7 @@ impl Chat {
     pub fn set_mode(self, v: &str) {
         self.perm.set(v.to_owned());
         if !v.is_empty() {
-            self.live(json!({ "permission_mode": v }), "权限模式");
+            self.live(json!({ "permission_mode": v }), "permission mode");
         }
     }
 
@@ -1254,9 +1348,9 @@ impl Chat {
             }
             match api::send::<Value>("POST", &format!("/api/approvals/{id}"), &body).await {
                 Ok(r) if r["delivered"].as_bool() == Some(true) => {}
-                Ok(r) => toast(r["reason"].as_str().unwrap_or("没能送达").to_owned()),
+                Ok(r) => toast(r["reason"].as_str().unwrap_or("Not delivered").to_owned()),
                 Err(e) => {
-                    toast(format!("裁决失败：{e}"));
+                    toast(format!("Couldn't send the decision: {e}"));
                     self.decided.update(|d| {
                         d.remove(&id);
                     });
@@ -1274,9 +1368,9 @@ impl Chat {
                 format!("{tool} {pattern}…")
             };
             let ok = dialog::ask(
-                "以后都允许",
-                &format!("以后在这个工作区里，「{what}」都自动允许，不再问你？\n\n可以随时在「设置 → 自动批准」里关掉或删除。"),
-                vec![Choice::plain("取消"), Choice::plain("以后都允许")],
+                "Don't ask again",
+                &format!("Always allow \"{what}\" in this workspace without asking?\n\nYou can turn this off in Settings → Auto-approval."),
+                vec![Choice::plain("Cancel"), Choice::plain("Always allow")],
             )
             .await;
             if ok != Some(1) {
@@ -1305,7 +1399,7 @@ impl Chat {
                 match act {
                     "drop" => {
                         api::send::<Value>("DELETE", &base, &json!({})).await?;
-                        toast("已撤回");
+                        toast("Removed");
                     }
                     "edit" => {
                         api::send::<Value>("DELETE", &base, &json!({})).await?;
@@ -1318,17 +1412,17 @@ impl Chat {
                     _ => {
                         // 插话：不等这一轮结束，现在就塞进去。
                         let Some(sid) = self.transcript.with_untracked(|t| t.last_session.clone()) else {
-                            toast("找不到正在跑的会话");
+                            toast("No running session to steer");
                             return Ok(());
                         };
                         let thinking = (untrack(move || self.runtime()) == "claude").then(|| self.prefs.get_untracked().thinking);
                         let i = api::send::<Value>("POST", &format!("/api/sessions/{sid}/input"), &json!({ "text": q.text, "thinking": thinking })).await?;
                         if i["accepted"].as_bool() != Some(true) {
-                            toast(i["reason"].as_str().unwrap_or("插不进去：这个运行时不支持中途插话，等这一轮结束会自动发出").to_owned());
+                            toast(i["reason"].as_str().unwrap_or("This runtime can't take messages mid-turn. It sends when the turn ends.").to_owned());
                             return Ok(());
                         }
                         api::send::<Value>("DELETE", &base, &json!({})).await?;
-                        toast("已插话，agent 读到后会打勾");
+                        toast("Sent into the current turn");
                     }
                 }
                 Ok(())
@@ -1345,27 +1439,27 @@ impl Chat {
 
     pub fn retry(self, sid: String, text: Option<String>, later: usize) {
         if self.running.get_untracked() {
-            toast("agent 还在运行，先中断再重试");
+            toast("The agent is still running. Interrupt it first.");
             return;
         }
         self.spawn(async move {
             let head = if text.is_none() {
-                "重新生成这一轮"
+                "Retry this turn"
             } else {
-                "用改过的内容重试"
+                "Retry with the edited message"
             };
             let tail = if later > 0 {
-                format!("和它之后的 {later} 轮对话")
+                format!(" and the {later} turn{} after it", if later == 1 { "" } else { "s" })
             } else {
                 String::new()
             };
             let body = format!(
-                "· 工作区的文件会恢复到这条消息发出之前（现在的状态会先存一份）\n· 这条消息{tail}会标成「已回退」，agent 不再记得\n· 不是 git 仓库的目录没有检查点，只重来对话、不动文件"
+                "· Files go back to how they were before this message (the current state is saved first)\n· This message{tail} are marked as rewound and leave the context\n· Folders outside git have no checkpoints; only the conversation restarts"
             );
             if dialog::ask(
                 &format!("{head}？"),
                 &body,
-                vec![Choice::plain("取消"), Choice::danger("重试")],
+                vec![Choice::plain("Cancel"), Choice::danger("Retry")],
             )
             .await
                 != Some(1)
@@ -1383,7 +1477,7 @@ impl Chat {
             .await
             {
                 Ok(r) if r["admitted"] == json!(false) => {
-                    toast(r["reason"].as_str().unwrap_or("工作区正忙").to_owned())
+                    toast(r["reason"].as_str().unwrap_or("The workspace is busy").to_owned())
                 }
                 Ok(r) => {
                     if r["session_id"].is_string() {
@@ -1397,13 +1491,13 @@ impl Chat {
                         self.git.changed.update(|n| *n += 1);
                     }
                     toast(if restored {
-                        "文件已恢复，正在从这里重来"
+                        "Files restored. Continuing from here."
                     } else {
-                        "正在从这里重来（这个目录没有检查点，文件没动）"
+                        "Continuing from here (no checkpoint, files unchanged)"
                     });
                 }
                 Err(e) => {
-                    toast(format!("重试失败：{e}"));
+                    toast(format!("Retry failed: {e}"));
                     self.load_history();
                 }
             }
@@ -1413,7 +1507,7 @@ impl Chat {
     pub fn rewind(self, cp: String, undo: bool) {
         self.spawn(async move {
             if !undo
-                && dialog::ask("回退", "把工作区的文件恢复到这条消息发出之前？\n对话记录不变；回退前的状态会先存一份，可以撤销。", vec![Choice::plain("取消"), Choice::plain("回退")]).await != Some(1)
+                && dialog::ask("Rewind", "Restore files to before this message?\nThe conversation stays; the current state is saved first so you can undo.", vec![Choice::plain("Cancel"), Choice::plain("Rewind")]).await != Some(1)
             {
                 return;
             }
@@ -1427,13 +1521,13 @@ impl Chat {
                 Ok(r) => {
                     self.git.changed.update(|n| *n += 1);
                     if undo {
-                        toast("已撤销回退");
+                        toast("Rewind undone");
                     } else if let Some(u) = r["undo"].as_str() {
                         let u = u.to_owned();
                         if dialog::ask(
-                            "已回退到这条消息之前",
-                            "要撤销这次回退吗？",
-                            vec![Choice::plain("不用"), Choice::plain("撤销")],
+                            "Rewound",
+                            "Files are back to before this message. Undo?",
+                            vec![Choice::plain("Keep"), Choice::plain("Undo")],
                         )
                         .await
                             == Some(1)
@@ -1441,10 +1535,10 @@ impl Chat {
                             self.rewind(u, true);
                         }
                     } else {
-                        toast("已回退");
+                        toast("Rewound");
                     }
                 }
-                Err(e) => toast(format!("回退失败：{e}")),
+                Err(e) => toast(format!("Rewind failed: {e}")),
             }
         });
     }
@@ -1470,17 +1564,20 @@ impl Chat {
             )
             .await
             {
-                Ok(r) if r["admitted"] == json!(false) => {
-                    toast(r["reason"].as_str().unwrap_or("工作区正忙").to_owned())
-                }
+                Ok(r) if r["admitted"] == json!(false) => toast(
+                    r["reason"]
+                        .as_str()
+                        .unwrap_or("The workspace is busy")
+                        .to_owned(),
+                ),
                 Ok(r) => {
                     self.note_sent(
                         r["session_id"].as_str().map(str::to_owned),
                         r["thread_id"].as_str().map(str::to_owned),
                     );
-                    toast(format!("已换到「{label}」接着做"));
+                    toast(format!("Continuing with {label}"));
                 }
-                Err(e) => toast(format!("没发出去：{e}")),
+                Err(e) => toast(format!("Send failed: {e}")),
             }
         });
     }

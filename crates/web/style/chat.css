@@ -254,3 +254,4 @@
 .askopt .at { display: flex; flex-direction: column; }
 .askopt .at span { font-size: 11.5px; color: var(--fg-3); }
 .cb-right { margin-left: auto; display: inline-flex; align-items: center; gap: 2px; flex: 0 0 auto; }
+.cc-user.pending { opacity: .75; }

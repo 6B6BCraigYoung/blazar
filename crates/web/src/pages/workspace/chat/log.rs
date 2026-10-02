@@ -106,7 +106,7 @@ fn result_view(r: Res, key: String, opened: Opened) -> impl IntoView {
                 {move || if show.get() { all.clone() } else { shown.clone() }}
                 {move || (more > 0 && !show.get()).then(|| {
                     let k = key.clone();
-                    view! { <button class="cc-more" on:click=move |_| { show.set(true); opened.set(&k, true); }>{format!("… +{more} 行（点击展开）")}</button> }
+                    view! { <button class="cc-more" on:click=move |_| { show.set(true); opened.set(&k, true); }>{format!("… +{more} line{} (click to expand)", if more == 1 { "" } else { "s" })}</button> }
                 })}
             </div>
         </div>
@@ -124,14 +124,14 @@ fn extra_view(e: &Extra, opened: Opened, key: &str, ws: &str) -> AnyView {
                     let cls = match c { '+' => "dadd", '-' => "ddel", _ => "dgap" };
                     view! { <div class=cls><span class="dm">{if *c == '⋯' { ' ' } else { *c }}</span>{if *c == '⋯' { "⋯".to_owned() } else { l.clone() }}</div> }
                 }).collect_view()}
-                {(*more > 0).then(|| view! { <div class="dgap">{format!("… 还有 {more} 行")}</div> })}
+                {(*more > 0).then(|| view! { <div class="dgap">{format!("… {more} more line{}", if *more == 1 { "" } else { "s" })}</div> })}
             </div>
         }.into_any(),
         Extra::Files(f) => view! { <div class="cc-diff">{f.iter().map(|x| view! { <div class="dh">{x.clone()}</div> }).collect_view()}</div> }.into_any(),
         Extra::Plan(p) => {
             let p = p.clone();
             let ws = ws.to_owned();
-            details(opened, format!("plan:{key}"), "cc-planbody", view! { "计划内容" }.into_any(), move || view! { <Md text=p ws/> }.into_any()).into_any()
+            details(opened, format!("plan:{key}"), "cc-planbody", view! { "Plan" }.into_any(), move || view! { <Md text=p ws/> }.into_any()).into_any()
         }
     }
 }
@@ -151,7 +151,7 @@ pub fn todo_list(list: &[crate::chat_model::Todo]) -> impl IntoView + use<> {
 
 fn tool_view(t: Tool, opened: Opened, ws: String) -> AnyView {
     let sub = (!t.sub.is_empty() || t.sub_calls > 0).then(|| {
-        let summary = if t.sub_calls > 0 { format!("{} 次工具调用 · 最近：{}", t.sub_calls, t.sub_last) } else { "子 agent 工作中…".to_owned() };
+        let summary = if t.sub_calls > 0 { format!("{} tool call{} · latest: {}", t.sub_calls, if t.sub_calls == 1 { "" } else { "s" }, t.sub_last) } else { "Subagent working…".to_owned() };
         let steps = t.sub.clone();
         let ws = ws.clone();
         details(opened, format!("sub:{}", t.id), "cc-sub", view! { {summary} }.into_any(), move || {
@@ -185,7 +185,7 @@ fn step_view(s: Step, opened: Opened, ws: String) -> AnyView {
         Step::Tool(t) => tool_view(*t, opened, ws),
         Step::Text(t) => view! { <div class="cc-row cc-msg sub"><span class="cc-dot"></span><div class="cc-main"><Md text=t ws/></div></div> }.into_any(),
         Step::Bg(t) => view! {
-            <div class="cc-row cc-bg"><span class="cc-dot"></span><div class="cc-main"><div class="cc-head"><b>"后台任务"</b><span class="cc-arg">{t}</span></div></div></div>
+            <div class="cc-row cc-bg"><span class="cc-dot"></span><div class="cc-main"><div class="cc-head"><b>"Background task"</b><span class="cc-arg">{t}</span></div></div></div>
         }.into_any(),
         Step::Note(t) => view! { <div class="cc-meta">{t}</div> }.into_any(),
         Step::Orphan(r) => view! { <div class="cc-row cc-orphan">{result_view(r, String::new(), opened)}</div> }.into_any(),
@@ -220,7 +220,7 @@ fn copy(text: String, done: RwSignal<bool>) {
             gloo_timers::future::TimeoutFuture::new(1200).await;
             let _ = done.try_set(false);
         } else {
-            toast("复制失败");
+            toast("Copy failed");
         }
     });
 }
@@ -289,9 +289,9 @@ fn UserMsg(
                                 if e.key() == "Enter" && (e.meta_key() || e.ctrl_key()) { e.prevent_default(); go(); }
                             }></textarea>
                         <div class="row">
-                            <span class="muted small">"重试会把文件恢复到这条消息之前，并丢弃它之后的对话"</span><span class="grow"></span>
-                            <button class="btn small" on:click=move |_| editing.set(false)>"取消"</button>
-                            <button class="btn small primary" on:click=move |_| go2()>"重试"</button>
+                            <span class="muted small">"Retrying restores files to before this message and drops the conversation after it"</span><span class="grow"></span>
+                            <button class="btn small" on:click=move |_| editing.set(false)>"Cancel"</button>
+                            <button class="btn small primary" on:click=move |_| go2()>"Retry"</button>
                         </div>
                     </div>
                 }
@@ -299,7 +299,7 @@ fn UserMsg(
                 <div class="cc-ut">{text.clone()}</div>
             </Show>
             {long.then(|| view! {
-                <button class="cc-xp" on:click=move |_| open.update(|o| *o = !*o)>{move || if open.get() { "收起" } else { "展开全部" }}</button>
+                <button class="cc-xp" on:click=move |_| open.update(|o| *o = !*o)>{move || if open.get() { "Show less" } else { "Show more" }}</button>
             })}
             <span class="cc-acts">
                 {first.then(|| {
@@ -307,12 +307,12 @@ fn UserMsg(
                     let sid_r = sid.clone();
                     let later = later.clone();
                     view! {
-                        <button class="cc-rw" title="改一改这条消息，从这里重来" on:click=move |_| { draft.set(t.clone()); editing.set(true); }>"✎ 编辑并重试"</button>
-                        <button class="cc-rw" title="原话不变，让 agent 重新回答这一轮" on:click=move |_| chat.retry(sid_r.clone(), None, later())>"⟳ 重新生成"</button>
+                        <button class="cc-rw" title="Edit this message and continue from here" on:click=move |_| { draft.set(t.clone()); editing.set(true); }>"✎ Edit"</button>
+                        <button class="cc-rw" title="Ask again with the same message" on:click=move |_| chat.retry(sid_r.clone(), None, later())>"⟳ Retry"</button>
                     }
                 })}
                 {move || cp.get().map(|c| view! {
-                    <button class="cc-rw" title="把工作区的文件恢复到这条消息发出之前" on:click=move |_| chat.rewind(c.clone(), false)>"↺ 回退到这里"</button>
+                    <button class="cc-rw" title="Restore files to before this message" on:click=move |_| chat.rewind(c.clone(), false)>"↺ Rewind"</button>
                 })}
             </span>
         </div>
@@ -342,14 +342,14 @@ fn error_view(chat: Chat, text: String, by_account: bool) -> AnyView {
                     .unwrap_or_default()
             });
             if list.is_empty() {
-                toast("没有别的可用账号了，先在「运行时」页添加或登录一个");
+                toast("No other usable account. Add or log in to one on the Runtimes page first.");
                 return;
             }
-            let mut choices = vec![Choice::plain("取消")];
+            let mut choices = vec![Choice::plain("Cancel")];
             choices.extend(list.iter().map(|a| Choice::plain(a.label.clone())));
             if let Some(i) = dialog::ask(
-                "换个账号继续",
-                "接着这个对话做下去，上下文不变，只是换个账号。",
+                "Continue with another account",
+                "Pick up this conversation where it stopped. The context stays the same; only the account changes.",
                 choices,
             )
             .await
@@ -364,7 +364,7 @@ fn error_view(chat: Chat, text: String, by_account: bool) -> AnyView {
     view! {
         <div class="cc-row cc-err"><span class="cc-dot"></span><div class="cc-main">
             {text}
-            {can.then(|| view! { <div><button class="linkbtn" on:click=switch>"换个账号继续"</button></div> })}
+            {can.then(|| view! { <div><button class="linkbtn" on:click=switch>"Continue with another account"</button></div> })}
         </div></div>
     }.into_any()
 }
@@ -380,7 +380,7 @@ fn item_view(it: Item, chat: Chat, opened: Opened, ws: String) -> AnyView {
                 <div class="cc-row cc-msg"><span class="cc-dot"></span><div class="cc-main">
                     <Md text ws/>
                     <div class="cc-acts2">
-                        <button class="cc-copy" title="复制" data-done=move || done.get().to_string() inner_html=COPY on:click=move |_| copy(t.clone(), done)></button>
+                        <button class="cc-copy" title="Copy" data-done=move || done.get().to_string() inner_html=COPY on:click=move |_| copy(t.clone(), done)></button>
                         {cost.map(|c| view! { <span class="cc-cost">{c}</span> })}
                     </div>
                 </div></div>
@@ -390,32 +390,32 @@ fn item_view(it: Item, chat: Chat, opened: Opened, ws: String) -> AnyView {
         Body::Error { text, by_account } => error_view(chat, text, by_account),
         Body::Warn { denied } => view! {
             <div class="cc-row cc-warn"><span class="cc-dot"></span><div class="cc-main">
-                {format!("{} 次操作被权限拦下，没有执行：", denied.len())}
+                {format!("{} action{} blocked by permissions and not run:", denied.len(), if denied.len() == 1 { " was" } else { "s were" })}
                 {denied.into_iter().map(|d| view! { <div class="muted">{format!("· {d}")}</div> }).collect_view()}
-                <div class="muted small">"无头模式下 agent 不会停下来问你，而是直接拒绝。需要放行就把权限模式换成「自动批准改动」。"</div>
+                <div class="muted small">"In headless mode the agent denies instead of asking. Switch the mode to Edit automatically or Auto to allow these."</div>
             </div></div>
         }.into_any(),
         Body::Meta { text, bad } => view! { <div class="cc-meta" class:bad=bad>{text}</div> }.into_any(),
         Body::Rewound { turns, items } => details(opened, format!("rw:{key}"), "cc-rewound",
-            view! { {format!("已回退的历史 · {turns} 条消息（编辑并重试时丢弃，agent 不再记得）")} }.into_any(),
+            view! { {format!("Rewound · {turns} message{} (dropped by an edit, no longer in context)", if turns == 1 { "" } else { "s" })} }.into_any(),
             move || view! { <div class="cc-rwl">{items.into_iter().map(|i| item_view(i, chat, opened, ws.clone())).collect_view()}</div> }.into_any()).into_any(),
     }
 }
 
 const SPIN: [&str; 12] = ["·", "✢", "*", "✶", "✻", "✽", "✽", "✻", "✶", "*", "✢", "·"];
 const WORDS: [&str; 12] = [
-    "思考中",
-    "推敲中",
-    "琢磨中",
-    "酝酿中",
-    "梳理中",
-    "构思中",
-    "斟酌中",
-    "整理中",
-    "盘算中",
-    "打磨中",
-    "捣鼓中",
-    "钻研中",
+    "Thinking",
+    "Pondering",
+    "Musing",
+    "Brewing",
+    "Cogitating",
+    "Percolating",
+    "Mulling",
+    "Crafting",
+    "Tinkering",
+    "Noodling",
+    "Ruminating",
+    "Synthesizing",
 ];
 
 /// 跟 Claude Code 一样的局部「转圈」：字符来回变，后面一个动词隔几秒换一次。
@@ -459,11 +459,20 @@ pub fn Log(chat: Chat, tick: RwSignal<u32>) -> impl IntoView {
     Effect::new(move |_| {
         chat.transcript.track();
         chat.local_errors.track();
+        chat.pending.track();
         if at_bottom.get_value()
             && let Some(e) = el.get()
         {
             request_animation_frame(move || e.set_scroll_top(e.scroll_height()));
         }
+    });
+    // 自己发了消息：不管原来滚到哪，都回到底部看它。
+    Effect::new(move |prev: Option<usize>| {
+        let n = chat.pending.with(Vec::len);
+        if prev.is_some_and(|p| n > p) {
+            at_bottom.set_value(true);
+        }
+        n
     });
     let dim = move || {
         chat.transcript.with(|t| {
@@ -472,8 +481,9 @@ pub fn Log(chat: Chat, tick: RwSignal<u32>) -> impl IntoView {
                 .any(|p| !p.ask && !chat.decided.with(|d| d.contains(&p.id)))
         })
     };
+    // 刚发出去也算在跑：先转圈，不等服务端。
     let busy = move || {
-        chat.running.get()
+        (chat.running.get() || chat.pending.with(|p| !p.is_empty()))
             && chat.transcript.with(|t| {
                 t.pending
                     .iter()
@@ -484,6 +494,7 @@ pub fn Log(chat: Chat, tick: RwSignal<u32>) -> impl IntoView {
         !chat.loading.get()
             && chat.rows.with(Vec::is_empty)
             && chat.local_errors.with(Vec::is_empty)
+            && chat.pending.with(Vec::is_empty)
     };
     view! {
         <div class="cc-log" node_ref=el data-dim=move || dim().to_string()
@@ -495,6 +506,11 @@ pub fn Log(chat: Chat, tick: RwSignal<u32>) -> impl IntoView {
             </Show>
             <For each=items key=|it| (it.key.clone(), it.sig) let:it>
                 {item_view(it, chat, opened, ws.clone())}
+            </For>
+            <For each=move || chat.pending.get() key=|p| p.id let:p>
+                <div class="cc-user pending">
+                    <div class="cc-ut">{p.text.clone()}{(p.images > 0).then(|| format!("\n[{} image{}]", p.images, if p.images == 1 { "" } else { "s" }))}</div>
+                </div>
             </For>
             {move || chat.local_errors.get().into_iter().map(|e| view! {
                 <div class="cc-row cc-err"><span class="cc-dot"></span><div class="cc-main">{e}</div></div>
@@ -515,7 +531,7 @@ fn Empty(chat: Chat) -> impl IntoView {
             <div class="cc-empty">
                 {match &p {
                     Some(p) => view! {
-                        <div class="who"><b>{format!("和 {} 对话", p.name)}</b><div class="muted small">{p.description.clone().unwrap_or_default()}</div></div>
+                        <div class="who"><b>{format!("Chat with {}", p.name)}</b><div class="muted small">{p.description.clone().unwrap_or_default()}</div></div>
                     }.into_any(),
                     None => view! { <div>"New conversation."</div> }.into_any(),
                 }}
