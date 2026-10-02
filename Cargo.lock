@@ -566,6 +566,7 @@ name = "blazar-web"
 version = "0.1.0"
 dependencies = [
  "blazar-core-types",
+ "chrono",
  "console_error_panic_hook",
  "futures",
  "gloo-net",

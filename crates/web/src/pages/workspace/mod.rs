@@ -1,5 +1,6 @@
 //! 工作区页：资源管理器 + 编辑器 + 底部面板 + 对话栏。
 
+mod chat;
 mod diff_panel;
 mod files;
 mod git_panel;
@@ -185,9 +186,67 @@ fn Workspace(id: String) -> impl IntoView {
         }
     });
 
+    // 对话：运行状态跟着工作区详情走（hub 推 workspaces_changed 时会重拉）。等你审批也算这一轮还在进行。
+    let panel_tab = RwSignal::new(
+        storage::load::<String>("blazar.v2.ws.panel").unwrap_or_else(|| "term".into()),
+    );
+    let running = Signal::derive(move || {
+        detail.with(|d| {
+            d.as_ref()
+                .and_then(|d| d.as_ref().ok())
+                .is_some_and(|d| matches!(d.activity.as_str(), "running" | "awaiting_approval"))
+        })
+    });
+    let tree_files = Signal::derive(move || {
+        tree.with(|t| {
+            t.as_ref()
+                .and_then(|r| r.as_ref().ok())
+                .map(|t| {
+                    t.entries
+                        .iter()
+                        .filter(|e| !e.is_dir)
+                        .map(|e| e.path.clone())
+                        .collect()
+                })
+                .unwrap_or_default()
+        })
+    });
+    let show_aux = Callback::new(move |()| {
+        if state.lay.with_untracked(|l| l.hide_aux) {
+            state.toggle(Region::Aux)
+        }
+    });
+    let show_diff = Callback::new(move |()| {
+        if state.lay.with_untracked(|l| l.hide_panel) {
+            state.toggle(Region::Panel)
+        }
+        panel_tab.set("diff".into());
+        storage::save("blazar.v2.ws.panel", &"diff");
+    });
+    let hide_aux = Callback::new(move |()| state.toggle(Region::Aux));
+    let chat_id = id.clone();
+    let chat_view = move || {
+        detail
+            .with(|d| {
+                d.as_ref()
+                    .and_then(|d| d.as_ref().ok())
+                    .map(|d| (d.path.clone(), d.node.clone()))
+            })
+            .map(|(path, node)| {
+                let c = chat::Chat::new(
+                    &chat_id, &path, &node, files, diff, git, running, show_aux, show_diff,
+                );
+                view! { <chat::ChatPane chat=c tree_files on_hide=hide_aux/> }
+            })
+    };
+    // 详情第一次拿到之后才建对话栏，之后不跟着详情重建。
+    let chat_once = Memo::new(move |was: Option<&bool>| {
+        was.copied().unwrap_or(false) || detail.with(|d| d.as_ref().is_some_and(Result::is_ok))
+    });
+
     // 网格尺寸跟着窗口走。
     let measure = move || {
-        if let Some(g) = grid.get_untracked() {
+        if let Some(g) = grid.try_get_untracked().flatten() {
             let r = g.get_bounding_client_rect();
             state.area.set((r.width(), r.height()));
         }
@@ -292,18 +351,12 @@ fn Workspace(id: String) -> impl IntoView {
                     </div>
                     <Splitter edge=Edge::Panel state/>
                     <section class="region panel" data-collapsed=move || lay().hide_panel.to_string()>
-                        <Panel ws=id.clone() files git diff state old_ui=old_ui.clone()/>
+                        <Panel ws=id.clone() files git diff state old_ui=old_ui.clone() tab=panel_tab/>
                     </section>
                 </section>
                 <Splitter edge=Edge::Aux state/>
                 <aside class="region aux" data-collapsed=move || lay().hide_aux.to_string()>
-                    <div class="rhead"><span>"对话"</span><span class="grow"></span>
-                        <button class="laybtn" title="收起 ⌘⌥B" on:click=move |_| state.toggle(Region::Aux)>"×"</button>
-                    </div>
-                    <div class="todo-pane">
-                        "对话还在搬到新界面，"
-                        <a href=format!("/#/workspaces/{id}")>"先在旧界面里聊"</a>
-                    </div>
+                    {move || chat_once.get().then(|| untrack(chat_view.clone()))}
                 </aside>
             </div>
         </div>
@@ -409,7 +462,7 @@ fn MdView(files: Files, preview: RwSignal<bool>) -> impl IntoView {
         };
         let t = gloo_timers::callback::Timeout::new(150, move || {
             let src = files.value(&p);
-            html.set(md::render(&src, &p, &files.ws()));
+            let _ = html.try_set(md::render(&src, &p, &files.ws()));
         });
         timer.set_value(Some(t));
     });
@@ -471,7 +524,7 @@ fn MdView(files: Files, preview: RwSignal<bool>) -> impl IntoView {
     }
 }
 
-fn md_lang(l: &str) -> String {
+pub(crate) fn md_lang(l: &str) -> String {
     match l {
         "js" => "javascript",
         "ts" => "typescript",
@@ -494,10 +547,8 @@ fn Panel(
     diff: DiffState,
     state: LayoutState,
     old_ui: String,
+    tab: RwSignal<String>,
 ) -> impl IntoView {
-    let tab = RwSignal::new(
-        storage::load::<String>("blazar.v2.ws.panel").unwrap_or_else(|| "term".into()),
-    );
     let pick = move |t: &'static str| {
         tab.set(t.to_owned());
         storage::save("blazar.v2.ws.panel", &t);

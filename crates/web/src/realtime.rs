@@ -3,6 +3,7 @@
 //! 页面不直接处理事件：每个话题是一个计数器，页面在取数的地方读它，计数一变就自动重新取。
 
 use std::pin::Pin;
+use std::rc::Rc;
 use std::time::Duration;
 
 use blazar_core_types::api::ServerEvent;
@@ -12,9 +13,16 @@ use gloo_net::websocket::{Message, State};
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 
+type Listener = Rc<dyn Fn(&ServerEvent)>;
+
 #[derive(Clone, Copy)]
 pub struct Bus {
     pub connected: RwSignal<bool>,
+    /// 每次（重新）连上加一：断开期间的事件收不到，订阅者据此整个重拉。
+    pub reconnects: RwSignal<u32>,
+    /// 逐条收事件的订阅者（对话的流式输出不能被合并成一次）。
+    listeners: StoredValue<Vec<(u32, Listener)>, LocalStorage>,
+    next_listener: StoredValue<u32>,
     pub accounts: RwSignal<u32>,
     pub workspaces: RwSignal<u32>,
     pub nodes: RwSignal<u32>,
@@ -25,7 +33,27 @@ fn bump(s: RwSignal<u32>) {
 }
 
 impl Bus {
+    /// 订阅所有事件；返回的编号交给 `unsubscribe`。
+    pub fn subscribe(self, f: impl Fn(&ServerEvent) + 'static) -> u32 {
+        let id = self.next_listener.get_value();
+        self.next_listener.set_value(id.wrapping_add(1));
+        self.listeners.update_value(|l| l.push((id, Rc::new(f))));
+        id
+    }
+
+    pub fn unsubscribe(self, id: u32) {
+        self.listeners
+            .try_update_value(|l| l.retain(|(i, _)| *i != id));
+    }
+
     fn dispatch(self, ev: &ServerEvent) {
+        // 先拷一份再调：回调里可能订阅 / 退订。
+        let ls: Vec<Listener> = self
+            .listeners
+            .with_value(|l| l.iter().map(|(_, f)| f.clone()).collect());
+        for f in ls {
+            f(ev);
+        }
         match ev {
             ServerEvent::AccountsChanged => bump(self.accounts),
             ServerEvent::WorkspacesChanged | ServerEvent::SessionTitled { .. } => {
@@ -57,6 +85,9 @@ fn ws_url() -> String {
 pub fn provide() -> Bus {
     let bus = Bus {
         connected: RwSignal::new(false),
+        reconnects: RwSignal::new(0),
+        listeners: StoredValue::new_local(Vec::new()),
+        next_listener: StoredValue::new(0),
         accounts: RwSignal::new(0),
         workspaces: RwSignal::new(0),
         nodes: RwSignal::new(0),
@@ -79,6 +110,7 @@ async fn run(bus: Bus) {
                 // 断开期间的事件收不到了：重连上就当所有话题都变过。
                 if !first {
                     bus.bump_all();
+                    bus.reconnects.update(|n| *n = n.wrapping_add(1));
                 }
                 first = false;
                 let (_tx, mut rx) = ws.split();

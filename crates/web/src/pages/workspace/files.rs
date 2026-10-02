@@ -62,7 +62,7 @@ impl Files {
     }
 
     pub fn ws(self) -> String {
-        self.ws.get_value()
+        self.ws.try_get_value().unwrap_or_default()
     }
 
     fn with_editor<R>(self, f: impl FnOnce(&monaco::Editor) -> R) -> Option<R> {

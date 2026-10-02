@@ -89,7 +89,7 @@ button { font: inherit; color: inherit; }
 .ws-card .diff .a { color: var(--ok-fg); } .ws-card .diff .d { color: var(--err-fg); }
 
 /* 连接状态提示 */
-.conn { position: fixed; right: 14px; bottom: 12px; font-size: 11px; color: var(--fg-4); }
+.conn { font-size: 11px; color: var(--fg-4); }
 .conn[data-up="false"] { color: var(--warn); }
 
 /* 运行时卡头的图标 */

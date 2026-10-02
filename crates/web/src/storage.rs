@@ -16,3 +16,20 @@ pub fn save<T: Serialize>(key: &str, v: &T) {
         let _ = s.set_item(key, &text);
     }
 }
+
+/// 原样存的字符串（旧界面有些键不是 JSON）。
+pub fn load_raw(key: &str) -> Option<String> {
+    store()?.get_item(key).ok().flatten()
+}
+
+pub fn save_raw(key: &str, v: &str) {
+    if let Some(s) = store() {
+        let _ = s.set_item(key, v);
+    }
+}
+
+pub fn remove(key: &str) {
+    if let Some(s) = store() {
+        let _ = s.remove_item(key);
+    }
+}

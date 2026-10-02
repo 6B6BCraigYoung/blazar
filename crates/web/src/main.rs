@@ -4,6 +4,8 @@
 mod api;
 #[cfg(target_arch = "wasm32")]
 mod app;
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+mod chat_model;
 #[cfg(target_arch = "wasm32")]
 mod components;
 #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]

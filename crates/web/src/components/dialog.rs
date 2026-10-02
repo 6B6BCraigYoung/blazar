@@ -5,24 +5,21 @@ use leptos::prelude::*;
 
 #[derive(Clone)]
 pub struct Choice {
-    pub label: &'static str,
+    pub label: String,
     pub danger: bool,
-    pub primary: bool,
 }
 
 impl Choice {
-    pub const fn plain(label: &'static str) -> Self {
+    pub fn plain(label: impl Into<String>) -> Self {
         Self {
-            label,
+            label: label.into(),
             danger: false,
-            primary: false,
         }
     }
-    pub const fn danger(label: &'static str) -> Self {
+    pub fn danger(label: impl Into<String>) -> Self {
         Self {
-            label,
+            label: label.into(),
             danger: true,
-            primary: false,
         }
     }
 }
@@ -82,14 +79,9 @@ pub fn DialogHost() -> impl IntoView {
                     .iter()
                     .enumerate()
                     .map(|(i, c)| {
-                        let cls = if c.danger {
-                            "btn danger"
-                        } else if c.primary {
-                            "btn primary"
-                        } else {
-                            "btn"
-                        };
-                        view! { <button class=cls on:click=move |_| answer(d, Some(i))>{c.label}</button> }
+                        let cls = if c.danger { "btn danger" } else { "btn" };
+                        let label = c.label.clone();
+                        view! { <button class=cls on:click=move |_| answer(d, Some(i))>{label}</button> }
                     })
                     .collect_view();
                 view! {

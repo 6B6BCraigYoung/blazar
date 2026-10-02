@@ -44,6 +44,9 @@ pub fn Sidebar() -> impl IntoView {
             <div class="foot">
                 <a href="/">"回到旧界面"</a>
                 <span>"新界面预览 · 逐页迁移中"</span>
+                <span class="conn" data-up=move || bus.connected.get().to_string()>
+                    {move || if bus.connected.get() { "已连接" } else { "正在重连 hub…" }}
+                </span>
             </div>
         </nav>
     }
