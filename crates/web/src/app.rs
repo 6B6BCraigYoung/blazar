@@ -6,9 +6,11 @@ use crate::components::dialog::{self, DialogHost};
 use crate::components::new_workspace::NewWorkspace;
 use crate::components::palette::{AlertsDialog, Palette};
 use crate::components::sidebar::Sidebar;
+use crate::components::term_dialog::{self, TermDialogHost};
 use crate::components::toast::{self, ToastHost};
 use crate::pages::{
-    NotFound, ProjectPage, RunningPage, RuntimesPage, WaitingPage, WorkspacePage, WorkspacesPage,
+    NotFound, ProjectPage, RunningPage, RuntimeDetailPage, RuntimesPage, WaitingPage,
+    WorkspacePage, WorkspacesPage,
 };
 use crate::realtime;
 
@@ -18,6 +20,7 @@ pub fn App() -> impl IntoView {
     crate::app_state::provide(bus);
     dialog::provide();
     toast::provide();
+    term_dialog::provide();
     view! {
         <Router base="/v2">
             <div class="shell">
@@ -29,6 +32,7 @@ pub fn App() -> impl IntoView {
                         <Route path=path!("/waiting") view=WaitingPage/>
                         <Route path=path!("/project/:name") view=ProjectPage/>
                         <Route path=path!("/runtimes") view=RuntimesPage/>
+                        <Route path=path!("/runtimes/:id") view=RuntimeDetailPage/>
                         <Route path=path!("/w/:id") view=WorkspacePage/>
                     </Routes>
                 </main>
@@ -36,6 +40,7 @@ pub fn App() -> impl IntoView {
             <NewWorkspace/>
             <Palette/>
             <AlertsDialog/>
+            <TermDialogHost/>
             <DialogHost/>
             <ToastHost/>
         </Router>

@@ -25,6 +25,8 @@ mod pages;
 #[cfg(target_arch = "wasm32")]
 mod realtime;
 #[cfg(target_arch = "wasm32")]
+mod rt_logo;
+#[cfg(target_arch = "wasm32")]
 mod storage;
 #[cfg(target_arch = "wasm32")]
 mod term;

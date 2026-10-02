@@ -1,10 +1,10 @@
-mod runtimes;
+pub mod runtimes;
 mod workspace;
 pub mod workspaces;
 
 use leptos::prelude::*;
 
-pub use runtimes::RuntimesPage;
+pub use runtimes::{RuntimeDetailPage, RuntimesPage};
 pub use workspace::WorkspacePage;
 pub use workspaces::{ProjectPage, RunningPage, WaitingPage, WorkspacesPage};
 

@@ -162,7 +162,7 @@ pub fn Sidebar() -> impl IntoView {
             }}
             <div class="grp">
                 <span>"AI"</span>
-                {nav("/v2/runtimes", I_RT, "运行时", Signal::derive(move || n(app.runtimes_n.get())), true)}
+                {nav("/v2/runtimes", I_RT, "运行时", Signal::derive(move || n(app.runtimes_n.get())), false)}
                 {old("agents", I_AGENT, "智能体", Signal::derive(move || n(app.agents_n.get())))}
                 {old("skills", I_SKILL, "SKILLs", Signal::derive(move || n(app.skills_n.get())))}
             </div>

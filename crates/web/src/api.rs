@@ -59,6 +59,12 @@ pub async fn send<T: DeserializeOwned>(
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct Machine {
     pub hostname: String,
+    #[serde(default)]
+    pub blazar_version: String,
+    #[serde(default)]
+    pub os: String,
+    #[serde(default)]
+    pub arch: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -68,6 +74,14 @@ pub struct Runtime {
     pub version: Option<String>,
     pub authed: Option<bool>,
     pub installed: bool,
+    #[serde(default)]
+    pub path: Option<String>,
+    #[serde(default)]
+    pub auth_hint: Option<String>,
+    #[serde(default)]
+    pub remote_hands: bool,
+    #[serde(default)]
+    pub cost_7d: f64,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -99,6 +113,18 @@ pub struct Account {
     #[serde(default)]
     pub windows: Vec<QuotaWindow>,
     pub last_used_at: Option<String>,
+    #[serde(default)]
+    pub config_dir: Option<String>,
+    /// 这个账号被拒过的模型（订阅不含），7 天后自动重试
+    #[serde(default)]
+    pub model_blocks: Vec<ModelBlock>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct ModelBlock {
+    pub model: String,
+    #[serde(default)]
+    pub observed_at: String,
 }
 
 impl Account {
@@ -112,6 +138,8 @@ pub struct Accounts {
     pub accounts: Vec<Account>,
     #[serde(default)]
     pub modes: std::collections::HashMap<String, String>,
+    #[serde(default)]
+    pub root: String,
 }
 
 impl Accounts {

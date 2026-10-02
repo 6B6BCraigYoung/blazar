@@ -1014,8 +1014,13 @@ fn agent_pop(chat: Chat, pop: RwSignal<Option<Pop>>) -> impl IntoView {
                 Some(false) => "未登录 · 去登录",
                 None => "去登录",
             };
-            let href = format!("/#/nodes/{}", js_sys::encode_uri_component(&node));
-            return view! { <a class="cp-row cp-sub" href=href><span class="cp-t"><b>{format!("{node} 上的 Codex 登录")}</b></span><span class="cp-r">{st}</span></a> }.into_any();
+            let n2 = node.clone();
+            return view! {
+                <button class="cp-row cp-sub" on:click=move |_| {
+                    pop.set(None);
+                    crate::pages::runtimes::node_login(n2.clone(), Callback::new(move |()| chat.load_catalogs()));
+                }><span class="cp-t"><b>{format!("{node} 上的 Codex 登录")}</b></span><span class="cp-r">{st}</span></button>
+            }.into_any();
         }
         let list: Vec<crate::api::Account> = chat.accounts.with_untracked(|a| {
             a.as_ref()

@@ -1,6 +1,6 @@
 //! 工作区页：资源管理器 + 编辑器 + 底部面板 + 对话栏。
 
-mod chat;
+pub mod chat;
 mod diff_panel;
 mod files;
 mod git_panel;
