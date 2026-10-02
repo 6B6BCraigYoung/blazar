@@ -67,6 +67,19 @@ fn Workspace(id: String) -> impl IntoView {
         async move { api::get::<WorkspaceDetail>(&format!("/api/workspaces/{id}/detail")).await }
     });
 
+    // 正在看这个工作区：不算「新结果」，离开时记一下看到了哪。
+    let app = crate::app_state::use_app();
+    app.current_ws.set(Some(id.clone()));
+    app.mark_seen(&id);
+    {
+        let id = id.clone();
+        on_cleanup(move || {
+            app.current_ws.set(None);
+            app.mark_seen(&id);
+        });
+    }
+    let insp = RwSignal::new(false);
+
     let files = Files::new(id.clone());
     let state = LayoutState::new();
     let grid = NodeRef::<html::Div>::new();
@@ -310,7 +323,7 @@ fn Workspace(id: String) -> impl IntoView {
     view! {
         <div class="ws">
             <div class="ws-head">
-                <a href="/v2/" class="crumb">"工作区"</a>
+                <a href="/v2" class="crumb">"工作区"</a>
                 <span class="sep">"/"</span>
                 {move || detail.get().map(|d| match d {
                     Ok(d) => view! {
@@ -321,6 +334,7 @@ fn Workspace(id: String) -> impl IntoView {
                     Err(e) => view! { <span class="err-line">{e.to_string()}</span> }.into_any(),
                 })}
                 <span class="grow"></span>
+                <button class="btn small" on:click=move |_| insp.set(true)>"属性"</button>
                 <button class="laybtn" title="资源管理器 ⌘B" aria-pressed=move || (!lay().hide_ex).to_string()
                     on:click=move |_| state.toggle(Region::Explorer) inner_html=ICON_LEFT></button>
                 <button class="laybtn" title="面板 ⌘J" aria-pressed=move || (!lay().hide_panel).to_string()
@@ -328,6 +342,10 @@ fn Workspace(id: String) -> impl IntoView {
                 <button class="laybtn" title="对话 ⌘⌥B" aria-pressed=move || (!lay().hide_aux).to_string()
                     on:click=move |_| state.toggle(Region::Aux) inner_html=ICON_RIGHT></button>
             </div>
+            {
+                let id = id.clone();
+                move || insp.get().then(|| view! { <crate::pages::workspaces::Inspector id=id.clone() on_close=move || insp.set(false)/> })
+            }
             {move || files.error.get().map(|e| view! {
                 <div class="ws-error">{e}<button class="btn ghost" on:click=move |_| files.error.set(None)>"×"</button></div>
             })}

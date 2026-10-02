@@ -216,7 +216,7 @@ fn copy(text: String, done: RwSignal<bool>) {
     let p = w.navigator().clipboard().write_text(&text);
     leptos::task::spawn_local(async move {
         if wasm_bindgen_futures::JsFuture::from(p).await.is_ok() {
-            done.set(true);
+            let _ = done.try_set(true);
             gloo_timers::future::TimeoutFuture::new(1200).await;
             let _ = done.try_set(false);
         } else {
@@ -321,7 +321,7 @@ fn UserMsg(
 
 fn error_view(chat: Chat, text: String, by_account: bool) -> AnyView {
     let switch = move |_| {
-        leptos::task::spawn_local(async move {
+        chat.spawn(async move {
             let rt = untrack(move || chat.runtime());
             let last = chat.view.get_untracked().and_then(|v| {
                 chat.threads.with_untracked(|t| {

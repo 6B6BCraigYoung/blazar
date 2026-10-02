@@ -4,7 +4,7 @@ use gloo_net::http::{Request, Response};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 
-pub use blazar_core_types::api::{StateSnapshot, WorkspaceView};
+pub use blazar_core_types::api::WorkspaceView;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ApiError(pub String);

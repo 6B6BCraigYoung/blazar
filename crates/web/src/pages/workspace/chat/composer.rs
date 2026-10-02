@@ -3,7 +3,6 @@
 use leptos::ev;
 use leptos::html;
 use leptos::prelude::*;
-use leptos::task::spawn_local;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use wasm_bindgen::JsCast;
@@ -330,7 +329,7 @@ pub fn Composer(chat: Chat, tick: RwSignal<u32>, tree_files: Signal<Vec<String>>
                 .collect::<Vec<_>>()
                 .join("\n")
         };
-        spawn_local(async move {
+        chat.spawn(async move {
             dialog::ask("Usage", &body, vec![Choice::plain("关闭")]).await;
         });
     };
@@ -353,7 +352,7 @@ pub fn Composer(chat: Chat, tick: RwSignal<u32>, tree_files: Signal<Vec<String>>
             toast("还没有可回退的消息（工作区不是 git 仓库时没有检查点）");
             return;
         }
-        spawn_local(async move {
+        chat.spawn(async move {
             let mut ch = vec![Choice::plain("取消")];
             ch.extend(users.iter().map(|u| Choice::plain(u.1.clone())));
             if let Some(i) = dialog::ask(
@@ -426,7 +425,7 @@ pub fn Composer(chat: Chat, tick: RwSignal<u32>, tree_files: Signal<Vec<String>>
             toast("一次最多 8 张");
             return;
         }
-        spawn_local(async move {
+        chat.spawn(async move {
             if let Ok(v) = wasm_bindgen_futures::JsFuture::from(read_data_url(&f)).await
                 && let Some(url) = v.as_string()
             {
@@ -663,7 +662,7 @@ pub fn Composer(chat: Chat, tick: RwSignal<u32>, tree_files: Signal<Vec<String>>
                     <button class="linkbtn" on:click=move |_| chat.show_diff.run(())>"查看"</button>
                     <button class="linkbtn" on:click=move |_| {
                         let n = review_n();
-                        spawn_local(async move {
+                        chat.spawn(async move {
                             if dialog::ask("丢掉审阅意见", &format!("丢掉这 {n} 条还没发出去的审阅意见？"), vec![Choice::plain("取消"), Choice::danger("丢掉")]).await == Some(1) {
                                 chat.clear_review();
                             }

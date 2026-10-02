@@ -1,9 +1,13 @@
 //! Blazar 的网页界面（Leptos，纯客户端渲染）。由 Trunk 编成 wasm，hub 挂在 `/v2/` 下提供。
 
 #[cfg(target_arch = "wasm32")]
+mod alerts;
+#[cfg(target_arch = "wasm32")]
 mod api;
 #[cfg(target_arch = "wasm32")]
 mod app;
+#[cfg(target_arch = "wasm32")]
+mod app_state;
 #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 mod chat_model;
 #[cfg(target_arch = "wasm32")]

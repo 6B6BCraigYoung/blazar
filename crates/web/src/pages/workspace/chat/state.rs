@@ -5,7 +5,6 @@ use std::rc::Rc;
 
 use blazar_core_types::api::ServerEvent;
 use leptos::prelude::*;
-use leptos::task::spawn_local;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -259,6 +258,8 @@ pub struct Chat {
     pub transcript: RwSignal<Rc<Transcript>, LocalStorage>,
     /// 本地已经裁决过、等事件回来的审批（先藏起来）
     pub decided: RwSignal<HashSet<String>>,
+    /// 对话栏所在的组件：异步任务挂在它下面，离开页面时一起取消。
+    owner: StoredValue<Owner>,
     /// 发送失败之类只在本地显示的错误
     pub local_errors: RwSignal<Vec<String>>,
     pub loading: RwSignal<bool>,
@@ -327,6 +328,7 @@ impl Chat {
             sessions: StoredValue::new(HashSet::new()),
             transcript: RwSignal::new_local(Rc::new(Transcript::default())),
             decided: RwSignal::new(HashSet::new()),
+            owner: StoredValue::new(Owner::current().unwrap_or_default()),
             local_errors: RwSignal::new(Vec::new()),
             loading: RwSignal::new(true),
             queue: RwSignal::new(Vec::new()),
@@ -354,12 +356,25 @@ impl Chat {
         }
     }
 
+    // 这几个可能在页面离开之后的延迟回调里读到：读不到就当空。
     pub fn ws_id(self) -> String {
-        self.ws.get_value()
+        self.ws.try_get_value().unwrap_or_default()
+    }
+
+    /// 起一个异步任务；对话栏销毁（离开这个工作区）时任务被取消，不会再碰已经不在的状态。
+    pub fn spawn(self, fut: impl std::future::Future<Output = ()> + 'static) {
+        if let Some(o) = self.owner.try_get_value() {
+            o.with(|| leptos::task::spawn_local_scoped_with_cancellation(fut));
+        }
+    }
+
+    /// 页面还在（异步请求回来时先看一眼：用户可能已经离开了这个工作区）。
+    pub fn alive(self) -> bool {
+        self.ws.try_get_value().is_some()
     }
 
     pub fn remote(self) -> bool {
-        self.node.with_value(|n| n != "local")
+        self.node.try_with_value(|n| n != "local").unwrap_or(false)
     }
 
     // ───────── 选中的运行时 / 模型 / 账号 ─────────
@@ -498,7 +513,7 @@ impl Chat {
                 }],
             );
         });
-        spawn_local(async move {
+        self.spawn(async move {
             if let Ok(v) =
                 api::get::<Value>(&format!("/api/runtimes/{}/models", api::enc(&rt))).await
                 && let Ok(list) = serde_json::from_value::<Vec<ModelInfo>>(v["models"].clone())
@@ -520,7 +535,7 @@ impl Chat {
     // ───────── 加载 ─────────
 
     pub fn load_catalogs(self) {
-        spawn_local(async move {
+        self.spawn(async move {
             if let Ok(a) = api::get::<Vec<AgentInfo>>("/api/agents").await {
                 let _ = self.agents.try_set(a);
             }
@@ -541,7 +556,7 @@ impl Chat {
         self.load_accounts();
         if self.remote() {
             let node = self.node.get_value();
-            spawn_local(async move {
+            self.spawn(async move {
                 if let Ok(v) =
                     api::get::<Vec<Value>>(&format!("/api/nodes/{}/agents", api::enc(&node))).await
                 {
@@ -556,7 +571,7 @@ impl Chat {
     }
 
     pub fn load_accounts(self) {
-        spawn_local(async move {
+        self.spawn(async move {
             if let Ok(a) = api::get::<Accounts>("/api/accounts").await {
                 let _ = self.accounts.try_set(Some(a));
             }
@@ -568,7 +583,7 @@ impl Chat {
             return;
         }
         self.catalog.set(Some(Catalog::default()));
-        spawn_local(async move {
+        self.spawn(async move {
             if let Ok(c) = api::get::<Catalog>("/api/runtimes/claude/catalog").await {
                 let _ = self.catalog.try_set(Some(c));
             }
@@ -576,7 +591,7 @@ impl Chat {
     }
 
     pub fn load_snippets(self) {
-        spawn_local(async move {
+        self.spawn(async move {
             if let Ok(s) = api::get::<Vec<Snippet>>("/api/snippets").await {
                 let _ = self.snippets.try_set(s);
             }
@@ -598,6 +613,9 @@ impl Chat {
 
     /// 选的 Agent 不在可选列表里了（或者还没选）：换成第一个。
     fn fix_agent(self) {
+        if !self.alive() {
+            return;
+        }
         let cur = self.agent.get_untracked();
         let ok = if let Some(id) = cur.strip_prefix("p:") {
             self.profiles
@@ -671,7 +689,7 @@ impl Chat {
 
     /// 进来时：恢复上次开着的标签（没有就开最近的对话）。
     pub fn init(self) {
-        spawn_local(async move {
+        self.spawn(async move {
             self.load_threads().await;
             let saved: SavedTabs = storage::load(&tabs_key(&self.ws_id())).unwrap_or_default();
             let known: HashSet<String> = self
@@ -738,7 +756,7 @@ impl Chat {
     }
 
     pub fn rename(self, id: String, title: String) {
-        spawn_local(async move {
+        self.spawn(async move {
             match api::send::<Value>(
                 "PUT",
                 &format!("/api/sessions/{id}/title"),
@@ -774,7 +792,7 @@ impl Chat {
         };
         self.loading.set(true);
         let ws = self.ws_id();
-        spawn_local(async move {
+        self.spawn(async move {
             let r = api::get::<Vec<Value>>(&format!(
                 "/api/workspaces/{ws}/history?session={}",
                 api::enc(&thread)
@@ -809,7 +827,7 @@ impl Chat {
 
     pub fn load_checkpoints(self) {
         let ws = self.ws_id();
-        spawn_local(async move {
+        self.spawn(async move {
             if let Ok(list) =
                 api::get::<Vec<Value>>(&format!("/api/workspaces/{ws}/checkpoints")).await
             {
@@ -829,7 +847,7 @@ impl Chat {
 
     pub fn load_queue(self) {
         let ws = self.ws_id();
-        spawn_local(async move {
+        self.spawn(async move {
             if let Ok(q) = api::get::<Vec<Queued>>(&format!("/api/workspaces/{ws}/queue")).await {
                 let _ = self.queue.try_set(q);
             }
@@ -850,7 +868,7 @@ impl Chat {
                     // 这一轮结束：文件树、差异、Git、开着的文件都可能变了；标签上「在跑」的点也要更新。
                     self.git.changed.update(|n| *n = n.wrapping_add(1));
                     self.git.reload.update(|n| *n = n.wrapping_add(1));
-                    spawn_local(async move { self.load_threads().await });
+                    self.spawn(async move { self.load_threads().await });
                 }
                 if self.sessions.with_value(|s| s.contains(&sid)) {
                     let key = format!("{sid}:{}", entry.seq);
@@ -920,7 +938,9 @@ impl Chat {
         PENDING.set(true);
         gloo_timers::callback::Timeout::new(2500, move || {
             PENDING.set(false);
-            spawn_local(async move { self.load_threads().await });
+            if self.ws.try_get_value().is_some() {
+                self.spawn(async move { self.load_threads().await });
+            }
         })
         .forget();
     }
@@ -953,7 +973,7 @@ impl Chat {
             self.view.set(Some(t));
             self.fresh.set(false);
             self.save_tabs();
-            spawn_local(async move { self.load_threads().await });
+            self.spawn(async move { self.load_threads().await });
         }
         self.load_history();
     }
@@ -1086,7 +1106,7 @@ impl Chat {
         body.insert("wait_secs".into(), json!(20));
         let body = Value::Object(body);
         let ws = self.ws_id();
-        spawn_local(async move {
+        self.spawn(async move {
             let r =
                 api::send::<Value>("POST", &format!("/api/workspaces/{ws}/prompt"), &body).await;
             let _ = self.busy.try_update(|n| *n = n.saturating_sub(1));
@@ -1155,7 +1175,7 @@ impl Chat {
             toast("这个对话里没有运行中的会话");
             return;
         };
-        spawn_local(async move {
+        self.spawn(async move {
             match api::send::<Value>(
                 "POST",
                 &format!("/api/sessions/{sid}/interrupt"),
@@ -1178,7 +1198,7 @@ impl Chat {
         let Some(sid) = self.transcript.with_untracked(|t| t.last_session.clone()) else {
             return;
         };
-        spawn_local(async move {
+        self.spawn(async move {
             match api::send::<Value>("POST", &format!("/api/sessions/{sid}/control"), &body).await {
                 Ok(r) if r["accepted"].as_bool() == Some(true) => {
                     toast(format!("已切换{what}，当前这一轮立即生效"))
@@ -1218,7 +1238,7 @@ impl Chat {
         self.decided.update(|d| {
             d.insert(id.clone());
         });
-        spawn_local(async move {
+        self.spawn(async move {
             let mut body = json!({ "allow": allow, "message": message });
             if let Some(a) = answers {
                 body["answers"] = a;
@@ -1237,7 +1257,7 @@ impl Chat {
     }
 
     pub fn allow_always(self, id: String, request: Value) {
-        spawn_local(async move {
+        self.spawn(async move {
             let (tool, pattern) = chat_model::always_rule(&request);
             let what = if pattern.is_empty() {
                 tool.clone()
@@ -1271,7 +1291,7 @@ impl Chat {
     pub fn queue_act(self, act: &'static str, q: Queued) {
         let ws = self.ws_id();
         let base = format!("/api/workspaces/{ws}/queue/{}", q.id);
-        spawn_local(async move {
+        self.spawn(async move {
             let r: Result<(), api::ApiError> = async {
                 match act {
                     "drop" => {
@@ -1319,7 +1339,7 @@ impl Chat {
             toast("agent 还在运行，先中断再重试");
             return;
         }
-        spawn_local(async move {
+        self.spawn(async move {
             let head = if text.is_none() {
                 "重新生成这一轮"
             } else {
@@ -1382,7 +1402,7 @@ impl Chat {
     }
 
     pub fn rewind(self, cp: String, undo: bool) {
-        spawn_local(async move {
+        self.spawn(async move {
             if !undo
                 && dialog::ask("回退", "把工作区的文件恢复到这条消息发出之前？\n对话记录不变；回退前的状态会先存一份，可以撤销。", vec![Choice::plain("取消"), Choice::plain("回退")]).await != Some(1)
             {
@@ -1430,8 +1450,10 @@ impl Chat {
         body.insert("account".into(), json!(pick));
         body.insert("wait_secs".into(), json!(20));
         let ws = self.ws_id();
-        let label = self.account(&pick).map(|a| a.label).unwrap_or_default();
-        spawn_local(async move {
+        let label = untrack(move || self.account(&pick))
+            .map(|a| a.label)
+            .unwrap_or_default();
+        self.spawn(async move {
             match api::send::<Value>(
                 "POST",
                 &format!("/api/workspaces/{ws}/prompt"),

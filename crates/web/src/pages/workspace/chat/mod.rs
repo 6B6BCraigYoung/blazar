@@ -70,7 +70,7 @@ pub fn ChatPane(
                                 on:dblclick={ let t = t4.clone(); move |_| {
                                     let Some(id) = t.clone() else { return };
                                     let cur = chat.thread_title(Some(&id));
-                                    leptos::task::spawn_local(async move {
+                                    chat.spawn(async move {
                                         let name = window().prompt_with_message_and_default("对话标题", &cur).ok().flatten();
                                         if let Some(n) = name.map(|n| n.trim().to_owned()).filter(|n| !n.is_empty()) {
                                             chat.rename(id, n);
@@ -89,7 +89,7 @@ pub fn ChatPane(
             <span class="more">
                 <button class="laybtn" title="对话历史" on:click=move |_| {
                     hist.update(|h| *h = !*h);
-                    if hist.get_untracked() { leptos::task::spawn_local(async move { chat.load_threads().await }); }
+                    if hist.get_untracked() { chat.spawn(async move { chat.load_threads().await }); }
                 } inner_html=r#"<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7M3 4v4h4"/><path d="M12 7v5l3 2"/></svg>"#></button>
                 <Show when=move || hist.get()>
                     <div class="menu hist" on:mouseleave=move |_| hist.set(false)>
