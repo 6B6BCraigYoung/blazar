@@ -270,6 +270,8 @@ fn port_key(node: &str) -> String {
 
 async fn open_tunnel(node: &str, remote: u16, local: u16) -> Result<tokio::process::Child, String> {
     use std::process::Stdio;
+    // 用户 ~/.ssh/config 里给交互登录配的端口转发不能跟着开（见 ssh_opts_without_forwards）
+    let resolved = blazar_transport::ssh_opts_without_forwards(node).await;
     let mut child = tokio::process::Command::new("ssh")
         .args([
             "-N",
@@ -287,8 +289,9 @@ async fn open_tunnel(node: &str, remote: u16, local: u16) -> Result<tokio::proce
             "ControlPath=none",
             "-R",
             &format!("127.0.0.1:{remote}:127.0.0.1:{local}"),
-            node,
         ])
+        .args(&resolved)
+        .arg(node)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::piped())

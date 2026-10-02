@@ -482,6 +482,8 @@ async fn ensure_tunnel(ws: &str, node: &str, remote_port: u16) -> Result<u16, St
         .and_then(|l| l.local_addr())
         .map_err(|e| e.to_string())?
         .port();
+    // 用户 ~/.ssh/config 里给交互登录配的端口转发不能跟着开（见 ssh_opts_without_forwards）
+    let resolved = blazar_transport::ssh_opts_without_forwards(node).await;
     let child = tokio::process::Command::new("ssh")
         .args([
             "-N",
@@ -500,6 +502,7 @@ async fn ensure_tunnel(ws: &str, node: &str, remote_port: u16) -> Result<u16, St
             "-L",
         ])
         .arg(format!("127.0.0.1:{local_port}:127.0.0.1:{remote_port}"))
+        .args(&resolved)
         .arg(node)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())

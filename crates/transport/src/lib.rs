@@ -608,8 +608,76 @@ impl SshTransport {
     }
 }
 
+/// 给 Blazar 自己开的 SSH 隧道用：把这台机器在 ~/.ssh/config 里解析出来的全部设置
+/// （`ssh -G`）原样带上，只去掉里面写的端口转发，换成 `-F /dev/null -o …` 参数。
+/// 否则用户为交互登录配的 RemoteForward 会跟着一起开 —— 端口已被用户自己的会话占着时，
+/// 配了 ExitOnForwardFailure 的隧道整个起不来；没被占时又会把用户的端口抢走。
+/// 解析失败就返回空，调用方照常用 ~/.ssh/config。
+/// 注意 ssh 对同一个选项取第一次出现的值：调用方自己的 `-o` 要放在这些参数前面。
+pub async fn ssh_opts_without_forwards(host: &str) -> Vec<String> {
+    let Ok(out) = Command::new("ssh")
+        .args(["-G", "--", host])
+        .stdin(Stdio::null())
+        .output()
+        .await
+    else {
+        return Vec::new();
+    };
+    if !out.status.success() {
+        return Vec::new();
+    }
+    resolved_without_forwards(&String::from_utf8_lossy(&out.stdout))
+}
+
+fn resolved_without_forwards(resolved: &str) -> Vec<String> {
+    let mut args = vec!["-F".to_owned(), "/dev/null".to_owned()];
+    for line in resolved.lines() {
+        let line = line.trim();
+        let key = line.split_whitespace().next().unwrap_or_default();
+        if key.is_empty()
+            || matches!(
+                key,
+                "host" | "remoteforward" | "localforward" | "dynamicforward"
+            )
+        {
+            continue;
+        }
+        args.push("-o".to_owned());
+        args.push(line.to_owned());
+    }
+    if args.len() == 2 {
+        return Vec::new();
+    }
+    args
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn resolved_config_drops_forwards() {
+        let args = super::resolved_without_forwards(
+            "host data\nuser root\nhostname 1.2.3.4\nport 3555\nremoteforward 9530 [127.0.0.1]:7897\nlocalforward 8080 [127.0.0.1]:80\nidentityfile ~/.ssh/a\nidentityfile ~/.ssh/b\n",
+        );
+        assert_eq!(
+            args,
+            [
+                "-F",
+                "/dev/null",
+                "-o",
+                "user root",
+                "-o",
+                "hostname 1.2.3.4",
+                "-o",
+                "port 3555",
+                "-o",
+                "identityfile ~/.ssh/a",
+                "-o",
+                "identityfile ~/.ssh/b",
+            ]
+        );
+        assert!(super::resolved_without_forwards("").is_empty());
+    }
+
     use super::*;
 
     #[test]
