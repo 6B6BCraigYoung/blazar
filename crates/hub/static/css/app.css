@@ -1626,3 +1626,75 @@ body[data-side="off"] #page > .phead,body[data-side="off"] #page > * > .phead{pa
 .cb-send[data-pmode="bypassPermissions"],.cb-send[data-pmode="auto"]{background:var(--destructive)!important;color:#fff!important}
 .cb-send:hover:not(:disabled){filter:brightness(1.1)}
 .cb-send:disabled{opacity:.4}
+
+/* ══ 对话面板配色：对齐 Cursor 里的 Claude Code 插件（Visual Studio Dark 主题） ══
+   插件的颜色全部取自编辑器主题：主背景=侧边栏、气泡和输入框=输入框底色、工具输出=编辑器底色、主按钮=按钮色。
+   这里在对话面板范围内把 Blazar 的主题变量换成这些值，原有样式就整体换色；再补上几个组件的细节。 */
+#ws-aux{
+  --vs-bg:#252526; --vs-editor:#1e1e1e; --vs-input:#3c3c3c; --vs-border:#454545; --vs-inner:#ffffff1a;
+  --vs-fg:#cccccc; --vs-fg2:rgba(204,204,204,.7); --vs-active:#007acc; --vs-btn:#0e639c; --vs-btn-h:#1177bb;
+  --vs-link:#3794ff; --vs-hover:#2a2d2e; --vs-line:#cccccc33;
+  --fg:var(--vs-fg); --muted-fg:var(--vs-fg2); --faint-fg:rgba(204,204,204,.5);
+  --border:var(--vs-border); --surface:var(--vs-bg); --surface-raised:var(--vs-input); --surface-border:var(--vs-border);
+  --surface-hover:var(--vs-hover); --surface-selected:#04395e; --muted:var(--vs-inner);
+  --brand:var(--vs-btn); --cc-accent:var(--vs-link); --success:#74c991; --destructive:#f48771; --warning:#e1c08d;
+  --surface-shadow:none; --inner-hi:none; --float-shadow:none;
+  --font-sans:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",sans-serif;
+  --font-mono:Menlo,Monaco,"Courier New",monospace;
+  --r-md:6px; --r-lg:8px;
+  background:var(--vs-bg)!important;-webkit-backdrop-filter:none!important;backdrop-filter:none!important;color:var(--vs-fg)
+}
+#ws-aux #auxbar{background:var(--vs-bg);border-bottom:1px solid var(--vs-border)}
+#ws-aux #log{font-size:13px;line-height:1.6;background:var(--vs-bg)}
+/* 时间线 */
+#ws-aux #log .cc-row::after{background:var(--vs-line)}
+#ws-aux #log .cc-dot{color:var(--vs-fg2)}
+#ws-aux #log .cc-fold[data-st="err"]>.cc-dot,#ws-aux #log .cc-tool[data-st="err"] .cc-dot{color:#c74e39}
+/* 用户气泡：输入框底色 + 边框，圆角 6 */
+#ws-aux #log .cc-user{background:var(--vs-input)!important;border:1px solid var(--vs-border);border-radius:6px}
+/* 工具：目标用链接色；输出框是编辑器底色 */
+#ws-aux #log .cc-out,#ws-aux #log .cc-io{background:var(--vs-editor);border-color:var(--vs-border)}
+#ws-aux #log .cc-out.err .cc-pre{color:#f48771}
+/* Markdown 里的代码 */
+#ws-aux #log .cc-md code{color:#d7ba7d;background:var(--vs-inner);border-radius:3px;padding:0 3px}
+#ws-aux #log .cc-md pre{background:#0a0a0a66;border:1px solid var(--vs-border);border-radius:4px}
+#ws-aux #log .cc-md pre code{color:var(--vs-fg);background:none;padding:0}
+/* 输入框 */
+#ws-aux .cc-box{background:var(--vs-input);border:1px solid var(--vs-border);border-radius:8px}
+#ws-aux .cc-box:focus-within{border-color:color-mix(in srgb,var(--vs-active) 65%,transparent)}
+#ws-aux #prompt{color:var(--vs-fg)}
+#ws-aux #prompt::placeholder{color:#a6a6a6}
+#ws-aux .cb-chip{background:color-mix(in srgb,var(--vs-fg) 10%,transparent);color:var(--vs-fg)}
+#ws-aux .cb-chip.cb-plain{background:transparent;color:var(--vs-fg2)}
+#ws-aux .cb-send{background:#c6613f!important;color:#faf9f5!important}
+#ws-aux .cc-spin .ic{color:#d97757}
+/* 审批卡片 */
+#ws-aux #cbDock .cc-appr{background:var(--vs-input);border:1px solid var(--vs-border);border-radius:8px;box-shadow:none;padding:8px}
+#ws-aux #cbDock .cc-appr:focus-within{border-color:color-mix(in srgb,var(--vs-active) 65%,transparent)}
+#ws-aux #cbDock .ah{font-weight:700;font-size:1.05em}
+#ws-aux #cbDock .acmd{background:transparent;padding:0;font-size:.9em;margin-bottom:4px}
+#ws-aux #cbDock .adesc{color:var(--vs-fg2);font-size:.9em;margin-bottom:6px}
+#ws-aux #cbDock .aopts{gap:8px;margin-top:8px}
+#ws-aux #cbDock .aopt{box-shadow:inset 0 0 0 1px var(--vs-inner);border-radius:4px;padding:6px 8px;font-weight:500;background:transparent;color:var(--vs-fg)}
+#ws-aux #cbDock .aopt .ak{all:unset;opacity:.6;padding-right:4px}
+#ws-aux #cbDock .aopt.primary .ak{background:none;color:inherit}
+/* 当前焦点所在的选项用主按钮色；没有焦点时第一项是主按钮（插件的 data-focused-index 逻辑） */
+#ws-aux #cbDock .aopts:not(:has(.aopt:focus)) .aopt.primary,#ws-aux #cbDock .aopt:focus{background:var(--vs-btn);color:#fff;font-weight:700;box-shadow:none;outline:none}
+#ws-aux #cbDock .aopt:hover{filter:brightness(1.1)}
+#ws-aux #cbDock .areject{margin:0;width:100%;background:transparent;box-shadow:inset 0 0 0 1px var(--vs-inner);border:1px solid transparent;border-radius:4px;color:var(--vs-fg)}
+#ws-aux #cbDock .areject:focus{border-color:var(--vs-active);outline:none}
+#ws-aux #cbDock .ahint{color:var(--vs-fg2);font-size:.85em;margin-top:8px}
+/* 提问卡片：当前题目是主按钮色下划线；已答的题目变次要色；选项是带边框的方块 */
+#ws-aux #cbDock .anav{border-bottom:0;gap:10px;margin:-4px 0 12px;padding:4px 0}
+#ws-aux #cbDock .atab{border-radius:0;padding:4px 2px;border-bottom:2px solid transparent;font-size:.85em;font-weight:500;color:var(--vs-fg);background:none}
+#ws-aux #cbDock .atab[data-on="true"]{border-bottom-color:var(--vs-btn);background:none}
+#ws-aux #cbDock .atab[data-done]{color:var(--vs-fg2);font-weight:400}
+#ws-aux #cbDock .atab[data-done]::after{content:none}
+#ws-aux #cbDock .askopts{gap:6px}
+#ws-aux #cbDock .askopt{border:1px solid var(--vs-border);background:var(--vs-input);border-radius:4px;padding:8px}
+#ws-aux #cbDock .askopt:hover,#ws-aux #cbDock .askopt:focus,#ws-aux #cbDock .askopt[aria-pressed="true"]{border-color:var(--vs-active);background:var(--vs-hover)}
+#ws-aux #cbDock .askopt .ak{all:unset;opacity:.6;min-width:14px}
+#ws-aux #cbDock .askopt[aria-pressed="true"] .ck{border-color:var(--vs-active);background:radial-gradient(circle,var(--vs-active) 45%,transparent 50%)}
+#ws-aux #cbDock .askq[data-multi="true"] .askopt[aria-pressed="true"] .ck{background:var(--vs-active)}
+/* 压暗对话时，置顶的那条用户消息保持清楚（不然会和下面的字叠在一起） */
+#log[data-dim="true"]>.cc-user[data-pin="true"]{opacity:1}
