@@ -1652,8 +1652,124 @@ pub async fn set_mode(State(st): State<Shared>, Json(m): Json<Mode>) -> Response
     if let Err(e) = crate::office::kv_put(&st, &mode_key(&m.provider), &json!(mode)).await {
         return fail(StatusCode::INTERNAL_SERVER_ERROR, e);
     }
+    // 开了全局切换：终端里的 CLI 和编辑器插件也跟着换。
+    let global = if global_enabled(&st).await && mode != "auto" {
+        Some(sync_global(&st, &m.provider, mode).await)
+    } else {
+        None
+    };
     st.emit(ServerEvent::AccountsChanged);
-    Json(json!({ "ok": true })).into_response()
+    match global {
+        Some(Err(e)) => {
+            Json(json!({ "ok": true, "global": false, "global_error": e })).into_response()
+        }
+        Some(Ok(())) => Json(json!({ "ok": true, "global": true })).into_response(),
+        None => Json(json!({ "ok": true })).into_response(),
+    }
+}
+
+// ── 全局切换 ──
+
+const GLOBAL_KEY: &str = "accounts.global_sync";
+
+fn global_key(provider: &str) -> String {
+    format!("accounts.global.{provider}")
+}
+
+async fn global_enabled(st: &Shared) -> bool {
+    crate::office::kv_get(st, GLOBAL_KEY).await.as_bool() == Some(true)
+}
+
+/// 现在这台机器的全局登录是哪个账号（None = 原来的默认登录）。
+async fn global_current(st: &Shared, provider: &str) -> Option<Account> {
+    let id = crate::office::kv_get(st, &global_key(provider))
+        .await
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    if id.is_empty() {
+        return None;
+    }
+    get(st, &id).await.filter(|a| !a.builtin)
+}
+
+/// 把 `provider` 的全局登录换成 `mode` 指的账号（"" = 默认登录）。
+async fn sync_global(st: &Shared, provider: &str, mode: &str) -> Result<(), String> {
+    let target = if mode.is_empty() {
+        None
+    } else {
+        get(st, mode).await.filter(|a| !a.builtin)
+    };
+    let prev = global_current(st, provider).await;
+    if prev.as_ref().map(|a| &a.id) == target.as_ref().map(|a| &a.id) {
+        return Ok(());
+    }
+    let backups = root(st).join("global-backup");
+    let places = super::global_login::Places::from_env();
+    let p2 = provider.to_owned();
+    let (prev2, target2) = (prev.clone(), target.clone());
+    tokio::task::spawn_blocking(move || match p2.as_str() {
+        "claude" => {
+            super::global_login::switch_claude(&places, &backups, prev2.as_ref(), target2.as_ref())
+        }
+        _ => super::global_login::switch_codex(&places, &backups, prev2.as_ref(), target2.as_ref()),
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    let id = target.map(|a| a.id).unwrap_or_default();
+    crate::office::kv_put(st, &global_key(provider), &json!(id))
+        .await
+        .map_err(|e| e.to_string())?;
+    tracing::info!(target: "blazar::accounts", provider, account = %id, "全局登录已切换");
+    Ok(())
+}
+
+pub async fn global_get(State(st): State<Shared>) -> Response {
+    let mut cur = serde_json::Map::new();
+    for p in PROVIDERS {
+        cur.insert(
+            (*p).into(),
+            json!(global_current(&st, p).await.map(|a| a.id)),
+        );
+    }
+    Json(json!({
+        "enabled": global_enabled(&st).await,
+        "current": cur,
+        "keychain": cfg!(target_os = "macos"),
+    }))
+    .into_response()
+}
+
+#[derive(Debug, Deserialize)]
+pub struct GlobalBody {
+    pub enabled: bool,
+}
+
+/// 打开：两个运行时都换成现在选的账号；关掉：都换回原来的默认登录。
+pub async fn global_put(State(st): State<Shared>, Json(b): Json<GlobalBody>) -> Response {
+    let mut errors = Vec::new();
+    for p in PROVIDERS {
+        let mode = if b.enabled {
+            mode_of(&st, p).await
+        } else {
+            String::new()
+        };
+        if mode == "auto" {
+            continue;
+        }
+        if let Err(e) = sync_global(&st, p, &mode).await {
+            errors.push(format!("{p}：{e}"));
+        }
+    }
+    if errors.is_empty() || !b.enabled {
+        let _ = crate::office::kv_put(&st, GLOBAL_KEY, &json!(b.enabled)).await;
+    }
+    st.emit(ServerEvent::AccountsChanged);
+    if errors.is_empty() {
+        Json(json!({ "ok": true })).into_response()
+    } else {
+        fail(StatusCode::CONFLICT, errors.join("；"))
+    }
 }
 
 pub async fn clear_model_block(

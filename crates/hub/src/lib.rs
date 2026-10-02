@@ -359,6 +359,10 @@ pub fn build_router(st: Arc<AppState>) -> Router {
         .route("/api/usage", get(api::usage))
         .route("/api/accounts", get(accounts::list).post(accounts::create))
         .route("/api/accounts/mode", put(accounts::set_mode))
+        .route(
+            "/api/accounts/global",
+            get(accounts::global_get).put(accounts::global_put),
+        )
         .route("/api/accounts/check", post(accounts::check_all))
         .route(
             "/api/accounts/{id}",
