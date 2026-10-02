@@ -111,9 +111,11 @@ pub fn Sidebar() -> impl IntoView {
         alerts::notify_on() || alerts::sound_prefs().on
     };
 
+    // 和桌面应用图标同一个标：深色底、浅色弧、青色两条腿
+    const LOGO: &str = r##"<svg viewBox="100 100 824 824" aria-hidden="true"><rect x="100" y="100" width="824" height="824" rx="185" fill="#0b0f19"/><g fill="none" stroke-linecap="round" transform="translate(0 24)"><path d="M365 616 A208 208 0 1 1 659 616" stroke="#e5e7f0" stroke-width="46"/><path d="M471 478 L449 690 M553 478 L575 690" stroke="#5ee6f0" stroke-width="54"/></g></svg>"##;
     view! {
         <nav class="side">
-            <div class="brand"><i></i>"Blazar"<span class="grow"></span><button class="linkbtn" aria-label="收起侧栏" title="收起侧栏" on:click=move |_| app.side_collapsed.set(true)>"«"</button></div>
+            <div class="brand"><span class="logo" inner_html=LOGO></span>"Blazar"<span class="grow"></span><button class="linkbtn" aria-label="收起侧栏" title="收起侧栏" on:click=move |_| app.side_collapsed.set(true)>"«"</button></div>
             <button class="nav search" on:click=move |_| app.palette.set(true)>
                 <span class="ic" inner_html=icon(I_SEARCH)></span><span class="nm muted">"搜索…"</span><span class="n">"⌘K"</span>
             </button>

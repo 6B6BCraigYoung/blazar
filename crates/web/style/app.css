@@ -10,7 +10,8 @@ button { font: inherit; color: inherit; }
 .shell { display: flex; height: 100vh; overflow: hidden; }
 .side { width: 216px; flex: 0 0 auto; background: var(--bg-sidebar); border-right: 1px solid var(--line); display: flex; flex-direction: column; padding: 14px 10px; gap: 18px; overflow-y: auto; }
 .side .brand { display: flex; align-items: center; gap: 8px; padding: 2px 8px; font-weight: 600; font-size: 14px; }
-.side .brand i { width: 18px; height: 18px; border-radius: 5px; background: var(--clay); display: inline-block; }
+.side .brand .logo { width: 20px; height: 20px; flex: 0 0 auto; display: inline-grid; border-radius: 5px; box-shadow: 0 0 0 1px rgba(255,255,255,.08); overflow: hidden; }
+.side .brand .logo svg { width: 100%; height: 100%; display: block; }
 .side .grp { display: flex; flex-direction: column; gap: 2px; }
 .side .grp > span { padding: 0 8px 6px; font-size: 11px; color: var(--fg-4); letter-spacing: .04em; }
 .side .nav { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: var(--r-md); color: var(--fg-2); }
