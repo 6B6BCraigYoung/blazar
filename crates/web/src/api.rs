@@ -27,6 +27,10 @@ async fn read<T: DeserializeOwned>(resp: Result<Response, gloo_net::Error>) -> R
             .unwrap_or_else(|| format!("HTTP {}", resp.status()));
         return Err(ApiError(msg));
     }
+    if resp.status() == 204 {
+        return serde_json::from_value(serde_json::Value::Null)
+            .map_err(|e| ApiError(format!("返回的数据看不懂：{e}")));
+    }
     resp.json::<T>()
         .await
         .map_err(|e| ApiError(format!("返回的数据看不懂：{e}")))
@@ -138,4 +142,59 @@ pub async fn refresh_quota(id: &str) -> Result<serde_json::Value, ApiError> {
         &serde_json::json!({}),
     )
     .await
+}
+
+pub use blazar_core_types::api::{ChangeKind, DiffStat, FileContent, TreeEntry, Written};
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct WorkspaceDetail {
+    pub id: String,
+    pub name: String,
+    pub node: String,
+    pub path: String,
+    pub activity: String,
+    #[serde(default)]
+    pub isolated: bool,
+    pub branch: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct Tree {
+    pub entries: Vec<TreeEntry>,
+    #[serde(default)]
+    pub truncated: bool,
+    pub stat: Option<DiffStat>,
+}
+
+pub fn enc(s: &str) -> String {
+    String::from(js_sys::encode_uri_component(s))
+}
+
+pub async fn read_file(ws: &str, path: &str) -> Result<FileContent, ApiError> {
+    get(&format!("/api/workspaces/{ws}/file?path={}", enc(path))).await
+}
+
+/// `expect_mtime` 为 None 表示强制覆盖。
+pub async fn write_file(
+    ws: &str,
+    path: &str,
+    content: &str,
+    expect_mtime: Option<u64>,
+) -> Result<Written, ApiError> {
+    send(
+        "PUT",
+        &format!("/api/workspaces/{ws}/file"),
+        &serde_json::json!({ "path": path, "content": content, "expect_mtime": expect_mtime }),
+    )
+    .await
+}
+
+/// 记下这个工作区在编辑器里开着哪个文件（agent 能看到，下次进来也从这里接着看）。
+pub async fn put_editor_context(ws: &str, path: &str) {
+    let _ = send::<serde_json::Value>(
+        "PUT",
+        &format!("/api/workspaces/{ws}/context/editor"),
+        &serde_json::json!({ "file": path }),
+    )
+    .await;
 }

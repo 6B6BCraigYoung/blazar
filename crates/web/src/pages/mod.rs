@@ -1,9 +1,11 @@
 mod runtimes;
+mod workspace;
 mod workspaces;
 
 use leptos::prelude::*;
 
 pub use runtimes::RuntimesPage;
+pub use workspace::WorkspacePage;
 pub use workspaces::WorkspacesPage;
 
 #[component]

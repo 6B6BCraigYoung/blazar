@@ -34,8 +34,7 @@ pub fn Sidebar() -> impl IntoView {
                     each=move || workspaces().into_iter().take(12)
                     key=|w| (w.id.clone(), w.activity.clone(), w.name.clone())
                     children=|w| view! {
-                        // 工作区页还没搬过来，先跳旧界面。
-                        <a class="nav" href=format!("/#/workspaces/{}", w.id) title=w.path.clone()>
+                        <a class="nav" href=format!("/v2/w/{}", w.id) title=w.path.clone()>
                             <span class="dot" data-act=w.activity.clone()></span>
                             {w.name.clone()}
                         </a>

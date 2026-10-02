@@ -8,10 +8,16 @@ mod app;
 mod components;
 #[cfg(target_arch = "wasm32")]
 mod fmt;
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+mod md;
+#[cfg(target_arch = "wasm32")]
+mod monaco;
 #[cfg(target_arch = "wasm32")]
 mod pages;
 #[cfg(target_arch = "wasm32")]
 mod realtime;
+#[cfg(target_arch = "wasm32")]
+mod storage;
 
 #[cfg(target_arch = "wasm32")]
 fn main() {

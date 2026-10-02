@@ -43,7 +43,7 @@ fn card(w: WorkspaceView) -> impl IntoView {
         }
     });
     view! {
-        <a class="ws-card" href=format!("/#/workspaces/{}", w.id)>
+        <a class="ws-card" href=format!("/v2/w/{}", w.id)>
             <div class="top">
                 <span class="dot side-dot" data-act=w.activity.clone()></span>
                 <b>{w.name}</b>
