@@ -20,6 +20,9 @@ pub type Result<T> = std::result::Result<T, VfsError>;
 
 pub const MAX_TREE_ENTRIES: usize = 20_000;
 
+/// 资源管理器一次列一层目录，单层最多这么多项
+pub const MAX_DIR_ITEMS: usize = 5_000;
+
 const EXIT_NO_DIR: i32 = 3;
 
 const EXIT_NO_GIT: i32 = 5;
@@ -54,7 +57,7 @@ git add -N . >/dev/null 2>&1"#;
 
 const REMOTE_SEARCH_TIMEOUT_SECS: u64 = 10;
 
-pub use blazar_core_types::api::{ChangeKind, FileContent, TreeEntry, Written};
+pub use blazar_core_types::api::{ChangeKind, DirItem, DirItems, FileContent, TreeEntry, Written};
 
 fn change_from_porcelain(code: &str) -> ChangeKind {
     match code.trim() {
@@ -173,6 +176,42 @@ fi"#,
             .await?;
         check(&out, &self.root)?;
         Ok((parse_tree(&out.stdout), parse_stat(&out.stdout)))
+    }
+
+    /// 列工作区里一层目录（`rel` 为空是根目录）：照磁盘来，隐藏文件和被 git 忽略的也列，
+    /// 忽略的打上标记；`.git` 不列。
+    pub async fn list_dir(&self, rel: &str) -> Result<DirItems> {
+        let dir = if rel.trim_matches('/').is_empty() {
+            ".".to_owned()
+        } else {
+            self.safe_rel(rel.trim_matches('/'))?
+        };
+        let script = format!(
+            r#"cd {root} 2>/dev/null || exit 3
+cd -- {dir} 2>/dev/null || exit 3
+names() {{ for f in * .[!.]* ..?*; do
+  {{ [ -e "$f" ] || [ -L "$f" ]; }} || continue
+  [ "$f" = .git ] && continue
+  printf '%s\n' "$f"
+done; }}
+names | head -n {cap1} | while IFS= read -r f; do
+  if [ -d "$f" ]; then printf 'D\t%s\n' "$f"; else printf 'F\t%s\n' "$f"; fi
+done
+if git rev-parse --git-dir >/dev/null 2>&1; then
+  echo "__IGNORED__"
+  names | head -n {cap1} | git check-ignore --stdin 2>/dev/null
+fi
+exit 0"#,
+            root = shell_quote(&self.root),
+            dir = shell_quote(&dir),
+            cap1 = MAX_DIR_ITEMS + 1,
+        );
+        let out = self
+            .transport
+            .exec(ExecSpec::new("bash").arg("-lc").arg(script))
+            .await?;
+        check(&out, &self.root)?;
+        Ok(parse_dir_items(&out.stdout))
     }
 
     pub async fn read(&self, rel: &str) -> Result<FileContent> {
@@ -611,6 +650,25 @@ fn parse_file(path: &str, raw: &str) -> FileContent {
     }
 }
 
+fn parse_dir_items(raw: &str) -> DirItems {
+    let (list, ignored) = raw.split_once("__IGNORED__\n").unwrap_or((raw, ""));
+    let ignored: std::collections::HashSet<&str> = ignored.lines().collect();
+    let mut items: Vec<DirItem> = list
+        .lines()
+        .filter_map(|l| {
+            let (kind, name) = l.split_once('\t')?;
+            Some(DirItem {
+                name: name.to_owned(),
+                is_dir: kind == "D",
+                ignored: ignored.contains(name),
+            })
+        })
+        .collect();
+    let truncated = items.len() > MAX_DIR_ITEMS;
+    items.truncate(MAX_DIR_ITEMS);
+    DirItems { items, truncated }
+}
+
 fn parse_listing(raw: &str) -> DirListing {
     let mut path = String::new();
     let mut parent = None;
@@ -847,6 +905,52 @@ mod tests {
         std::fs::create_dir_all(&d).unwrap();
         d
     }
+    #[tokio::test]
+    async fn list_dir_shows_everything_on_disk_and_flags_ignored() {
+        let dir = scratch("list-dir");
+        let run = |args: &[&str]| {
+            std::process::Command::new("git")
+                .args(args)
+                .current_dir(&dir)
+                .output()
+                .unwrap()
+        };
+        run(&["init", "-q"]);
+        std::fs::write(dir.join(".gitignore"), "target/\n*.log\n").unwrap();
+        std::fs::create_dir_all(dir.join("target/debug")).unwrap();
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::write(dir.join("src/a b.rs"), "").unwrap();
+        std::fs::write(dir.join("run.log"), "").unwrap();
+        std::fs::write(dir.join(".env"), "").unwrap();
+        let vfs = Vfs::new(
+            Arc::new(blazar_transport::LocalTransport),
+            dir.display().to_string(),
+        );
+
+        let root = vfs.list_dir("").await.unwrap();
+        let mut got: Vec<_> = root
+            .items
+            .iter()
+            .map(|i| (i.name.as_str(), i.is_dir, i.ignored))
+            .collect();
+        got.sort();
+        assert_eq!(
+            got,
+            [
+                (".env", false, false),
+                (".gitignore", false, false),
+                ("run.log", false, true),
+                ("src", true, false),
+                ("target", true, true),
+            ]
+        );
+        let src = vfs.list_dir("src").await.unwrap();
+        assert_eq!(src.items.len(), 1);
+        assert_eq!(src.items[0].name, "a b.rs");
+        assert!(vfs.list_dir("../").await.is_err());
+        assert!(vfs.list_dir("missing").await.is_err());
+    }
+
     #[tokio::test]
     async fn write_round_trips_and_detects_conflicts() {
         let dir = scratch("write-roundtrip");

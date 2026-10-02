@@ -113,6 +113,25 @@ fn Workspace(id: String) -> impl IntoView {
             .map(|t| tree::build(&t.entries))
     });
     let opened = RwSignal::new(HashSet::<String>::new());
+    let root_name = Signal::derive(move || {
+        detail
+            .get()
+            .and_then(Result::ok)
+            .map(|d| {
+                d.path
+                    .trim_end_matches('/')
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or_default()
+                    .to_owned()
+            })
+            .filter(|n| !n.is_empty())
+            .unwrap_or_else(|| "工作区".to_owned())
+    });
+    let tree_reload = Signal::derive(move || {
+        bus.workspaces.track();
+        tree_rev.get()
+    });
     // 第一次拿到树时，改动不多（≤40）就把有改动的目录都展开。
     let expanded_once = StoredValue::new(false);
     Effect::new(move |_| {
@@ -345,16 +364,7 @@ fn Workspace(id: String) -> impl IntoView {
     view! {
         <div class="ws">
             <div class="ws-head">
-                <a href="/" class="crumb">"工作区"</a>
-                <span class="sep">"/"</span>
-                {move || detail.get().map(|d| match d {
-                    Ok(d) => view! {
-                        <h1>{d.name.clone()}</h1>
-                        <span class="state-pill" data-act=d.activity.clone()>{activity_label(&d.activity).to_owned()}</span>
-                        <span class="where" title=format!("{}:{}", d.node, d.path)>{format!("{}:{}", d.node, d.path)}</span>
-                    }.into_any(),
-                    Err(e) => view! { <span class="err-line">{e.to_string()}</span> }.into_any(),
-                })}
+                {move || detail.get().and_then(|d| d.err()).map(|e| view! { <span class="err-line">{e.to_string()}</span> })}
                 <span class="grow"></span>
                 <button class="btn small" on:click=move |_| insp.set(true)>"属性"</button>
                 <button class="laybtn" title="资源管理器 ⌘B" aria-pressed=move || (!lay().hide_ex).to_string()
@@ -380,7 +390,7 @@ fn Workspace(id: String) -> impl IntoView {
                         <button class="laybtn" title="重新扫描" inner_html=ICON_REFRESH
                             on:click=move |_| tree_rev.update(|n| *n += 1)></button>
                     </div>
-                    <FileTree root opened files/>
+                    <FileTree root opened files root_name=root_name reload=tree_reload/>
                 </section>
                 <Splitter edge=Edge::Explorer state/>
                 <section class="region center" data-max=move || lay().panel_max.to_string()>

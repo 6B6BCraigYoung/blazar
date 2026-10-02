@@ -155,6 +155,22 @@ pub async fn workspace_file(
     Ok(Json(vfs_for(&st, &node, &path).read(&q.path).await?))
 }
 
+#[derive(Debug, Deserialize)]
+pub struct DirQuery {
+    #[serde(default)]
+    pub path: String,
+}
+
+/// 资源管理器展开目录时按需列一层，照磁盘来（含被忽略的文件）。
+pub async fn workspace_ls(
+    State(st): State<Shared>,
+    Path(id): Path<String>,
+    Query(q): Query<DirQuery>,
+) -> ApiResult<Json<blazar_vfs::DirItems>> {
+    let (node, path) = locate(&st, &id).await?;
+    Ok(Json(vfs_for(&st, &node, &path).list_dir(&q.path).await?))
+}
+
 pub(crate) fn image_type(path: &str) -> Option<&'static str> {
     let ext = path.rsplit('.').next()?.to_ascii_lowercase();
     Some(match ext.as_str() {

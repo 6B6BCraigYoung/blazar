@@ -21,6 +21,23 @@ pub struct TreeEntry {
     pub change: Option<ChangeKind>,
 }
 
+/// 资源管理器里某个目录的一层内容（照磁盘列，含被 git 忽略的）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DirItem {
+    pub name: String,
+    pub is_dir: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub ignored: bool,
+}
+
+/// 一层目录内容；条目太多时只给前 [`DirItems::items`] 那么多。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DirItems {
+    pub items: Vec<DirItem>,
+    #[serde(default)]
+    pub truncated: bool,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ChangeKind {

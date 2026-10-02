@@ -226,6 +226,7 @@ pub fn build_router(st: Arc<AppState>) -> Router {
         .route("/api/workspaces/{id}/commit", post(api::commit_workspace))
         .route("/api/workspaces/{id}/destroy", post(api::destroy_workspace))
         .route("/api/workspaces/{id}/tree", get(api::workspace_tree))
+        .route("/api/workspaces/{id}/ls", get(api::workspace_ls))
         .route("/api/workspaces/{id}/raw", get(api::workspace_raw))
         .route(
             "/api/workspaces/{id}/file",

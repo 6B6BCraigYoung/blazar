@@ -172,7 +172,10 @@ pub async fn refresh_quota(id: &str) -> Result<serde_json::Value, ApiError> {
     .await
 }
 
-pub use blazar_core_types::api::{ChangeKind, DiffStat, FileContent, TreeEntry, Written};
+pub use blazar_core_types::api::{ChangeKind, DiffStat, DirItems, FileContent, TreeEntry, Written};
+
+/// 和 hub 的 `blazar_vfs::MAX_DIR_ITEMS` 一致
+pub const MAX_DIR_ITEMS: usize = 5_000;
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct WorkspaceDetail {
