@@ -148,7 +148,21 @@ pub fn DiffBar(
     git: Git,
     collapsed: RwSignal<HashSet<String>>,
     panel_max: RwSignal<bool>,
+    draft: RwSignal<Option<String>>,
 ) -> impl IntoView {
+    // 开一个新对话，写好审阅请求（不直接发：先选好 agent）。
+    let review = move |_| {
+        let n = d.files.with_untracked(Vec::len);
+        let base = d.base.get_untracked();
+        let scope = if d.prefs.with_untracked(|p| p.base == "target") && !base.is_empty() {
+            format!("这条分支相对 {base} 的全部改动（git diff {base}...HEAD，加上还没提交的部分）")
+        } else {
+            "这个工作区里还没提交的改动（git diff HEAD，包括新建的文件）".to_owned()
+        };
+        draft.set(Some(format!(
+            "请审阅{scope}，一共 {n} 个文件。\n\n重点看：正确性和边界情况、有没有引入回归、错误处理、命名和可读性、该有而没有的测试。\n按严重程度从高到低列出问题，每条给出文件和行号、问题是什么、建议怎么改；没问题的地方不用说。\n只审阅，不要改任何代码。"
+        )));
+    };
     let p = move || d.prefs.get();
     let sums = move || {
         d.files.with(|f| {
@@ -199,6 +213,7 @@ pub fn DiffBar(
                 }>
                 {move || if !d.files.with(Vec::is_empty) && collapsed.with(HashSet::len) >= d.files.with(Vec::len) { "全部展开" } else { "全部折叠" }}
             </button>
+            <button class="btn small" disabled=move || d.files.with(Vec::is_empty) title="开一个新对话，让 agent 只审阅不改代码" on:click=review>"让 agent 审阅"</button>
             <button class="laybtn" title="刷新" inner_html=super::ICON_REFRESH
                 on:click=move |_| { d.reload.update(|n| *n += 1); git.reload.update(|n| *n += 1); }></button>
             <button class="laybtn" title=move || if panel_max.get() { "还原面板" } else { "最大化面板" }

@@ -5,6 +5,7 @@ mod diff_panel;
 mod files;
 mod git_panel;
 mod layout;
+mod preview_panel;
 mod term_panel;
 mod tree;
 
@@ -25,6 +26,7 @@ use diff_panel::{DiffBar, DiffState, DiffView};
 use files::Files;
 use git_panel::{Git, GitView};
 use layout::{Edge, LayoutState, Region, Splitter};
+use preview_panel::PreviewBar;
 use term_panel::{TermPane, TermTabs, Terms};
 use tree::{FileTree, change_mark};
 
@@ -224,6 +226,14 @@ fn Workspace(id: String) -> impl IntoView {
         storage::save("blazar.v2.ws.panel", &"diff");
     });
     let hide_aux = Callback::new(move |()| state.toggle(Region::Aux));
+    let draft = RwSignal::new(None::<String>);
+    let isolated = Signal::derive(move || {
+        detail.with(|d| {
+            d.as_ref()
+                .and_then(|d| d.as_ref().ok())
+                .is_some_and(|d| d.isolated)
+        })
+    });
     let chat_id = id.clone();
     let chat_view = move || {
         detail
@@ -236,7 +246,7 @@ fn Workspace(id: String) -> impl IntoView {
                 let c = chat::Chat::new(
                     &chat_id, &path, &node, files, diff, git, running, show_aux, show_diff,
                 );
-                view! { <chat::ChatPane chat=c tree_files on_hide=hide_aux/> }
+                view! { <chat::ChatPane chat=c tree_files on_hide=hide_aux draft/> }
             })
     };
     // 详情第一次拿到之后才建对话栏，之后不跟着详情重建。
@@ -297,7 +307,6 @@ fn Workspace(id: String) -> impl IntoView {
         )
     };
 
-    let old_ui = format!("/#/workspaces/{id}");
     view! {
         <div class="ws">
             <div class="ws-head">
@@ -351,7 +360,7 @@ fn Workspace(id: String) -> impl IntoView {
                     </div>
                     <Splitter edge=Edge::Panel state/>
                     <section class="region panel" data-collapsed=move || lay().hide_panel.to_string()>
-                        <Panel ws=id.clone() files git diff state old_ui=old_ui.clone() tab=panel_tab/>
+                        <Panel ws=id.clone() files git diff state tab=panel_tab draft isolated/>
                     </section>
                 </section>
                 <Splitter edge=Edge::Aux state/>
@@ -546,8 +555,9 @@ fn Panel(
     git: Git,
     diff: DiffState,
     state: LayoutState,
-    old_ui: String,
     tab: RwSignal<String>,
+    draft: RwSignal<Option<String>>,
+    isolated: Signal<bool>,
 ) -> impl IntoView {
     let pick = move |t: &'static str| {
         tab.set(t.to_owned());
@@ -606,14 +616,14 @@ fn Panel(
                 <TermPane ws=ws.clone() terms active=shown("term")/>
             </div>
             <div class="ppane col" data-active=move || (tab.get() == "diff").to_string()>
-                <DiffBar d=diff git collapsed panel_max/>
+                <DiffBar d=diff git collapsed panel_max draft/>
                 <DiffView ws=ws.clone() d=diff files collapsed/>
             </div>
             <div class="ppane" data-active=move || (tab.get() == "git").to_string()>
-                <GitView git files/>
+                <GitView git files draft/>
             </div>
-            <div class="ppane" data-active=move || (tab.get() == "preview").to_string()>
-                <div class="todo-pane">"预览下一批搬过来，"<a href=old_ui>"先在旧界面里用"</a></div>
+            <div class="ppane col" data-active=move || (tab.get() == "preview").to_string()>
+                <PreviewBar ws=ws.clone() active=shown("preview") panel_max isolated/>
             </div>
         </div>
     }

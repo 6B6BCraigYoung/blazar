@@ -352,3 +352,20 @@ b.mk { font: 600 11px var(--font-mono); width: 12px; text-align: center; flex: 0
 .gp-out pre { margin: 6px 0 0; padding: 10px 12px; max-height: 260px; overflow: auto; background: var(--bg-code); border: 1px solid var(--line); border-radius: var(--r-md); font: 11.5px/1.55 var(--font-mono); color: var(--fg-2); white-space: pre-wrap; }
 .btn, .seg button { white-space: nowrap; }
 .diffbar > *, .gp-head > *, .gp-acts > * { flex-shrink: 0; }
+
+/* 预览 */
+.pv-url { flex: 1 1 200px; min-width: 120px; height: 24px; padding: 0 8px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--bg-canvas); color: var(--fg); font: 11.5px var(--font-mono); outline: none; }
+.pv-url:focus { border-color: var(--accent); }
+.pvbody { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: auto; }
+.pv-stage { flex: 1; min-height: 0; display: flex; justify-content: center; background: var(--bg-canvas); }
+.pv-stage iframe { border: 0; background: #fff; }
+.pv-stage[data-device="mobile"] { padding: 12px 0; }
+.pv-stage[data-device="mobile"] iframe { border-radius: 12px; box-shadow: 0 0 0 1px var(--border-strong); }
+.pv-log { margin: 0; flex: 0 0 auto; max-height: 40%; overflow: auto; padding: 8px 12px; border-top: 1px solid var(--line); background: var(--bg-code); font: 11.5px/1.5 var(--font-mono); color: var(--fg-2); white-space: pre-wrap; }
+.dlg .row-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 12px; }
+.dlg .sub-h { margin: 14px 0 6px; font-size: 12px; font-weight: 500; color: var(--fg-3); }
+.dlg textarea.mono { font: 12px var(--font-mono); }
+.sc-runs { max-height: 220px; overflow: auto; }
+.sc-run summary { cursor: pointer; display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 12px; }
+.sc-run summary .grow { flex: 1; }
+.sc-run pre { margin: 4px 0 8px; padding: 8px 10px; max-height: 200px; overflow: auto; background: var(--bg-code); border: 1px solid var(--line); border-radius: var(--r-sm); font: 11.5px var(--font-mono); white-space: pre-wrap; }

@@ -91,6 +91,26 @@ impl Git {
     }
 }
 
+/// 冲突时交给 agent 的请求。
+fn resolve_text(g: &GitStatus) -> String {
+    let op = g.op.as_deref().unwrap_or("");
+    let what = match op {
+        "rebase" => format!("变基（rebase）到 {}", g.target),
+        "merge" => "合并（merge）".to_owned(),
+        o => o.to_owned(),
+    };
+    let cont = match op {
+        "rebase" => "git rebase --continue",
+        "merge" => "git commit --no-edit",
+        _ => "git cherry-pick --continue",
+    };
+    let files: Vec<String> = g.conflicts.iter().map(|f| format!("- {f}")).collect();
+    format!(
+        "这个工作区正在{what}，进行到一半，下面这些文件有冲突：\n{}\n\n请逐个解决：先弄清两边各自想做什么，把两边的意图都保留下来，不要整段只选一边。解决完 git add，再执行 {cont}（设置 GIT_EDITOR=true 免得卡在编辑器上）；后面的提交又冲突就接着解决，直到整个过程结束。\n不要 abort，不要动和冲突无关的代码。完成后用几句话说明每处冲突是怎么取舍的。",
+        files.join("\n")
+    )
+}
+
 fn op_text(op: &str) -> &str {
     match op {
         "rebase" => "变基",
@@ -118,7 +138,7 @@ enum Form {
 }
 
 #[component]
-pub fn GitView(git: Git, files: Files) -> impl IntoView {
+pub fn GitView(git: Git, files: Files, draft: RwSignal<Option<String>>) -> impl IntoView {
     let form = RwSignal::new(None::<Form>);
     let menu = RwSignal::new(None::<Vec<String>>);
     let busy = move |op: &str| git.busy.with(|b| *b == Some(op));
@@ -479,6 +499,10 @@ pub fn GitView(git: Git, files: Files) -> impl IntoView {
                     <b>{format!("{what}进行到一半")}</b>
                     <span>{if n > 0 { format!("{n} 个文件有冲突，解决后点「继续」") } else { "冲突都解决了，可以继续".to_owned() }}</span>
                     <span class="grow"></span>
+                    {(n > 0).then(|| {
+                        let g2 = g.clone();
+                        view! { <button class="btn small primary" on:click=move |_| draft.set(Some(resolve_text(&g2)))>"让 agent 解决"</button> }
+                    })}
                     <button class="btn small" disabled=any_busy on:click=move |_| run("continue")>{move || if busy("continue") { "继续中…" } else { "继续" }}</button>
                     <button class="btn small danger" disabled=any_busy on:click=move |_| run("abort")>{format!("放弃{what}")}</button>
                 </div>

@@ -18,11 +18,22 @@ pub fn ChatPane(
     chat: Chat,
     tree_files: Signal<Vec<String>>,
     on_hide: Callback<()>,
+    draft: RwSignal<Option<String>>,
 ) -> impl IntoView {
     let bus = use_bus();
     chat.wire(bus);
     chat.init();
     chat.load_catalogs();
+    // 别处（差异的「让 agent 审阅」、Git 的「让 agent 解决」）写好的请求：开新对话、填进输入框，不直接发。
+    Effect::new(move |_| {
+        if let Some(text) = draft.get() {
+            draft.set(None);
+            chat.new_chat();
+            chat.prompt.set(text);
+            chat.show_aux.run(());
+            crate::components::toast::toast("已在新对话里写好请求：选好 agent 再发送");
+        }
+    });
 
     // 转圈和计时：在跑的时候每 120ms 走一格。
     let tick = RwSignal::new(0u32);
