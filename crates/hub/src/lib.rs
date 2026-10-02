@@ -25,6 +25,9 @@ pub const INDEX_HTML: &str = include_str!("../static/index.html");
 
 static ASSETS: include_dir::Dir<'_> = include_dir::include_dir!("$CARGO_MANIFEST_DIR/static");
 
+// 新界面（crates/web，Leptos）的构建产物，挂在 /v2/ 下。没构建过时 build.rs 放一个占位页。
+static WEB: include_dir::Dir<'_> = include_dir::include_dir!("$CARGO_MANIFEST_DIR/../web/dist");
+
 #[derive(Debug, Clone)]
 pub struct HubConfig {
     pub db_path: std::path::PathBuf,
@@ -123,6 +126,12 @@ async fn open_db(path: &Path) -> Result<Db> {
 pub fn build_router(st: Arc<AppState>) -> Router {
     Router::new()
         .route("/", get(index))
+        .route(
+            "/v2",
+            get(|| async { axum::response::Redirect::permanent("/v2/") }),
+        )
+        .route("/v2/", get(web))
+        .route("/v2/{*path}", get(web))
         .route("/vendor/{*path}", get(asset))
         .route("/css/{*path}", get(asset))
         .route("/js/{*path}", get(asset))
@@ -552,24 +561,53 @@ async fn asset(
             .into_response();
     }
 
-    let mime = match path.rsplit('.').next().unwrap_or("") {
-        "js" => "application/javascript; charset=utf-8",
-        "css" => "text/css; charset=utf-8",
-        "json" => "application/json",
-        "ttf" => "font/ttf",
-        "woff2" => "font/woff2",
-        "svg" => "image/svg+xml",
-        "png" => "image/png",
-        "map" => "application/json",
-        _ => "application/octet-stream",
-    };
     (
         [
-            (header::CONTENT_TYPE, mime),
+            (header::CONTENT_TYPE, mime_of(&path)),
             (header::CACHE_CONTROL, "no-cache"),
             (header::ETAG, tag),
         ],
         file.contents(),
     )
         .into_response()
+}
+
+fn mime_of(path: &str) -> &'static str {
+    match path.rsplit('.').next().unwrap_or("") {
+        "js" => "application/javascript; charset=utf-8",
+        "css" => "text/css; charset=utf-8",
+        "html" => "text/html; charset=utf-8",
+        "json" | "map" => "application/json",
+        "wasm" => "application/wasm",
+        "ttf" => "font/ttf",
+        "woff2" => "font/woff2",
+        "svg" => "image/svg+xml",
+        "png" => "image/png",
+        _ => "application/octet-stream",
+    }
+}
+
+// 新界面：Trunk 产出的 js/wasm/css 文件名带内容哈希，可以长期缓存；其余路径都是前端路由，回 index.html。
+async fn web(path: Option<axum::extract::Path<String>>) -> axum::response::Response {
+    use axum::http::header;
+    use axum::response::IntoResponse;
+    let rel = path.map(|p| p.0).unwrap_or_default();
+    match WEB.get_file(rel.trim_start_matches('/')) {
+        Some(f) if !rel.is_empty() => (
+            [
+                (header::CONTENT_TYPE, mime_of(&rel)),
+                (header::CACHE_CONTROL, "public, max-age=31536000, immutable"),
+            ],
+            f.contents(),
+        )
+            .into_response(),
+        _ => (
+            [
+                (header::CONTENT_TYPE, "text/html; charset=utf-8"),
+                (header::CACHE_CONTROL, "no-cache"),
+            ],
+            WEB.get_file("index.html").map_or(&[][..], |f| f.contents()),
+        )
+            .into_response(),
+    }
 }

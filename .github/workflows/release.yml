@@ -42,7 +42,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: "1.90"
-          targets: ${{ matrix.target }}
+          targets: ${{ matrix.target }},wasm32-unknown-unknown
       - name: Tauri prerequisites (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -51,6 +51,12 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: trunk
+      - name: Web UI
+        shell: bash
+        run: cd crates/web && trunk build --release
       - name: Mesh engine
         shell: bash
         run: scripts/fetch-easytier.sh ${{ matrix.engine }}

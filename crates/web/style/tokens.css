@@ -1,0 +1,46 @@
+/* Blazar 黑色主题：近黑中性灰，靠明度分层；无渐变、无发光；文字不用纯白；强调色低饱和。 */
+@font-face { font-family: "IBM Plex Sans"; font-weight: 400; font-display: swap; src: url("/vendor/fonts/ibm-plex-sans-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "IBM Plex Sans"; font-weight: 500; font-display: swap; src: url("/vendor/fonts/ibm-plex-sans-latin-500-normal.woff2") format("woff2"); }
+@font-face { font-family: "IBM Plex Sans"; font-weight: 600; font-display: swap; src: url("/vendor/fonts/ibm-plex-sans-latin-600-normal.woff2") format("woff2"); }
+@font-face { font-family: "JetBrains Mono"; font-weight: 400; font-display: swap; src: url("/vendor/fonts/jetbrains-mono-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "JetBrains Mono"; font-weight: 500; font-display: swap; src: url("/vendor/fonts/jetbrains-mono-latin-500-normal.woff2") format("woff2"); }
+
+:root {
+  /* 背景层级：越往上越亮 */
+  --bg-canvas: #0c0c0d;
+  --bg-sidebar: #101011;
+  --bg-panel: #141415;
+  --bg-raised: #1b1b1d;
+  --bg-hover: #222225;
+  --bg-code: #0f0f10;
+  --bg-selected: #18191c;
+
+  /* 文字与线条 */
+  --fg: #e4e4e7;
+  --fg-2: #a1a1aa;
+  --fg-3: #8a8a93;
+  --fg-4: #71717a;
+  --fg-disabled: #5c5c64;
+  --line: #1f1f22;
+  --border: #26262a;
+  --border-strong: #323237;
+
+  /* 强调与状态（低饱和） */
+  --accent: #8fa3c2;
+  --primary: #2f3d52;
+  --primary-hover: #36465e;
+  --clay: #a95b3c;
+  --clay-fg: #f2efe9;
+  --ok: #5f8f6e;
+  --ok-fg: #8fb59a;
+  --warn: #b5904f;
+  --err: #b0574c;
+  --err-fg: #c98a80;
+  --code-fg: #c9b48a;
+
+  --font-sans: "IBM Plex Sans", -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono: "JetBrains Mono", Menlo, Monaco, monospace;
+  --r-sm: 4px;
+  --r-md: 6px;
+  --r-lg: 10px;
+}

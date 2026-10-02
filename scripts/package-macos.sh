@@ -13,6 +13,8 @@ if [[ ! -x engine/easytier-core ]]; then
   ../../scripts/fetch-easytier.sh
 fi
 
+# 新界面（/v2/）先构建，hub 编译时把 crates/web/dist 嵌进去。
+(cd ../../crates/web && trunk build --release)
 cargo build --bins --release --features tauri/custom-protocol
 cargo tauri bundle --bundles app,dmg
 echo

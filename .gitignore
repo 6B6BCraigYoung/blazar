@@ -4,3 +4,4 @@
 *.sqlite-wal
 .DS_Store
 /apps/desktop/engine/
+crates/web/dist/
