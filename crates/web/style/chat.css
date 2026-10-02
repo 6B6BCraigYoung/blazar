@@ -52,19 +52,35 @@
 .cc-edit .grow { flex: 1; }
 
 /* 助手的话 */
-.cc-md.md-body { max-width: none; margin: 0; padding: 0; line-height: 1.65; }
+.cc-md.md-body { max-width: none; margin: 0; padding: 0; font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
 .cc-md.md-body > :first-child { margin-top: 0; }
 .cc-md.md-body > :last-child { margin-bottom: 0; }
-.cc-md.md-body h1, .cc-md.md-body h2 { font-size: 15px; border: 0; padding: 0; }
-.cc-md.md-body h3, .cc-md.md-body h4 { font-size: 13.5px; }
-.cc-md.md-body pre { margin: 8px 0; }
+.cc-md.md-body p { margin: 0 0 .65em; }
+.cc-md.md-body h1, .cc-md.md-body h2, .cc-md.md-body h3, .cc-md.md-body h4 { font-weight: 600; line-height: 1.4; margin: 1.1em 0 .4em; border: 0; padding: 0; }
+.cc-md.md-body h1 { font-size: 15px; }
+.cc-md.md-body h2 { font-size: 14px; }
+.cc-md.md-body h3, .cc-md.md-body h4 { font-size: 13px; }
+.cc-md.md-body ul, .cc-md.md-body ol { margin: .3em 0 .7em; padding-left: 1.35em; }
+.cc-md.md-body li { margin: .2em 0; }
+.cc-md.md-body li > p { margin: 0; }
+.cc-md.md-body li > ul, .cc-md.md-body li > ol { margin: .15em 0; }
+.cc-md.md-body li::marker { color: var(--fg-4); }
+.cc-md.md-body strong { font-weight: 600; color: var(--fg); }
+.cc-md.md-body code { font-size: 12px; color: var(--code-fg); background: rgba(255,255,255,.055); padding: .5px 4px; border-radius: 3px; }
+.cc-md.md-body pre { margin: .5em 0 .8em; padding: 9px 12px; border-radius: 6px; }
+.cc-md.md-body pre code { font-size: 12px; line-height: 1.55; background: none; padding: 0; }
+.cc-md.md-body blockquote { margin: .4em 0 .7em; padding: 0 12px; }
+.cc-md.md-body table { margin: .4em 0 .8em; font-size: 12.5px; }
+.cc-md.md-body th, .cc-md.md-body td { padding: 4px 9px; }
+.cc-md.md-body hr { margin: 1em 0; }
+.cc-md .md-insight { display: inline-block; font: 600 11.5px var(--font-mono); letter-spacing: .02em; color: var(--clay); }
+.cc-md .md-rule { display: block; height: 0; border-top: 1px solid var(--line); margin: .35em 0; }
 .cc-acts2 { display: flex; align-items: center; gap: 10px; height: 22px; opacity: 0; transition: opacity .12s; }
 .cc-msg:hover .cc-acts2 { opacity: 1; }
 .cc-copy { all: unset; cursor: pointer; width: 18px; height: 18px; display: grid; place-items: center; color: var(--fg-4); }
 .cc-copy:hover { color: var(--fg); }
 .cc-copy svg { width: 14px; height: 14px; }
 .cc-copy[data-done="true"] { color: var(--ok-fg); }
-.cc-cost { font: 11px var(--font-mono); color: var(--fg-4); }
 .cc-msg.sub .cc-md { color: var(--fg-2); font-size: 12.5px; }
 
 /* 折叠行 */
@@ -115,6 +131,7 @@
 .cc-spin[data-mode="acceptEdits"] .ic { color: var(--fg); }
 .cc-spin[data-mode="plan"] .ic { color: var(--accent); }
 .cc-spin[data-mode="bypassPermissions"] .ic, .cc-spin[data-mode="auto"] .ic { color: var(--err-fg); }
+.cc-spin .tk { color: var(--fg-4); font-variant-numeric: tabular-nums; }
 
 .cc-empty { padding: 30px 6px; color: var(--fg-3); display: flex; flex-direction: column; gap: 10px; }
 .cc-empty .who b { color: var(--fg); }

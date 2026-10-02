@@ -168,7 +168,6 @@ pub enum Body {
     },
     Assistant {
         text: String,
-        cost: Option<String>,
     },
     Fold(Fold),
     Error {
@@ -217,6 +216,29 @@ pub struct Transcript {
     pub rate: Vec<RateLimitWindow>,
     /// 最后一条事件所在的会话（中断、实时控制都发给它）
     pub last_session: Option<String>,
+    /// 这一轮到目前为止输出了多少 token
+    pub turn_tokens: u64,
+}
+
+/// 粗估：英文约 4 个字符一个 token，中日韩约 1 个字一个
+fn est_tokens(s: &str) -> u64 {
+    let (wide, narrow) = s.chars().fold((0u64, 0u64), |(w, n), c| {
+        if (c as u32) >= 0x2E80 {
+            (w + 1, n)
+        } else {
+            (w, n + 1)
+        }
+    });
+    wide + narrow.div_ceil(4)
+}
+
+/// 1234 → "1.2k"
+pub fn fmt_tokens(n: u64) -> String {
+    if n >= 1000 {
+        format!("{:.1}k", n as f64 / 1000.0)
+    } else {
+        n.to_string()
+    }
 }
 
 // ───────────────────────── 工具的标题、结果、改动 ─────────────────────────
@@ -579,7 +601,6 @@ enum BBody {
     },
     Assistant {
         text: String,
-        cost: Option<String>,
     },
     Fold(Vec<BStep>),
     Error {
@@ -618,6 +639,10 @@ struct Builder<'a> {
     last_ts: i64,
     last_text: String,
     usage: Option<TokenUsage>,
+    /// 这一轮里每次模型调用的输出量（按调用取最大值）
+    turn_tokens: HashMap<String, u64>,
+    /// 按这一轮已经出来的文字估的 token 数：Claude 只在每次调用开头报一次用量，靠它跟上
+    turn_est: u64,
     user_seen: HashSet<String>,
     bg_shown: HashMap<String, String>,
     resolved: HashMap<String, String>,
@@ -642,6 +667,7 @@ fn kind_name(k: &EntryKind) -> &'static str {
         EntryKind::Error { .. } => "error",
         EntryKind::BackgroundTask { .. } => "background_task",
         EntryKind::Finished(_) => "finished",
+        EntryKind::Progress { .. } => "progress",
     }
 }
 
@@ -746,6 +772,7 @@ impl Builder<'_> {
         let quiet = matches!(
             name,
             "token_usage"
+                | "progress"
                 | "rate_limit"
                 | "input_consumed"
                 | "approval_resolved"
@@ -763,6 +790,8 @@ impl Builder<'_> {
 
         match r.kind {
             EntryKind::UserMessage { text } => {
+                self.turn_tokens.clear();
+                self.turn_est = 0;
                 let first = !self.user_seen.contains(&r.session_id) && !r.rewound;
                 self.user_seen.insert(r.session_id.clone());
                 let long = text.split('\n').count() > 12 || text.chars().count() > 900;
@@ -781,10 +810,12 @@ impl Builder<'_> {
                 if text.trim().is_empty() {
                     return;
                 }
+                self.turn_est += est_tokens(&text);
                 text.trim().clone_into(&mut self.last_text);
-                self.push(key, BBody::Assistant { text, cost: None });
+                self.push(key, BBody::Assistant { text });
             }
             EntryKind::Thinking { text } => {
+                self.turn_est += est_tokens(&text);
                 let secs = if r.ts > 0 && prev_ts > 0 {
                     ((r.ts - prev_ts + 500) / 1000).max(1)
                 } else {
@@ -793,6 +824,7 @@ impl Builder<'_> {
                 self.fold(&key).push(BStep::Thinking { text, secs });
             }
             EntryKind::ToolUse { id, name, input } => {
+                self.turn_est += est_tokens(&input.to_string()) + 8;
                 let t = self.new_tool(id.0, &name, input);
                 if self.tools[t].tool.name == "TodoWrite"
                     && let Extra::Todos(list) = &self.tools[t].tool.extra
@@ -835,6 +867,13 @@ impl Builder<'_> {
                 self.out.mcp = mcp_servers;
             }
             EntryKind::TokenUsage(u) => self.usage = Some(u),
+            EntryKind::Progress {
+                message_id,
+                output_tokens,
+            } => {
+                let n = self.turn_tokens.entry(message_id).or_default();
+                *n = (*n).max(output_tokens);
+            }
             EntryKind::RateLimit(rl) => self.out.rate = rl.windows,
             EntryKind::Error { message } => self.push(
                 key,
@@ -1001,36 +1040,10 @@ impl Builder<'_> {
                 }
                 if let Some(t) = text.filter(|t| !t.trim().is_empty() && t.trim() != self.last_text)
                 {
-                    self.push(
-                        format!("{key}:text"),
-                        BBody::Assistant {
-                            text: t,
-                            cost: None,
-                        },
-                    );
+                    self.push(format!("{key}:text"), BBody::Assistant { text: t });
                 }
                 if !denied.is_empty() {
                     self.push(format!("{key}:denied"), BBody::Warn { denied });
-                }
-                // 这一轮的花费挂在最后一条回答上。
-                if let Some(cost) = self
-                    .usage
-                    .as_ref()
-                    .and_then(|u| u.cost_usd)
-                    .filter(|c| *c > 0.0)
-                {
-                    let cost = format!("${cost:.2}");
-                    if let Some(BItem {
-                        body: BBody::Assistant { cost: c @ None, .. },
-                        ..
-                    }) = self
-                        .container()
-                        .iter_mut()
-                        .rev()
-                        .find(|i| matches!(i.body, BBody::Assistant { .. }))
-                    {
-                        *c = Some(cost);
-                    }
                 }
             }
         }
@@ -1137,7 +1150,7 @@ fn sig_body(b: &Body) -> u64 {
     let mut h = std::collections::hash_map::DefaultHasher::new();
     match b {
         Body::User { text, first, .. } => (0u8, text, first).hash(&mut h),
-        Body::Assistant { text, cost } => (1u8, text, cost).hash(&mut h),
+        Body::Assistant { text } => (1u8, text).hash(&mut h),
         Body::Fold(f) => {
             (2u8, f.live, &f.summary, f.state, f.steps.len()).hash(&mut h);
             for s in &f.steps {
@@ -1183,7 +1196,7 @@ fn finish_items(
                     first,
                     long,
                 },
-                BBody::Assistant { text, cost } => Body::Assistant { text, cost },
+                BBody::Assistant { text } => Body::Assistant { text },
                 BBody::Error { text, by_account } => Body::Error { text, by_account },
                 BBody::Warn { denied } => Body::Warn { denied },
                 BBody::Meta { text, bad } => Body::Meta { text, bad },
@@ -1236,6 +1249,20 @@ pub fn build(rows: &[Row], root: &str, running: bool) -> Transcript {
         std::mem::take(&mut b.tools).into_iter().map(Some).collect();
     let top = std::mem::take(&mut b.top);
     b.out.items = finish_items(top, &mut tools, live_last, waiting);
+    b.out.turn_tokens = b.turn_tokens.values().sum::<u64>().max(b.turn_est);
+    // 正在跑的那一行带上这一轮的 token 数（跟插件一样：「Thinking… · 1.2k tokens」）。
+    if b.out.turn_tokens > 0
+        && b.out.pending.is_empty()
+        && let Some(Item {
+            body: Body::Fold(f),
+            sig,
+            ..
+        }) = b.out.items.last_mut()
+        && f.live
+    {
+        f.summary = format!("{} · {} tokens", f.summary, fmt_tokens(b.out.turn_tokens));
+        *sig ^= b.out.turn_tokens.wrapping_mul(0x9e37_79b9_7f4a_7c15);
+    }
     b.out
 }
 
@@ -1375,8 +1402,8 @@ mod tests {
         );
         assert_eq!(tool.result.as_ref().map(|r| r.more), Some(2));
         assert!(
-            matches!(&t.items[2].body, Body::Assistant { cost: Some(c), .. } if c == "$0.12"),
-            "最终文本和上一条回答一样，不重复；花费挂在回答上"
+            matches!(&t.items[2].body, Body::Assistant { .. }),
+            "最终文本和上一条回答一样，不重复"
         );
     }
 
@@ -1430,6 +1457,50 @@ mod tests {
         assert!(matches!(&f2.steps[1], Step::Note(n) if n == "Allowed · Edit"));
         assert_ne!(t.items[1].sig, t2.items[1].sig, "内容变了签名要变");
         assert_eq!(t.items[0].sig, t2.items[0].sig, "没变的条目签名不变");
+    }
+
+    #[test]
+    fn live_turn_shows_its_token_count() {
+        let rows = vec![
+            row("s", 1, 0, json!({"type":"user_message","text":"x"})),
+            row(
+                "s",
+                2,
+                0,
+                json!({"type":"progress","message_id":"m1","output_tokens":800}),
+            ),
+            row("s", 3, 0, json!({"type":"thinking","text":""})),
+            row(
+                "s",
+                4,
+                0,
+                json!({"type":"progress","message_id":"m1","output_tokens":900}),
+            ),
+            row(
+                "s",
+                5,
+                0,
+                json!({"type":"progress","message_id":"m2","output_tokens":300}),
+            ),
+        ];
+        let t = build(&rows, "", true);
+        assert_eq!(t.turn_tokens, 1200, "每次调用取最大值再加总");
+        let Body::Fold(f) = &t.items[1].body else {
+            panic!()
+        };
+        assert_eq!(f.summary, "Thinking… · 1.2k tokens");
+        let mut more = rows.clone();
+        more.push(row(
+            "s",
+            6,
+            0,
+            json!({"type":"thinking","text":"x".repeat(8000)}),
+        ));
+        assert_eq!(
+            build(&more, "", true).turn_tokens,
+            2000,
+            "上报的偏小时用估算值"
+        );
     }
 
     #[test]

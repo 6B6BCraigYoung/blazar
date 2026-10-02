@@ -420,6 +420,7 @@ fn render(seq: &u64, kind: &EntryKind) -> String {
                 .map(|c| format!(" cost=${c:.4}"))
                 .unwrap_or_default()
         ),
+        EntryKind::Progress { output_tokens, .. } => format!("进度  已输出 {output_tokens} token"),
         EntryKind::RateLimit(rl) => {
             let windows: Vec<_> = rl
                 .windows

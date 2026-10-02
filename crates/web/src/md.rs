@@ -88,6 +88,10 @@ pub fn render(src: &str, base: &str, ws: &str) -> String {
         | Options::ENABLE_FOOTNOTES;
     let events = Parser::new_ext(src, opts).map(|ev| match ev {
         Event::Html(h) | Event::InlineHtml(h) => Event::Text(h),
+        // Claude 的 `★ Insight ───` 标题和 `────` 分隔线写成行内代码，这里换成正经的样式
+        Event::Code(c) | Event::Text(c) if insight(&c).is_some() => {
+            Event::InlineHtml(CowStr::from(insight(&c).unwrap_or_default()))
+        }
         Event::Start(Tag::Link {
             link_type,
             dest_url,
@@ -117,6 +121,26 @@ pub fn render(src: &str, base: &str, ws: &str) -> String {
     out
 }
 
+/// `★ Insight ────` 换成标签，整行 `────` 换成细分隔线；别的返回 None
+fn insight(c: &str) -> Option<String> {
+    let t = c.trim();
+    if t.starts_with('★') && (t.contains('─') || t.chars().count() < 40) {
+        let label = t.trim_end_matches(['─', ' ']);
+        return Some(format!(
+            "<span class=\"md-insight\">{}</span>",
+            escape(label)
+        ));
+    }
+    (t.chars().count() >= 3 && t.chars().all(|ch| ch == '─'))
+        .then(|| "<span class=\"md-rule\"></span>".to_owned())
+}
+
+fn escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -139,5 +163,15 @@ mod tests {
         );
         assert!(!html.contains("<script>"));
         assert!(html.contains("/api/workspaces/w1/raw?path=img%2Fa%20b.png"));
+    }
+
+    #[test]
+    fn insight_markers_become_label_and_rule() {
+        let html = render("`★ Insight ─────`\n- a\n\n`─────────`", "", "w1");
+        assert!(html.contains(r#"<span class="md-insight">★ Insight</span>"#));
+        assert!(html.contains(r#"<span class="md-rule"></span>"#));
+        assert!(!html.contains("<code>"));
+        let plain = render("★ Insight ─────\n\n- a\n\n─────────", "", "w1");
+        assert!(plain.contains("md-insight") && plain.contains("md-rule"));
     }
 }

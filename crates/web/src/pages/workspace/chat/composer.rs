@@ -574,15 +574,10 @@ pub fn Composer(chat: Chat, tick: RwSignal<u32>, tree_files: Signal<Vec<String>>
             200_000
         };
         let pct = (used as f64 / win as f64 * 100.0).min(100.0);
-        let cost = chat
-            .transcript
-            .with(|t| t.usage.as_ref().and_then(|u| u.cost_usd))
-            .map(|c| format!(" · ${c:.2}"))
-            .unwrap_or_default();
         let title = if running.get() {
             "Running".to_owned()
         } else if used > 0 {
-            format!("Context {pct:.0}% · {} / {}{cost}", fmt_k(used), fmt_k(win))
+            format!("Context {pct:.0}% · {} / {}", fmt_k(used), fmt_k(win))
         } else {
             "Context".to_owned()
         };

@@ -161,7 +161,10 @@ pub fn sanitize(kind: &mut EntryKind) {
         EntryKind::ApprovalResolved { .. } => {}
         EntryKind::Finished(crate::Outcome::Failed { message }) => clean(message),
         EntryKind::Finished(_) => {}
-        EntryKind::SessionStarted { .. } | EntryKind::TokenUsage(_) | EntryKind::RateLimit(_) => {}
+        EntryKind::SessionStarted { .. }
+        | EntryKind::TokenUsage(_)
+        | EntryKind::RateLimit(_)
+        | EntryKind::Progress { .. } => {}
     }
 }
 

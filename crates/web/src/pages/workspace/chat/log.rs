@@ -7,7 +7,7 @@ use leptos::html;
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
 
-use crate::chat_model::{Body, Extra, Fold, Item, Res, Step, Tool};
+use crate::chat_model::{Body, Extra, Fold, Item, Res, Step, Tool, fmt_tokens};
 use crate::components::dialog::{self, Choice};
 use crate::components::toast::toast;
 use crate::md;
@@ -373,7 +373,7 @@ fn item_view(it: Item, chat: Chat, opened: Opened, ws: String) -> AnyView {
     let key = it.key.clone();
     match it.body {
         Body::User { sid, seq, text, first, long } => view! { <UserMsg chat sid seq text first long/> }.into_any(),
-        Body::Assistant { text, cost } => {
+        Body::Assistant { text } => {
             let done = RwSignal::new(false);
             let t = text.clone();
             view! {
@@ -381,7 +381,6 @@ fn item_view(it: Item, chat: Chat, opened: Opened, ws: String) -> AnyView {
                     <Md text ws/>
                     <div class="cc-acts2">
                         <button class="cc-copy" title="Copy" data-done=move || done.get().to_string() inner_html=COPY on:click=move |_| copy(t.clone(), done)></button>
-                        {cost.map(|c| view! { <span class="cc-cost">{c}</span> })}
                     </div>
                 </div></div>
             }.into_any()
@@ -434,10 +433,18 @@ fn Spinner(chat: Chat, tick: RwSignal<u32>) -> impl IntoView {
         }
     });
     let mode = move || chat.effective_mode().map(|m| m.0).unwrap_or("");
+    // 正在思考的折叠行已经带着 token 数时，转圈这里就不重复了
+    let tokens = move || {
+        chat.transcript.with(|t| {
+            let live = matches!(t.items.last(), Some(Item { body: Body::Fold(f), .. }) if f.live);
+            (t.turn_tokens > 0 && !live).then(|| fmt_tokens(t.turn_tokens))
+        })
+    };
     view! {
         <div class="cc-spin" data-mode=mode>
             <span class="ic">{move || SPIN[tick.get() as usize % SPIN.len()]}</span>
             <span class="tx">{move || format!("{}…", WORDS[word.get()])}</span>
+            {move || tokens().map(|n| view! { <span class="tk">{format!("· {n} tokens")}</span> })}
         </div>
     }
 }

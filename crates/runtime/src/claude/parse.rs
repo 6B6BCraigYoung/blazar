@@ -109,6 +109,19 @@ fn parse_assistant(v: &Value) -> Vec<EntryKind> {
         }];
     }
     let mut out = Vec::new();
+    // 这次调用到目前为止的输出量：界面上实时显示这一轮用了多少 token。
+    if let (Some(id), Some(n)) = (
+        message.get("id").and_then(Value::as_str),
+        message
+            .get("usage")
+            .and_then(|u| u.get("output_tokens"))
+            .and_then(Value::as_u64),
+    ) {
+        out.push(EntryKind::Progress {
+            message_id: id.to_owned(),
+            output_tokens: n,
+        });
+    }
 
     for block in content_blocks(message) {
         match block.get("type").and_then(Value::as_str) {

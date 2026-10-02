@@ -196,6 +196,12 @@ pub enum EntryKind {
         text: String,
     },
     TokenUsage(TokenUsage),
+    /// 这一轮里某次模型调用到目前为止输出了多少 token（界面上「· 1.2k tokens」用）。
+    /// 跟 TokenUsage 分开：那个只在一轮结束时报一次总数，不会重复计。
+    Progress {
+        message_id: String,
+        output_tokens: u64,
+    },
     RateLimit(RateLimit),
     Error {
         message: String,
@@ -324,7 +330,7 @@ impl ActivityState {
             | EntryKind::Thinking { .. }
             | EntryKind::ToolUse { .. }
             | EntryKind::ToolResult { .. } => Some(Self::Running),
-            EntryKind::TokenUsage(_) | EntryKind::RateLimit(_) => None,
+            EntryKind::TokenUsage(_) | EntryKind::RateLimit(_) | EntryKind::Progress { .. } => None,
         }
     }
 }
