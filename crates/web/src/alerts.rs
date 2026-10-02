@@ -1,4 +1,4 @@
-//! 提示音和系统通知（实现在 js/alerts.js），以及它们的偏好（跟旧界面同一个键）。
+//! 提示音和系统通知（实现在 js/alerts.js），以及它们的偏好（沿用已有的键）。
 
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;

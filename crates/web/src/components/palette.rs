@@ -65,19 +65,19 @@ pub fn Palette() -> impl IntoView {
 
     let hits = move || {
         let mut all: Vec<Hit> = [
-            ("全部工作区", "导航", "/v2"),
-            ("运行中", "导航", "/v2/running"),
-            ("等我审批", "导航", "/v2/waiting"),
-            ("运行时", "导航", "/v2/runtimes"),
-            ("收件箱", "导航", "/v2/inbox"),
-            ("任务", "导航", "/v2/tasks"),
-            ("自动化", "导航", "/v2/autopilots"),
-            ("SKILLs", "导航", "/v2/skills"),
-            ("接入的软件", "导航", "/v2/apps"),
-            ("Agent", "导航", "/v2/agents"),
-            ("机器与组网", "导航", "/v2/nodes"),
-            ("用量", "导航", "/v2/usage"),
-            ("设置", "导航", "/v2/settings"),
+            ("全部工作区", "导航", "/"),
+            ("运行中", "导航", "/running"),
+            ("等我审批", "导航", "/waiting"),
+            ("运行时", "导航", "/runtimes"),
+            ("收件箱", "导航", "/inbox"),
+            ("任务", "导航", "/tasks"),
+            ("自动化", "导航", "/autopilots"),
+            ("SKILLs", "导航", "/skills"),
+            ("接入的软件", "导航", "/apps"),
+            ("Agent", "导航", "/agents"),
+            ("机器与组网", "导航", "/nodes"),
+            ("用量", "导航", "/usage"),
+            ("设置", "导航", "/settings"),
             ("新建工作区", "命令", "cmd:new"),
         ]
         .into_iter()
@@ -91,12 +91,12 @@ pub fn Palette() -> impl IntoView {
             all.extend(s.workspaces.iter().map(|w| Hit {
                 title: w.name.clone(),
                 kind: format!("工作区 · {}", w.node),
-                href: format!("/v2/w/{}", w.id),
+                href: format!("/w/{}", w.id),
             }));
             all.extend(s.nodes.iter().map(|n| Hit {
                 title: n.name.clone(),
                 kind: "机器".into(),
-                href: format!("/v2/nodes/{}", js_sys::encode_uri_component(&n.name)),
+                href: format!("/nodes/{}", js_sys::encode_uri_component(&n.name)),
             }));
         }
         let k = q.get().to_lowercase();
@@ -114,8 +114,8 @@ pub fn Palette() -> impl IntoView {
         app.palette.set(false);
         if h.href == "cmd:new" {
             app.new_ws.set(true);
-        } else if h.href.starts_with("/v2") {
-            navigate(h.href.trim_start_matches("/v2"), Default::default());
+        } else if h.href.starts_with("/") {
+            navigate(&h.href, Default::default());
         } else {
             let _ = window().location().set_href(&h.href);
         }

@@ -122,7 +122,7 @@ pub struct Snippet {
     pub body: String,
 }
 
-/// 选的模型 / 推理强度（按运行时记，跟旧界面同一个键）。
+/// 选的模型 / 推理强度（按运行时记，沿用已有的键）。
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct ModelSel {
     #[serde(default, skip_serializing_if = "Option::is_none")]

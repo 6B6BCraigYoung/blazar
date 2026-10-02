@@ -34,8 +34,9 @@ fn get(path: &str, if_none_match: Option<&str>) -> Request<Body> {
 #[tokio::test]
 async fn assets_revalidate_with_an_etag_instead_of_a_day_long_cache() {
     let (app, _dir) = app().await;
+    let path = "/vendor/xterm.js";
 
-    let res = app.clone().oneshot(get("/js/core.js", None)).await.unwrap();
+    let res = app.clone().oneshot(get(path, None)).await.unwrap();
     assert_eq!(res.status(), StatusCode::OK);
     assert_eq!(res.headers()[header::CACHE_CONTROL], "no-cache");
     assert_eq!(
@@ -47,14 +48,9 @@ async fn assets_revalidate_with_an_etag_instead_of_a_day_long_cache() {
         tag.starts_with('"') && tag.ends_with('"') && tag.len() > 4,
         "{tag}"
     );
-    let body = res.into_body().collect().await.unwrap().to_bytes();
-    assert!(body.len() > 100);
+    assert!(res.into_body().collect().await.unwrap().to_bytes().len() > 100);
 
-    let res = app
-        .clone()
-        .oneshot(get("/js/core.js", Some(&tag)))
-        .await
-        .unwrap();
+    let res = app.clone().oneshot(get(path, Some(&tag))).await.unwrap();
     assert_eq!(res.status(), StatusCode::NOT_MODIFIED);
     assert_eq!(res.headers()[header::ETAG], tag.as_str());
     assert!(
@@ -68,66 +64,32 @@ async fn assets_revalidate_with_an_etag_instead_of_a_day_long_cache() {
 
     let res = app
         .clone()
-        .oneshot(get("/js/core.js", Some("\"stale\"")))
+        .oneshot(get(path, Some("\"stale\"")))
         .await
         .unwrap();
     assert_eq!(res.status(), StatusCode::OK);
 
     let res = app
         .clone()
-        .oneshot(get("/js/core.js", Some(&format!("\"other\", {tag}"))))
+        .oneshot(get(path, Some(&format!("\"other\", {tag}"))))
         .await
         .unwrap();
     assert_eq!(res.status(), StatusCode::NOT_MODIFIED);
 
-    let css = app
-        .clone()
-        .oneshot(get("/css/app.css", None))
-        .await
-        .unwrap();
-    assert_eq!(css.headers()[header::CACHE_CONTROL], "no-cache");
-    assert_ne!(css.headers()[header::ETAG], tag.as_str());
-
-    let res = app.clone().oneshot(get("/js/nope.js", None)).await.unwrap();
+    let res = app.oneshot(get("/vendor/nope.js", None)).await.unwrap();
     assert_eq!(res.status(), StatusCode::NOT_FOUND);
-
-    let res = app.clone().oneshot(get("/", None)).await.unwrap();
-    assert_eq!(res.status(), StatusCode::OK);
-    assert_eq!(res.headers()[header::CACHE_CONTROL], "no-cache");
-    let html =
-        String::from_utf8(res.into_body().collect().await.unwrap().to_bytes().to_vec()).unwrap();
-    let versioned = format!("src=\"/js/core.js?v={}\"", tag.trim_matches('"'));
-    assert!(html.contains(&versioned), "{versioned}");
-    assert!(
-        html.contains("href=\"/css/app.css?v="),
-        "css reference is versioned too"
-    );
-    assert!(
-        !html.contains("src=\"/js/core.js\""),
-        "unversioned reference must be gone"
-    );
-    assert!(
-        html.contains("/vendor/"),
-        "vendor references are left alone"
-    );
-
-    let res = app
-        .oneshot(get("/js/core.js?v=whatever", None))
-        .await
-        .unwrap();
-    assert_eq!(res.status(), StatusCode::OK);
-    assert_eq!(res.headers()[header::ETAG], tag.as_str());
 }
 
 #[tokio::test]
-async fn web_routes_revalidate_html_and_missing_assets_are_not_html() {
+async fn the_ui_is_served_at_the_root_and_missing_assets_are_not_html() {
     let (app, _dir) = app().await;
     for path in [
-        "/v2/",
-        "/v2/index.html",
-        "/v2/nodes/local",
-        "/v2/agents/new",
-        "/v2/tasks",
+        "/",
+        "/index.html",
+        "/w/example",
+        "/nodes/local",
+        "/agents/new",
+        "/tasks",
     ] {
         let res = app.clone().oneshot(get(path, None)).await.unwrap();
         assert_eq!(res.status(), StatusCode::OK, "{path}");
@@ -143,14 +105,16 @@ async fn web_routes_revalidate_html_and_missing_assets_are_not_html() {
                 .await
                 .unwrap()
                 .to_bytes()
-                .is_empty()
+                .is_empty(),
+            "{path}"
         );
     }
     for path in [
-        "/v2/missing.js",
-        "/v2/missing_bg.wasm",
-        "/v2/missing.css",
-        "/v2/snippets/missing/file.js",
+        "/missing.js",
+        "/missing_bg.wasm",
+        "/missing.css",
+        "/snippets/missing/file.js",
+        "/api/missing",
     ] {
         assert_eq!(
             app.clone().oneshot(get(path, None)).await.unwrap().status(),
@@ -158,7 +122,14 @@ async fn web_routes_revalidate_html_and_missing_assets_are_not_html() {
             "{path}"
         );
     }
-    let res = app.oneshot(get("/v2", None)).await.unwrap();
-    assert_eq!(res.status(), StatusCode::PERMANENT_REDIRECT);
-    assert_eq!(res.headers()[header::LOCATION], "/v2/");
+    // 界面曾经挂在 /v2 下：旧链接跳到同一页。
+    for (from, to) in [
+        ("/v2", "/"),
+        ("/v2/", "/"),
+        ("/v2/w/example?thread=t1", "/w/example?thread=t1"),
+    ] {
+        let res = app.clone().oneshot(get(from, None)).await.unwrap();
+        assert_eq!(res.status(), StatusCode::PERMANENT_REDIRECT, "{from}");
+        assert_eq!(res.headers()[header::LOCATION], to, "{from}");
+    }
 }

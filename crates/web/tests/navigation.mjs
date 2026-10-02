@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises';
 const listeners = new Map();
 let confirmations = 0;
 let accepted = false;
-globalThis.location = new URL('http://hub.test/v2/w/example');
+globalThis.location = new URL('http://hub.test/w/example');
 globalThis.window = {
   addEventListener: (name, callback) => listeners.set(name, callback),
   dispatchEvent: (event) => { listeners.get(event.type)?.(event); return !event.defaultPrevented; },
@@ -31,26 +31,26 @@ function click(path, modifiers = {}) {
 test('unsaved edits survive cancelled links, shortcuts and browser history', () => {
   let dirty = 2;
   bridge.setNavigationGuard('example', () => dirty);
-  assert.equal(click('/v2/tasks').prevented, true);
-  assert.equal(click('/v2/tasks').stopped, true);
+  assert.equal(click('/tasks').prevented, true);
+  assert.equal(click('/tasks').stopped, true);
   assert.equal(bridge.confirmNavigation(), false);
   const before = confirmations;
-  assert.equal(click('/v2/w/example?thread=second').prevented, false);
-  assert.equal(click('/v2/workspaces/example').prevented, false);
-  assert.equal(click('/v2/tasks', { ctrlKey: true }).prevented, false);
+  assert.equal(click('/w/example?thread=second').prevented, false);
+  assert.equal(click('/workspaces/example').prevented, false);
+  assert.equal(click('/tasks', { ctrlKey: true }).prevented, false);
   assert.equal(confirmations, before);
 
-  location = new URL('http://hub.test/v2/inbox');
+  location = new URL('http://hub.test/inbox');
   let stopped = false;
   listeners.get('popstate')({ stopImmediatePropagation() { stopped = true; } });
   assert.equal(stopped, true);
-  assert.deepEqual(pushed, ['/v2/w/example']);
+  assert.deepEqual(pushed, ['/w/example']);
 
   accepted = true;
-  assert.equal(click('/v2/tasks').prevented, false);
+  assert.equal(click('/tasks').prevented, false);
   accepted = false;
   dirty = 0;
-  assert.equal(click('/v2/tasks').prevented, false);
+  assert.equal(click('/tasks').prevented, false);
   bridge.setNavigationGuard('new-workspace', () => 1);
   bridge.clearNavigationGuard('example');
   assert.equal(bridge.confirmNavigation(), false);

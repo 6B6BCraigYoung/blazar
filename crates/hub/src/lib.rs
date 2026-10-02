@@ -21,11 +21,10 @@ pub mod state;
 
 pub use state::AppState;
 
-pub const INDEX_HTML: &str = include_str!("../static/index.html");
-
+// 第三方静态资源（Monaco、xterm、字体、图标），界面引用 /vendor/… 和 /img/…。
 static ASSETS: include_dir::Dir<'_> = include_dir::include_dir!("$CARGO_MANIFEST_DIR/static");
 
-// 新界面（crates/web，Leptos）的构建产物，挂在 /v2/ 下。没构建过时 build.rs 放一个占位页。
+// 界面（crates/web，Leptos）的构建产物，挂在 / 下。没构建过时 build.rs 放一个占位页。
 static WEB: include_dir::Dir<'_> = include_dir::include_dir!("$CARGO_MANIFEST_DIR/../web/dist");
 
 #[derive(Debug, Clone)]
@@ -125,16 +124,18 @@ async fn open_db(path: &Path) -> Result<Db> {
 
 pub fn build_router(st: Arc<AppState>) -> Router {
     Router::new()
-        .route("/", get(index))
+        .route("/", get(web))
+        // 新界面曾经挂在 /v2 下：旧链接和书签跳到同一页。
         .route(
             "/v2",
-            get(|| async { axum::response::Redirect::permanent("/v2/") }),
+            get(|| async { axum::response::Redirect::permanent("/") }),
         )
-        .route("/v2/", get(web))
-        .route("/v2/{*path}", get(web))
+        .route(
+            "/v2/",
+            get(|| async { axum::response::Redirect::permanent("/") }),
+        )
+        .route("/v2/{*path}", get(v2_redirect))
         .route("/vendor/{*path}", get(asset))
-        .route("/css/{*path}", get(asset))
-        .route("/js/{*path}", get(asset))
         .route("/img/{*path}", get(asset))
         .route("/api/state", get(api::get_state))
         .route("/api/agents", get(api::list_agents))
@@ -384,6 +385,7 @@ pub fn build_router(st: Arc<AppState>) -> Router {
         .route("/api/search", get(api::search))
         .route("/api/workspaces/{id}/terminal/ws", get(api::terminal_ws))
         .route("/api/ws", get(api::ws_handler))
+        .fallback(web)
         .layer(axum::middleware::from_fn(same_origin_only))
         .layer(axum::extract::DefaultBodyLimit::max(64 * 1024 * 1024))
         .with_state(st)
@@ -471,40 +473,6 @@ pub async fn spawn(cfg: HubConfig) -> Result<(SocketAddr, Arc<AppState>)> {
     Ok((addr, st))
 }
 
-async fn index() -> impl axum::response::IntoResponse {
-    (
-        [(axum::http::header::CACHE_CONTROL, "no-cache")],
-        axum::response::Html(versioned_index()),
-    )
-}
-
-static INDEX_VERSIONED: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-
-fn versioned_index() -> &'static str {
-    INDEX_VERSIONED.get_or_init(|| {
-        let mut out = String::with_capacity(INDEX_HTML.len() + 2048);
-        let mut rest = INDEX_HTML;
-        while let Some(i) = rest.find("=\"/") {
-            let (head, tail) = rest.split_at(i + 2);
-            out.push_str(head);
-            let end = tail.find('"').unwrap_or(tail.len());
-            let path = &tail[..end];
-            let rel = path.trim_start_matches('/');
-            out.push_str(path);
-            if (rel.starts_with("js/") || rel.starts_with("css/"))
-                && !path.contains('?')
-                && ASSETS.get_file(rel).is_some()
-            {
-                out.push_str("?v=");
-                out.push_str(asset_tag(rel).trim_matches('"'));
-            }
-            rest = &tail[end..];
-        }
-        out.push_str(rest);
-        out
-    })
-}
-
 static ASSET_TAGS: std::sync::OnceLock<std::collections::HashMap<String, String>> =
     std::sync::OnceLock::new();
 
@@ -587,26 +555,41 @@ fn mime_of(path: &str) -> &'static str {
     }
 }
 
-// 新界面：Trunk 产出的 js/wasm/css 文件名带内容哈希，可以长期缓存；其余路径都是前端路由，回 index.html。
-async fn web(path: Option<axum::extract::Path<String>>) -> axum::response::Response {
-    use axum::http::header;
+async fn v2_redirect(
+    uri: axum::http::Uri,
+    axum::extract::Path(path): axum::extract::Path<String>,
+) -> axum::response::Redirect {
+    let q = uri.query().map(|q| format!("?{q}")).unwrap_or_default();
+    axum::response::Redirect::permanent(&format!("/{}{q}", path.trim_start_matches('/')))
+}
+
+// 界面：Trunk 产出的 js/wasm/css 文件名带内容哈希，可以长期缓存；其余路径都是前端路由，回 index.html。
+// 找不到的接口和静态文件回 404，不能拿页面顶替（浏览器会把 HTML 当脚本解析，报错也看不懂）。
+async fn web(method: axum::http::Method, uri: axum::http::Uri) -> axum::response::Response {
+    use axum::http::{Method, StatusCode, header};
     use axum::response::IntoResponse;
-    let rel = path.map(|p| p.0).unwrap_or_default();
-    match WEB.get_file(rel.trim_start_matches('/')) {
+    let rel = uri.path().trim_start_matches('/');
+    if method != Method::GET && method != Method::HEAD {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    match WEB.get_file(rel) {
         Some(f) if !rel.is_empty() && rel != "index.html" => (
             [
-                (header::CONTENT_TYPE, mime_of(&rel)),
+                (header::CONTENT_TYPE, mime_of(rel)),
                 (header::CACHE_CONTROL, "public, max-age=31536000, immutable"),
             ],
             f.contents(),
         )
             .into_response(),
-        None if rel.starts_with("snippets/")
-            || [".js", ".wasm", ".css", ".map"]
-                .iter()
-                .any(|ext| rel.ends_with(ext)) =>
+        None if rel.starts_with("api/")
+            || rel.starts_with("snippets/")
+            || [
+                ".js", ".wasm", ".css", ".map", ".png", ".svg", ".woff2", ".ico",
+            ]
+            .iter()
+            .any(|ext| rel.ends_with(ext)) =>
         {
-            axum::http::StatusCode::NOT_FOUND.into_response()
+            StatusCode::NOT_FOUND.into_response()
         }
         _ => (
             [

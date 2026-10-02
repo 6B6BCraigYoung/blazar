@@ -227,9 +227,8 @@ renders `[[wikilinks]]`, `[[note|alias]]`, `[[note#heading]]`, `![[image.png]]` 
 `==highlight==`; notes open in Obsidian from the editor toolbar; a task becomes a note with
 front matter in the folder you choose.
 
-**Adding one.** Add an entry to `OFFICE_APPS`, `APP_LOGO`, `officeState`, `loadOffice` and the
-`pageApp` dispatch table in `crates/hub/static/js/office.js`, and a status endpoint in a module
-under `crates/hub/src/office/`. Use the product's own icon.
+**Adding one.** Add an entry to `APPS` and the app page in `crates/web/src/pages/apps.rs`,
+and a status endpoint in a module under `crates/hub/src/office/`. Use the product's own icon.
 
 ---
 
@@ -321,8 +320,8 @@ State changes are published on a broadcast bus and pushed to the UI over one Web
 client. Everything that touches a machine goes through `blazar_transport::NodeTransport`; the
 remote file system batches operations into single round trips so latency stays tolerable on
 distant hosts. Trunk compiles the Rust/Leptos UI in `crates/web/` into `crates/web/dist/`; the hub
-embeds it and serves it at `/v2/`. Monaco, xterm.js and fonts are vendored for offline use.
-The legacy UI in `crates/hub/static/` remains at `/` for compatibility with existing links.
+embeds it and serves it at `/`. Monaco, xterm.js and fonts are vendored in
+`crates/hub/static/vendor/` for offline use.
 
 ---
 
@@ -335,7 +334,7 @@ cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings
 ```
 
 Rust 1.90 is pinned in `rust-toolchain.toml`. With the hub running, use
-`cd crates/web && trunk serve` in another terminal and open `http://127.0.0.1:8080/v2/`.
+`cd crates/web && trunk serve` in another terminal and open `http://127.0.0.1:8080/`.
 API requests and vendored assets are proxied to the hub. For a release, run `trunk build --release`
 before rebuilding the hub so it embeds the latest UI. Check the frontend with
 `cargo clippy -p blazar-web --target wasm32-unknown-unknown -- -D warnings`.

@@ -345,7 +345,7 @@ fn Workspace(id: String) -> impl IntoView {
     view! {
         <div class="ws">
             <div class="ws-head">
-                <a href="/v2" class="crumb">"工作区"</a>
+                <a href="/" class="crumb">"工作区"</a>
                 <span class="sep">"/"</span>
                 {move || detail.get().map(|d| match d {
                     Ok(d) => view! {

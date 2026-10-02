@@ -35,7 +35,7 @@ export function confirmNavigation() {
 function sameWorkspace(url) {
   if (!navigationGuard || url.origin !== location.origin) return false;
   const id = encodeURIComponent(navigationGuard.workspace);
-  return url.pathname === `/v2/w/${id}` || url.pathname === `/v2/workspaces/${id}`;
+  return url.pathname === `/w/${id}` || url.pathname === `/workspaces/${id}`;
 }
 window.addEventListener('click', e => {
   if (e.defaultPrevented || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
@@ -48,6 +48,6 @@ window.addEventListener('click', e => {
 }, true);
 window.addEventListener('popstate', e => {
   if (!navigationGuard || sameWorkspace(new URL(location.href)) || confirmNavigation()) return;
-  history.pushState(null, '', `/v2/w/${encodeURIComponent(navigationGuard.workspace)}`);
+  history.pushState(null, '', `/w/${encodeURIComponent(navigationGuard.workspace)}`);
   e.stopImmediatePropagation();
 }, true);

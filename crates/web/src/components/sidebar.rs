@@ -120,12 +120,12 @@ pub fn Sidebar() -> impl IntoView {
             <button class="btn primary new-ws" on:click=move |_| app.new_ws.set(true)>"＋ 新建工作区"</button>
             <div class="grp">
                 <span>"工作"</span>
-                {nav("/v2/inbox", I_INBOX, "收件箱", Signal::derive(move || { let u = app.inbox_unread.get(); if u > 0 { u.to_string() } else { String::new() } }), false)}
-                {nav("/v2", I_FOLDER, "全部工作区", all, true)}
-                {nav("/v2/running", I_CLOCK, "运行中", running, true)}
-                {nav("/v2/waiting", I_WARN, "等我审批", waiting, true)}
-                {nav("/v2/tasks", I_TASKS, "任务", Signal::derive(move || n(app.tasks_open.get())), false)}
-                {nav("/v2/autopilots", I_AUTO, "自动化", Signal::derive(move || n(app.autopilots_active.get())), false)}
+                {nav("/inbox", I_INBOX, "收件箱", Signal::derive(move || { let u = app.inbox_unread.get(); if u > 0 { u.to_string() } else { String::new() } }), false)}
+                {nav("/", I_FOLDER, "全部工作区", all, true)}
+                {nav("/running", I_CLOCK, "运行中", running, true)}
+                {nav("/waiting", I_WARN, "等我审批", waiting, true)}
+                {nav("/tasks", I_TASKS, "任务", Signal::derive(move || n(app.tasks_open.get())), false)}
+                {nav("/autopilots", I_AUTO, "自动化", Signal::derive(move || n(app.autopilots_active.get())), false)}
             </div>
             {move || {
                 let p = projects();
@@ -133,7 +133,7 @@ pub fn Sidebar() -> impl IntoView {
                     <div class="grp">
                         <span>"项目"</span>
                         {p.into_iter().map(|(name, c)| {
-                            let href = format!("/v2/project/{}", js_sys::encode_uri_component(&name));
+                            let href = format!("/project/{}", js_sys::encode_uri_component(&name));
                             let title = name.clone();
                             view! {
                                 <A href=href attr:class="nav" attr:title=title>
@@ -146,21 +146,21 @@ pub fn Sidebar() -> impl IntoView {
             }}
             <div class="grp">
                 <span>"AI"</span>
-                {nav("/v2/runtimes", I_RT, "运行时", Signal::derive(move || n(app.runtimes_n.get())), false)}
-                {nav("/v2/agents", I_AGENT, "智能体", Signal::derive(move || n(app.agents_n.get())), false)}
-                {nav("/v2/skills", I_SKILL, "SKILLs", Signal::derive(move || n(app.skills_n.get())), false)}
+                {nav("/runtimes", I_RT, "运行时", Signal::derive(move || n(app.runtimes_n.get())), false)}
+                {nav("/agents", I_AGENT, "智能体", Signal::derive(move || n(app.agents_n.get())), false)}
+                {nav("/skills", I_SKILL, "SKILLs", Signal::derive(move || n(app.skills_n.get())), false)}
             </div>
             <div class="grp">
                 <span>"办公"</span>
-                {nav("/v2/apps", I_APPS, "接入的软件", none, false)}
+                {nav("/apps", I_APPS, "接入的软件", none, false)}
             </div>
             <div class="grp">
                 <span>"基础设施"</span>
-                {nav("/v2/nodes", I_NODES, "机器与组网", Signal::derive(move || { let (a, b) = nodes(); format!("{a}/{b}") }), false)}
+                {nav("/nodes", I_NODES, "机器与组网", Signal::derive(move || { let (a, b) = nodes(); format!("{a}/{b}") }), false)}
             </div>
             <div class="foot">
-                {nav("/v2/usage", I_USAGE, "用量", none, false)}
-                {nav("/v2/settings", I_GEAR, "设置", none, false)}
+                {nav("/usage", I_USAGE, "用量", none, false)}
+                {nav("/settings", I_GEAR, "设置", none, false)}
                 <div class="status">
                     {status}
                     <button class="linkbtn" on:click=move |_| app.alerts_open.set(true)>
@@ -170,7 +170,6 @@ pub fn Sidebar() -> impl IntoView {
                 <span class="conn" data-up=move || bus.connected.get().to_string()>
                     {move || if bus.connected.get() { "已连接" } else { "正在重连 hub…" }}
                 </span>
-                <a class="old-link" href="/">"回到旧界面"</a>
             </div>
         </nav>
     }

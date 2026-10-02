@@ -199,19 +199,19 @@ fn PendingApprovals() -> impl IntoView {
                     view! {
                         <div class="cc-appr static">
                             <div class="muted small">
-                                <a href=format!("/v2/w/{wid}")>{w.as_ref().map_or(wid.clone(), |w| w.name.clone())}</a>
+                                <a href=format!("/w/{wid}")>{w.as_ref().map_or(wid.clone(), |w| w.name.clone())}</a>
                                 {format!(" · {} · {}", w.as_ref().map(|w| w.node.clone()).unwrap_or_default(), fmt::ago(a["created_at"].as_str().unwrap_or("")))}
                             </div>
                             <div class="ahd"><span class="ah">{title}</span></div>
                             {(!what.is_empty()).then(|| view! { <pre class="acmd">{what}</pre> })}
                             <div class="row-actions">
                                 {if ask {
-                                    view! { <a class="btn small primary" href=format!("/v2/w/{wid}")>"去回答"</a> }.into_any()
+                                    view! { <a class="btn small primary" href=format!("/w/{wid}")>"去回答"</a> }.into_any()
                                 } else {
                                     view! {
                                         <button class="btn small primary" on:click=move |_| decide(i1.clone(), true)>"允许"</button>
                                         <button class="btn small" on:click=move |_| decide(i2.clone(), false)>"拒绝"</button>
-                                        <a class="linkbtn" href=format!("/v2/w/{wid}")>"打开工作区"</a>
+                                        <a class="linkbtn" href=format!("/w/{wid}")>"打开工作区"</a>
                                     }.into_any()
                                 }}
                             </div>
@@ -422,7 +422,7 @@ pub fn Inspector(id: String, on_close: impl Fn() + Copy + Send + Sync + 'static)
                                 }}
                             </div>
                             <div class="dlg-foot">
-                                <a class="btn" href=format!("/v2/w/{}", d5["id"].as_str().unwrap_or(""))>"打开"</a>
+                                <a class="btn" href=format!("/w/{}", d5["id"].as_str().unwrap_or(""))>"打开"</a>
                                 <button class="btn" on:click=move |_| on_close()>"关闭"</button>
                             </div>
                         }.into_any()

@@ -384,8 +384,7 @@ b.mk { font: 600 11px var(--font-mono); width: 12px; text-align: center; flex: 0
 .side .foot .status { padding: 6px 8px 0; font-size: 11px; color: var(--fg-4); line-height: 1.5; }
 .side .foot .status .linkbtn { font-size: 11px; color: var(--fg-3); display: inline-flex; align-items: center; gap: 2px; }
 .ic-inline svg { width: 12px; height: 12px; vertical-align: -1px; }
-.side .foot .conn, .side .foot .old-link { padding: 2px 8px; font-size: 11px; color: var(--fg-4); }
-.side .foot .old-link:hover { color: var(--fg-2); }
+.side .foot .conn { padding: 2px 8px; font-size: 11px; color: var(--fg-4); }
 .strong { font-weight: 700 !important; color: var(--fg) !important; }
 
 /* ⌘K */

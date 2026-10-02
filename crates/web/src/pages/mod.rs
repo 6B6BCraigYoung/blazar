@@ -28,7 +28,7 @@ pub fn NotFound() -> impl IntoView {
     view! {
         <div class="page">
             <h1>"页面不存在"</h1>
-            <div class="empty">"链接可能已失效。"<a href="/v2/">"返回工作区"</a></div>
+            <div class="empty">"链接可能已失效。"<a href="/">"返回工作区"</a></div>
         </div>
     }
 }

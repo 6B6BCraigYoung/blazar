@@ -193,8 +193,7 @@ IPv4 地址，流量加密，能打洞就直连，不能就中转。
 把库开成工作区，智能体就能在通常的权限模式下读写笔记；预览渲染 `[[双链]]`、`[[笔记|别名]]`、`[[笔记#标题]]`、
 `![[图片]]` 和 `==高亮==`；编辑器顶栏可在 Obsidian 里打开；任务可以存成带 front matter 的笔记，放进你指定的文件夹。
 
-**再接一个。** 在 `crates/hub/static/js/office.js` 的 `OFFICE_APPS`、`APP_LOGO`、`officeState`、`loadOffice` 和 `pageApp`
-分发表各加一项，在 `crates/hub/src/office/` 下加一个状态接口模块。用产品自己的图标。
+**再接一个。** 在 `crates/web/src/pages/apps.rs` 的 `APPS` 和应用页面里各加一项，在 `crates/hub/src/office/` 下加一个状态接口模块。用产品自己的图标。
 
 ---
 
@@ -281,7 +280,7 @@ crates/
 
 状态变化发布到一条广播总线，经每个客户端一条 WebSocket 推给界面。所有触碰机器的操作都经过
 `blazar_transport::NodeTransport`；远程文件系统把操作合并成单次往返，远机器上延迟也能接受。
-`crates/web/` 下的 Rust/Leptos 界面由 Trunk 编译到 `crates/web/dist/`，再嵌入 hub 二进制，访问 `/v2/`。Monaco、xterm.js 和字体由 hub 内置，离线可用。`crates/hub/static/` 下的旧界面保留在 `/`，方便兼容已有链接。
+`crates/web/` 下的 Rust/Leptos 界面由 Trunk 编译到 `crates/web/dist/`，再嵌入 hub 二进制，访问 `/`。Monaco、xterm.js 和字体内置在 `crates/hub/static/vendor/`，离线可用。
 
 ---
 
@@ -293,7 +292,7 @@ cargo test --workspace
 cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings
 ```
 
-Rust 1.90 钉在 `rust-toolchain.toml`。启动 hub 后，在另一个终端运行 `cd crates/web && trunk serve`，访问 `http://127.0.0.1:8080/v2/`；API 与内置资源会代理到 hub。发布前先运行 `trunk build --release`，再构建 hub，把最新网页嵌入二进制。前端检查：`cargo clippy -p blazar-web --target wasm32-unknown-unknown -- -D warnings`。
+Rust 1.90 钉在 `rust-toolchain.toml`。启动 hub 后，在另一个终端运行 `cd crates/web && trunk serve`，访问 `http://127.0.0.1:8080/`；API 与内置资源会代理到 hub。发布前先运行 `trunk build --release`，再构建 hub，把最新网页嵌入二进制。前端检查：`cargo clippy -p blazar-web --target wasm32-unknown-unknown -- -D warnings`。
 
 规矩：
 

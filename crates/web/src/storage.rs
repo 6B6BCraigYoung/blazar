@@ -17,7 +17,7 @@ pub fn save<T: Serialize>(key: &str, v: &T) {
     }
 }
 
-/// 原样存的字符串（旧界面有些键不是 JSON）。
+/// 原样存的字符串（有些已有的键不是 JSON）。
 pub fn load_raw(key: &str) -> Option<String> {
     store()?.get_item(key).ok().flatten()
 }

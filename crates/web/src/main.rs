@@ -1,4 +1,4 @@
-//! Blazar 的网页界面（Leptos，纯客户端渲染）。由 Trunk 编成 wasm，hub 挂在 `/v2/` 下提供。
+//! Blazar 的网页界面（Leptos，纯客户端渲染）。由 Trunk 编成 wasm，hub 挂在 `/` 下提供。
 
 #[cfg(target_arch = "wasm32")]
 mod alerts;

@@ -37,7 +37,7 @@ pub fn who(v: &Value) -> String {
     }
 }
 pub fn thread_link(ws: &str, thread: &str) -> String {
-    format!("/v2/w/{}?thread={}", api::enc(ws), api::enc(thread))
+    format!("/w/{}?thread={}", api::enc(ws), api::enc(thread))
 }
 pub fn status(s: &str) -> (&str, &str) {
     match s {

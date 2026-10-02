@@ -263,7 +263,7 @@ pub fn NodesPage() -> impl IntoView {
                                     <div class="path">{if n.name == "local" { "本机".to_owned() } else { n.ipv4.clone().unwrap_or_else(|| "SSH".into()) }}{n.cost.clone().map(|c| format!(" · {c}"))}</div>
                                     <div class="meta"><span>"延迟 "{latency(n.latency_ms)}</span><span>{format!("工作区 {}", n.workspace_count)}</span></div>
                                     <div class="act">
-                                        <a class="btn small" href=format!("/v2/nodes/{}", api::enc(&n.name)) on:click=|e|e.stop_propagation()>"属性"</a>
+                                        <a class="btn small" href=format!("/nodes/{}", api::enc(&n.name)) on:click=|e|e.stop_propagation()>"属性"</a>
                                         <button class="btn small primary" on:click=move |e| { e.stop_propagation(); app.new_ws_node.set(Some(name2.clone())); app.new_ws.set(true); }>"新建工作区"</button>
                                     </div>
                                 </div>
@@ -944,7 +944,7 @@ fn NodeDetail(name: String) -> impl IntoView {
     view! {
         <div class="page">
             <div class="page-head">
-                <a href="/v2/nodes" class="crumb">"机器"</a><span class="sep">"/"</span>
+                <a href="/nodes" class="crumb">"机器"</a><span class="sep">"/"</span>
                 <h1>{name.clone()}</h1>
                 {move || { let on = node.get().is_some_and(|n| n.status == "online"); view! { <span class="state-pill" data-act=if on { "running" } else { "idle" }>{if on { "在线" } else { "离线" }}</span> } }}
                 <span class="grow"></span>
@@ -1043,7 +1043,7 @@ fn NodeDetail(name: String) -> impl IntoView {
                         <table class="tb"><tbody>
                             {list.into_iter().map(|w| view! {
                                 <tr>
-                                    <td><span class="dot" data-act=w.activity.clone()></span>" "<a href=format!("/v2/w/{}", w.id)>{w.name.clone()}</a></td>
+                                    <td><span class="dot" data-act=w.activity.clone()></span>" "<a href=format!("/w/{}", w.id)>{w.name.clone()}</a></td>
                                     <td class="mono">{w.path.clone()}</td>
                                     <td class="muted" style="text-align:right">{activity_label(&w.activity).to_owned()}</td>
                                 </tr>

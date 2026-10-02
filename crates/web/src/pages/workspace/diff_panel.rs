@@ -41,7 +41,7 @@ impl Default for Prefs {
     }
 }
 
-/// 一条审阅意见。存法跟旧界面一致（同一个本地存储键），两边都能看到、都会随消息发出。
+/// 一条审阅意见。存在本地（沿用已有的键），随下一条消息发出。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Comment {
     pub id: String,

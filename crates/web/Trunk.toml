@@ -1,9 +1,9 @@
-# 开发：先起 hub（默认 127.0.0.1:7777），再在这里 `trunk serve`，打开 http://127.0.0.1:8080/v2/
-# 发布：`trunk build --release`，产物在 dist/，hub 编译时把它嵌进二进制、挂在 /v2/ 下。
+# 开发：先起 hub（默认 127.0.0.1:7777），再在这里 `trunk serve`，打开 http://127.0.0.1:8080/
+# 发布：`trunk build --release`，产物在 dist/，hub 编译时把它嵌进二进制、挂在 / 下。
 [build]
 target = "index.html"
 dist = "dist"
-public_url = "/v2/"
+public_url = "/"
 filehash = true
 
 [serve]
@@ -16,3 +16,6 @@ ws = true
 
 [[proxy]]
 backend = "http://127.0.0.1:7777/vendor/"
+
+[[proxy]]
+backend = "http://127.0.0.1:7777/img/"

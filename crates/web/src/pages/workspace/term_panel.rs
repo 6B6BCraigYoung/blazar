@@ -10,7 +10,7 @@ use crate::storage;
 use crate::term;
 
 fn tabs_key(ws: &str) -> String {
-    // 跟旧界面用同一个键：两边开的终端标签一致。
+    // 沿用已有的键：之前开的终端标签还在。
     format!("blazar.terms.{ws}")
 }
 

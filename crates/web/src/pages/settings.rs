@@ -67,7 +67,7 @@ pub fn SettingsPage() -> impl IntoView {
     view! {
         <div class="page"><div class="page-head"><h1>"设置"</h1><span class="grow"></span><button class="btn" on:click=move |_| refresh.update(|n| *n += 1)>"刷新"</button></div><div class="settings-layout">
             <nav class="settings-nav" aria-label="设置分类">{[("appearance","外观"),("chat","对话与编辑"),("notify","提醒"),("shortcuts","快捷键"),("rules","自动批准"),("snippets","片段"),("hooks","生命周期钩子"),("git","Git 与 PR"),("platforms","Skill 平台"),("about","数据与关于")].into_iter().map(move |(id,label)| view! {
-                <a href=format!("/v2/settings?s={id}") aria-current=move || (section() == id).then_some("page")>{label}</a>
+                <a href=format!("/settings?s={id}") aria-current=move || (section() == id).then_some("page")>{label}</a>
             }).collect_view()}</nav>
             <div class="settings-body">{move || { refresh.get(); match section().as_str() {
                 "chat" => view! { <ChatSettings/> }.into_any(),
@@ -79,7 +79,7 @@ pub fn SettingsPage() -> impl IntoView {
                 "git" => view! { <GitSettings/> }.into_any(),
                 "platforms" => view! { <PlatformSettings/> }.into_any(),
                 "about" => view! { <AboutSettings/> }.into_any(),
-                "lark" => view! { <a class="btn" href="/v2/apps/lark">"打开飞书 / Lark 设置"</a> }.into_any(),
+                "lark" => view! { <a class="btn" href="/apps/lark">"打开飞书 / Lark 设置"</a> }.into_any(),
                 _ => view! { <AppearanceSettings/> }.into_any(),
             }}}</div>
         </div></div>
@@ -158,7 +158,7 @@ fn NotifySettings() -> impl IntoView {
             <div class="settings-actions"><button class="btn" on:click=|_| alerts::play("done",true)>"试听：跑完"</button><button class="btn" on:click=|_| alerts::play("attention",true)>"试听：需要处理"</button></div>
         </section>
         {move || match server.get() { None=> view! { <div class="empty">"加载收件箱设置…"</div> }.into_any(), Some(Err(e))=>view! { <p class="err-line">{e.to_string()}</p> }.into_any(),Some(Ok(p))=>view! { <InboxSettings initial=p/> }.into_any() }}
-        <section class="card settings-card"><h3>"转发到飞书"</h3><a href="/v2/apps/lark">"配置飞书提醒转发 →"</a></section>
+        <section class="card settings-card"><h3>"转发到飞书"</h3><a href="/apps/lark">"配置飞书提醒转发 →"</a></section>
     }
 }
 
@@ -296,7 +296,7 @@ fn PlatformSettings() -> impl IntoView {
         rev.get();
         api::get::<Value>("/api/skills/market/providers")
     });
-    view! { <section class="card settings-card"><h3>"Skill 平台"</h3><p><a href="/v2/skills?tab=market">"搜索和安装技能 →"</a></p>{move ||match data.get(){None=>view! { <p>"加载中…"</p> }.into_any(),Some(Err(e))=>view! { <p class="err-line">{e.to_string()}</p> }.into_any(),Some(Ok(v))=>rows(&v).into_iter().map(|p|view! { <div class="settings-row"><div class="settings-label"><b>{text(&p,"label")}</b><span>{text(&p,"note")}</span></div><span>{if flag(&p,"has_key"){"API key 已填"}else{"匿名"}}</span><a href=text(&p,"home") target="_blank" rel="noopener noreferrer">"打开 ↗"</a></div> }).collect_view().into_any()}}
+    view! { <section class="card settings-card"><h3>"Skill 平台"</h3><p><a href="/skills?tab=market">"搜索和安装技能 →"</a></p>{move ||match data.get(){None=>view! { <p>"加载中…"</p> }.into_any(),Some(Err(e))=>view! { <p class="err-line">{e.to_string()}</p> }.into_any(),Some(Ok(v))=>rows(&v).into_iter().map(|p|view! { <div class="settings-row"><div class="settings-label"><b>{text(&p,"label")}</b><span>{text(&p,"note")}</span></div><span>{if flag(&p,"has_key"){"API key 已填"}else{"匿名"}}</span><a href=text(&p,"home") target="_blank" rel="noopener noreferrer">"打开 ↗"</a></div> }).collect_view().into_any()}}
         <form class="settings-form" on:submit=move |e|{e.prevent_default();if busy.get_untracked(){return;}busy.set(true);leptos::task::spawn_local(async move {if save("PUT","/api/skills/market/key",json!({"provider":"skillsmp","key":key.get_untracked().trim()})).await{key.set(String::new());rev.update(|n|*n+=1);}busy.set(false);});}><label class="settings-field">"SkillsMP API key（只写不读，留空删除）"<input class="settings-input" type="password" autocomplete="new-password" prop:value=move ||key.get() disabled=move ||busy.get() on:input=move |e|key.set(event_target_value(&e))/></label><div><button class="btn primary" type="submit" disabled=move ||busy.get()>"保存 API key"</button></div></form>
     </section> }
 }

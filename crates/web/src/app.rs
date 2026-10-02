@@ -20,7 +20,7 @@ pub fn App() -> impl IntoView {
     toast::provide();
     term_dialog::provide();
     view! {
-        <Router base="/v2">
+        <Router>
             <div class="shell" data-side=move || if app.side_collapsed.get() { "off" } else { "on" }>
                 <button class="side-toggle" aria-label="展开侧栏" title="展开侧栏" on:click=move |_| app.side_collapsed.set(false)>"☰"</button>
                 <Sidebar/>

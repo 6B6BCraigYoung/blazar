@@ -268,7 +268,7 @@ pub fn provide(bus: Bus) -> AppData {
                 &format!("blazar-{}", w.id),
                 w.activity == "awaiting_approval",
                 move || {
-                    let _ = window().location().set_href(&format!("/v2/w/{id}"));
+                    let _ = window().location().set_href(&format!("/w/{id}"));
                 },
             );
         }

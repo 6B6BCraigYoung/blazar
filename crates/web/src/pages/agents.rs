@@ -195,7 +195,7 @@ pub fn AgentsPage() -> impl IntoView {
     };
     view! {
         <div class="page wide agent-page">
-            <div class="page-head"><h1>"智能体"</h1><span class="sub">"各有各的指令、模型与能力"</span><span class="grow"/><a class="btn primary" href="/v2/agents/new">"新建智能体"</a></div>
+            <div class="page-head"><h1>"智能体"</h1><span class="sub">"各有各的指令、模型与能力"</span><span class="grow"/><a class="btn primary" href="/agents/new">"新建智能体"</a></div>
             <div class="agent-toolbar">
                 <select aria-label="范围" prop:value=move || scope.get() on:change=move |e| { scope.set(event_target_value(&e)); selected.set(HashSet::new()); }><option value="all" prop:selected=move || scope.get()=="all">"全部"</option><option value="archived" prop:selected=move || scope.get()=="archived">"已归档"</option></select>
                 <input aria-label="搜索智能体" placeholder="搜索名称或描述…" prop:value=move || query.get() on:input=move |e| query.set(event_target_value(&e))/>
@@ -217,7 +217,7 @@ pub fn AgentsPage() -> impl IntoView {
                     if profiles.is_empty() { return view! { <div class="empty">"没有匹配的智能体"</div> }.into_any(); }
                     view! { <div class="card agent-table"><table><thead><tr><th>"选择"</th><th>"智能体"</th><th>"状态"</th><th>"运行时 / 模型"</th><th>"近 30 天"</th><th>"最近活跃"</th></tr></thead><tbody>{profiles.into_iter().map(|a| {
                         let id = text(&a,"id"); let check_id = id.clone(); let toggle_id = id.clone(); let status=availability(&a,&rts);
-                        view! { <tr><td><input type="checkbox" aria-label=format!("选择 {}",text(&a,"name")) prop:checked=move || selected.with(|s| s.contains(&check_id)) on:change=move |e| selected.update(|s| { if event_target_checked(&e) { s.insert(toggle_id.clone()); } else { s.remove(&toggle_id); } })/></td><td><a class="agent-name" href=format!("/v2/agent/{}",api::enc(&id))><span>{if text(&a,"avatar").is_empty(){"🤖".into()} else {text(&a,"avatar")}}</span><b>{text(&a,"name")}</b></a><div class="muted">{text(&a,"description")}</div></td><td>{status_label(status)}<div class="muted">{format!("{} 次进行中",n(&a,"running"))}</div></td><td>{text(&a,"runtime_label")}<div class="muted mono">{if text(&a,"model").is_empty(){"默认".into()}else{text(&a,"model")}}</div></td><td>{format!("{} 次运行",n(&a,"runs_30d"))}<div class="muted">{format!("{} 次失败",n(&a,"failed_30d"))}</div></td><td>{if text(&a,"last_used_at").is_empty(){"尚未运行".into()}else{fmt::ago(&text(&a,"last_used_at"))}}</td></tr> }
+                        view! { <tr><td><input type="checkbox" aria-label=format!("选择 {}",text(&a,"name")) prop:checked=move || selected.with(|s| s.contains(&check_id)) on:change=move |e| selected.update(|s| { if event_target_checked(&e) { s.insert(toggle_id.clone()); } else { s.remove(&toggle_id); } })/></td><td><a class="agent-name" href=format!("/agent/{}",api::enc(&id))><span>{if text(&a,"avatar").is_empty(){"🤖".into()} else {text(&a,"avatar")}}</span><b>{text(&a,"name")}</b></a><div class="muted">{text(&a,"description")}</div></td><td>{status_label(status)}<div class="muted">{format!("{} 次进行中",n(&a,"running"))}</div></td><td>{text(&a,"runtime_label")}<div class="muted mono">{if text(&a,"model").is_empty(){"默认".into()}else{text(&a,"model")}}</div></td><td>{format!("{} 次运行",n(&a,"runs_30d"))}<div class="muted">{format!("{} 次失败",n(&a,"failed_30d"))}</div></td><td>{if text(&a,"last_used_at").is_empty(){"尚未运行".into()}else{fmt::ago(&text(&a,"last_used_at"))}}</td></tr> }
                     }).collect_view()}</tbody></table></div> }.into_any()
                 }
             }}
@@ -247,7 +247,7 @@ pub fn AgentCreatePage() -> impl IntoView {
             }
         }
     });
-    view! { <div class="page agent-page"><div class="page-head"><a class="crumb" href="/v2/agents">"智能体"</a><span>"/"</span><h1>"创建智能体"</h1></div>{move || match data.get() {
+    view! { <div class="page agent-page"><div class="page-head"><a class="crumb" href="/agents">"智能体"</a><span>"/"</span><h1>"创建智能体"</h1></div>{move || match data.get() {
         None=>view!{<div class="empty">"加载配置…"</div>}.into_any(), Some(Err(e))=>view!{<div class="empty err-line">{e.to_string()}</div>}.into_any(), Some(Ok(a))=>view!{<AgentEditor initial=a create=true on_saved=Callback::new(|_|{})/>}.into_any()
     }}</div> }
 }
@@ -283,11 +283,11 @@ pub fn AgentProfilePage() -> impl IntoView {
     });
     view! { <div class="page wide agent-page">{move || match data.get() {
         None=>view!{<div class="empty">"读取智能体…"</div>}.into_any(),
-        Some(Err(e))=>view!{<div class="empty err-line">{e.to_string()}<a href="/v2/agents">"返回智能体列表"</a></div>}.into_any(),
+        Some(Err(e))=>view!{<div class="empty err-line">{e.to_string()}<a href="/agents">"返回智能体列表"</a></div>}.into_any(),
         Some(Ok(a))=>{
             let a=StoredValue::new(a); let closed=archived(&a.get_value());
             view!{
-                <div class="page-head"><a class="crumb" href="/v2/agents">"智能体"</a><span>"/"</span><h1>{text(&a.get_value(),"name")}</h1><span class="grow"/><AgentActions agent=a.get_value() rev blocked=dirty/></div>
+                <div class="page-head"><a class="crumb" href="/agents">"智能体"</a><span>"/"</span><h1>{text(&a.get_value(),"name")}</h1><span class="grow"/><AgentActions agent=a.get_value() rev blocked=dirty/></div>
                 {closed.then(||view!{<div class="card notice">"已归档，恢复后可以再次选择这个智能体。"</div>})}
                 <div class="card pad agent-summary"><span class="agent-avatar">{if text(&a.get_value(),"avatar").is_empty(){"🤖".into()}else{text(&a.get_value(),"avatar")}}</span><div><h2>{text(&a.get_value(),"name")}</h2><p class="muted">{text(&a.get_value(),"description")}</p><span class="muted">{format!("{} · {} · {} 次进行中",text(&a.get_value(),"runtime_label"),if text(&a.get_value(),"model").is_empty(){"默认模型".into()}else{text(&a.get_value(),"model")},n(&a.get_value(),"running"))}</span></div></div>
                 <div class="agent-tabs" role="tablist">{[("overview","概览"),("work","工作记录"),("instructions","指令与开场建议"),("skills","技能"),("mcp","MCP"),("settings","设置")].into_iter().map(|(key,label)|view!{<button class="btn" role="tab" aria-selected=move||tab.get()==key class:active=move||tab.get()==key on:click=move |_| { if tab.get_untracked()==key{return;} spawn_local(async move { if !dirty.get_untracked() || confirm("放弃未保存的修改？", "当前智能体配置尚未保存。").await { dirty.set(false); tab.set(key.into()); let view = if matches!(key,"instructions"|"skills"|"mcp"){format!("capabilities&tab={key}")}else{key.to_owned()}; let id=params.with_untracked(|p|p.get("id")).unwrap_or_default(); if !crate::files_js::confirm_navigation(){return;} navigate.with_value(|go|go(&format!("/agent/{}?view={view}",api::enc(&id)),Default::default())); } }); }>{label}</button>}).collect_view()}</div>
@@ -366,10 +366,10 @@ fn AgentActions(agent: Value, rev: RwSignal<u32>, blocked: RwSignal<bool>) -> im
         });
     };
     view! {<div class="agent-actions">
-        {(!archived(&a.get_value())).then(||view!{<button class="btn primary" disabled=move ||blocked.get() on:click=move |_|{match runtimes.get_untracked(){Some(Ok(r)) if availability(&a.get_value(),&r.runtimes)!="unbound"=>pick.set(true),Some(Err(e))=>toast(e.to_string()),Some(Ok(_))=>toast("请先在设置中绑定已安装的运行时"),None=>toast("正在读取运行时，请稍后再试")}}>"私信"</button><a class="btn" href=format!("/v2/agents/new?template={}",api::enc(&text(&a.get_value(),"id")))>"复制"</a>})}
+        {(!archived(&a.get_value())).then(||view!{<button class="btn primary" disabled=move ||blocked.get() on:click=move |_|{match runtimes.get_untracked(){Some(Ok(r)) if availability(&a.get_value(),&r.runtimes)!="unbound"=>pick.set(true),Some(Err(e))=>toast(e.to_string()),Some(Ok(_))=>toast("请先在设置中绑定已安装的运行时"),None=>toast("正在读取运行时，请稍后再试")}}>"私信"</button><a class="btn" href=format!("/agents/new?template={}",api::enc(&text(&a.get_value(),"id")))>"复制"</a>})}
         {(n(&a.get_value(),"running")>0).then(||view!{<button class="btn" disabled=move||busy.get()||blocked.get() on:click=move |_|act("cancel-runs")>"取消全部运行"</button>})}
         {if archived(&a.get_value()){view!{<button class="btn" disabled=move||busy.get()||blocked.get() on:click=move |_|act("restore")>"恢复"</button><button class="btn danger" disabled=move||busy.get()||blocked.get() on:click=move |_|act("delete")>"删除"</button>}.into_any()}else{view!{<button class="btn" disabled=move||busy.get()||blocked.get() on:click=move |_|act("archive")>"归档"</button>}.into_any()}}
-        {move||pick.get().then(||view!{<div class="dlg-mask" on:click=move |_|pick.set(false)><div class="dlg agent-modal" role="dialog" aria-label="选择工作区" on:click=|e|e.stop_propagation()><h3>"在哪个工作区对话？"</h3>{if app.workspaces().is_empty(){view!{<a href="/v2/workspaces">"先创建一个工作区"</a>}.into_any()}else{app.workspaces().into_iter().map(|w|view!{<button class="agent-pick" on:click=move |_|{if !crate::files_js::confirm_navigation(){return;} pick.set(false);nav.with_value(|n|n(&format!("/w/{}?agent={}&new=1",api::enc(&w.id),api::enc(&text(&a.get_value(),"id"))),Default::default()));}><b>{w.name}</b><span class="muted">{format!("{}:{}",w.node,w.path)}</span></button>}).collect_view().into_any()}}<button class="btn" on:click=move |_|pick.set(false)>"取消"</button></div></div>})}
+        {move||pick.get().then(||view!{<div class="dlg-mask" on:click=move |_|pick.set(false)><div class="dlg agent-modal" role="dialog" aria-label="选择工作区" on:click=|e|e.stop_propagation()><h3>"在哪个工作区对话？"</h3>{if app.workspaces().is_empty(){view!{<a href="/workspaces">"先创建一个工作区"</a>}.into_any()}else{app.workspaces().into_iter().map(|w|view!{<button class="agent-pick" on:click=move |_|{if !crate::files_js::confirm_navigation(){return;} pick.set(false);nav.with_value(|n|n(&format!("/w/{}?agent={}&new=1",api::enc(&w.id),api::enc(&text(&a.get_value(),"id"))),Default::default()));}><b>{w.name}</b><span class="muted">{format!("{}:{}",w.node,w.path)}</span></button>}).collect_view().into_any()}}<button class="btn" on:click=move |_|pick.set(false)>"取消"</button></div></div>})}
     </div>}
 }
 
@@ -414,7 +414,7 @@ fn AgentCapabilities(agent: Value, kind: &'static str) -> impl IntoView {
             Ok::<_, api::ApiError>((lib, caps))
         }
     });
-    view! {<div class="card pad"><div class="agent-toolbar"><h3>{if kind=="skills"{"技能"}else{"MCP 服务器"}}</h3><a href=if kind=="skills"{"/v2/skills"}else{"/v2/skills?tab=mcp"}>"管理能力库 →"</a></div><p class="muted">{if kind=="skills"{"勾选的技能在下一轮运行时生效，不会改动运行时自己的技能目录。"}else if matches!(text(&agent,"runtime").as_str(),"claude"|"codex"){"勾选的 MCP 服务器在下一轮启动时合并进配置。"}else{"当前运行时不支持加载 MCP 服务器；Claude Code 与 Codex 支持此能力。"}}</p>{move||match data.get(){None=>view!{<div class="empty">"加载能力…"</div>}.into_any(),Some(Err(e))=>view!{<p class="err-line">{e.to_string()}</p>}.into_any(),Some(Ok((lib,caps)))=>{
+    view! {<div class="card pad"><div class="agent-toolbar"><h3>{if kind=="skills"{"技能"}else{"MCP 服务器"}}</h3><a href=if kind=="skills"{"/skills"}else{"/skills?tab=mcp"}>"管理能力库 →"</a></div><p class="muted">{if kind=="skills"{"勾选的技能在下一轮运行时生效，不会改动运行时自己的技能目录。"}else if matches!(text(&agent,"runtime").as_str(),"claude"|"codex"){"勾选的 MCP 服务器在下一轮启动时合并进配置。"}else{"当前运行时不支持加载 MCP 服务器；Claude Code 与 Codex 支持此能力。"}}</p>{move||match data.get(){None=>view!{<div class="empty">"加载能力…"</div>}.into_any(),Some(Err(e))=>view!{<p class="err-line">{e.to_string()}</p>}.into_any(),Some(Ok((lib,caps)))=>{
         if lib.is_empty(){return view!{<div class="empty">"能力库为空，先添加技能或 MCP 服务器。"</div>}.into_any();}let enabled=StoredValue::new(list(&caps,kind));
         lib.into_iter().map(|v|{let cid=text(&v,"id");let checked=enabled.with_value(|e|e.contains(&json!(cid)));view!{<label class="agent-cap"><input type="checkbox" prop:checked=checked disabled=move||busy.get()||closed on:change=move|e|{let checked=event_target_checked(&e);let mut ids=enabled.get_value();ids.retain(|v|v.as_str()!=Some(&cid));if checked{ids.push(json!(cid));}busy.set(true);spawn_local(async move{let mut body=json!({});body[kind]=json!(ids);match api::send::<Value>("PUT",&format!("/api/agent-profiles/{}/capabilities",api::enc(&id.get_value())),&body).await{Ok(_)=>toast("已保存，下一轮生效"),Err(e)=>toast(e.to_string())}busy.set(false);rev.update(|r|*r+=1);});}/><span><b>{text(&v,"name")}</b><small class="muted">{text(&v,"description")}</small></span></label>}}).collect_view().into_any()
     }}}</div>}

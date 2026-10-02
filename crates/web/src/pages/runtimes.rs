@@ -159,7 +159,7 @@ fn RuntimeCard(
                     }
                 }}
                 <span class="grow"></span>
-                <a class="btn ghost" href=format!("/v2/runtimes/{id}")>"设置"</a>
+                <a class="btn ghost" href=format!("/runtimes/{id}")>"设置"</a>
             </div>
             {multi.then(|| view! { <AccountsSection provider=id.clone() accounts/> })}
         </section>
@@ -745,7 +745,7 @@ fn RuntimeDetail(id: String) -> impl IntoView {
     view! {
         <div class="page wide">
             <div class="page-head">
-                <a href="/v2/runtimes" class="crumb">"运行时"</a><span class="sep">"/"</span>
+                <a href="/runtimes" class="crumb">"运行时"</a><span class="sep">"/"</span>
                 {move || spec.get().and_then(Result::ok).flatten().map(|s| view! {
                     <h1>{format!("{} · 设置", s.label)}</h1>
                     <span class="gchip mono">{s.program.clone()}</span>
