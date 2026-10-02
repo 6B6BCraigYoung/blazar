@@ -17,7 +17,7 @@
 .hist-row b { font-weight: 500; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .chat-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.cc-log { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 14px 6px; font-size: 13px; line-height: 1.6; transition: opacity .15s; }
+.cc-log { flex: 1; min-height: 0; overflow-y: auto; overflow-anchor: none; padding: 14px 14px 6px; font-size: 13px; line-height: 1.6; transition: opacity .15s; }
 .cc-log[data-dim="true"] { opacity: .55; }
 
 /* 每行左边一个圆点，点与点之间一条细竖线 */

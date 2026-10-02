@@ -449,6 +449,12 @@ fn Spinner(chat: Chat, tick: RwSignal<u32>) -> impl IntoView {
     }
 }
 
+#[wasm_bindgen::prelude::wasm_bindgen(module = "/js/scroll.js")]
+extern "C" {
+    #[wasm_bindgen(js_name = keepScroll)]
+    fn keep_scroll(el: &web_sys::HtmlElement);
+}
+
 #[component]
 pub fn Log(chat: Chat, tick: RwSignal<u32>) -> impl IntoView {
     let opened = Opened(RwSignal::new(HashSet::new()));
@@ -460,6 +466,13 @@ pub fn Log(chat: Chat, tick: RwSignal<u32>) -> impl IntoView {
         chat.view.track();
         opened.0.set(HashSet::new());
         at_bottom.set_value(true);
+    });
+    // 拖窄拖宽面板时别让文字跑掉
+    Effect::new(move |done: Option<bool>| {
+        if done == Some(true) {
+            return true;
+        }
+        el.get().map(|e| keep_scroll(&e)).is_some()
     });
     let items = move || chat.transcript.with(|t| t.items.clone());
     // 内容变了：原来在底部就跟着滚到底。
