@@ -21,6 +21,8 @@ pub struct Layout {
     pub hide_ex: bool,
     pub hide_aux: bool,
     pub hide_panel: bool,
+    /// 底部面板占满中间一栏（看大 diff 时用）。
+    pub panel_max: bool,
 }
 
 impl Default for Layout {
@@ -32,6 +34,7 @@ impl Default for Layout {
             hide_ex: false,
             hide_aux: false,
             hide_panel: false,
+            panel_max: false,
         }
     }
 }

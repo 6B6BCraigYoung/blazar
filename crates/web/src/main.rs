@@ -6,6 +6,8 @@ mod api;
 mod app;
 #[cfg(target_arch = "wasm32")]
 mod components;
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+mod diff;
 #[cfg(target_arch = "wasm32")]
 mod fmt;
 #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
@@ -18,6 +20,8 @@ mod pages;
 mod realtime;
 #[cfg(target_arch = "wasm32")]
 mod storage;
+#[cfg(target_arch = "wasm32")]
+mod term;
 
 #[cfg(target_arch = "wasm32")]
 fn main() {

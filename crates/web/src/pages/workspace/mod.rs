@@ -1,7 +1,10 @@
 //! 工作区页：资源管理器 + 编辑器 + 底部面板 + 对话栏。
 
+mod diff_panel;
 mod files;
+mod git_panel;
 mod layout;
+mod term_panel;
 mod tree;
 
 use std::collections::HashSet;
@@ -17,8 +20,11 @@ use crate::md;
 use crate::realtime::use_bus;
 use crate::storage;
 
+use diff_panel::{DiffBar, DiffState, DiffView};
 use files::Files;
+use git_panel::{Git, GitView};
 use layout::{Edge, LayoutState, Region, Splitter};
+use term_panel::{TermPane, TermTabs, Terms};
 use tree::{FileTree, change_mark};
 
 pub fn activity_label(a: &str) -> &str {
@@ -32,10 +38,10 @@ pub fn activity_label(a: &str) -> &str {
     }
 }
 
-const ICON_LEFT: &str = r#"<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.1"><rect class="fill" x="2" y="3" width="4" height="10" fill="currentColor" stroke="none"/><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><path d="M6 2.5v11"/></svg>"#;
-const ICON_BOTTOM: &str = r#"<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.1"><rect class="fill" x="2" y="10" width="12" height="3.5" fill="currentColor" stroke="none"/><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><path d="M1.5 10h13"/></svg>"#;
-const ICON_RIGHT: &str = r#"<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.1"><rect class="fill" x="10" y="3" width="4" height="10" fill="currentColor" stroke="none"/><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><path d="M10 2.5v11"/></svg>"#;
-const ICON_REFRESH: &str = r#"<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>"#;
+pub(crate) const ICON_LEFT: &str = r#"<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.1"><rect class="fill" x="2" y="3" width="4" height="10" fill="currentColor" stroke="none"/><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><path d="M6 2.5v11"/></svg>"#;
+pub(crate) const ICON_BOTTOM: &str = r#"<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.1"><rect class="fill" x="2" y="10" width="12" height="3.5" fill="currentColor" stroke="none"/><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><path d="M1.5 10h13"/></svg>"#;
+pub(crate) const ICON_RIGHT: &str = r#"<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.1"><rect class="fill" x="10" y="3" width="4" height="10" fill="currentColor" stroke="none"/><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><path d="M10 2.5v11"/></svg>"#;
+pub(crate) const ICON_REFRESH: &str = r#"<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>"#;
 
 #[component]
 pub fn WorkspacePage() -> impl IntoView {
@@ -163,6 +169,22 @@ fn Workspace(id: String) -> impl IntoView {
         }
     });
 
+    // 底部面板：Git 状态和差异整页共用（页签角标、差异的「整条分支」都要用）。
+    let git = Git::new(&id);
+    git.keep_loaded();
+    let diff = DiffState::new(&id);
+    diff_panel::keep_loaded(id.clone(), diff, git);
+    Effect::new(move |prev: Option<()>| {
+        git.changed.track();
+        if prev.is_some() {
+            tree_rev.update(|n| *n += 1);
+            diff.reload.update(|n| *n += 1);
+            if let Some(cur) = files.current.get_untracked() {
+                files.reload(cur, false);
+            }
+        }
+    });
+
     // 网格尺寸跟着窗口走。
     let measure = move || {
         if let Some(g) = grid.get_untracked() {
@@ -253,7 +275,7 @@ fn Workspace(id: String) -> impl IntoView {
                     <FileTree root opened files/>
                 </section>
                 <Splitter edge=Edge::Explorer state/>
-                <section class="region center">
+                <section class="region center" data-max=move || lay().panel_max.to_string()>
                     <div class="editor-area">
                         <Tabs files changes/>
                         <EdBar files preview=md_preview/>
@@ -270,7 +292,7 @@ fn Workspace(id: String) -> impl IntoView {
                     </div>
                     <Splitter edge=Edge::Panel state/>
                     <section class="region panel" data-collapsed=move || lay().hide_panel.to_string()>
-                        <Panel old_ui=old_ui.clone() on_hide=move || state.toggle(Region::Panel)/>
+                        <Panel ws=id.clone() files git diff state old_ui=old_ui.clone()/>
                     </section>
                 </section>
                 <Splitter edge=Edge::Aux state/>
@@ -465,7 +487,14 @@ fn md_lang(l: &str) -> String {
 }
 
 #[component]
-fn Panel(old_ui: String, on_hide: impl Fn() + 'static) -> impl IntoView {
+fn Panel(
+    ws: String,
+    files: Files,
+    git: Git,
+    diff: DiffState,
+    state: LayoutState,
+    old_ui: String,
+) -> impl IntoView {
     let tab = RwSignal::new(
         storage::load::<String>("blazar.v2.ws.panel").unwrap_or_else(|| "term".into()),
     );
@@ -473,25 +502,68 @@ fn Panel(old_ui: String, on_hide: impl Fn() + 'static) -> impl IntoView {
         tab.set(t.to_owned());
         storage::save("blazar.v2.ws.panel", &t);
     };
-    let tabs = [
-        ("term", "终端"),
-        ("diff", "差异"),
-        ("git", "Git"),
-        ("preview", "预览"),
-    ];
+    let shown = move |t: &'static str| {
+        Signal::derive(move || tab.get() == t && !state.lay.get().hide_panel)
+    };
+    let terms = Terms::new(&ws);
+    let collapsed = RwSignal::new(HashSet::<String>::new());
+    let panel_max = RwSignal::new(state.lay.get_untracked().panel_max);
+    Effect::new(move |_| {
+        let m = panel_max.get();
+        if state.lay.with_untracked(|l| l.panel_max != m) {
+            state.lay.update(|l| l.panel_max = m);
+            state.save();
+        }
+    });
+    let diff_n = move || diff.files.with(Vec::len);
+    let git_mark = move || {
+        git.status.with(|g| match g {
+            Some(g) if g.op.is_some() => Some(("bad", "!".to_owned())),
+            Some(g) if g.uncommitted > 0 => Some(("", g.uncommitted.to_string())),
+            _ => None,
+        })
+    };
+    let tws = ws.clone();
     view! {
         <div class="rhead">
             <div class="rtabs">
-                {tabs.into_iter().map(|(k, label)| view! {
-                    <button class="rtab" data-active=move || (tab.get() == k).to_string() on:click=move |_| pick(k)>{label}</button>
-                }).collect_view()}
+                <button class="rtab" data-active=move || (tab.get() == "term").to_string() on:click=move |_| pick("term")
+                    title="会话常驻（断线重连回到原处）">"终端"</button>
+                <button class="rtab" data-active=move || (tab.get() == "diff").to_string() on:click=move |_| pick("diff")>
+                    "差异"{move || (diff_n() > 0).then(|| view! { <span class="tabn">{diff_n()}</span> })}
+                </button>
+                <button class="rtab" data-active=move || (tab.get() == "git").to_string() on:click=move |_| pick("git")>
+                    "Git"{move || git_mark().map(|(c, t)| view! { <span class=format!("tabn {c}")>{t}</span> })}
+                </button>
+                <button class="rtab" data-active=move || (tab.get() == "preview").to_string() on:click=move |_| pick("preview")>"预览"</button>
             </div>
+            <Show when=move || tab.get() == "term">
+                <TermTabs ws=tws.clone() terms/>
+            </Show>
             <span class="grow"></span>
-            <button class="laybtn" title="收起面板 ⌘J" on:click=move |_| on_hide()>"▾"</button>
+            <Show when=move || tab.get() == "term">
+                <span class="term-state" data-s=move || terms.state.get()>
+                    {move || match terms.state.get() { "open" => "", "closed" => "已断开", _ => "连接中…" }}
+                </span>
+                <button class="laybtn" title="重连这个终端（远端会话还在的话回到原处）" inner_html=ICON_REFRESH
+                    on:click=move |_| terms.reconnect.update(|n| *n += 1)></button>
+            </Show>
+            <button class="laybtn" title="收起面板 ⌘J" on:click=move |_| state.toggle(Region::Panel)>"▾"</button>
         </div>
-        <div class="todo-pane">
-            "这一块下一批搬过来，"
-            <a href=old_ui>"先在旧界面里用"</a>
+        <div class="panelbody">
+            <div class="ppane" data-active=move || (tab.get() == "term").to_string()>
+                <TermPane ws=ws.clone() terms active=shown("term")/>
+            </div>
+            <div class="ppane col" data-active=move || (tab.get() == "diff").to_string()>
+                <DiffBar d=diff git collapsed panel_max/>
+                <DiffView ws=ws.clone() d=diff files collapsed/>
+            </div>
+            <div class="ppane" data-active=move || (tab.get() == "git").to_string()>
+                <GitView git files/>
+            </div>
+            <div class="ppane" data-active=move || (tab.get() == "preview").to_string()>
+                <div class="todo-pane">"预览下一批搬过来，"<a href=old_ui>"先在旧界面里用"</a></div>
+            </div>
         </div>
     }
 }

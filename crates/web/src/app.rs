@@ -4,6 +4,7 @@ use leptos_router::path;
 
 use crate::components::dialog::{self, DialogHost};
 use crate::components::sidebar::Sidebar;
+use crate::components::toast::{self, ToastHost};
 use crate::pages::{NotFound, RuntimesPage, WorkspacePage, WorkspacesPage};
 use crate::realtime;
 
@@ -11,6 +12,7 @@ use crate::realtime;
 pub fn App() -> impl IntoView {
     let bus = realtime::provide();
     dialog::provide();
+    toast::provide();
     view! {
         <Router base="/v2">
             <div class="shell">
@@ -24,6 +26,7 @@ pub fn App() -> impl IntoView {
                 </main>
             </div>
             <DialogHost/>
+            <ToastHost/>
             <div class="conn" data-up=move || bus.connected.get().to_string()>
                 {move || if bus.connected.get() { "已连接" } else { "正在重连 hub…" }}
             </div>

@@ -198,3 +198,115 @@ pub async fn put_editor_context(ws: &str, path: &str) {
     )
     .await;
 }
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct DiffResp {
+    #[serde(default)]
+    pub diff: String,
+    #[serde(default)]
+    pub reason: String,
+    #[serde(default)]
+    pub truncated: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct GitFile {
+    pub code: String,
+    pub path: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct GitCommit {
+    pub sha: String,
+    pub author: String,
+    pub at: i64,
+    pub subject: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct PrRef {
+    pub url: String,
+    pub number: Option<i64>,
+    pub state: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct WebLinks {
+    #[serde(default)]
+    pub new_pr: Option<String>,
+}
+
+/// `GET /api/workspaces/{id}/git`。不是 git 仓库时只有 `repo = false` 和 `reason`。
+#[derive(Debug, Clone, PartialEq, Default, Deserialize)]
+#[serde(default)]
+pub struct GitStatus {
+    pub repo: bool,
+    pub reason: String,
+    pub branch: String,
+    pub detached: bool,
+    pub head: String,
+    pub target: String,
+    pub target_guess: bool,
+    pub target_ok: bool,
+    pub target_local: bool,
+    pub same: bool,
+    pub ahead: i64,
+    pub behind: i64,
+    pub upstream: String,
+    pub up_ahead: i64,
+    pub up_behind: i64,
+    pub remote: String,
+    pub web: Option<WebLinks>,
+    pub op: Option<String>,
+    pub gh: bool,
+    pub uncommitted: i64,
+    pub conflicts: Vec<String>,
+    pub files: Vec<GitFile>,
+    pub commits: Vec<GitCommit>,
+    /// 这个工作区里正在跑的会话数。
+    pub running: i64,
+    pub pr: Option<PrRef>,
+}
+
+impl GitStatus {
+    /// 有可比的目标分支（选了、存在、且不是当前分支本身）。
+    pub fn has_target(&self) -> bool {
+        self.target_ok && !self.same
+    }
+}
+
+/// `POST /api/workspaces/{id}/git/{op}` 的结果。
+#[derive(Debug, Clone, PartialEq, Default, Deserialize)]
+#[serde(default)]
+pub struct GitOpResult {
+    pub ok: bool,
+    pub output: String,
+    pub status: Option<GitStatus>,
+    pub needs_force: bool,
+    pub tasks_done: i64,
+    pub changed: bool,
+    pub commit: Option<String>,
+    pub url: Option<String>,
+    pub existing: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Deserialize)]
+#[serde(default)]
+pub struct PrChecks {
+    pub pass: i64,
+    pub failed: i64,
+    pub pending: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Deserialize)]
+#[serde(default)]
+pub struct PrDetail {
+    pub url: String,
+    pub number: Option<i64>,
+    pub state: String,
+    pub title: String,
+    pub draft: bool,
+    pub mergeable: String,
+    pub review: String,
+    pub checks: PrChecks,
+}
