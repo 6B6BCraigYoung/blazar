@@ -22,11 +22,33 @@ pub fn Palette() -> impl IntoView {
     let input = NodeRef::<html::Input>::new();
     let navigate = use_navigate();
 
-    let keys = window_event_listener(ev::keydown, move |e| {
-        if (e.meta_key() || e.ctrl_key()) && e.key().eq_ignore_ascii_case("k") {
+    let global_navigate = navigate.clone();
+    let keys = window_event_listener(ev::keydown, move |e| match crate::shortcuts::action(&e) {
+        Some("palette") => {
             e.prevent_default();
             app.palette.update(|p| *p = !*p);
         }
+        Some("side") => {
+            e.prevent_default();
+            app.side_collapsed.update(|p| *p = !*p);
+        }
+        Some(action @ ("inbox" | "tasks" | "workspaces")) => {
+            e.prevent_default();
+            if !crate::files_js::confirm_navigation() {
+                return;
+            }
+            global_navigate(
+                if action == "workspaces" {
+                    "/"
+                } else if action == "inbox" {
+                    "/inbox"
+                } else {
+                    "/tasks"
+                },
+                Default::default(),
+            );
+        }
+        _ => {}
     });
     on_cleanup(move || keys.remove());
     Effect::new(move |_| {
@@ -47,12 +69,15 @@ pub fn Palette() -> impl IntoView {
             ("运行中", "导航", "/v2/running"),
             ("等我审批", "导航", "/v2/waiting"),
             ("运行时", "导航", "/v2/runtimes"),
-            ("收件箱", "导航 · 旧界面", "/#/inbox"),
-            ("任务", "导航 · 旧界面", "/#/tasks"),
-            ("Agent", "导航 · 旧界面", "/#/agents"),
-            ("机器与组网", "导航 · 旧界面", "/#/nodes"),
-            ("用量", "导航 · 旧界面", "/#/usage"),
-            ("设置", "导航 · 旧界面", "/#/settings"),
+            ("收件箱", "导航", "/v2/inbox"),
+            ("任务", "导航", "/v2/tasks"),
+            ("自动化", "导航", "/v2/autopilots"),
+            ("SKILLs", "导航", "/v2/skills"),
+            ("接入的软件", "导航", "/v2/apps"),
+            ("Agent", "导航", "/v2/agents"),
+            ("机器与组网", "导航", "/v2/nodes"),
+            ("用量", "导航", "/v2/usage"),
+            ("设置", "导航", "/v2/settings"),
             ("新建工作区", "命令", "cmd:new"),
         ]
         .into_iter()
@@ -70,8 +95,8 @@ pub fn Palette() -> impl IntoView {
             }));
             all.extend(s.nodes.iter().map(|n| Hit {
                 title: n.name.clone(),
-                kind: "机器 · 旧界面".into(),
-                href: format!("/#/nodes/{}", js_sys::encode_uri_component(&n.name)),
+                kind: "机器".into(),
+                href: format!("/v2/nodes/{}", js_sys::encode_uri_component(&n.name)),
             }));
         }
         let k = q.get().to_lowercase();
@@ -83,6 +108,9 @@ pub fn Palette() -> impl IntoView {
             .collect::<Vec<_>>()
     };
     let go = StoredValue::new_local(move |h: &Hit| {
+        if h.href != "cmd:new" && !crate::files_js::confirm_navigation() {
+            return;
+        }
         app.palette.set(false);
         if h.href == "cmd:new" {
             app.new_ws.set(true);

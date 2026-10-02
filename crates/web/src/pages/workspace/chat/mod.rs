@@ -22,8 +22,48 @@ pub fn ChatPane(
 ) -> impl IntoView {
     let bus = use_bus();
     chat.wire(bus);
-    chat.init();
+    let query = leptos_router::hooks::use_query_map();
+    let requested = Signal::derive(move || query.read().get("thread").filter(|s| !s.is_empty()));
+    let ready = RwSignal::new(false);
+    chat.init(requested, ready);
+    Effect::new(move |_| {
+        let target = requested.get();
+        if ready.get()
+            && let Some(id) = target
+        {
+            if chat
+                .threads
+                .with_untracked(|t| t.iter().any(|t| t.id == id))
+                && chat.view.get_untracked().as_ref() != Some(&id)
+            {
+                chat.activate(Some(id));
+            }
+            chat.show_aux.run(());
+        }
+    });
     chat.load_catalogs();
+    let keys = window_event_listener(leptos::ev::keydown, move |e| {
+        if crate::shortcuts::action(&e) == Some("newchat") {
+            e.prevent_default();
+            chat.new_chat();
+            chat.show_aux.run(());
+        }
+    });
+    on_cleanup(move || keys.remove());
+    // 智能体页带身份打开一个新对话，保留已有标签。
+    Effect::new(move |previous: Option<Option<String>>| {
+        let profile = query.read().get("agent").filter(|id| !id.is_empty());
+        let fresh = query.read().get("new").as_deref() == Some("1");
+        if !ready.get() {
+            return None;
+        }
+        if fresh && profile.is_some() && previous.as_ref() != Some(&profile) {
+            chat.new_chat();
+            chat.set_agent(format!("p:{}", profile.as_deref().unwrap_or_default()));
+            chat.show_aux.run(());
+        }
+        profile
+    });
     // 别处（差异的「让 agent 审阅」、Git 的「让 agent 解决」）写好的请求：开新对话、填进输入框，不直接发。
     Effect::new(move |_| {
         if let Some(text) = draft.get() {

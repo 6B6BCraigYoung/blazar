@@ -54,6 +54,10 @@ pub fn NewWorkspace() -> impl IntoView {
 fn Dialog() -> impl IntoView {
     let app = use_app();
     let navigate = use_navigate();
+    let preset = app
+        .new_ws_node
+        .get_untracked()
+        .unwrap_or_else(|| "local".to_owned());
     let nodes: Vec<String> = {
         let mut v = vec!["local".to_owned()];
         v.extend(app.state.with_untracked(|s| {
@@ -67,9 +71,13 @@ fn Dialog() -> impl IntoView {
                 })
                 .unwrap_or_default()
         }));
+        if !v.contains(&preset) {
+            v.push(preset.clone());
+        }
         v
     };
-    let node = RwSignal::new("local".to_owned());
+    let node = RwSignal::new(preset);
+    on_cleanup(move || app.new_ws_node.set(None));
     let path = RwSignal::new(String::new());
     let typed = RwSignal::new(String::new());
     let listing = RwSignal::new(None::<Result<Listing, String>>);
@@ -80,7 +88,11 @@ fn Dialog() -> impl IntoView {
     let name = RwSignal::new(String::new());
     let project = RwSignal::new(String::new());
     let busy = RwSignal::new(false);
-    let close = move || app.new_ws.set(false);
+    let close = move || {
+        if !busy.get_untracked() {
+            app.new_ws.set(false);
+        }
+    };
 
     let bseq = StoredValue::new(0u32);
     let load_branches = move || {
@@ -106,6 +118,14 @@ fn Dialog() -> impl IntoView {
     // 连点几下时，早发出去的请求可能后回来：只认最新的那次。
     let seq = StoredValue::new(0u32);
     let browse = move || {
+        if busy.get_untracked() {
+            return;
+        }
+        // 换目录或机器时同时作废旧分支请求，避免把上一个仓库的分支带过去。
+        bseq.update_value(|n| *n = n.wrapping_add(1));
+        branches.set(None);
+        pick.set(String::new());
+        bq.set(String::new());
         listing.set(None);
         let (n, p) = (node.get_untracked(), path.get_untracked());
         seq.update_value(|s| *s += 1);
@@ -138,9 +158,19 @@ fn Dialog() -> impl IntoView {
     let is_repo = move || listing.with(|l| matches!(l, Some(Ok(l)) if l.is_repo));
 
     let create = move || {
+        if busy.get_untracked() {
+            return;
+        }
+        if !matches!(listing.get_untracked(), Some(Ok(_))) {
+            toast("请先等待目录读取完成");
+            return;
+        }
         let p = path.get_untracked();
         if p.is_empty() {
             toast("请先选一个目录");
+            return;
+        }
+        if !crate::files_js::confirm_navigation() {
             return;
         }
         busy.set(true);
@@ -181,11 +211,11 @@ fn Dialog() -> impl IntoView {
 
     view! {
         <div class="dlg-mask" on:click=move |_| close()>
-            <div class="dlg wide" on:click=|e| e.stop_propagation()>
+            <div class="dlg wide" role="dialog" aria-modal="true" aria-label="新建工作区" on:click=|e| e.stop_propagation()>
                 <h3>"新建工作区"</h3>
                 <label class="field">"机器"
-                    <select on:change=move |e| { node.set(event_target_value(&e)); path.set(String::new()); browse(); }>
-                        {nodes.into_iter().map(|n| view! { <option value=n.clone() selected=n == "local">{n.clone()}</option> }).collect_view()}
+                    <select prop:value=move ||node.get() disabled=move || busy.get() on:change=move |e| { node.set(event_target_value(&e)); path.set(String::new()); typed.set(String::new()); browse(); }>
+                        {nodes.into_iter().map(|n| { let selected = n.clone(); view! { <option value=n.clone() selected=move ||node.get()==selected>{n.clone()}</option> } }).collect_view()}
                     </select>
                 </label>
                 <div class="field">"目录 —— 点进去翻，绿色的是 git 仓库"
@@ -228,7 +258,7 @@ fn Dialog() -> impl IntoView {
                                 </div>
                                 {move || match branches.get() {
                                     None => view! { <div class="empty">"读取分支…（会先 fetch 一次 origin）"</div> }.into_any(),
-                                    Some(Err(e)) => view! { <div class="empty">{e}</div> }.into_any(),
+                                    Some(Err(e)) => view! { <div class="empty">{e}<button class="btn small" on:click=move |_|load_branches()>"重试读取分支"</button></div> }.into_any(),
                                     Some(Ok(list)) => {
                                         let k = bq.get().to_lowercase();
                                         list.into_iter().filter(|b| k.is_empty() || format!("{} {} {}", b.name, b.author, b.subject).to_lowercase().contains(&k)).take(200).map(|b| {
@@ -257,7 +287,7 @@ fn Dialog() -> impl IntoView {
                         on:keydown=move |e| if e.key() == "Enter" && !e.is_composing() { create2() }/>
                 </label>
                 <div class="dlg-foot">
-                    <button class="btn" on:click=move |_| close()>"取消"</button>
+                    <button class="btn" disabled=move || busy.get() on:click=move |_| close()>"取消"</button>
                     <button class="btn primary" disabled=move || busy.get() || !matches!(listing.get(), Some(Ok(_))) on:click=move |_| create()>
                         {move || if busy.get() { "创建中…" } else if iso.get() { "建隔离工作区" } else if is_repo() { "选此仓库并创建" } else { "选此目录并创建" }}
                     </button>

@@ -28,7 +28,10 @@ pub struct AppData {
     /// 正在看的工作区
     pub current_ws: RwSignal<Option<String>>,
     pub new_ws: RwSignal<bool>,
+    /// 新建工作区时预先选好的机器
+    pub new_ws_node: RwSignal<Option<String>>,
     pub palette: RwSignal<bool>,
+    pub side_collapsed: RwSignal<bool>,
     pub alerts_open: RwSignal<bool>,
     pub alerts_rev: RwSignal<u32>,
 }
@@ -157,11 +160,29 @@ pub fn provide(bus: Bus) -> AppData {
         seen: RwSignal::new(storage::load(SEEN_KEY).unwrap_or_default()),
         current_ws: RwSignal::new(None),
         new_ws: RwSignal::new(false),
+        new_ws_node: RwSignal::new(None),
         palette: RwSignal::new(false),
+        side_collapsed: RwSignal::new(
+            storage::load_raw("blazar.side.collapsed")
+                .map(|s| s == "1")
+                .unwrap_or_else(|| {
+                    window()
+                        .inner_width()
+                        .ok()
+                        .and_then(|v| v.as_f64())
+                        .is_some_and(|w| w < 760.0)
+                }),
+        ),
         alerts_open: RwSignal::new(false),
         alerts_rev: RwSignal::new(0),
     };
     provide_context(app);
+    Effect::new(move |_| {
+        storage::save_raw(
+            "blazar.side.collapsed",
+            if app.side_collapsed.get() { "1" } else { "0" },
+        )
+    });
     Effect::new(move |_| {
         bus.workspaces.track();
         bus.nodes.track();

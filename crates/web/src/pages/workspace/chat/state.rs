@@ -688,7 +688,7 @@ impl Chat {
     }
 
     /// 进来时：恢复上次开着的标签（没有就开最近的对话）。
-    pub fn init(self) {
+    pub fn init(self, requested: Signal<Option<String>>, ready: RwSignal<bool>) {
         self.spawn(async move {
             self.load_threads().await;
             let saved: SavedTabs = storage::load(&tabs_key(&self.ws_id())).unwrap_or_default();
@@ -706,7 +706,15 @@ impl Chat {
                         .with_untracked(|t| t.first().map(|x| x.id.clone())),
                 );
             }
-            let active = if ids.contains(&saved.active) {
+            let target = requested.get_untracked().filter(|id| known.contains(id));
+            if let Some(id) = &target
+                && !ids.contains(&Some(id.clone()))
+            {
+                ids.push(Some(id.clone()));
+            }
+            let active = if target.is_some() {
+                target
+            } else if ids.contains(&saved.active) {
                 saved.active
             } else {
                 ids[0].clone()
@@ -714,6 +722,7 @@ impl Chat {
             let _ = self.tabs.try_set(ids);
             let _ = self.view.try_set(active);
             self.load_history();
+            let _ = ready.try_set(true);
         });
         self.load_queue();
     }

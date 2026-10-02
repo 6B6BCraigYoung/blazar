@@ -466,3 +466,41 @@ input[type="range"] { accent-color: var(--accent); }
 .menu button.danger { color: var(--err-fg); }
 .login-term { height: 320px; margin-top: 8px; padding: 6px; border-radius: var(--r-md); background: #101011; }
 .dlg-foot .grow { flex: 1; }
+
+/* 组网、机器和全局导航 */
+.card-title { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+.card-title h3 { margin: 0 !important; }
+.notice-box { padding: 10px 12px; border: 1px solid var(--border); background: var(--bg-panel); border-radius: var(--r-md); font-size: 12px; margin: 10px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.notice-box.warn, .warn-tx { color: var(--warn); }
+.notice-box.bad { color: var(--err-fg); border-color: var(--err); }
+.lat.ok { color: var(--ok-fg); } .lat.warn { color: var(--warn); } .lat.bad { color: var(--err-fg); }
+.joinways { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 14px; }
+.joinway { display: flex; flex-direction: column; gap: 6px; text-align: left; padding: 16px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--bg-canvas); cursor: pointer; }
+.joinway:hover { border-color: var(--accent); background: var(--bg-hover); }
+.joinway span { color: var(--fg-3); font-size: 12px; }
+.cfgedit { width: 100%; min-height: 320px; margin: 12px 0; }
+.kpis { display: flex; flex-wrap: wrap; gap: 24px; margin: 14px 0; }
+.kpis > div { display: flex; flex-direction: column; }
+.kpis span { color: var(--fg-3); font-size: 12px; }
+.kpis b { font: 500 24px var(--font-mono); }
+.card.pad .row-actions { flex-wrap: wrap; align-items: center; }
+.card.pad .small-in { width: min(240px, 100%) !important; }
+.ws-card:focus-within .act { opacity: 1; }
+.side-toggle { display: none; flex: 0 0 36px; align-self: flex-start; padding: 10px 0; border: 0; background: var(--bg-sidebar); cursor: pointer; color: var(--fg-2); }
+.shell[data-side="off"] > .side { display: none; }
+.shell[data-side="off"] > .side-toggle { display: block; }
+@media (max-width: 900px) {
+  .page { padding: 20px 18px; }
+  .page-head { flex-wrap: wrap; }
+  .page-filter { max-width: 100%; }
+  .vt-wrap { flex-direction: column; }
+  .vtabs { flex-direction: row; flex-wrap: wrap; width: auto; }
+  .vt-body { width: 100%; }
+  .tb { display: block; overflow-x: auto; }
+  .ws-card .act { opacity: 1; }
+}
+@media (max-width: 600px) {
+  .grid2, .joinways { grid-template-columns: minmax(0, 1fr); }
+  .side { width: 180px; }
+}
+input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }

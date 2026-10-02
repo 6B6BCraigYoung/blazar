@@ -113,6 +113,8 @@ curl -L -o Blazar.dmg https://github.com/6B6BCraigYoung/blazar/releases/latest/d
 ```bash
 git clone <your fork>/blazar.git && cd blazar
 scripts/fetch-easytier.sh          # 下载组网引擎二进制，校验 SHA-256
+cargo install trunk --locked
+(cd crates/web && trunk build --release)
 cargo build --release              # hub、CLI、MCP 服务器
 scripts/package-macos.sh           # macOS 上打桌面应用（.app + .dmg）
 ```
@@ -236,7 +238,7 @@ blazar join <invite.blazar> | leave | mesh-status
 ```mermaid
 flowchart LR
   subgraph desktop["桌面应用（Tauri）"]
-    UI["Web 界面<br/>原生 JS · Monaco · xterm"]
+    UI["Web 界面<br/>Leptos/Wasm · Monaco · xterm"]
     HUB["Hub<br/>axum · SQLite"]
     UI <--> HUB
   end
@@ -255,7 +257,7 @@ flowchart LR
 | 层 | 技术 |
 | --- | --- |
 | 桌面 | Tauri 2，hub 内嵌在同一进程 |
-| 界面 | 单页原生 JavaScript、Monaco、xterm.js —— 没有构建步骤 |
+| 界面 | Rust/Leptos 单页界面（WebAssembly）、Monaco、xterm.js |
 | Hub | Rust、axum、SQLite（sqlx 迁移）、WebSocket 事件总线 |
 | 传输 | 本机执行、SSH、组网（EasyTier 分配的虚拟 IP） |
 | 智能体运行时 | 各命令行的流式协议，归一成同一套转录模型 |
@@ -279,7 +281,7 @@ crates/
 
 状态变化发布到一条广播总线，经每个客户端一条 WebSocket 推给界面。所有触碰机器的操作都经过
 `blazar_transport::NodeTransport`；远程文件系统把操作合并成单次往返，远机器上延迟也能接受。
-`crates/hub/static/` 下的界面编进 hub 二进制：一个 HTML、一个样式表、按顺序加载的普通脚本，Monaco 和 xterm.js 内置，离线可用。
+`crates/web/` 下的 Rust/Leptos 界面由 Trunk 编译到 `crates/web/dist/`，再嵌入 hub 二进制，访问 `/v2/`。Monaco、xterm.js 和字体由 hub 内置，离线可用。`crates/hub/static/` 下的旧界面保留在 `/`，方便兼容已有链接。
 
 ---
 
@@ -291,7 +293,7 @@ cargo test --workspace
 cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings
 ```
 
-Rust 1.90 钉在 `rust-toolchain.toml`。改了网页界面要重新构建 `blazar-hub`；没有打包器也没有框架——除非真的需要，别引入。
+Rust 1.90 钉在 `rust-toolchain.toml`。启动 hub 后，在另一个终端运行 `cd crates/web && trunk serve`，访问 `http://127.0.0.1:8080/v2/`；API 与内置资源会代理到 hub。发布前先运行 `trunk build --release`，再构建 hub，把最新网页嵌入二进制。前端检查：`cargo clippy -p blazar-web --target wasm32-unknown-unknown -- -D warnings`。
 
 规矩：
 

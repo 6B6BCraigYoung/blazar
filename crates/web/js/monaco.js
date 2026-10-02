@@ -61,17 +61,38 @@ export function langOf(path) {
   return LANG[(path.split('.').pop() || '').toLowerCase()] || 'plaintext';
 }
 
+function preferences() {
+  try { return { fontSize: 12.5, minimap: true, wordWrap: false, ...JSON.parse(localStorage.getItem('blazar.ui') || '{}') }; }
+  catch (_) { return { fontSize: 12.5, minimap: true, wordWrap: false }; }
+}
+function editorTheme() {
+  const selected = document.documentElement.dataset.theme;
+  return (selected === 'light' || ((!selected || selected === 'system') && !matchMedia('(prefers-color-scheme: dark)').matches)) ? 'vs' : 'blazar-black';
+}
+
 export class Editor {
   constructor(m, host, onSave, onDirty) {
     this.m = m;
     this.models = new Map(); // path -> { model, saved }
     this.onDirty = onDirty;
+    const prefs = preferences();
     this.ed = m.editor.create(host, {
-      value: '', language: 'plaintext', theme: 'blazar-black', automaticLayout: true,
-      fontSize: 13, lineHeight: 22, fontFamily: '"JetBrains Mono", Menlo, monospace',
-      minimap: { enabled: false }, scrollBeyondLastLine: false, renderWhitespace: 'selection',
+      value: '', language: 'plaintext', theme: editorTheme(), automaticLayout: true,
+      fontSize: prefs.fontSize, wordWrap: prefs.wordWrap ? 'on' : 'off', lineHeight: 22, fontFamily: '"JetBrains Mono", Menlo, monospace',
+      minimap: { enabled: !!prefs.minimap }, scrollBeyondLastLine: false, renderWhitespace: 'selection',
       padding: { top: 12 }, smoothScrolling: true,
     });
+    this.updatePrefs = () => {
+      const p = preferences();
+      this.ed.updateOptions({ fontSize: p.fontSize, minimap: { enabled: !!p.minimap }, wordWrap: p.wordWrap ? 'on' : 'off' });
+      m.editor.setTheme(editorTheme());
+    };
+    this.themeObserver = new MutationObserver(this.updatePrefs);
+    this.themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    this.systemTheme = matchMedia('(prefers-color-scheme: dark)');
+    this.systemTheme.addEventListener('change', this.updatePrefs);
+    window.addEventListener('blazar:preferences', this.updatePrefs);
+    window.addEventListener('storage', this.updatePrefs);
     this.ed.addCommand(m.KeyMod.CtrlCmd | m.KeyCode.KeyS, () => {
       const p = this.current();
       if (p) onSave(p);
@@ -139,6 +160,10 @@ export class Editor {
   focus() { this.ed.focus(); }
 
   dispose() {
+    this.themeObserver.disconnect();
+    this.systemTheme.removeEventListener('change', this.updatePrefs);
+    window.removeEventListener('blazar:preferences', this.updatePrefs);
+    window.removeEventListener('storage', this.updatePrefs);
     for (const e of this.models.values()) e.model.dispose();
     this.models.clear();
     this.ed.dispose();

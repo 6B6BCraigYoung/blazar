@@ -118,3 +118,47 @@ async fn assets_revalidate_with_an_etag_instead_of_a_day_long_cache() {
     assert_eq!(res.status(), StatusCode::OK);
     assert_eq!(res.headers()[header::ETAG], tag.as_str());
 }
+
+#[tokio::test]
+async fn web_routes_revalidate_html_and_missing_assets_are_not_html() {
+    let (app, _dir) = app().await;
+    for path in [
+        "/v2/",
+        "/v2/index.html",
+        "/v2/nodes/local",
+        "/v2/agents/new",
+        "/v2/tasks",
+    ] {
+        let res = app.clone().oneshot(get(path, None)).await.unwrap();
+        assert_eq!(res.status(), StatusCode::OK, "{path}");
+        assert_eq!(
+            res.headers()[header::CONTENT_TYPE],
+            "text/html; charset=utf-8",
+            "{path}"
+        );
+        assert_eq!(res.headers()[header::CACHE_CONTROL], "no-cache", "{path}");
+        assert!(
+            !res.into_body()
+                .collect()
+                .await
+                .unwrap()
+                .to_bytes()
+                .is_empty()
+        );
+    }
+    for path in [
+        "/v2/missing.js",
+        "/v2/missing_bg.wasm",
+        "/v2/missing.css",
+        "/v2/snippets/missing/file.js",
+    ] {
+        assert_eq!(
+            app.clone().oneshot(get(path, None)).await.unwrap().status(),
+            StatusCode::NOT_FOUND,
+            "{path}"
+        );
+    }
+    let res = app.oneshot(get("/v2", None)).await.unwrap();
+    assert_eq!(res.status(), StatusCode::PERMANENT_REDIRECT);
+    assert_eq!(res.headers()[header::LOCATION], "/v2/");
+}

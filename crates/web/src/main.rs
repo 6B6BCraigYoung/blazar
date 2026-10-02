@@ -15,6 +15,8 @@ mod components;
 #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 mod diff;
 #[cfg(target_arch = "wasm32")]
+mod files_js;
+#[cfg(target_arch = "wasm32")]
 mod fmt;
 #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 mod md;
@@ -27,6 +29,8 @@ mod realtime;
 #[cfg(target_arch = "wasm32")]
 mod rt_logo;
 #[cfg(target_arch = "wasm32")]
+mod shortcuts;
+#[cfg(target_arch = "wasm32")]
 mod storage;
 #[cfg(target_arch = "wasm32")]
 mod term;
@@ -34,6 +38,7 @@ mod term;
 #[cfg(target_arch = "wasm32")]
 fn main() {
     console_error_panic_hook::set_once();
+    pages::apply_ui_preferences();
     leptos::mount::mount_to_body(app::App);
 }
 

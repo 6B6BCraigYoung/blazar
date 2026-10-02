@@ -81,6 +81,19 @@ fn Workspace(id: String) -> impl IntoView {
     let insp = RwSignal::new(false);
 
     let files = Files::new(id.clone());
+    let dirty = wasm_bindgen::closure::Closure::<dyn Fn() -> u32>::new(move || {
+        files
+            .dirty
+            .try_with_untracked(|d| d.len() as u32)
+            .unwrap_or(0)
+    });
+    crate::files_js::set_navigation_guard(&id, dirty.as_ref().unchecked_ref());
+    let guard = StoredValue::new_local(dirty);
+    let guard_id = id.clone();
+    on_cleanup(move || {
+        crate::files_js::clear_navigation_guard(&guard_id);
+        guard.dispose();
+    });
     let state = LayoutState::new();
     let grid = NodeRef::<html::Div>::new();
     let host = NodeRef::<html::Div>::new();
@@ -280,19 +293,28 @@ fn Workspace(id: String) -> impl IntoView {
         }
     });
     let resize = window_event_listener(ev::resize, move |_| measure());
-    // 快捷键：⌘B 资源管理器，⌘J 面板，⌘⌥B 对话。
-    let keys = window_event_listener(ev::keydown, move |e| {
-        if !(e.meta_key() || e.ctrl_key()) {
-            return;
+    Effect::new(move |_| {
+        app.side_collapsed.track();
+        request_animation_frame(measure);
+    });
+    let keys = window_event_listener(ev::keydown, move |e| match crate::shortcuts::action(&e) {
+        Some(action @ ("explorer" | "chat" | "panel")) => {
+            e.prevent_default();
+            state.toggle(match action {
+                "explorer" => Region::Explorer,
+                "chat" => Region::Aux,
+                _ => Region::Panel,
+            });
         }
-        let r = match e.code().as_str() {
-            "KeyB" if e.alt_key() => Region::Aux,
-            "KeyB" => Region::Explorer,
-            "KeyJ" => Region::Panel,
-            _ => return,
-        };
-        e.prevent_default();
-        state.toggle(r);
+        Some(tab @ ("diff" | "git" | "preview")) => {
+            e.prevent_default();
+            if state.lay.with_untracked(|l| l.hide_panel) {
+                state.toggle(Region::Panel);
+            }
+            panel_tab.set(tab.into());
+            storage::save("blazar.v2.ws.panel", &tab);
+        }
+        _ => {}
     });
     on_cleanup(move || {
         resize.remove();

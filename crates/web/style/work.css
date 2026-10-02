@@ -1,0 +1,71 @@
+/* Native work pages: inbox, task board and automations. */
+.work-page { min-width: 0; }
+.work-page .page-head { flex-wrap: wrap; }
+.work-page .input { max-width: 100%; }
+.work-filters { display: flex; align-items: end; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+.work-filters > .input { width: 240px; margin-bottom: 2px; }
+.work-filters .work-field { margin: 0; min-width: 115px; }
+.work-field { display: flex; flex-direction: column; gap: 6px; margin: 12px 0; min-width: 0; font-size: 12px; color: var(--fg-3); }
+.work-field > span { font-weight: 600; }
+.work-field textarea { resize: vertical; }
+.work-field .input { width: 100%; }
+.work-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 14px; }
+.work-dialog { width: min(660px, calc(100vw - 24px)); max-height: calc(100dvh - 36px); overflow-y: auto; }
+.work-layout { display: flex; gap: 18px; align-items: flex-start; min-width: 0; }
+.work-main { flex: 1; min-width: 0; }
+.work-board { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 14px; min-height: 280px; }
+.work-column { flex: 1 0 225px; min-width: 225px; border-radius: 10px; background: var(--bg-raised); padding: 10px; }
+.work-column > header { display: flex; align-items: center; gap: 8px; padding: 2px 2px 12px; font-size: 12px; }
+.work-task { width: 100%; display: flex; flex-direction: column; gap: 9px; padding: 13px; margin-bottom: 9px; text-align: left; cursor: pointer; color: inherit; font: inherit; }
+.work-task strong { line-height: 1.5; overflow-wrap: anywhere; font-size: 13px; }
+.work-task-key { display: flex; flex-wrap: wrap; gap: 5px; font: 11px var(--font-mono); color: var(--fg-3); }
+.work-task small { font-size: 11px; overflow-wrap: anywhere; }
+.work-selected { outline: 2px solid var(--accent, #6366f1); outline-offset: -2px; }
+.work-list .work-column { padding: 0; margin-bottom: 18px; background: none; }
+.work-list .work-task { display: grid; grid-template-columns: 135px minmax(140px,1fr) minmax(100px,200px); align-items: center; gap: 12px; }
+.work-list .work-task > .row-actions { grid-column: 2 / -1; }
+.work-detail { flex: 0 0 min(510px, 46%); min-width: 310px; max-height: calc(100dvh - 190px); overflow: auto; position: sticky; top: 0; }
+.work-detail-head { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--line, rgba(128,128,128,.2)); position: sticky; top: 0; background: var(--bg-panel); z-index: 1; }
+.work-detail h2 { font-size: 19px; line-height: 1.5; overflow-wrap: anywhere; margin: 12px 0; }
+.work-detail h3 { margin: 22px 0 10px; }
+.work-detail .row-actions { flex-wrap: wrap; }
+.work-description { overflow-wrap: anywhere; font-size: 13px; }
+.work-description:empty { display: none; }
+.work-section-head { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
+.work-section-head h3 { margin: 8px 0; }
+.work-child { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 0; border-bottom: 1px solid var(--line, rgba(128,128,128,.2)); font-size: 12px; }
+.work-run { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 10px 0; border-bottom: 1px solid var(--line, rgba(128,128,128,.2)); font-size: 12px; }
+.work-run > .row-actions { width: 100%; }
+.work-run > small { overflow-wrap: anywhere; }
+.work-comment { border-bottom: 1px solid var(--line, rgba(128,128,128,.2)); padding: 12px 0; font-size: 13px; overflow-wrap: anywhere; }
+.work-comment pre { overflow: auto; }
+.work-more { margin-top: 18px; }
+.work-more summary { cursor: pointer; color: var(--fg-3); font-size: 12px; margin-bottom: 10px; }
+.work-compose { border-top: 1px solid var(--line, rgba(128,128,128,.2)); }
+.work-compose > textarea { width: 100%; resize: vertical; margin-bottom: 10px; }
+.work-inbox { display: flex; flex-direction: column; gap: 8px; }
+.work-inbox-row { display: flex; align-items: center; gap: 18px; padding: 16px; }
+.work-inbox-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; color: inherit; text-decoration: none; overflow-wrap: anywhere; }
+.work-inbox-main > span { font-size: 13px; white-space: pre-wrap; }
+.work-inbox-main > small { font-size: 11px; }
+.work-unread { border-left: 3px solid var(--accent, #6366f1); }
+.work-ap-row { display: flex; flex-direction: column; gap: 10px; width: 100%; padding: 18px; margin-bottom: 10px; text-align: left; color: inherit; font: inherit; cursor: pointer; }
+.work-ap-row > .row-actions { width: 100%; flex-wrap: wrap; }
+.work-ap-row strong { font-size: 15px; }
+.work-ap-row > .muted { font-size: 12px; }
+.work-kv { display: grid; grid-template-columns: 90px 1fr; gap: 10px; font-size: 12px; margin: 22px 0; }
+.work-kv dt { color: var(--fg-3); }
+.work-kv dd { margin: 0; overflow-wrap: anywhere; }
+.work-instructions { font: inherit; font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; padding: 14px; border-radius: 6px; background: var(--bg-raised); }
+.work-hook .input { width: 100%; margin-bottom: 10px; }
+.work-preview { display: flex; gap: 6px; flex-wrap: wrap; padding: 10px 0; }
+@media (max-width: 1050px) { .work-layout { flex-direction: column; } .work-main { width: 100%; } .work-detail { width: 100%; min-width: 0; max-height: none; position: static; flex-basis: auto; } }
+@media (max-width: 620px) { .work-grid { grid-template-columns: 1fr; } .work-inbox-row { flex-direction: column; align-items: stretch; } .work-list .work-task { display: flex; } .work-filters > .input { width: 100%; } .work-filters .work-field { flex: 1; } }
+
+.work-page .row-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.work-page .input, .work-dialog .input { padding: 7px 10px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--bg-canvas); color: var(--fg); font: 13px var(--font-sans); box-sizing: border-box; outline: none; }
+.work-page .input:focus, .work-dialog .input:focus { border-color: var(--accent); }
+.work-detail > .pad { padding: 16px; }
+.work-page .md-body { padding: 8px 0; margin: 0; font-size: 13px; }
+.work-page .bad, .work-dialog .bad { color: var(--err-fg); }
+.work-page .warn-tx, .work-dialog .warn-tx { color: var(--warn); }

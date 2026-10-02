@@ -121,6 +121,8 @@ curl -L -o Blazar.dmg https://github.com/6B6BCraigYoung/blazar/releases/latest/d
 ```bash
 git clone <your fork>/blazar.git && cd blazar
 scripts/fetch-easytier.sh          # downloads the mesh engine binary, verifies its SHA-256
+cargo install trunk --locked
+(cd crates/web && trunk build --release)
 cargo build --release              # hub, CLI, MCP server
 scripts/package-macos.sh           # desktop app (.app + .dmg) on macOS
 ```
@@ -274,7 +276,7 @@ origin or from a loopback client without an `Origin` header; routes are declared
 ```mermaid
 flowchart LR
   subgraph desktop["Desktop app (Tauri)"]
-    UI["Web UI<br/>vanilla JS · Monaco · xterm"]
+    UI["Web UI<br/>Leptos/Wasm · Monaco · xterm"]
     HUB["Hub<br/>axum · SQLite"]
     UI <--> HUB
   end
@@ -293,7 +295,7 @@ flowchart LR
 | Layer | Stack |
 | --- | --- |
 | Desktop | Tauri 2, embedding the hub in-process |
-| UI | Single-page vanilla JavaScript, Monaco, xterm.js — no build step |
+| UI | Rust/Leptos single-page UI (WebAssembly), Monaco, xterm.js |
 | Hub | Rust, axum, SQLite (sqlx migrations), WebSocket event bus |
 | Transports | Local exec, SSH, mesh (virtual IPs from EasyTier) |
 | Agent runtimes | Streaming protocols of each CLI, normalised into one transcript model |
@@ -318,9 +320,9 @@ crates/
 State changes are published on a broadcast bus and pushed to the UI over one WebSocket per
 client. Everything that touches a machine goes through `blazar_transport::NodeTransport`; the
 remote file system batches operations into single round trips so latency stays tolerable on
-distant hosts. The UI under `crates/hub/static/` is embedded into the hub binary: one HTML file,
-one stylesheet and classic scripts loaded in order, with Monaco and xterm.js vendored so the app
-works offline.
+distant hosts. Trunk compiles the Rust/Leptos UI in `crates/web/` into `crates/web/dist/`; the hub
+embeds it and serves it at `/v2/`. Monaco, xterm.js and fonts are vendored for offline use.
+The legacy UI in `crates/hub/static/` remains at `/` for compatibility with existing links.
 
 ---
 
@@ -332,9 +334,11 @@ cargo test --workspace
 cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings
 ```
 
-Rust 1.90 is pinned in `rust-toolchain.toml`. The web UI needs a rebuild of `blazar-hub` after
-each change; there is no bundler and no framework — keep it that way unless a change genuinely
-needs one.
+Rust 1.90 is pinned in `rust-toolchain.toml`. With the hub running, use
+`cd crates/web && trunk serve` in another terminal and open `http://127.0.0.1:8080/v2/`.
+API requests and vendored assets are proxied to the hub. For a release, run `trunk build --release`
+before rebuilding the hub so it embeds the latest UI. Check the frontend with
+`cargo clippy -p blazar-web --target wasm32-unknown-unknown -- -D warnings`.
 
 Ground rules:
 

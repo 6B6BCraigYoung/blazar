@@ -593,7 +593,7 @@ async fn web(path: Option<axum::extract::Path<String>>) -> axum::response::Respo
     use axum::response::IntoResponse;
     let rel = path.map(|p| p.0).unwrap_or_default();
     match WEB.get_file(rel.trim_start_matches('/')) {
-        Some(f) if !rel.is_empty() => (
+        Some(f) if !rel.is_empty() && rel != "index.html" => (
             [
                 (header::CONTENT_TYPE, mime_of(&rel)),
                 (header::CACHE_CONTROL, "public, max-age=31536000, immutable"),
@@ -601,6 +601,13 @@ async fn web(path: Option<axum::extract::Path<String>>) -> axum::response::Respo
             f.contents(),
         )
             .into_response(),
+        None if rel.starts_with("snippets/")
+            || [".js", ".wasm", ".css", ".map"]
+                .iter()
+                .any(|ext| rel.ends_with(ext)) =>
+        {
+            axum::http::StatusCode::NOT_FOUND.into_response()
+        }
         _ => (
             [
                 (header::CONTENT_TYPE, "text/html; charset=utf-8"),

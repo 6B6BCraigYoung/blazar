@@ -1,4 +1,4 @@
-//! 侧栏：跟旧界面同样的分组和计数。还没搬到新界面的页面直接链到旧界面。
+//! 侧栏：页面导航、实时计数和提醒入口。
 
 use leptos::prelude::*;
 use leptos_router::components::A;
@@ -45,22 +45,6 @@ fn nav(
             <span class="nm">{label}</span>
             <span class="n">{move || count.get()}</span>
         </A>
-    }
-}
-
-/// 还没搬过来的页面：去旧界面。
-fn old(
-    route: &'static str,
-    ic: &'static str,
-    label: &'static str,
-    count: Signal<String>,
-) -> impl IntoView {
-    view! {
-        <a class="nav" href=format!("/#/{route}") title="这一页还在旧界面">
-            <span class="ic" inner_html=icon(ic)></span>
-            <span class="nm">{label}</span>
-            <span class="n">{move || count.get()}</span>
-        </a>
     }
 }
 
@@ -129,19 +113,19 @@ pub fn Sidebar() -> impl IntoView {
 
     view! {
         <nav class="side">
-            <div class="brand"><i></i>"Blazar"</div>
+            <div class="brand"><i></i>"Blazar"<span class="grow"></span><button class="linkbtn" aria-label="收起侧栏" title="收起侧栏" on:click=move |_| app.side_collapsed.set(true)>"«"</button></div>
             <button class="nav search" on:click=move |_| app.palette.set(true)>
                 <span class="ic" inner_html=icon(I_SEARCH)></span><span class="nm muted">"搜索…"</span><span class="n">"⌘K"</span>
             </button>
             <button class="btn primary new-ws" on:click=move |_| app.new_ws.set(true)>"＋ 新建工作区"</button>
             <div class="grp">
                 <span>"工作"</span>
-                {old("inbox", I_INBOX, "收件箱", Signal::derive(move || { let u = app.inbox_unread.get(); if u > 0 { u.to_string() } else { String::new() } }))}
+                {nav("/v2/inbox", I_INBOX, "收件箱", Signal::derive(move || { let u = app.inbox_unread.get(); if u > 0 { u.to_string() } else { String::new() } }), false)}
                 {nav("/v2", I_FOLDER, "全部工作区", all, true)}
                 {nav("/v2/running", I_CLOCK, "运行中", running, true)}
                 {nav("/v2/waiting", I_WARN, "等我审批", waiting, true)}
-                {old("tasks", I_TASKS, "任务", Signal::derive(move || n(app.tasks_open.get())))}
-                {old("autopilots", I_AUTO, "自动化", Signal::derive(move || n(app.autopilots_active.get())))}
+                {nav("/v2/tasks", I_TASKS, "任务", Signal::derive(move || n(app.tasks_open.get())), false)}
+                {nav("/v2/autopilots", I_AUTO, "自动化", Signal::derive(move || n(app.autopilots_active.get())), false)}
             </div>
             {move || {
                 let p = projects();
@@ -163,20 +147,20 @@ pub fn Sidebar() -> impl IntoView {
             <div class="grp">
                 <span>"AI"</span>
                 {nav("/v2/runtimes", I_RT, "运行时", Signal::derive(move || n(app.runtimes_n.get())), false)}
-                {old("agents", I_AGENT, "智能体", Signal::derive(move || n(app.agents_n.get())))}
-                {old("skills", I_SKILL, "SKILLs", Signal::derive(move || n(app.skills_n.get())))}
+                {nav("/v2/agents", I_AGENT, "智能体", Signal::derive(move || n(app.agents_n.get())), false)}
+                {nav("/v2/skills", I_SKILL, "SKILLs", Signal::derive(move || n(app.skills_n.get())), false)}
             </div>
             <div class="grp">
                 <span>"办公"</span>
-                {old("apps", I_APPS, "接入的软件", none)}
+                {nav("/v2/apps", I_APPS, "接入的软件", none, false)}
             </div>
             <div class="grp">
                 <span>"基础设施"</span>
-                {old("nodes", I_NODES, "机器与组网", Signal::derive(move || { let (a, b) = nodes(); format!("{a}/{b}") }))}
+                {nav("/v2/nodes", I_NODES, "机器与组网", Signal::derive(move || { let (a, b) = nodes(); format!("{a}/{b}") }), false)}
             </div>
             <div class="foot">
-                {old("usage", I_USAGE, "用量", none)}
-                {old("settings", I_GEAR, "设置", none)}
+                {nav("/v2/usage", I_USAGE, "用量", none, false)}
+                {nav("/v2/settings", I_GEAR, "设置", none, false)}
                 <div class="status">
                     {status}
                     <button class="linkbtn" on:click=move |_| app.alerts_open.set(true)>
@@ -184,7 +168,7 @@ pub fn Sidebar() -> impl IntoView {
                     </button>
                 </div>
                 <span class="conn" data-up=move || bus.connected.get().to_string()>
-                    {move || if bus.connected.get() { "已连接 · 新界面预览" } else { "正在重连 hub…" }}
+                    {move || if bus.connected.get() { "已连接" } else { "正在重连 hub…" }}
                 </span>
                 <a class="old-link" href="/">"回到旧界面"</a>
             </div>
