@@ -8,7 +8,7 @@ pub async fn get_state(State(st): State<Shared>) -> ApiResult<Json<StateSnapshot
 
 pub(crate) async fn snapshot(st: &AppState) -> anyhow::Result<StateSnapshot> {
     let nodes = sqlx::query(
-        "SELECT n.name, n.transport, n.endpoint, n.status, n.labels,
+        "SELECT n.name, n.transport, n.endpoint, n.status, n.labels, n.network,
                 (SELECT COUNT(*) FROM workspaces w WHERE w.node_id = n.id) AS wc
          FROM nodes n ORDER BY n.name",
     )
@@ -29,6 +29,7 @@ pub(crate) async fn snapshot(st: &AppState) -> anyhow::Result<StateSnapshot> {
                 .and_then(serde_json::Value::as_str)
                 .map(str::to_owned),
             workspace_count: r.try_get("wc").unwrap_or(0),
+            network: r.try_get::<Option<String>, _>("network").unwrap_or(None),
         }
     })
     .collect();

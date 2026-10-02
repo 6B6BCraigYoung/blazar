@@ -52,6 +52,8 @@ impl MeshCtx {
     }
 
     pub async fn warm(st: &Shared) {
+        let probe = st.clone();
+        tokio::spawn(async move { crate::api::probe_ssh_nodes(&probe).await });
         let _ = issuer_config(st).await;
         let _ = local_status(st).await;
         discover_now(st).await;

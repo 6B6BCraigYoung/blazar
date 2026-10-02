@@ -1,6 +1,9 @@
 use super::*;
 
 pub async fn refresh_mesh(State(st): State<Shared>) -> ApiResult<Json<serde_json::Value>> {
+    // 只连 SSH 的机器不在组网里，顺手单独探一遍
+    let probe = st.clone();
+    tokio::spawn(async move { super::probe_ssh_nodes(&probe).await });
     let peers = st.mesh().peers().await?;
     let now = Utc::now().to_rfc3339();
     let mut added = 0usize;

@@ -510,3 +510,14 @@ input[type="range"] { accent-color: var(--accent); }
   .side { width: 180px; }
 }
 input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
+
+/* 从 SSH 配置添加机器 */
+.dlg.ssh-pick { width: min(640px, calc(100vw - 32px)); }
+.ssh-pick .page-filter { width: 100%; margin: 10px 0 6px; }
+.ssh-list { max-height: min(52vh, 460px); overflow: auto; border: 1px solid var(--line); border-radius: var(--r-md); }
+.ssh-row { display: flex; align-items: center; gap: 10px; padding: 6px 10px; border-bottom: 1px solid var(--line); cursor: pointer; font-size: 12.5px; white-space: nowrap; }
+.ssh-row:last-child { border-bottom: 0; }
+.ssh-row:hover { background: var(--bg-hover); }
+.ssh-row .mono.muted { overflow: hidden; text-overflow: ellipsis; }
+.ssh-row[data-off="true"] { cursor: default; opacity: .55; }
+.ssh-row .grow { flex: 1; }

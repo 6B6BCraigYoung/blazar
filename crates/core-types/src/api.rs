@@ -79,6 +79,9 @@ pub struct NodeView {
     pub latency_ms: Option<f64>,
     pub cost: Option<String>,
     pub workspace_count: i64,
+    /// "easytier"（组网发现的）、"ssh"（从 ~/.ssh/config 加的），旧数据可能为空
+    #[serde(default)]
+    pub network: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

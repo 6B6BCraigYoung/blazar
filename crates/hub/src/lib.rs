@@ -173,6 +173,11 @@ pub fn build_router(st: Arc<AppState>) -> Router {
         .route("/api/hooks", get(api::list_hooks).post(api::create_hook))
         .route("/api/hooks/{id}", delete(api::delete_hook))
         .route("/api/mesh/refresh", post(api::refresh_mesh))
+        .route(
+            "/api/ssh-hosts",
+            get(api::list_ssh_hosts).post(api::add_ssh_hosts),
+        )
+        .route("/api/ssh-hosts/{name}", delete(api::remove_ssh_node))
         .route("/api/mesh/local", get(mesh::local))
         .route("/api/mesh/external-rpc", put(mesh::set_external_rpc))
         .route("/api/mesh/topology", get(mesh::topology))

@@ -200,6 +200,7 @@ pub fn NodesPage() -> impl IntoView {
     let m = expect_context::<Mesh>();
     let invite_in = NodeRef::<leptos::html::Input>::new();
     let toml_in = NodeRef::<leptos::html::Input>::new();
+    let ssh_pick = RwSignal::new(false);
     let nodes = move || {
         app.state
             .with(|s| s.as_ref().map(|s| s.nodes.clone()).unwrap_or_default())
@@ -241,9 +242,10 @@ pub fn NodesPage() -> impl IntoView {
                     <span class="muted small">{move || topo.get().and_then(Result::ok).map(|t| s(&t, "source")).filter(|x| !x.is_empty()).map(|x| format!("来自 {x}"))}</span>
                     <span class="grow"></span>
                     <input class="page-filter" placeholder="筛选…" prop:value=move || q.get() on:input=move |e| q.set(event_target_value(&e))/>
+                    <button class="btn" on:click=move |_| ssh_pick.set(true)>"从 SSH 配置添加…"</button>
                     <button class="btn" disabled=move || m.refreshing.get() on:click=move |_| spawn_local(refresh_mesh(m))>"从 mesh 发现"</button>
                 </div>
-                <div class="muted small">"组网里的机器自动出现；只能 SSH 的机器在 ~/.ssh/config 配好 Host 后直接用 Host 名新建工作区。"</div>
+                <div class="muted small">"组网里的机器自动出现；不在组网里、但 ~/.ssh/config 里配好能连的机器，用「从 SSH 配置添加」挑进来，用法和组网机器一样。"</div>
                 {move || topo.get().and_then(Result::err).map(|e| view! { <div class="err-line">{format!("拓扑读取失败：{e}")}<button class="btn small" on:click=move |_|m.local.update(|n|*n+=1)>"重试"</button></div> })}
                 {move || topo.get().and_then(Result::ok).filter(|t| s(t, "source").is_empty()).map(|_| view! { <TopoFix m/> })}
                 <div class="ws-list nodes">
@@ -256,14 +258,18 @@ pub fn NodesPage() -> impl IntoView {
                         list.into_iter().map(|n| {
                             let name = n.name.clone();
                             let name2 = n.name.clone();
+                            let name3 = n.name.clone();
+                            let is_ssh = n.network.as_deref() == Some("ssh");
+                            let removable = is_ssh && n.workspace_count == 0;
                             let st = if n.status == "online" { "running" } else { "idle" };
                             view! {
                                 <div class="ws-card" on:click=move |_| navigate.with_value(|nv| nv(&format!("/nodes/{}", js_sys::encode_uri_component(&name)), Default::default()))>
                                     <div class="top"><b>{n.name.clone()}</b><span class="state-pill" data-act=st>{if n.status == "online" { "在线" } else { "离线" }}</span></div>
-                                    <div class="path">{if n.name == "local" { "本机".to_owned() } else { n.ipv4.clone().unwrap_or_else(|| "SSH".into()) }}{n.cost.clone().map(|c| format!(" · {c}"))}</div>
-                                    <div class="meta"><span>"延迟 "{latency(n.latency_ms)}</span><span>{format!("工作区 {}", n.workspace_count)}</span></div>
+                                    <div class="path">{if n.name == "local" { "本机".to_owned() } else if is_ssh { format!("SSH · {}", n.ipv4.clone().unwrap_or_default()) } else { n.ipv4.clone().unwrap_or_else(|| "SSH".into()) }}{n.cost.clone().map(|c| format!(" · {c}"))}</div>
+                                    <div class="meta">{if is_ssh { view! { <span>"不在组网"</span> }.into_any() } else { view! { <span>"延迟 "{latency(n.latency_ms)}</span> }.into_any() }}<span>{format!("工作区 {}", n.workspace_count)}</span></div>
                                     <div class="act">
                                         <a class="btn small" href=format!("/nodes/{}", api::enc(&n.name)) on:click=|e|e.stop_propagation()>"属性"</a>
+                                        {removable.then(|| view! { <button class="btn small" title="从 Blazar 里去掉（不改 ~/.ssh/config）" on:click=move |e| { e.stop_propagation(); remove_ssh(name3.clone()); }>"移除"</button> })}
                                         <button class="btn small primary" on:click=move |e| { e.stop_propagation(); app.new_ws_node.set(Some(name2.clone())); app.new_ws.set(true); }>"新建工作区"</button>
                                     </div>
                                 </div>
@@ -272,10 +278,116 @@ pub fn NodesPage() -> impl IntoView {
                     }}
                 </div>
             </section>
+            {move || ssh_pick.get().then(|| view! { <SshPicker on_close=move || ssh_pick.set(false)/> })}
             <Issuer m/>
             <Invites m/>
             {move || m.config.get().map(|(text, err)| view! { <ConfigEditor m text err/> })}
             {move || m.preview.get().map(|(p, text)| view! { <ConfigPreview m p text/> })}
+        </div>
+    }
+}
+
+fn remove_ssh(name: String) {
+    spawn_local(async move {
+        let body = "只是从 Blazar 的机器列表里去掉，~/.ssh/config 不动，以后还能再加回来。";
+        let choices = vec![Choice::plain("取消"), Choice::danger("移除")];
+        if dialog::ask(&format!("移除 {name}？"), body, choices).await != Some(1) {
+            return;
+        }
+        match api::send::<Value>(
+            "DELETE",
+            &format!("/api/ssh-hosts/{}", api::enc(&name)),
+            &json!({}),
+        )
+        .await
+        {
+            Ok(_) => toast(format!("已移除 {name}")),
+            Err(e) => toast(format!("移除失败：{e}")),
+        }
+    });
+}
+
+/// 从 ~/.ssh/config 里挑机器加进来：配置里的 Host 往往很多、有些早就过时，所以不全加，让人勾。
+#[component]
+fn SshPicker(#[prop(into)] on_close: Callback<()>) -> impl IntoView {
+    let app = use_app();
+    let hosts = LocalResource::new(|| api::get::<Vec<Value>>("/api/ssh-hosts"));
+    let q = RwSignal::new(String::new());
+    let picked = RwSignal::new(std::collections::BTreeSet::<String>::new());
+    let busy = RwSignal::new(false);
+    let add = move |_| {
+        let names: Vec<String> = picked.get_untracked().into_iter().collect();
+        if names.is_empty() || busy.get_untracked() {
+            return;
+        }
+        busy.set(true);
+        spawn_local(async move {
+            match api::send::<Value>("POST", "/api/ssh-hosts", &json!({ "names": names })).await {
+                Ok(r) => {
+                    let n = r["added"].as_array().map_or(0, Vec::len);
+                    toast(format!("已添加 {n} 台机器，正在检查能不能连上"));
+                    app.load_state();
+                    on_close.run(());
+                }
+                Err(e) => {
+                    let _ = busy.try_set(false);
+                    toast(format!("添加失败：{e}"));
+                }
+            }
+        });
+    };
+    view! {
+        <div class="dlg-mask" on:click=move |_| on_close.run(())>
+            <div class="dlg ssh-pick" on:click=|e| e.stop_propagation()>
+                <h3>"从 SSH 配置添加机器"</h3>
+                <div class="muted small">"勾选要用的 Host。加进来后不进组网，但和组网机器一样能建工作区、对齐 Claude Code / Codex 版本。连接用 ssh 本身（密钥、ProxyJump 都照 ~/.ssh/config）。"</div>
+                <input class="page-filter" placeholder="筛选 Host / 地址…" prop:value=move || q.get() on:input=move |e| q.set(event_target_value(&e))/>
+                <div class="ssh-list">
+                    {move || match hosts.get() {
+                        None => view! { <div class="empty">"读取 ~/.ssh/config…"</div> }.into_any(),
+                        Some(Err(e)) => view! { <div class="err-line">{format!("读取失败：{e}")}</div> }.into_any(),
+                        Some(Ok(list)) => {
+                            let k = q.get().to_lowercase();
+                            let rows: Vec<Value> = list.into_iter().filter(|h| k.is_empty() || s(h, "alias").to_lowercase().contains(&k) || s(h, "hostname").to_lowercase().contains(&k)).collect();
+                            if rows.is_empty() {
+                                return view! { <div class="empty">"~/.ssh/config 里没有可加的 Host"</div> }.into_any();
+                            }
+                            rows.into_iter().map(|h| {
+                                let alias = s(&h, "alias");
+                                let added = h["added"].as_bool() == Some(true);
+                                let mesh = h["in_mesh"].as_bool() == Some(true);
+                                let user = s(&h, "user");
+                                let port = s(&h, "port");
+                                let target = format!("{}{}{}",
+                                    if user.is_empty() { String::new() } else { format!("{user}@") },
+                                    Some(s(&h, "hostname")).filter(|x| !x.is_empty()).unwrap_or_else(|| alias.clone()),
+                                    if port.is_empty() { String::new() } else { format!(":{port}") });
+                                let file = s(&h, "file");
+                                let file = file.rsplit('/').next().unwrap_or_default().to_owned();
+                                let a1 = alias.clone();
+                                let a2 = alias.clone();
+                                view! {
+                                    <label class="ssh-row" data-off=(added || mesh).to_string()>
+                                        <input type="checkbox" disabled=added || mesh
+                                            prop:checked=move || added || picked.with(|p| p.contains(&a1))
+                                            on:change=move |e| { let on = event_target_checked(&e); let a = a2.clone(); picked.update(|p| { if on { p.insert(a); } else { p.remove(&a); } }); }/>
+                                        <b class="mono">{alias.clone()}</b>
+                                        <span class="mono muted">{target}</span>
+                                        <span class="grow"></span>
+                                        {if mesh { Some(view! { <span class="gchip">"在组网里"</span> }.into_any()) } else if added { Some(view! { <span class="gchip">"已添加"</span> }.into_any()) } else { (file != "config").then(|| view! { <span class="muted small">{file}</span> }.into_any()) }}
+                                    </label>
+                                }
+                            }).collect_view().into_any()
+                        }
+                    }}
+                </div>
+                <div class="dlg-foot">
+                    <button class="btn" on:click=move |_| on_close.run(())>"取消"</button>
+                    <button class="btn primary" disabled=move || busy.get() || picked.with(|p| p.is_empty()) on:click=add>
+                        {move || { let n = picked.with(|p| p.len()); if n == 0 { "添加".to_owned() } else { format!("添加 {n} 台") } }}
+                    </button>
+                </div>
+            </div>
         </div>
     }
 }
