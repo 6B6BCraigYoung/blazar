@@ -580,7 +580,15 @@ async fn web(method: axum::http::Method, uri: axum::http::Uri) -> axum::response
         Some(f) if !rel.is_empty() && rel != "index.html" => (
             [
                 (header::CONTENT_TYPE, mime_of(rel)),
-                (header::CACHE_CONTROL, "public, max-age=31536000, immutable"),
+                // 顶层文件名带内容哈希，可以永久缓存；snippets/ 下的 JS 文件名不随内容变，每次都要重新验证
+                (
+                    header::CACHE_CONTROL,
+                    if rel.contains('/') {
+                        "no-cache"
+                    } else {
+                        "public, max-age=31536000, immutable"
+                    },
+                ),
             ],
             f.contents(),
         )

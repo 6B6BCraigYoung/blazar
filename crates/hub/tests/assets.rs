@@ -109,6 +109,39 @@ async fn the_ui_is_served_at_the_root_and_missing_assets_are_not_html() {
             "{path}"
         );
     }
+    // 页面引用的文件：带哈希的永久缓存，snippets/ 下文件名不变的每次重新验证
+    let index = app.clone().oneshot(get("/", None)).await.unwrap();
+    let index = String::from_utf8(
+        index
+            .into_body()
+            .collect()
+            .await
+            .unwrap()
+            .to_bytes()
+            .to_vec(),
+    )
+    .unwrap();
+    let refs: Vec<&str> = index
+        .split("href=\"/")
+        .skip(1)
+        .filter_map(|r| r.split('"').next())
+        .filter(|r| r.ends_with(".js") || r.ends_with(".wasm"))
+        .collect();
+    assert!(refs.iter().any(|r| r.starts_with("snippets/")), "{refs:?}");
+    for r in refs {
+        let res = app
+            .clone()
+            .oneshot(get(&format!("/{r}"), None))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK, "{r}");
+        let want = if r.contains('/') {
+            "no-cache"
+        } else {
+            "public, max-age=31536000, immutable"
+        };
+        assert_eq!(res.headers()[header::CACHE_CONTROL], want, "{r}");
+    }
     for path in [
         "/missing.js",
         "/missing_bg.wasm",
