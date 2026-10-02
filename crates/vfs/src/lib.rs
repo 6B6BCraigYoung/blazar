@@ -611,12 +611,7 @@ fn unquote_git_path(s: &str) -> String {
     String::from_utf8(bytes).unwrap_or_else(|_| s.to_owned())
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DiffStat {
-    pub added: u64,
-    pub removed: u64,
-    pub files: u64,
-}
+pub use blazar_core_types::api::DiffStat;
 
 #[must_use]
 pub fn parse_stat(raw: &str) -> Option<DiffStat> {

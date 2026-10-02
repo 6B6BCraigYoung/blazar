@@ -1,37 +1,6 @@
 use super::*;
 
-#[derive(Debug, Serialize)]
-pub struct NodeView {
-    pub name: String,
-    pub transport: String,
-    pub ipv4: Option<String>,
-    pub status: String,
-    pub latency_ms: Option<f64>,
-    pub cost: Option<String>,
-    pub workspace_count: i64,
-}
-
-#[derive(Debug, Serialize)]
-pub struct WorkspaceView {
-    pub id: String,
-    pub name: String,
-    pub node: String,
-    pub path: String,
-    pub project: Option<String>,
-    pub activity: String,
-    pub last_active_at: Option<String>,
-    pub session_id: Option<String>,
-
-    pub diff: Option<blazar_vfs::DiffStat>,
-
-    pub diff_at: Option<String>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct StateSnapshot {
-    pub nodes: Vec<NodeView>,
-    pub workspaces: Vec<WorkspaceView>,
-}
+pub use blazar_core_types::api::{NodeView, StateSnapshot, WorkspaceView};
 
 pub async fn get_state(State(st): State<Shared>) -> ApiResult<Json<StateSnapshot>> {
     Ok(Json(snapshot(&st).await?))
@@ -92,7 +61,7 @@ pub(crate) async fn snapshot(st: &AppState) -> anyhow::Result<StateSnapshot> {
             r.try_get::<Option<i64>, _>("diff_removed").unwrap_or(None),
             r.try_get::<Option<i64>, _>("diff_files").unwrap_or(None),
         ) {
-            (Some(a), Some(d), Some(f)) => Some(blazar_vfs::DiffStat {
+            (Some(a), Some(d), Some(f)) => Some(blazar_core_types::api::DiffStat {
                 added: u64::try_from(a).unwrap_or(0),
                 removed: u64::try_from(d).unwrap_or(0),
                 files: u64::try_from(f).unwrap_or(0),

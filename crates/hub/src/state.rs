@@ -1,54 +1,13 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
-use blazar_core_types::{NormalizedEntry, SessionId, WorkspaceId};
+use blazar_core_types::{SessionId, WorkspaceId};
 use blazar_db::Db;
 use blazar_netmesh::{CliInvocation, EasyTierMesh};
 use blazar_transport::{LocalTransport, NodeTransport, SshTransport};
-use serde::Serialize;
 use tokio::sync::{RwLock, broadcast};
 
-#[derive(Debug, Clone, Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum ServerEvent {
-    Entry {
-        workspace_id: WorkspaceId,
-        session_id: SessionId,
-
-        entry: Box<NormalizedEntry>,
-    },
-
-    WorkspacesChanged,
-
-    NodesChanged,
-
-    TasksChanged,
-    AutopilotsChanged,
-    AccountsChanged,
-    InboxChanged,
-
-    ScriptsChanged {
-        workspace_id: WorkspaceId,
-    },
-
-    QueueChanged {
-        workspace_id: WorkspaceId,
-    },
-
-    QueueSent {
-        workspace_id: WorkspaceId,
-
-        queued_thread: Option<String>,
-        thread_id: String,
-        session_id: String,
-    },
-
-    SessionTitled {
-        workspace_id: WorkspaceId,
-        session_id: SessionId,
-        title: String,
-    },
-}
+pub use blazar_core_types::api::ServerEvent;
 
 pub struct RunningSession {
     pub workspace_id: WorkspaceId,
