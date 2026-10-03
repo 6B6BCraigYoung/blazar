@@ -46,6 +46,7 @@ button { font: inherit; color: inherit; }
 
 /* 卡片 */
 .card { border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--bg-panel); overflow: hidden; }
+.card:has(.menu) { overflow: visible; }
 .card-head { display: flex; align-items: center; gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--line); }
 .card-head b { font-weight: 600; font-size: 14px; }
 .card-head .grow { flex: 1; }
