@@ -6,6 +6,7 @@ export class Term {
     this.onState = onState;
     this.term = new window.Terminal({
       fontSize: 12.5, cursorBlink: true, scrollback: 10000, allowTransparency: true,
+      macOptionClickForcesSelection: true,
       fontFamily: '"JetBrains Mono", Menlo, monospace',
       theme: {
         background: '#101011', foreground: '#c8c8cc', cursor: '#a1a1aa', cursorAccent: '#101011',
@@ -19,6 +20,16 @@ export class Term {
         cyan: '#8bb0b3', brightCyan: '#a5c4c6',
         white: '#c8c8cc', brightWhite: '#e4e4e7',
       },
+    });
+    this.term.parser.registerOscHandler(52, data => {
+      const i = data.indexOf(';');
+      const b64 = i < 0 ? '' : data.slice(i + 1);
+      if (!b64 || b64 === '?') return true;
+      try {
+        const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+        navigator.clipboard?.writeText(new TextDecoder().decode(bytes)).catch(() => {});
+      } catch (_) {}
+      return true;
     });
     this.fit = new window.FitAddon.FitAddon();
     this.term.loadAddon(this.fit);

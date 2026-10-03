@@ -46,7 +46,8 @@ fn shell_command(cwd: &str, session: Option<&str>) -> String {
         Some(name) => format!(
             "{term}if command -v tmux >/dev/null 2>&1; then \
                exec tmux new-session -A -s {name_q} -c {cwd_q} \\; \
-                    set-option -t {name_q} status off; \
+                    set-option -t {name_q} status off \\; \
+                    set-option -t {name_q} mouse on; \
              else {login}; fi",
             name_q = shell_quote(name),
             cwd_q = shell_quote(cwd),
@@ -339,6 +340,10 @@ mod tests {
         assert!(
             c.contains("status off"),
             "面板里不该再挂 tmux 自己的状态栏: {c}"
+        );
+        assert!(
+            c.contains("mouse on"),
+            "滚轮要进 tmux 的回滚，不能被当成方向键翻历史命令: {c}"
         );
         assert!(c.contains("exec tmux"), "要 exec 掉，别留一层多余的 shell");
 
