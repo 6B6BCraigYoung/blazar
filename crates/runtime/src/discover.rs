@@ -37,24 +37,7 @@ pub async fn discover(
     Ok(parse(&out.stdout, BUILTIN))
 }
 
-/// 把 agent CLI 常见的安装前缀补进 PATH 的 shell 片段，凡是要在 bash 里找 CLI 的地方都先跑它。
-pub const PATH_PRELUDE: &str = r#"
-# 有些 CLI 只在登录 shell 的 PATH 里；先把常见安装前缀补进来，
-# 比 fork 一个登录 shell 便宜，且对非交互会话同样有效。
-for d in "$HOME/.local/bin" "$HOME/.npm-global/bin" "$HOME/bin" \
-         "$HOME/.bun/bin" "$HOME/.deno/bin" "$HOME/.cargo/bin" \
-         /opt/homebrew/bin /usr/local/bin; do
-  [ -d "$d" ] && case ":$PATH:" in *":$d:"*) ;; *) PATH="$d:$PATH";; esac
-done
-# nvm / fnm 的多版本目录：取最新一个
-for base in "$HOME/.nvm/versions/node" "$HOME/.local/share/fnm/node-versions"; do
-  [ -d "$base" ] || continue
-  latest=$(ls -1 "$base" 2>/dev/null | sort -V | tail -1)
-  [ -n "$latest" ] && [ -d "$base/$latest/bin" ] && PATH="$base/$latest/bin:$PATH"
-  [ -n "$latest" ] && [ -d "$base/$latest/installation/bin" ] && PATH="$base/$latest/installation/bin:$PATH"
-done
-export PATH
-"#;
+pub use blazar_transport::PATH_PRELUDE;
 
 fn build_script(specs: &[AgentSpec]) -> String {
     let names: Vec<&str> = specs.iter().map(|s| s.program).collect();
