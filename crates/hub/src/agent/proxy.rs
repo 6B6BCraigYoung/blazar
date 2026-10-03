@@ -58,6 +58,29 @@ pub fn parse_net_env(env_dump: &str) -> NetEnv {
     out
 }
 
+/// agent 经隧道连 Blazar 的凭据代理，地址是远端的 127.0.0.1：要把它排除在出网代理之外，
+/// 否则没配 no_proxy 的机器会把这个本机地址也交给代理（比如经 SSH 转回你电脑的 Clash），请求永远到不了隧道。
+/// 原有的 NO_PROXY / no_proxy 保留，只补上缺的。
+pub fn bypass_loopback(env: &mut std::collections::BTreeMap<String, String>) {
+    let mut list: Vec<String> = ["NO_PROXY", "no_proxy"]
+        .iter()
+        .filter_map(|k| env.get(*k))
+        .flat_map(|v| v.split(','))
+        .map(|x| x.trim().to_owned())
+        .filter(|x| !x.is_empty())
+        .collect();
+    for h in ["127.0.0.1", "localhost"] {
+        if !list.iter().any(|x| x == h) {
+            list.push(h.to_owned());
+        }
+    }
+    let mut seen = std::collections::HashSet::new();
+    list.retain(|x| seen.insert(x.clone()));
+    let v = list.join(",");
+    env.insert("NO_PROXY".into(), v.clone());
+    env.insert("no_proxy".into(), v);
+}
+
 // 远端机器的出网代理通常写在 ~/.bashrc 里，而 .bashrc 对非交互 shell 一开头就 return，后台启动的 agent 拿不到。
 // 这里按交互式 shell 读一次那台机器的代理变量，远端运行和登录时原样带上，跟你 SSH 上去手动敲命令的网络环境一致。
 pub async fn node_net_env(st: &Shared, node: &str) -> NetEnv {
@@ -434,6 +457,19 @@ pub async fn restore(st: Shared) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn loopback_bypasses_the_proxy_and_keeps_existing_entries() {
+        let mut env = std::collections::BTreeMap::new();
+        super::bypass_loopback(&mut env);
+        assert_eq!(env["NO_PROXY"], "127.0.0.1,localhost");
+        assert_eq!(env["no_proxy"], "127.0.0.1,localhost");
+        let mut env = std::collections::BTreeMap::new();
+        env.insert("no_proxy".into(), "10.0.0.0/8, localhost".into());
+        super::bypass_loopback(&mut env);
+        assert_eq!(env["NO_PROXY"], "10.0.0.0/8,localhost,127.0.0.1");
+        assert_eq!(env["no_proxy"], env["NO_PROXY"]);
+    }
+
     use super::*;
 
     #[test]

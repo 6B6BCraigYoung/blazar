@@ -489,6 +489,7 @@ pub async fn prompt(
     if let Some((base, secret)) = proxy_env {
         spec.env.insert("ANTHROPIC_BASE_URL".into(), base);
         spec.env.insert("CLAUDE_CODE_OAUTH_TOKEN".into(), secret);
+        crate::proxy::bypass_loopback(&mut spec.env);
         spec.env.remove("ANTHROPIC_API_KEY");
         spec.env.remove("ANTHROPIC_AUTH_TOKEN");
     }
