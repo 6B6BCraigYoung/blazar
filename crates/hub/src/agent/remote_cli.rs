@@ -30,10 +30,7 @@ fn fmt_version(v: (u64, u64, u64)) -> String {
 }
 
 async fn local_version(runtime: &str) -> Option<(u64, u64, u64)> {
-    let script = format!(
-        "{}\n{runtime} --version",
-        blazar_runtime::discover::PATH_PRELUDE
-    );
+    let script = format!("{}\n{runtime} --version", blazar_transport::PATH_PRELUDE);
     let out = LocalTransport
         .exec(ExecSpec::new("bash").arg("-lc").arg(script))
         .await
@@ -62,7 +59,7 @@ async fn run(st: &Shared, node: &str, script: &str, secs: u64) -> Result<String,
 async fn remote_version(st: &Shared, node: &str, runtime: &str) -> Option<(u64, u64, u64)> {
     let script = format!(
         "{}\n{runtime} --version 2>/dev/null",
-        blazar_runtime::discover::PATH_PRELUDE
+        blazar_transport::PATH_PRELUDE
     );
     parse_version(&run(st, node, &script, 30).await.ok()?)
 }
@@ -107,7 +104,7 @@ async fn update_claude(st: &Shared, node: &str, want: (u64, u64, u64)) -> Result
     let script = format!(
         "{}{}\nclaude install {v} 2>&1 | tail -3",
         exports(st, node).await,
-        blazar_runtime::discover::PATH_PRELUDE
+        blazar_transport::PATH_PRELUDE
     );
     let log = run(st, node, &script, 600).await.unwrap_or_else(|e| e);
     if remote_version(st, node, "claude").await == Some(want) {

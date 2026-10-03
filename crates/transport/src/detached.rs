@@ -124,8 +124,6 @@ fn check_run_id(id: &str) -> Result<()> {
 
 fn render_cmd(spec: &ExecSpec) -> String {
     let mut s = String::from("#!/bin/bash\n");
-    // 只给了名字的 CLI 要按 PATH 找；非交互的 ssh 会话 PATH 往往很短（不含 ~/.local/bin），
-    // 先补上常见安装前缀，和探测 CLI 时一致（放在 env 前面，显式给的 PATH 优先）
     if !spec.program.contains('/') {
         s.push_str(crate::PATH_PRELUDE);
     }
@@ -527,12 +525,15 @@ mod tests {
             "要 exec 替换掉 bash，否则 TERM 只杀到 bash: {c}"
         );
         assert!(
-            c.find("$HOME/.local/bin")
+            c.find(crate::PATH_PRELUDE)
                 .is_some_and(|i| c.find("export K=").is_some_and(|j| i < j)),
             "按名字找的 CLI 先补 PATH，且在显式 env 之前: {c}"
         );
         let abs = render_cmd(&ExecSpec::new("/opt/claude/bin/claude"));
-        assert!(!abs.contains(".local/bin"), "给了绝对路径就不用补 PATH");
+        assert!(
+            !abs.contains(crate::PATH_PRELUDE),
+            "给了绝对路径就不用补 PATH"
+        );
     }
 
     #[tokio::test]

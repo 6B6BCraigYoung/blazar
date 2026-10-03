@@ -908,10 +908,7 @@ fn shell(provider: &str, cmd: &str) -> String {
         "claude" => "claude",
         _ => "codex",
     };
-    format!(
-        "{}\n{program} {cmd}",
-        blazar_runtime::discover::PATH_PRELUDE
-    )
+    format!("{}\n{program} {cmd}", blazar_transport::PATH_PRELUDE)
 }
 
 pub async fn probe(a: &Account) -> Probe {

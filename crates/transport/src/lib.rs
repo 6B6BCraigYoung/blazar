@@ -1,24 +1,5 @@
 pub mod detached;
 
-/// 把 agent CLI 常见的安装前缀补进 PATH 的 shell 片段，凡是要在 bash 里找 CLI 的地方都先跑它。
-pub const PATH_PRELUDE: &str = r#"
-# 有些 CLI 只在登录 shell 的 PATH 里；先把常见安装前缀补进来，
-# 比 fork 一个登录 shell 便宜，且对非交互会话同样有效。
-for d in "$HOME/.local/bin" "$HOME/.npm-global/bin" "$HOME/bin" \
-         "$HOME/.bun/bin" "$HOME/.deno/bin" "$HOME/.cargo/bin" \
-         /opt/homebrew/bin /usr/local/bin; do
-  [ -d "$d" ] && case ":$PATH:" in *":$d:"*) ;; *) PATH="$d:$PATH";; esac
-done
-# nvm / fnm 的多版本目录：取最新一个
-for base in "$HOME/.nvm/versions/node" "$HOME/.local/share/fnm/node-versions"; do
-  [ -d "$base" ] || continue
-  latest=$(ls -1 "$base" 2>/dev/null | sort -V | tail -1)
-  [ -n "$latest" ] && [ -d "$base/$latest/bin" ] && PATH="$base/$latest/bin:$PATH"
-  [ -n "$latest" ] && [ -d "$base/$latest/installation/bin" ] && PATH="$base/$latest/installation/bin:$PATH"
-done
-export PATH
-"#;
-
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -26,6 +7,30 @@ use std::process::Stdio;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use tokio::process::Command;
+
+pub const PATH_PRELUDE: &str = r#"
+for d in "$HOME/.local/bin" "$HOME/.npm-global/bin" "$HOME/bin" \
+         "$HOME/.bun/bin" "$HOME/.deno/bin" "$HOME/.cargo/bin" \
+         /opt/homebrew/bin /usr/local/bin; do
+  [ -d "$d" ] && case ":$PATH:" in *":$d:"*) ;; *) PATH="$d:$PATH";; esac
+done
+nvm="$HOME/.nvm/versions/node"
+if [ -d "$nvm" ]; then
+  want=$(cat "$HOME/.nvm/alias/default" 2>/dev/null)
+  want="v${want#v}"
+  pick=$(ls -1 "$nvm" 2>/dev/null | awk -v w="$want" 'index($0, w) == 1 && (length($0) == length(w) || substr($0, length(w) + 1, 1) == ".")' | sort -V | tail -1)
+  [ -n "$pick" ] || pick=$(ls -1 "$nvm" 2>/dev/null | sort -V | tail -1)
+  [ -n "$pick" ] && [ -d "$nvm/$pick/bin" ] && PATH="$nvm/$pick/bin:$PATH"
+fi
+fnm="$HOME/.local/share/fnm"
+if [ -d "$fnm/aliases/default/installation/bin" ]; then
+  PATH="$fnm/aliases/default/installation/bin:$PATH"
+elif [ -d "$fnm/node-versions" ]; then
+  pick=$(ls -1 "$fnm/node-versions" 2>/dev/null | sort -V | tail -1)
+  [ -n "$pick" ] && [ -d "$fnm/node-versions/$pick/installation/bin" ] && PATH="$fnm/node-versions/$pick/installation/bin:$PATH"
+fi
+export PATH
+"#;
 
 #[derive(Debug, thiserror::Error)]
 pub enum TransportError {
