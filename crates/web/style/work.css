@@ -68,3 +68,12 @@
 .work-page .md-body { padding: var(--space-md) 0; margin: 0; font-size: var(--font-size-body); }
 .work-page .bad, .work-dialog .bad { color: var(--err-fg); }
 .work-page .warn-tx, .work-dialog .warn-tx { color: var(--warn); }
+
+.tasks-page .work-task { gap: var(--space-sm); }
+.tasks-page .work-task-key { font-family: var(--font-sans); align-items: center; gap: var(--space-md); }
+.tasks-page .work-task-key > span:first-child { font-family: var(--font-mono); }
+.tasks-page .work-list .work-task { grid-template-columns: minmax(160px, 1fr) auto minmax(100px, 180px); }
+.tasks-page .tasks-empty { padding: var(--space-section) 0; }
+.tasks-page .tasks-column-empty { padding: var(--space-xl) var(--space-sm); font-size: var(--font-size-label); color: var(--fg-3); }
+.tasks-page .tasks-inline-empty { padding: var(--space-sm) 0; color: var(--fg-3); font-size: var(--font-size-label); }
+.tasks-dialog .tasks-fields { border: 0; padding: 0; margin: 0; min-width: 0; }

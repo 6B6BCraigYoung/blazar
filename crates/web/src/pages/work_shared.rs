@@ -1,4 +1,3 @@
-//! 工作页共用的表单、状态和实时刷新。
 use crate::{api, app_state::use_app, realtime::use_bus};
 use blazar_core_types::api::ServerEvent;
 use leptos::prelude::*;
@@ -59,7 +58,14 @@ pub fn status(s: &str) -> (&str, &str) {
 }
 pub fn badge(v: &str) -> AnyView {
     let (label, tone) = status(v);
-    view! {<span class=format!("gchip {tone}")>{label.to_owned()}</span>}.into_any()
+    let activity = match tone {
+        "ok" => "completed",
+        "info" => "running",
+        "warn" => "awaiting_approval",
+        "bad" => "errored",
+        _ => "idle",
+    };
+    view! {<span class="state-pill" data-act=activity>{label.to_owned()}</span>}.into_any()
 }
 pub fn work_revision(topic: &'static str) -> RwSignal<u32> {
     let rev = RwSignal::new(0u32);
