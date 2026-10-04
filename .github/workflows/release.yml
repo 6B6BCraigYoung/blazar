@@ -52,9 +52,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: trunk
+      - name: Install fixed Trunk from source
+        run: cargo install trunk --version 0.21.14 --locked
       - name: Web UI
         shell: bash
         run: cd crates/web && trunk build --release
