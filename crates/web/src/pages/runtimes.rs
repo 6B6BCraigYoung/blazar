@@ -1,7 +1,3 @@
-//! 运行时与账号：每个运行时一张卡，下面挂它的账号，一行一个；在用的那行高亮，别的行点「使用」就换过去。
-//! 「⋯」里管账号：登录、刷新额度、换长期 token、订阅类型、改名、停用、删除。
-//! 还有运行时的设置页：账号、配置、环境变量、自定义参数。
-
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_router::hooks::use_params_map;
@@ -16,7 +12,6 @@ use crate::fmt;
 use crate::realtime::use_bus;
 use crate::rt_logo;
 
-/// 支持多账号的运行时。
 pub const WITH_ACCOUNTS: [(&str, &str); 2] = [("claude", "Claude Code"), ("codex", "Codex")];
 
 fn provider_label(p: &str) -> &str {
@@ -41,7 +36,6 @@ fn plan_label(p: &str) -> &str {
     }
 }
 
-/// claude-fable-5-1 → Fable 5.1
 fn model_label(m: &str) -> String {
     let x: Vec<&str> = m.trim_start_matches("claude-").split('-').collect();
     match x.split_first() {
@@ -74,7 +68,6 @@ pub fn RuntimesPage() -> impl IntoView {
         rescan.track();
         api::get::<Accounts>("/api/accounts")
     });
-    // 进来时让 hub 查一遍各账号的登录状态，结果通过 accounts_changed 回来。
     spawn_local(async move {
         let _ = api::send::<Value>("POST", "/api/accounts/check", &json!({})).await;
     });
@@ -178,7 +171,6 @@ enum Form {
     Plan(Account),
 }
 
-/// 一个运行时的账号表（运行时页和设置页都用）。
 #[component]
 pub fn AccountsSection(
     provider: String,
@@ -267,7 +259,6 @@ async fn patch(a: &Account, body: Value) -> Result<Value, api::ApiError> {
     api::send::<Value>("PUT", &format!("/api/accounts/{}", api::enc(&a.id)), &body).await
 }
 
-/// 登录（浏览器登录的账号）：对话框里开终端跑官方登录命令，结束后查一次状态。
 pub fn login(a: &Account) {
     let id = a.id.clone();
     let cmd = if a.provider == "claude" {
@@ -278,7 +269,7 @@ pub fn login(a: &Account) {
     term_dialog::open(TermLogin {
         title: format!("登录 {}", a.label),
         hint: format!(
-            "正在运行 <span class=\"mono\">{cmd}</span>{}。浏览器没自动打开的话，复制终端里的链接去登录。",
+            "正在运行 {cmd}{}。浏览器没自动打开的话，复制终端里的链接去登录。",
             if a.config_dir.is_some() {
                 "（独立配置目录）"
             } else {
@@ -317,12 +308,11 @@ pub fn login(a: &Account) {
     });
 }
 
-/// 在远端机器上登录 Codex：设备码方式，凭据只保存在那台机器上。
 pub fn node_login(node: String, after: Callback<()>) {
     term_dialog::open(TermLogin {
         title: format!("在 {node} 上登录 Codex"),
         hint: format!(
-            "正在 {node} 上运行 <span class=\"mono\">codex login --device-auth</span>。在本地浏览器打开下面的链接、输入验证码即可，凭据只保存在 {node} 上。"
+            "正在 {node} 上运行 codex login --device-auth。在本地浏览器打开下面的链接、输入验证码即可，凭据只保存在 {node} 上。"
         ),
         path: format!("/api/nodes/{}/login/codex/ws", api::enc(&node)),
         after,
@@ -629,8 +619,6 @@ fn AccountForm(
     }
 }
 
-// ───────────────────────── 运行时设置页 ─────────────────────────
-
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 struct AgentSpec {
     id: String,
@@ -712,7 +700,6 @@ fn RuntimeDetail(id: String) -> impl IntoView {
         v
     };
     let id_s = StoredValue::new(id.clone());
-    // 合并到某台机器（或全局默认）已有的配置上再保存。
     let save = move |node: String, f: Box<dyn FnOnce(&mut AgentConfig)>| {
         let mine = configs
             .get_untracked()
@@ -892,7 +879,6 @@ fn RuntimeDetail(id: String) -> impl IntoView {
     }
 }
 
-/// 全局切换：Blazar 里换账号时，终端里的 claude / codex 和 Cursor 插件也跟着换。
 #[component]
 fn GlobalSync(accounts: LocalResource<Result<Accounts, api::ApiError>>) -> impl IntoView {
     let bus = use_bus();

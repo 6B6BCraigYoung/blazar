@@ -1,5 +1,3 @@
-//! 在对话框里开一个终端跑登录命令（claude auth login / codex login …），关掉后回调。
-
 use std::rc::Rc;
 
 use leptos::html;
@@ -12,7 +10,6 @@ use crate::term;
 pub struct TermLogin {
     pub title: String,
     pub hint: String,
-    /// hub 上的 WebSocket 路径，比如 /api/accounts/{id}/login/ws
     pub path: String,
     pub after: Callback<()>,
 }
@@ -76,7 +73,7 @@ fn Dialog(t: TermLogin, on_close: impl Fn() + Copy + 'static) -> impl IntoView {
         <div class="dlg-mask">
             <div class="dlg wide">
                 <h3>{t.title.clone()}</h3>
-                <div class="muted small" inner_html=t.hint.clone()></div>
+                <div class="muted small">{t.hint.clone()}</div>
                 <div class="login-term" node_ref=host></div>
                 <div class="dlg-foot">
                     <span class="muted small grow">{move || state.get()}</span>
