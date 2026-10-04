@@ -195,7 +195,7 @@ fn parse_user(v: &Value) -> Vec<EntryKind> {
 }
 
 fn parse_result(v: &Value) -> Vec<EntryKind> {
-    let usage = v.get("usage").and_then(parse_usage).map(|mut u| {
+    let usage = v.get("usage").map(parse_usage).map(|mut u| {
         u.cost_usd = v.get("total_cost_usd").and_then(Value::as_f64);
         u
     });
@@ -345,15 +345,15 @@ fn content_blocks(message: &Value) -> impl Iterator<Item = &Value> {
         .iter()
 }
 
-fn parse_usage(v: &Value) -> Option<TokenUsage> {
+fn parse_usage(v: &Value) -> TokenUsage {
     let u = |key: &str| v.get(key).and_then(Value::as_u64).unwrap_or(0);
-    Some(TokenUsage {
+    TokenUsage {
         input: u("input_tokens"),
         output: u("output_tokens"),
         cache_read: u("cache_read_input_tokens"),
         cache_creation: u("cache_creation_input_tokens"),
         cost_usd: None,
-    })
+    }
 }
 
 fn flatten_result_content(v: Option<&Value>) -> String {
