@@ -68,6 +68,7 @@ pub async fn send_to_idle(
     sent: &str,
     images: &[ImageInput],
 ) -> Option<(SessionId, String)> {
+    let _guard = st.quiesce(ws).ok()?;
     let (sid, live) = {
         let r = st.running.read().await;
         let (sid, run) = r.iter().find(|(_, x)| x.workspace_id == ws)?;
@@ -75,7 +76,7 @@ pub async fn send_to_idle(
     };
     {
         let s = live.state.lock().await;
-        if !live.interactive || !s.idle || s.eof_sent {
+        if !live.interactive || !s.idle || s.eof_sent || s.interrupt_requested {
             return None;
         }
     }

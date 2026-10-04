@@ -89,6 +89,9 @@ pub async fn delete_workspace(
     State(st): State<Shared>,
     Path(id): Path<String>,
 ) -> ApiResult<StatusCode> {
+    let workspace = WorkspaceId(id.parse()?);
+    let _guard = st.quiesce(workspace).map_err(ApiError::bad_request)?;
+    stop_sessions_of(&st, workspace).await?;
     sqlx::query("DELETE FROM workspaces WHERE id = ?1")
         .bind(&id)
         .execute(st.db.pool())

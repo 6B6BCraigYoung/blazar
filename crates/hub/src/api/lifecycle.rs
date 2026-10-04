@@ -243,7 +243,9 @@ pub async fn pause_workspace(
     State(st): State<Shared>,
     Path(id): Path<String>,
 ) -> ApiResult<Json<serde_json::Value>> {
-    let stopped = stop_sessions_of(&st, WorkspaceId(id.parse()?)).await;
+    let workspace = WorkspaceId(id.parse()?);
+    let _guard = st.quiesce(workspace).map_err(ApiError::bad_request)?;
+    let stopped = stop_sessions_of(&st, workspace).await?;
     let (mgr, env) = worktree_mgr(&st, &id).await?;
     let paused = mgr.pause(&env).await?;
     sqlx::query("UPDATE workspaces SET status = 'paused' WHERE id = ?1")
@@ -303,10 +305,13 @@ pub async fn destroy_workspace(
     State(st): State<Shared>,
     Path(id): Path<String>,
 ) -> ApiResult<Json<serde_json::Value>> {
-    let stopped = stop_sessions_of(&st, WorkspaceId(id.parse()?)).await;
+    let workspace = WorkspaceId(id.parse()?);
+    let _guard = st.quiesce(workspace).map_err(ApiError::bad_request)?;
+    let stopped = stop_sessions_of(&st, workspace).await?;
 
     let mut branch_kept = None;
-    if let Ok((mgr, env)) = worktree_mgr(&st, &id).await {
+    if task_env_of(&st, &id).await?.is_some() {
+        let (mgr, env) = worktree_mgr(&st, &id).await?;
         branch_kept = mgr.destroy(&env).await?.branch_kept;
     }
     sqlx::query("DELETE FROM workspaces WHERE id = ?1")
@@ -321,3 +326,7 @@ pub async fn destroy_workspace(
         "branch_kept": branch_kept,
     })))
 }
+
+#[cfg(test)]
+#[path = "lifecycle_shutdown_tests.rs"]
+mod shutdown_tests;

@@ -14,8 +14,7 @@ alive() {
 }
 "#;
 
-const RUN_SH: &str = r#"# blazar-run v2 —— bash run.sh <rundir> <relay|null> <run-id>
-D=$1; MODE=$2; RID=$3
+const RUN_SH: &str = r#"D=$1; MODE=$2; RID=$3
 cd "$D" || exit 97
 trap '' HUP
 __IDENTITY__
@@ -395,29 +394,104 @@ exit 0"#,
     }
 
     pub async fn hard_kill(&self) -> Result<()> {
+        self.hard_kill_with(signal_local).await
+    }
+
+    async fn hard_kill_with(&self, local_signal: impl Fn(i32, bool) -> Result<()>) -> Result<()> {
+        let initial = self.stop_status().await?;
+        if let StopStatus::Alive(pid) = initial {
+            self.signal(pid, false, &local_signal).await?;
+        }
+        let mut status = self.wait_stopped(initial).await?;
+        if let StopStatus::Alive(pid) = status {
+            self.signal(pid, true, &local_signal).await?;
+            status = self.wait_stopped(status).await?;
+        }
+        if status != StopStatus::Stopped {
+            return Err(stop_error("进程组仍在运行，无法确认已经停止"));
+        }
+        self.transport
+            .exec(sh(in_dir(
+                &self.dir,
+                r#"[ -e exit.code ] && exit 0
+printf '\n{"type":"blazar_exit","code":137}\n' >> out.jsonl &&
+echo 137 > exit.code.tmp && mv exit.code.tmp exit.code"#,
+            )))
+            .await?
+            .ok()?;
+        Ok(())
+    }
+
+    async fn stop_status(&self) -> Result<StopStatus> {
         let body = format!(
             r#"{IDENTITY_FNS}
-[ -e exit.code ] && exit 0
-alive || exit 0
-read -r P B S < pid
-kill -TERM "$P" 2>/dev/null
-i=0; while [ $i -lt 20 ] && [ ! -e exit.code ]; do sleep 0.5; i=$((i+1)); done
-[ -e exit.code ] && exit 0
-kill -KILL -"$P" 2>/dev/null
-L=$(grep -lz "^BLAZAR_RUN={rid}\$" /proc/[0-9]*/environ 2>/dev/null | sed 's#/proc/\([0-9]*\)/environ#\1#' | tr '\n' ' ')
-[ -n "$L" ] && kill -KILL $L 2>/dev/null
-printf '\n{{"type":"blazar_exit","code":137}}\n' >> out.jsonl
-echo 137 > exit.code.tmp && mv exit.code.tmp exit.code"#,
-            rid = self.run_id,
+read -r P B S < pid 2>/dev/null || {{ echo '无法读取运行进程身份' >&2; exit 15; }}
+case "$P" in ''|*[!0-9]*) echo '运行 PID 无效' >&2; exit 15;; esac
+[ "$P" -gt 1 ] || exit 15
+TABLE=$(ps -eo pid=,pgid=,stat=) || {{ echo '无法检查进程组' >&2; exit 15; }}
+STATE=$(printf '%s\n' "$TABLE" | awk -v p="$P" '$1 == p {{print $3}}')
+if alive && [ "${{STATE#Z}}" = "$STATE" ]; then
+  PG=$(printf '%s\n' "$TABLE" | awk -v p="$P" '$1 == p {{print $2}}')
+  [ "$PG" = "$P" ] || {{ echo '运行进程组身份不匹配' >&2; exit 15; }}
+  echo "alive=$P"
+elif printf '%s\n' "$TABLE" | awk -v p="$P" '$2 == p && $3 !~ /^Z/ {{found=1}} END {{exit !found}}'; then
+  echo waiting
+else
+  echo stopped
+fi"#
         );
-        let out = self.transport.exec(sh(in_dir(&self.dir, &body))).await?;
-        if out.code != 0 && out.code != 94 {
-            return Err(TransportError::Command {
-                code: out.code,
-                stderr: out.stderr.trim().to_owned(),
-            });
+        let out = self
+            .transport
+            .exec(sh(in_dir(&self.dir, &body)))
+            .await?
+            .ok()?;
+        parse_stop_status(out.trim())
+    }
+
+    async fn wait_stopped(&self, mut status: StopStatus) -> Result<StopStatus> {
+        for _ in 0..20 {
+            if status == StopStatus::Stopped {
+                return Ok(status);
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            status = self.stop_status().await?;
         }
-        Ok(())
+        Ok(status)
+    }
+
+    async fn signal(
+        &self,
+        pid: i32,
+        force: bool,
+        local_signal: &impl Fn(i32, bool) -> Result<()>,
+    ) -> Result<()> {
+        match self.stop_status().await? {
+            StopStatus::Stopped => return Ok(()),
+            StopStatus::Alive(current) if current == pid => {}
+            _ => return Err(stop_error("运行身份已变化，请重新确认进程状态后重试")),
+        }
+        match self.transport.kind() {
+            crate::TransportKind::Local => local_signal(pid, force),
+            crate::TransportKind::Ssh => {
+                let command = if force {
+                    "builtin kill -KILL -- \"-$P\""
+                } else {
+                    "builtin kill -TERM \"$P\""
+                };
+                let body = format!(
+                    r#"{IDENTITY_FNS}
+alive || {{ echo '运行身份已变化' >&2; exit 15; }}
+read -r P B S < pid
+[ "$P" = '{pid}' ] || exit 15
+{command}"#
+                );
+                self.transport
+                    .exec(sh(in_dir(&self.dir, &body)))
+                    .await?
+                    .ok()?;
+                Ok(())
+            }
+        }
     }
 
     pub async fn remove(&self) -> Result<()> {
@@ -444,6 +518,59 @@ echo 137 > exit.code.tmp && mv exit.code.tmp exit.code"#,
             .await?;
         Ok(out.stdout)
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum StopStatus {
+    Alive(i32),
+    Waiting,
+    Stopped,
+}
+
+fn stop_error(message: impl Into<String>) -> TransportError {
+    TransportError::Command {
+        code: 15,
+        stderr: message.into(),
+    }
+}
+
+fn parse_stop_status(raw: &str) -> Result<StopStatus> {
+    match raw {
+        "stopped" => Ok(StopStatus::Stopped),
+        "waiting" => Ok(StopStatus::Waiting),
+        _ => raw
+            .strip_prefix("alive=")
+            .and_then(|value| value.parse::<i32>().ok())
+            .filter(|pid| *pid > 1)
+            .map(StopStatus::Alive)
+            .ok_or_else(|| stop_error("无法确认运行进程组状态")),
+    }
+}
+
+#[cfg(unix)]
+fn signal_local(pid: i32, force: bool) -> Result<()> {
+    use nix::sys::signal::{Signal, kill, killpg};
+    use nix::unistd::Pid;
+    if pid <= 1 {
+        return Err(stop_error("运行 PID 无效"));
+    }
+    let pid = Pid::from_raw(pid);
+    let result = if force {
+        killpg(pid, Signal::SIGKILL)
+    } else {
+        kill(pid, Signal::SIGTERM)
+    };
+    match result {
+        Ok(()) | Err(nix::errno::Errno::ESRCH) => Ok(()),
+        Err(error) => Err(stop_error(format!("无法停止本机运行: {error}"))),
+    }
+}
+
+#[cfg(not(unix))]
+fn signal_local(_pid: i32, _force: bool) -> Result<()> {
+    Err(stop_error(
+        "此平台暂不支持安全停止本机后台进程组，请手动停止后重试",
+    ))
 }
 
 fn parse_probe(raw: &str) -> RunState {
@@ -604,6 +731,167 @@ mod tests {
         run.hard_kill().await.unwrap();
         run.remove().await.unwrap();
         assert!(!std::path::Path::new(&run.dir).exists());
+    }
+
+    struct FailedKillTransport;
+
+    #[async_trait::async_trait]
+    impl NodeTransport for FailedKillTransport {
+        fn kind(&self) -> crate::TransportKind {
+            crate::TransportKind::Ssh
+        }
+
+        fn target(&self) -> &str {
+            "gpu-1"
+        }
+
+        async fn exec(&self, spec: ExecSpec) -> Result<crate::ExecOutput> {
+            let body = spec
+                .args
+                .last()
+                .unwrap()
+                .replace(IDENTITY_FNS, "alive() { return 0; }\n")
+                .replace("builtin kill ", "fixture_kill ")
+                .replace("kill ", "fixture_kill ");
+            let stub = "fixture_kill() { return 1; }; fixture_fixture_kill() { return 1; }; sleep() { :; }; grep() { return 1; }; ps() { printf '12345 12345 S\\n'; }; ";
+            LocalTransport
+                .exec(
+                    ExecSpec::new("bash")
+                        .arg("--noprofile")
+                        .arg("--norc")
+                        .arg("-c")
+                        .arg(format!("{stub}{body}"))
+                        .env("BASH_ENV", "/dev/null"),
+                )
+                .await
+        }
+
+        async fn spawn_lines(&self, _spec: ExecSpec) -> Result<LineStream> {
+            panic!("hard kill must not launch a stream")
+        }
+    }
+
+    #[tokio::test]
+    async fn hard_kill_reports_signal_failure_without_forging_exit() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("pid"), "12345 fixture fixture").unwrap();
+        std::fs::write(root.path().join("out.jsonl"), "").unwrap();
+        let run = DetachedRun::attach(
+            Arc::new(FailedKillTransport),
+            root.path().display().to_string(),
+            "fixture".into(),
+        );
+        let result = run.hard_kill().await;
+        assert!(result.is_err(), "failed signals must not report success");
+        assert!(!root.path().join("exit.code").exists());
+    }
+
+    struct LocalSignalTransport {
+        stopped: std::sync::atomic::AtomicBool,
+        finalized: std::sync::atomic::AtomicBool,
+    }
+
+    #[async_trait::async_trait]
+    impl NodeTransport for LocalSignalTransport {
+        fn kind(&self) -> crate::TransportKind {
+            crate::TransportKind::Local
+        }
+
+        fn target(&self) -> &str {
+            "local"
+        }
+
+        async fn exec(&self, spec: ExecSpec) -> Result<crate::ExecOutput> {
+            use std::sync::atomic::Ordering;
+            let body = spec.args.last().unwrap();
+            let stdout = if body.contains("TABLE=$(ps") {
+                if self.stopped.load(Ordering::SeqCst) {
+                    "stopped"
+                } else {
+                    "alive=12345"
+                }
+            } else {
+                assert!(!body.contains("kill -"));
+                self.finalized.store(true, Ordering::SeqCst);
+                ""
+            };
+            Ok(crate::ExecOutput {
+                code: 0,
+                stdout: stdout.into(),
+                stderr: String::new(),
+            })
+        }
+
+        async fn spawn_lines(&self, _spec: ExecSpec) -> Result<LineStream> {
+            panic!("hard kill must not launch a stream")
+        }
+    }
+
+    #[tokio::test]
+    async fn hard_kill_local_confirms_injected_signal_without_executing_shell_kill() {
+        use std::sync::atomic::Ordering;
+        let fake = Arc::new(LocalSignalTransport {
+            stopped: std::sync::atomic::AtomicBool::new(false),
+            finalized: std::sync::atomic::AtomicBool::new(false),
+        });
+        let run = DetachedRun::attach(fake.clone(), "/fixture/run".into(), "fixture".into());
+        run.hard_kill_with(|pid, force| {
+            assert_eq!(pid, 12345);
+            assert!(!force);
+            fake.stopped.store(true, Ordering::SeqCst);
+            Ok(())
+        })
+        .await
+        .unwrap();
+        assert!(fake.finalized.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn hard_kill_local_signal_error_does_not_finalize_the_run() {
+        use std::sync::atomic::Ordering;
+        let fake = Arc::new(LocalSignalTransport {
+            stopped: std::sync::atomic::AtomicBool::new(false),
+            finalized: std::sync::atomic::AtomicBool::new(false),
+        });
+        let run = DetachedRun::attach(fake.clone(), "/fixture/run".into(), "fixture".into());
+        assert!(
+            run.hard_kill_with(|_, _| Err(stop_error("fixture signal refused")))
+                .await
+                .is_err()
+        );
+        assert!(!fake.finalized.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn hard_kill_rejects_reserved_or_invalid_process_ids() {
+        for value in [
+            "alive=-1",
+            "alive=0",
+            "alive=1",
+            "alive=2147483648",
+            "exited=0",
+            "",
+        ] {
+            assert!(parse_stop_status(value).is_err(), "{value}");
+        }
+        assert_eq!(
+            parse_stop_status("alive=12345").unwrap(),
+            StopStatus::Alive(12345)
+        );
+    }
+
+    #[tokio::test]
+    async fn hard_kill_does_not_trust_exit_markers_when_processes_are_alive() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("pid"), "12345 fixture fixture").unwrap();
+        std::fs::write(root.path().join("out.jsonl"), "").unwrap();
+        std::fs::write(root.path().join("exit.code"), "137").unwrap();
+        let run = DetachedRun::attach(
+            Arc::new(FailedKillTransport),
+            root.path().display().to_string(),
+            "fixture".into(),
+        );
+        assert!(run.hard_kill().await.is_err());
     }
 
     #[test]

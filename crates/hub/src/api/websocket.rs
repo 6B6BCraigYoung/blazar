@@ -46,42 +46,72 @@ pub async fn ws_handler(ws: WebSocketUpgrade, State(st): State<Shared>) -> Respo
 
 use tokio::sync::broadcast;
 
-pub(crate) async fn stop_sessions_of(st: &Shared, workspace_id: WorkspaceId) -> usize {
-    let victims: Vec<SessionId> = {
-        let running = st.running.read().await;
-        running
-            .iter()
-            .filter(|(_, r)| r.workspace_id == workspace_id)
-            .map(|(id, _)| *id)
-            .collect()
-    };
-    let mut n = 0;
-    for sid in victims {
-        let live = st
+pub(crate) async fn stop_sessions_of(
+    st: &Shared,
+    workspace_id: WorkspaceId,
+) -> anyhow::Result<usize> {
+    stop_sessions_with_timeout(st, workspace_id, std::time::Duration::from_secs(30)).await
+}
+
+pub(crate) async fn stop_sessions_with_timeout(
+    st: &Shared,
+    workspace_id: WorkspaceId,
+    timeout: std::time::Duration,
+) -> anyhow::Result<usize> {
+    tokio::time::timeout(timeout, async {
+        let victims: Vec<_> = st
             .running
             .read()
             .await
-            .get(&sid)
-            .and_then(|r| r.live.clone());
-        if let Some(live) = live {
-            live.state.lock().await.interrupt_requested = true;
-            let _ = live.run.hard_kill().await;
-            n += 1;
-            continue;
+            .iter()
+            .filter(|(_, run)| run.workspace_id == workspace_id)
+            .map(|(sid, run)| (*sid, run.live.clone(), run.killer.clone()))
+            .collect();
+        let persisted: Vec<String> = sqlx::query_scalar(
+            "SELECT id FROM sessions WHERE workspace_id = ?1 AND status = 'running'",
+        )
+        .bind(workspace_id.to_string())
+        .fetch_all(st.db.pool())
+        .await?;
+        for sid in persisted {
+            anyhow::ensure!(
+                victims.iter().any(|(id, _, _)| id.to_string() == sid),
+                "会话 {sid} 尚未重新连接，无法确认已经停止；请恢复节点连接并重试，工作区记录与目录已保留"
+            );
         }
-        if let Some(run) = st.running.write().await.remove(&sid) {
-            if let Some(k) = &run.killer {
-                k.kill();
+        for (sid, live, killer) in &victims {
+            if let Some(live) = live {
+                live.state.lock().await.interrupt_requested = true;
+                live.run.hard_kill().await.map_err(|error| {
+                    anyhow::anyhow!("无法停止会话 {sid}: {error}；请检查节点连接或进程权限后重试，工作区记录与目录已保留")
+                })?;
+                anyhow::ensure!(
+                    matches!(live.run.probe().await?, blazar_transport::detached::RunState::Exited { .. }),
+                    "会话 {sid} 未确认退出；请恢复节点连接并重试，工作区记录与目录已保留"
+                );
+            } else if let Some(killer) = killer {
+                killer.kill();
+            } else {
+                anyhow::bail!("会话 {sid} 没有可用的停止句柄；请重新连接会话后重试，工作区记录与目录已保留");
             }
-            run.task.abort();
-            let _ = sqlx::query("UPDATE sessions SET status = 'interrupted' WHERE id = ?1")
-                .bind(sid.to_string())
-                .execute(st.db.pool())
-                .await;
-            n += 1;
         }
-    }
-    n
+        while st.running.read().await.values().any(|run| run.workspace_id == workspace_id) {
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        }
+        let remaining: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM sessions WHERE workspace_id = ?1 AND status = 'running'",
+        )
+        .bind(workspace_id.to_string())
+        .fetch_one(st.db.pool())
+        .await?;
+        anyhow::ensure!(
+            remaining == 0,
+            "会话结束状态尚未保存；请恢复数据库与节点连接后重试，工作区记录与目录已保留"
+        );
+        Ok(victims.len())
+    })
+    .await
+    .map_err(|_| anyhow::anyhow!("等待会话停止超时；请检查节点连接与进程状态后重试，工作区记录与目录已保留"))?
 }
 
 pub async fn interrupt(
