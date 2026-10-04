@@ -10,6 +10,7 @@ use sqlx::{Row, SqlitePool};
 
 pub type Result<T> = std::result::Result<T, Error>;
 
+mod migration_guard;
 mod privacy;
 pub use privacy::ensure_private_dir;
 
@@ -23,6 +24,9 @@ pub enum Error {
 
     #[error("迁移失败: {0}")]
     Migrate(#[from] sqlx::migrate::MigrateError),
+
+    #[error("数据库迁移已停止：{0}。请先备份数据库并人工检查迁移记录")]
+    MigrationHistory(String),
 
     #[error("事件负载序列化失败: {0}")]
     Json(#[from] serde_json::Error),
@@ -77,30 +81,10 @@ impl Db {
     }
 
     async fn migrate(&self) -> Result<()> {
-        let migrator = sqlx::migrate!("./migrations");
-        self.repair_checksums(&migrator).await?;
-        migrator.run(&self.pool).await?;
-        Ok(())
-    }
-
-    async fn repair_checksums(&self, migrator: &sqlx::migrate::Migrator) -> Result<()> {
-        let table: Option<i64> = sqlx::query_scalar(
-            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = '_sqlx_migrations'",
-        )
-        .fetch_optional(&self.pool)
-        .await?;
-        if table.is_none() {
-            return Ok(());
-        }
-        for m in migrator.iter() {
-            sqlx::query(
-                "UPDATE _sqlx_migrations SET checksum = ?1 WHERE version = ?2 AND checksum != ?1",
-            )
-            .bind(m.checksum.as_ref())
-            .bind(m.version)
-            .execute(&self.pool)
-            .await?;
-        }
+        let mut tx = self.begin_write().await?;
+        let migrator = migration_guard::compatible_migrator(&mut tx).await?;
+        migrator.run_direct(&mut *tx).await?;
+        tx.commit().await?;
         Ok(())
     }
 
@@ -930,24 +914,5 @@ mod tests {
             .unwrap();
         assert_eq!(act, "running");
         assert!(db.pending_approvals(Some(ws)).await.unwrap().is_empty());
-    }
-
-    #[tokio::test]
-    async fn edited_migrations_are_accepted_by_existing_databases() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("t.sqlite");
-        let db = Db::open(&path).await.unwrap();
-        sqlx::query("UPDATE _sqlx_migrations SET checksum = X'00' WHERE version = 1")
-            .execute(db.pool())
-            .await
-            .unwrap();
-        drop(db);
-        let db = Db::open(&path).await.unwrap();
-        let stale: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM _sqlx_migrations WHERE checksum = X'00'")
-                .fetch_one(db.pool())
-                .await
-                .unwrap();
-        assert_eq!(stale, 0);
     }
 }
