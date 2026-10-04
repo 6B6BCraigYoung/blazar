@@ -25,7 +25,7 @@ pub fn data_dir() -> Result<PathBuf> {
         .data_dir()
         .to_path_buf();
     let dir = base.join("profiles").join(profile_name());
-    std::fs::create_dir_all(&dir)
+    blazar_hub::ensure_private_dir(&dir)
         .with_context(|| format!("创建数据目录 {} 失败", dir.display()))?;
     Ok(dir)
 }

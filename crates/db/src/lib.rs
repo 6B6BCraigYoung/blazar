@@ -10,8 +10,14 @@ use sqlx::{Row, SqlitePool};
 
 pub type Result<T> = std::result::Result<T, Error>;
 
+mod privacy;
+pub use privacy::ensure_private_dir;
+
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("保护数据库文件失败: {0}")]
+    Io(#[from] std::io::Error),
+
     #[error("数据库错误: {0}")]
     Sqlx(#[from] sqlx::Error),
 
@@ -32,6 +38,8 @@ pub struct Db {
 
 impl Db {
     pub async fn open(path: impl AsRef<Path>) -> Result<Self> {
+        let path = path.as_ref();
+        privacy::prepare_database(path)?;
         let options = SqliteConnectOptions::new()
             .filename(path)
             .create_if_missing(true)
@@ -39,7 +47,9 @@ impl Db {
             .synchronous(SqliteSynchronous::Normal)
             .busy_timeout(std::time::Duration::from_secs(10))
             .foreign_keys(true);
-        Self::connect(options).await
+        let db = Self::connect(options).await?;
+        privacy::restrict_sidecars(path)?;
+        Ok(db)
     }
 
     pub async fn open_in_memory() -> Result<Self> {
@@ -442,6 +452,73 @@ async fn write_event(
 mod tests {
     use super::*;
     use blazar_core_types::{NodeId, Outcome, ToolId};
+
+    #[cfg(unix)]
+    fn mode(path: &Path) -> u32 {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::metadata(path).unwrap().permissions().mode() & 0o777
+    }
+
+    #[cfg(unix)]
+    fn set_mode(path: &Path, mode: u32) {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_directory_does_not_change_existing_ancestors() {
+        let temp = tempfile::tempdir().unwrap();
+        let parent = temp.path().join("shared");
+        let app = parent.join("blazar");
+        std::fs::create_dir_all(&app).unwrap();
+        set_mode(&parent, 0o755);
+        set_mode(&app, 0o755);
+        ensure_private_dir(&app).unwrap();
+        assert_eq!(mode(&app), 0o700);
+        assert_eq!(mode(&parent), 0o755);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn database_and_sidecars_are_private_without_changing_parent_permissions() {
+        let temp = tempfile::tempdir().unwrap();
+        let parent = temp.path().join("shared");
+        std::fs::create_dir(&parent).unwrap();
+        set_mode(&parent, 0o755);
+        let path = parent.join("blazar.sqlite");
+        let db = Db::open(&path).await.unwrap();
+        for suffix in ["", "-wal", "-shm"] {
+            assert_eq!(
+                mode(&parent.join(format!("blazar.sqlite{suffix}"))),
+                0o600,
+                "{suffix}"
+            );
+        }
+        assert_eq!(mode(&parent), 0o755);
+        db.pool().close().await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn existing_database_and_sidecar_permissions_are_restricted_on_open() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("blazar.sqlite");
+        let first = Db::open(&path).await.unwrap();
+        for suffix in ["", "-wal", "-shm"] {
+            set_mode(&temp.path().join(format!("blazar.sqlite{suffix}")), 0o644);
+        }
+        let second = Db::open(&path).await.unwrap();
+        for suffix in ["", "-wal", "-shm"] {
+            assert_eq!(
+                mode(&temp.path().join(format!("blazar.sqlite{suffix}"))),
+                0o600,
+                "{suffix}"
+            );
+        }
+        second.pool().close().await;
+        first.pool().close().await;
+    }
 
     async fn fixture(db: &Db) -> (WorkspaceId, SessionId) {
         let now = Utc::now().to_rfc3339();

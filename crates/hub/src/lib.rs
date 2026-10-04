@@ -6,6 +6,7 @@ use anyhow::{Context, Result};
 use axum::Router;
 use axum::routing::{delete, get, post, put};
 use blazar_db::Db;
+pub use blazar_db::ensure_private_dir;
 
 mod agent;
 pub mod api;
@@ -54,7 +55,7 @@ pub fn default_db_path() -> anyhow::Result<std::path::PathBuf> {
         .ok_or_else(|| anyhow::anyhow!("cannot determine the platform data directory"))?
         .data_dir()
         .join("hub");
-    std::fs::create_dir_all(&dir)?;
+    ensure_private_dir(&dir)?;
     Ok(dir.join("blazar.sqlite"))
 }
 
