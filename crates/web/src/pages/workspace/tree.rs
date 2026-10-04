@@ -1,10 +1,8 @@
-//! 资源管理器：工作区文件树。顶上一行是工作区根目录，目录展开时才去磁盘列那一层
-//! （隐藏文件、被 git 忽略的都看得到，忽略的变暗）；改动标记来自 git。
-//! 有改动的目录默认展开（改动不多时），支持按路径筛选（筛选只在 git 知道的文件里找）。
-
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use leptos::prelude::*;
+
+use crate::components::status::{EmptyState, InlineError, LoadingState};
 
 use crate::api::{self, ChangeKind, DirItems, TreeEntry};
 
@@ -40,7 +38,6 @@ fn convert(name: String, path: String, b: Building) -> Node {
             convert(n, p, k)
         })
         .collect();
-    // 目录在前，再按名字（数字按大小）排。
     kids.sort_by(|a, b| b.dir.cmp(&a.dir).then_with(|| natural(&a.name, &b.name)));
     let has_change = b.change.is_some() || kids.iter().any(|k| k.has_change);
     Node {
@@ -136,7 +133,6 @@ struct Row {
     change: Option<ChangeKind>,
     has_change: bool,
     ignored: bool,
-    /// 这层条目太多、后面没列出来的提示行
     more: bool,
 }
 
@@ -151,7 +147,6 @@ fn find<'a>(root: &'a Node, path: &str) -> Option<&'a Node> {
     Some(cur)
 }
 
-/// 照磁盘列出来的目录（还没列到的先用 git 知道的顶上），从 `depth` 1 开始（0 是根目录那行）。
 fn disk_rows(
     git: Option<&Node>,
     dirs: &HashMap<String, DirItems>,
@@ -169,7 +164,6 @@ fn disk_rows(
         let by_name: HashMap<&str, &Node> = gnode
             .map(|n| n.kids.iter().map(|k| (k.name.as_str(), k)).collect())
             .unwrap_or_default();
-        // (名字, 是目录, 被忽略, git 节点)
         let mut kids: Vec<(String, bool, bool, Option<&Node>)> = match dirs.get(dir) {
             Some(l) => {
                 let mut v: Vec<_> = l
@@ -180,7 +174,6 @@ fn disk_rows(
                         (i.name.clone(), i.is_dir, i.ignored, g)
                     })
                     .collect();
-                // 磁盘上已经没有、但 git 里记着改动的（删掉的文件）也列出来
                 let on_disk: HashSet<&str> = l.items.iter().map(|i| i.name.as_str()).collect();
                 if !l.truncated {
                     for k in gnode.map(|n| n.kids.as_slice()).unwrap_or_default() {
@@ -298,28 +291,36 @@ pub fn FileTree(
     root: Memo<Option<Node>>,
     opened: RwSignal<HashSet<String>>,
     files: Files,
-    /// 根目录那一行显示的名字（工作区目录名）
-    #[prop(into)]
-    root_name: Signal<String>,
-    /// 变了就把已经列过的目录重新列一遍
-    #[prop(into)]
-    reload: Signal<u32>,
+    #[prop(into)] root_name: Signal<String>,
+    #[prop(into)] reload: Signal<u32>,
 ) -> impl IntoView {
     let filter = RwSignal::new(String::new());
     let root_open = RwSignal::new(true);
     let dirs = RwSignal::new(HashMap::<String, DirItems>::new());
-    // 已经去列过的目录（含失败的），免得失败的目录一直重试
+    let loading = RwSignal::new(HashSet::<String>::new());
+    let errors = RwSignal::new(HashMap::<String, String>::new());
     let tried = StoredValue::new(HashSet::<String>::new());
     let ws = files.ws();
     let fetch = StoredValue::new(move |dir: String| {
+        loading.update(|paths| {
+            paths.insert(dir.clone());
+        });
+        errors.update(|messages| {
+            messages.remove(&dir);
+        });
         let url = format!("/api/workspaces/{ws}/ls?path={}", api::enc(&dir));
         leptos::task::spawn_local(async move {
-            if let Ok(l) = api::get::<DirItems>(&url).await {
-                dirs.try_update(|m| m.insert(dir, l));
+            match api::get::<DirItems>(&url).await {
+                Ok(listing) => {
+                    dirs.try_update(|items| items.insert(dir.clone(), listing));
+                }
+                Err(error) => {
+                    errors.try_update(|messages| messages.insert(dir.clone(), error.to_string()));
+                }
             }
+            loading.try_update(|paths| paths.remove(&dir));
         });
     });
-    // 根目录和展开的目录：没列过的去列
     Effect::new(move |_| {
         if !root_open.get() {
             return;
@@ -337,7 +338,6 @@ pub fn FileTree(
             fetch.with_value(|f| f(d));
         }
     });
-    // 文件变了：开着的目录重新列，收起的丢掉缓存
     Effect::new(move |prev: Option<()>| {
         reload.track();
         if prev.is_none() {
@@ -349,6 +349,7 @@ pub fn FileTree(
                 .collect()
         });
         dirs.update(|m| m.retain(|k, _| keep.contains(k)));
+        errors.update(|messages| messages.retain(|path, _| keep.contains(path)));
         tried.set_value(HashSet::new());
         opened.update(|_| {});
     });
@@ -365,17 +366,24 @@ pub fn FileTree(
         })
     };
     view! {
-        <input class="tree-filter" placeholder="筛选文件…" prop:value=move || filter.get()
+        <input class="tree-filter" aria-label="筛选文件" title="按路径筛选 Git 已知的文件" placeholder="筛选文件…" prop:value=move || filter.get()
             on:input=move |e| filter.set(event_target_value(&e))/>
         <div class="tree">
-            <div class="tn root" data-open=move || root_open.get().to_string()
+            <button type="button" class="tn root" aria-expanded=move || root_open.get().to_string() data-open=move || root_open.get().to_string()
                 title=move || root_name.get() on:click=move |_| root_open.update(|o| *o = !*o)>
                 <span class="chev" inner_html=CHEV></span>
                 <span class="nm dir">{move || root_name.get()}</span>
-            </div>
+            </button>
+            <Show when=move || root_open.get()>
+                <Show when=move || loading.with(|paths| !paths.is_empty())><LoadingState text="读取目录…" class="tree-state"/></Show>
+                {move || errors.get().into_iter().filter(|(path, _)| path.is_empty() || opened.with(|paths| paths.contains(path))).map(|(path, error)| {
+                    let label = if path.is_empty() { "根目录".to_owned() } else { path.clone() };
+                    view! { <InlineError message=format!("读取{label}失败：{error}") class="tree-state" retry=Callback::new(move |_| fetch.with_value(|load| load(path.clone())))/> }
+                }).collect_view()}
+            </Show>
             {move || (root_open.get() || !filter.with(|f| f.trim().is_empty())).then(|| match list() {
-                None => view! { <div class="empty">"加载中…"</div> }.into_any(),
-                Some(r) if r.is_empty() => view! { <div class="empty">{move || if filter.with(|f| f.trim().is_empty()) { "空目录" } else { "无匹配" }}</div> }.into_any(),
+                None => ().into_any(),
+                Some(r) if r.is_empty() && loading.with(HashSet::is_empty) && errors.with(HashMap::is_empty) => view! { <EmptyState title=if filter.with(|f| f.trim().is_empty()) { "空目录" } else { "没有匹配的文件" }/> }.into_any(),
                 Some(r) => r.into_iter().map(|row| {
                     let (mark, cls) = change_mark(row.change);
                     let p = row.path.clone();
@@ -385,6 +393,7 @@ pub fn FileTree(
                         let p = p.clone();
                         move || !dir && files.current.with(|c| c.as_deref() == Some(p.as_str()))
                     };
+                    let accessible_sel = sel.clone();
                     let click = move |_| {
                         if more {
                         } else if dir {
@@ -394,15 +403,15 @@ pub fn FileTree(
                         }
                     };
                     view! {
-                        <div class="tn" data-open=row.open.to_string() data-sel=move || sel().to_string()
+                        <button type="button" class="tn" disabled=more aria-expanded=dir.then(|| row.open.to_string()) aria-pressed=move || (!dir && !more).then(|| accessible_sel().to_string()) data-open=row.open.to_string() data-sel=move || sel().to_string()
                             data-ign=row.ignored.to_string() data-more=more.to_string()
                             data-chg=(dir && row.has_change).to_string()
                             title=row.path.clone() on:click=click
-                            style=format!("padding-left:{}px", 8 + row.depth * 12)>
+                            style=format!("padding-left:calc(var(--space-md) + {} * var(--space-lg))", row.depth)>
                             <span class="chev" inner_html=if dir { CHEV } else { "" }></span>
                             <span class="nm" class:dir=dir>{row.name}</span>
                             <span class=format!("ch {cls}")>{mark}</span>
-                        </div>
+                        </button>
                     }
                 }).collect_view().into_any(),
             })}

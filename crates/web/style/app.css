@@ -494,3 +494,9 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 .nodes-dialog .ssh-row { white-space: normal; align-items: flex-start; }
 .nodes-dialog .ssh-row .mono.muted { overflow-wrap: anywhere; }
 .nodes-page .nodes-table td > .dot { display: inline-block; }
+
+.tree button.tn { width: 100%; border: 0; background: transparent; text-align: left; padding-top: 0; padding-bottom: 0; padding-left: 0; }
+.tree button.tn:hover { background: var(--bg-hover); }
+.tree button.tn[data-sel="true"] { background: var(--bg-raised); }
+.tree button.tn[data-more="true"]:hover { background: none; }
+.tree-state { padding: var(--space-md); font-size: var(--font-size-label); }
