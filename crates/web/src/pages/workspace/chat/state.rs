@@ -30,6 +30,10 @@ use send_context::SendContext;
 mod history;
 use history::{HistoryRequests, RowKey, merge_history};
 
+#[path = "approval_delivery.rs"]
+mod approval_delivery;
+use approval_delivery::ApprovalDeliveries;
+
 pub const CONTINUE_TEXT: &str = "（已换账号接着做）请从刚才中断的地方继续，把没做完的工作完成。";
 pub const ACC_RUNTIMES: [&str; 2] = ["claude", "codex"];
 
@@ -278,7 +282,7 @@ pub struct Chat {
     seen: StoredValue<HashSet<String>>,
     sessions: StoredValue<HashSet<String>>,
     pub transcript: RwSignal<Rc<Transcript>, LocalStorage>,
-    pub decided: RwSignal<HashSet<String>>,
+    pub decided: RwSignal<ApprovalDeliveries>,
     owner: StoredValue<Owner>,
     pub pending: RwSignal<Vec<PendingMsg>>,
     pub deliveries: RwSignal<Deliveries>,
@@ -347,7 +351,7 @@ impl Chat {
             seen: StoredValue::new(HashSet::new()),
             sessions: StoredValue::new(HashSet::new()),
             transcript: RwSignal::new_local(Rc::new(Transcript::default())),
-            decided: RwSignal::new(HashSet::new()),
+            decided: RwSignal::new(ApprovalDeliveries::default()),
             owner: StoredValue::new(Owner::current().unwrap_or_default()),
             pending: RwSignal::new(Vec::new()),
             deliveries: RwSignal::new(Deliveries::default()),
@@ -811,7 +815,7 @@ impl Chat {
                 .map(|row| (row.session_id.clone(), row.seq))
                 .collect()
         });
-        self.decided.set(HashSet::new());
+        self.decided.update(ApprovalDeliveries::clear);
         self.local_errors.set(Vec::new());
         let Some(thread) = view else {
             self.sessions.set_value(HashSet::new());
@@ -1377,23 +1381,30 @@ impl Chat {
     }
 
     pub fn decide(self, id: String, allow: bool, message: String, answers: Option<Value>) {
-        self.decided.update(|d| {
-            d.insert(id.clone());
-        });
+        if !self.decided.write().begin(&id) {
+            return;
+        }
         self.spawn(async move {
             let mut body = json!({ "allow": allow, "message": message });
             if let Some(a) = answers {
                 body["answers"] = a;
             }
-            match api::send::<Value>("POST", &format!("/api/approvals/{id}"), &body).await {
-                Ok(r) if r["delivered"].as_bool() == Some(true) => {}
-                Ok(r) => toast(r["reason"].as_str().unwrap_or("Not delivered").to_owned()),
-                Err(e) => {
-                    toast(format!("Couldn't send the decision: {e}"));
-                    self.decided.update(|d| {
-                        d.remove(&id);
-                    });
-                }
+            let result = api::send::<Value>("POST", &format!("/api/approvals/{id}"), &body).await;
+            let delivered = result
+                .as_ref()
+                .is_ok_and(|result| result["delivered"].as_bool() == Some(true));
+            let _ = self
+                .decided
+                .try_update(|decisions| decisions.finish(&id, delivered));
+            match result {
+                Ok(_) if delivered => {}
+                Ok(result) => toast(
+                    result["reason"]
+                        .as_str()
+                        .unwrap_or("决定未送达，请重试")
+                        .to_owned(),
+                ),
+                Err(error) => toast(format!("发送失败，输入已保留：{error}")),
             }
         });
     }

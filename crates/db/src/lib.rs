@@ -10,8 +10,10 @@ use sqlx::{Row, SqlitePool};
 
 pub type Result<T> = std::result::Result<T, Error>;
 
+mod approvals;
 mod migration_guard;
 mod privacy;
+pub use approvals::ApprovalResponse;
 pub use privacy::ensure_private_dir;
 
 #[derive(Debug, thiserror::Error)]
@@ -35,6 +37,9 @@ pub enum Error {
 
     #[error("事件负载序列化失败: {0}")]
     Json(#[from] serde_json::Error),
+
+    #[error("审批记录无效: {0}")]
+    InvalidApproval(String),
 
     #[error("库里的标识符不是合法 UUID: {0}")]
     BadId(#[from] sqlx::types::uuid::Error),
@@ -127,6 +132,7 @@ impl Db {
         let now = Utc::now().to_rfc3339();
         for a in approvals {
             let mut req = a.request.clone();
+            approvals::strip_response(&mut req);
 
             if let serde_json::Value::Object(_) = req {
                 let mut k = EntryKind::Approval {
@@ -244,7 +250,9 @@ impl Db {
     ) -> Result<Vec<PendingApproval>> {
         let mut tx = self.pool.begin().await?;
         let ids: Vec<String> = sqlx::query_scalar(
-            "SELECT id FROM approvals WHERE decision IS NULL
+            "SELECT id FROM approvals WHERE (decision IS NULL
+                OR (decision IN ('allow', 'deny') AND delivered_at IS NULL
+                    AND EXISTS (SELECT 1 FROM sessions s WHERE s.id = approvals.session_id AND s.status = 'running')))
                AND (?1 IS NULL OR workspace_id = ?1) ORDER BY created_at",
         )
         .bind(workspace_id.map(|w| w.to_string()))
@@ -363,6 +371,10 @@ pub struct PendingApproval {
 
     pub request: serde_json::Value,
     pub decision: Option<String>,
+    #[serde(skip)]
+    pub response: Option<ApprovalResponse>,
+    #[serde(skip)]
+    pub delivered: bool,
     pub created_at: String,
 }
 
@@ -372,7 +384,7 @@ async fn fetch_approval(
 ) -> Result<Option<PendingApproval>> {
     let Some(r) = sqlx::query(
         "SELECT id, session_id, workspace_id, provider_request_id, src_offset, request,
-                decision, created_at FROM approvals WHERE id = ?1",
+                decision, delivered_at, created_at FROM approvals WHERE id = ?1",
     )
     .bind(id.to_string())
     .fetch_optional(&mut **tx)
@@ -381,6 +393,8 @@ async fn fetch_approval(
         return Ok(None);
     };
     let sid: String = r.try_get("session_id")?;
+    let mut request = serde_json::from_str(&r.try_get::<String, _>("request")?)?;
+    let response = approvals::take_response(&mut request);
     Ok(Some(PendingApproval {
         id,
         session_id: SessionId(sid.parse()?),
@@ -389,8 +403,10 @@ async fn fetch_approval(
         src_offset: r
             .try_get::<Option<i64>, _>("src_offset")?
             .and_then(|v| u64::try_from(v).ok()),
-        request: serde_json::from_str(&r.try_get::<String, _>("request")?)?,
+        request,
         decision: r.try_get("decision")?,
+        response,
+        delivered: r.try_get::<Option<String>, _>("delivered_at")?.is_some(),
         created_at: r.try_get("created_at")?,
     }))
 }
@@ -419,7 +435,9 @@ async fn write_event(
     if let Some(mut activity) = ActivityState::from_entry(&kind) {
         if activity == ActivityState::Running {
             let still: i64 = sqlx::query_scalar(
-                "SELECT COUNT(*) FROM approvals WHERE workspace_id = ?1 AND decision IS NULL",
+                "SELECT COUNT(*) FROM approvals WHERE workspace_id = ?1
+                   AND (decision IS NULL OR (decision IN ('allow','deny') AND delivered_at IS NULL
+                       AND EXISTS (SELECT 1 FROM sessions s WHERE s.id = approvals.session_id AND s.status = 'running')))",
             )
             .bind(workspace_id.to_string())
             .fetch_one(&mut **tx)
@@ -879,7 +897,8 @@ mod tests {
         .await
         .unwrap();
         db.decide_approval(a, "allow", None).await.unwrap();
-        db.append_event(
+        db.acknowledge_approval(
+            a,
             sid,
             ws,
             &entry(

@@ -11,6 +11,8 @@ struct FakeTransport {
     removed: AtomicBool,
     drain_failed: AtomicBool,
     drain_nonzero: AtomicBool,
+    append_failed: AtomicBool,
+    inputs: std::sync::Mutex<Vec<(String, String)>>,
 }
 
 impl NodeTransport for FakeTransport {
@@ -53,6 +55,22 @@ impl NodeTransport for FakeTransport {
                     .parse()
                     .unwrap();
                 self.log[start - 1..].to_owned()
+            } else if script.contains("in.inode") && script.contains(">> in.jsonl") {
+                if self.append_failed.load(Ordering::SeqCst) {
+                    return Err(TransportError::Command {
+                        code: 1,
+                        stderr: "input unavailable".into(),
+                    });
+                }
+                let input = String::from_utf8(spec.stdin.unwrap()).unwrap();
+                let (id, payload) = input.trim_end_matches('\n').split_once('\t').unwrap();
+                let mut inputs = self.inputs.lock().unwrap();
+                if inputs.iter().any(|(existing, _)| existing == id) {
+                    "dup".into()
+                } else {
+                    inputs.push((id.into(), payload.into()));
+                    "ok".into()
+                }
             } else if script.contains("rm -rf") {
                 self.removed.store(true, Ordering::SeqCst);
                 String::new()
@@ -118,6 +136,8 @@ async fn fixture(log: String) -> (tempfile::TempDir, Ctx, Arc<FakeTransport>) {
         removed: AtomicBool::new(false),
         drain_failed: AtomicBool::new(false),
         drain_nonzero: AtomicBool::new(false),
+        append_failed: AtomicBool::new(false),
+        inputs: std::sync::Mutex::new(Vec::new()),
     });
     let live = Arc::new(Live {
         run: DetachedRun::attach(
@@ -348,4 +368,242 @@ async fn fast_completion_cannot_leave_a_stale_registered_run() {
     .unwrap();
     assert_eq!(session_state(&ctx).await.0, "done");
     assert!(!ctx.st.running.read().await.contains_key(&ctx.sid));
+}
+
+async fn approval_fixture() -> (tempfile::TempDir, Ctx, Arc<FakeTransport>, ApprovalId) {
+    let request = serde_json::json!({"tool_name":"AskUserQuestion","input":{"questions":[{"question":"Choice?"}]}});
+    let raw =
+        serde_json::json!({"type":"control_request","request_id":"request","request":request});
+    let (dir, ctx, fake) = fixture(format!("{raw}\n")).await;
+    let id = ApprovalId::from_provider("request");
+    ctx.st
+        .db
+        .record_line(
+            ctx.sid,
+            ctx.ws,
+            &[],
+            &[NewApproval {
+                id,
+                provider_request_id: "request".into(),
+                src_offset: 0,
+                request,
+            }],
+            raw.to_string().len() as u64 + 1,
+        )
+        .await
+        .unwrap();
+    ctx.st.running.write().await.insert(
+        ctx.sid,
+        RunningSession {
+            workspace_id: ctx.ws,
+            task: tokio::spawn(std::future::pending()),
+            killer: None,
+            live: Some(ctx.live.clone()),
+        },
+    );
+    (dir, ctx, fake, id)
+}
+
+async fn decide(
+    ctx: &Ctx,
+    id: ApprovalId,
+    allow: bool,
+    message: &str,
+    answers: Option<serde_json::Value>,
+) -> serde_json::Value {
+    let response = crate::api::decide_approval(
+        axum::extract::State(ctx.st.clone()),
+        axum::extract::Path(id.to_string()),
+        axum::Json(crate::api::DecideRequest {
+            allow,
+            message: message.into(),
+            answers: answers.and_then(|value| value.as_object().cloned()),
+        }),
+    )
+    .await
+    .unwrap_or_else(|error| panic!("{}", error.message()));
+    response.0
+}
+
+#[tokio::test]
+async fn approval_answers_survive_failed_delivery_and_replay() {
+    let (_dir, ctx, fake, id) = approval_fixture().await;
+    fake.append_failed.store(true, Ordering::SeqCst);
+    let answers = serde_json::json!({"Choice?":"A"});
+    assert_eq!(
+        decide(&ctx, id, true, "", Some(answers.clone())).await["delivered"],
+        false
+    );
+    let pending = ctx.st.db.undelivered_approvals(ctx.sid).await.unwrap();
+    fake.append_failed.store(false, Ordering::SeqCst);
+    deliver_saved_approval(&ctx.st, &pending[0]).await.unwrap();
+    let inputs = fake.inputs.lock().unwrap();
+    let response: serde_json::Value = serde_json::from_str(&inputs[0].1).unwrap();
+    assert_eq!(
+        response["response"]["response"]["updatedInput"]["answers"],
+        answers
+    );
+}
+
+#[tokio::test]
+async fn approval_denial_message_survives_failed_delivery_and_replay() {
+    let (_dir, ctx, fake, id) = approval_fixture().await;
+    fake.append_failed.store(true, Ordering::SeqCst);
+    assert_eq!(
+        decide(&ctx, id, false, "请先备份", None).await["delivered"],
+        false
+    );
+    let pending = ctx.st.db.undelivered_approvals(ctx.sid).await.unwrap();
+    fake.append_failed.store(false, Ordering::SeqCst);
+    deliver_saved_approval(&ctx.st, &pending[0]).await.unwrap();
+    let inputs = fake.inputs.lock().unwrap();
+    let response: serde_json::Value = serde_json::from_str(&inputs[0].1).unwrap();
+    assert_eq!(response["response"]["response"]["message"], "请先备份");
+}
+
+#[tokio::test]
+async fn approval_delivery_is_not_acknowledged_until_its_event_is_persisted() {
+    let (_dir, ctx, fake, id) = approval_fixture().await;
+    reject_events(&ctx).await;
+    assert_eq!(
+        decide(&ctx, id, true, "", Some(serde_json::json!({"Choice?":"A"}))).await["delivered"],
+        false
+    );
+    assert_eq!(
+        ctx.st
+            .db
+            .undelivered_approvals(ctx.sid)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(ctx.live.state.lock().await.next_seq, 1);
+    sqlx::query("DROP TRIGGER reject_event")
+        .execute(ctx.st.db.pool())
+        .await
+        .unwrap();
+    assert_eq!(
+        decide(&ctx, id, true, "", Some(serde_json::json!({"Choice?":"A"}))).await["delivered"],
+        true
+    );
+    assert!(
+        ctx.st
+            .db
+            .undelivered_approvals(ctx.sid)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(ctx.st.db.max_seq(ctx.sid).await.unwrap(), 1);
+    assert_eq!(fake.inputs.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn approval_waiting_for_delivery_remains_visible() {
+    let (_dir, ctx, fake, id) = approval_fixture().await;
+    fake.append_failed.store(true, Ordering::SeqCst);
+    let _ = decide(&ctx, id, true, "", Some(serde_json::json!({"Choice?":"A"}))).await;
+    assert_eq!(
+        ctx.st
+            .db
+            .pending_approvals(Some(ctx.ws))
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn approval_legacy_response_is_never_guessed() {
+    let (_dir, ctx, fake, id) = approval_fixture().await;
+    let approval = ctx
+        .st
+        .db
+        .decide_approval(id, "allow", None)
+        .await
+        .unwrap()
+        .unwrap();
+    let result = deliver_saved_approval(&ctx.st, &approval).await;
+    assert!(result.is_err());
+    assert!(fake.inputs.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn approval_retry_cannot_replace_the_original_decision_or_answers() {
+    let (_dir, ctx, fake, id) = approval_fixture().await;
+    fake.append_failed.store(true, Ordering::SeqCst);
+    let original = serde_json::json!({"Choice?":"A"});
+    let _ = decide(&ctx, id, true, "", Some(original.clone())).await;
+    fake.append_failed.store(false, Ordering::SeqCst);
+    assert_eq!(
+        decide(&ctx, id, false, "changed", None).await["delivered"],
+        false
+    );
+    assert_eq!(
+        decide(&ctx, id, true, "", Some(serde_json::json!({"Choice?":"B"}))).await["delivered"],
+        false
+    );
+    assert!(fake.inputs.lock().unwrap().is_empty());
+    assert_eq!(
+        decide(&ctx, id, true, "", Some(original.clone())).await["delivered"],
+        true
+    );
+    assert_eq!(
+        decide(&ctx, id, true, "", Some(original)).await["delivered"],
+        true
+    );
+    {
+        let inputs = fake.inputs.lock().unwrap();
+        assert_eq!(inputs.len(), 1);
+        assert!(!inputs[0].1.contains("_blazar_response"));
+    }
+    assert_eq!(ctx.st.db.max_seq(ctx.sid).await.unwrap(), 1);
+}
+
+#[tokio::test]
+async fn approval_compatibility_api_rejects_different_saved_response() {
+    let (_dir, ctx, fake, id) = approval_fixture().await;
+    let answers = serde_json::json!({"Choice?":"A"});
+    fake.append_failed.store(true, Ordering::SeqCst);
+    let _ = decide(&ctx, id, true, "", Some(answers.clone())).await;
+    let saved = ctx.st.db.approval(id).await.unwrap().unwrap();
+    fake.append_failed.store(false, Ordering::SeqCst);
+    assert!(
+        deliver_approval(&ctx.st, &saved, false, "changed", None)
+            .await
+            .is_err()
+    );
+    assert!(fake.inputs.lock().unwrap().is_empty());
+    deliver_approval(&ctx.st, &saved, true, "", Some(&answers))
+        .await
+        .unwrap();
+    assert_eq!(fake.inputs.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn approval_retry_worker_delivers_saved_decision() {
+    let (_dir, ctx, fake, id) = approval_fixture().await;
+    let answers = serde_json::json!({"Choice?":"A"});
+    fake.append_failed.store(true, Ordering::SeqCst);
+    let _ = decide(&ctx, id, true, "", Some(answers)).await;
+    fake.append_failed.store(false, Ordering::SeqCst);
+    let worker = tokio::spawn(retry_approvals(ctx.clone()));
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while !ctx
+            .st
+            .db
+            .undelivered_approvals(ctx.sid)
+            .await
+            .unwrap()
+            .is_empty()
+        {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    worker.abort();
+    assert_eq!(fake.inputs.lock().unwrap().len(), 1);
 }

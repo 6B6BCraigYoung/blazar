@@ -327,7 +327,12 @@ pub async fn register(
     let ws = ctx.ws;
     let live = ctx.live.clone();
     let mut running = st.running.write().await;
-    let task = tokio::spawn(supervise(ctx, offset, started));
+    let task = tokio::spawn(async move {
+        tokio::select! {
+            () = supervise(ctx.clone(), offset, started) => {},
+            () = retry_approvals(ctx) => {},
+        }
+    });
     running.insert(
         sid,
         RunningSession {
@@ -642,6 +647,30 @@ pub async fn deliver_approval_as(
     answers: Option<&serde_json::Value>,
     auto_rule: Option<String>,
 ) -> Result<(), String> {
+    if let Some(saved) = &a.response
+        && (a.decision.as_deref() != Some(if allow { "allow" } else { "deny" })
+            || saved.message != message
+            || saved.answers.as_ref() != answers
+            || saved.auto_rule != auto_rule)
+    {
+        return Err("投递参数与已保存的审批决定不一致，请使用原决定重试".into());
+    }
+    deliver_saved_approval(st, a).await
+}
+
+pub(crate) async fn deliver_saved_approval(
+    st: &Shared,
+    a: &blazar_db::PendingApproval,
+) -> Result<(), String> {
+    let response = a
+        .response
+        .as_ref()
+        .ok_or("这条审批未保存可恢复的完整答复，无法安全重试。请中断当前会话后重新提出请求")?;
+    let allow = match a.decision.as_deref() {
+        Some("allow") => true,
+        Some("deny") => false,
+        _ => return Err("审批尚未保存决定".into()),
+    };
     let (live, ws) = {
         let r = st.running.read().await;
         let run = r
@@ -658,46 +687,80 @@ pub async fn deliver_approval_as(
         .ok_or("原始请求已经不在节点上了")?;
     let v: serde_json::Value = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
     let rid = v["request_id"].as_str().ok_or("原始请求缺 request_id")?;
-
+    if a.provider_request_id.as_deref() != Some(rid) {
+        return Err("原始审批请求已改变，请中断会话后重新提出请求".into());
+    }
     let mut input = v["request"]["input"].clone();
-    if let (true, Some(ans), Some(obj)) = (allow, answers, input.as_object_mut()) {
+    if let (true, Some(ans)) = (allow, response.answers.as_ref()) {
+        let obj = input
+            .as_object_mut()
+            .ok_or("原始审批输入不完整，无法写入答复")?;
         obj.insert("answers".into(), ans.clone());
     }
-    let msg = approval_response_json(rid, allow, Some(&input), message);
-    {
-        let _guard = live.state.lock().await;
-        live.run
-            .append(&format!("a-{}", a.id), &msg)
-            .await
-            .map_err(|e| format!("写入 agent 输入失败: {e}"))?;
-    }
-    let _ = st.db.mark_approval_delivered(a.id).await;
+    let msg = approval_response_json(rid, allow, Some(&input), &response.message);
+    let mut state = live.state.lock().await;
+    live.run
+        .append(&format!("a-{}", a.id), &msg)
+        .await
+        .map_err(|e| format!("写入 agent 输入失败: {e}"))?;
     let e = NormalizedEntry {
-        seq: live.take_seq().await,
+        seq: state.next_seq,
         ts: Utc::now(),
         parent_tool_use_id: None,
         kind: EntryKind::ApprovalResolved {
             id: a.id,
-            decision: if let (true, Some(rule)) = (allow, auto_rule) {
-                ApprovalDecision::AutoAllowed { rule }
+            decision: if let (true, Some(rule)) = (allow, response.auto_rule.as_ref()) {
+                ApprovalDecision::AutoAllowed { rule: rule.clone() }
             } else if allow {
                 ApprovalDecision::Allow
             } else {
                 ApprovalDecision::Deny {
-                    message: message.to_owned(),
+                    message: response.message.clone(),
                 }
             },
         },
     };
-    let _ = st.db.append_event(a.session_id, ws, &e).await;
-    st.emit(ServerEvent::Entry {
-        workspace_id: ws,
-        session_id: a.session_id,
-        entry: Box::new(e),
-    });
-    st.emit(ServerEvent::WorkspacesChanged);
+    let fresh = st
+        .db
+        .acknowledge_approval(a.id, a.session_id, ws, &e)
+        .await
+        .map_err(|e| format!("输入已写入，但确认送达失败；可安全重试: {e}"))?;
+    if fresh {
+        state.next_seq += 1;
+    }
+    drop(state);
+    if fresh {
+        st.emit(ServerEvent::Entry {
+            workspace_id: ws,
+            session_id: a.session_id,
+            entry: Box::new(e),
+        });
+        st.emit(ServerEvent::WorkspacesChanged);
+    }
     crate::inbox::resolve_ref(st, &a.id.to_string()).await;
     Ok(())
+}
+
+async fn retry_approvals(ctx: Ctx) {
+    loop {
+        match ctx.st.db.undelivered_approvals(ctx.sid).await {
+            Ok(list) => {
+                for approval in list {
+                    if let Err(error) = deliver_saved_approval(&ctx.st, &approval).await {
+                        tracing::warn!(target: "blazar::run", "审批 {} 暂未送达: {error}", approval.id);
+                        let updated = sqlx::query(
+                            "UPDATE inbox SET body = ?2 WHERE ref_id = ?1 AND archived_at IS NULL AND body <> ?2",
+                        ).bind(approval.id.to_string()).bind(&error).execute(ctx.st.db.pool()).await;
+                        if updated.is_ok_and(|result| result.rows_affected() > 0) {
+                            ctx.st.emit(ServerEvent::InboxChanged);
+                        }
+                    }
+                }
+            }
+            Err(error) => tracing::warn!(target: "blazar::run", "读取待投递审批失败: {error}"),
+        }
+        tokio::time::sleep(Duration::from_secs(5)).await;
+    }
 }
 
 async fn triage_approvals(ctx: &Ctx, approvals: &[NewApproval]) {
@@ -710,8 +773,17 @@ async fn triage_approvals(ctx: &Ctx, approvals: &[NewApproval]) {
                 format!("{} {}", rule.tool, rule.pattern)
             };
             let by = format!("rule:{}", rule.id);
-            if let Ok(Some(a)) = ctx.st.db.decide_approval(ap.id, "allow", Some(&by)).await {
-                match deliver_approval_as(&ctx.st, &a, true, "", None, Some(label)).await {
+            let response = blazar_db::ApprovalResponse {
+                auto_rule: Some(label.clone()),
+                ..Default::default()
+            };
+            if let Ok(Some(a)) = ctx
+                .st
+                .db
+                .decide_approval_with_response(ap.id, "allow", Some(&by), &response)
+                .await
+            {
+                match deliver_saved_approval(&ctx.st, &a).await {
                     Ok(()) => continue,
                     Err(e) => tracing::warn!(target: "blazar::run", "自动批准没送到: {e}"),
                 }
@@ -912,13 +984,6 @@ pub async fn reattach_all(st: Shared) {
             hook,
         };
         register(ctx, u64::try_from(off).unwrap_or(0), None).await;
-
-        if let Ok(list) = st.db.undelivered_approvals(sid).await {
-            for a in list {
-                let allow = a.decision.as_deref() == Some("allow");
-                let _ = deliver_approval(&st, &a, allow, "", None).await;
-            }
-        }
 
         let last_finished = sqlx::query_scalar::<_, String>(
             "SELECT payload FROM events WHERE session_id = ?1 ORDER BY seq DESC LIMIT 1",

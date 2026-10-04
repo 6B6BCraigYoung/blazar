@@ -307,11 +307,29 @@ echo "__BLAZAR_LAUNCHED__ $D"
             });
         }
         let body = format!(
-            r#"I=$(stat -c %i in.jsonl 2>/dev/null || stat -f %i in.jsonl 2>/dev/null)
+            r#"export LC_ALL=C
+umask 077
+T=$(mktemp .blazar-input.XXXXXX) || exit 14
+trap 'rm -f -- "$T"' EXIT
+cat > "$T" || exit 14
+[ "$(wc -l < "$T" | tr -d ' ')" = 1 ] && [ "$(tail -c 1 "$T" | od -An -tu1 | tr -d ' ')" = 10 ] || {{ echo "输入上传不完整，请重试" >&2; exit 14; }}
+data=$(cat "$T") || exit 14
+I=$(stat -c %i in.jsonl 2>/dev/null || stat -f %i in.jsonl 2>/dev/null)
 [ -n "$I" ] && [ "$I" = "$(cat in.inode 2>/dev/null)" ] || {{ echo "in.jsonl 已被替换，输入无法送达" >&2; exit 12; }}
 [ -e exit.code ] && {{ echo "agent 已经结束" >&2; exit 13; }}
-awk -F'\t' -v id={id} '$1==id{{f=1;exit}} END{{exit !f}}' in.jsonl && {{ echo dup; exit 0; }}
-cat >> in.jsonl
+if [ -s in.jsonl ] && [ "$(tail -c 1 in.jsonl | od -An -tu1 | tr -d ' ')" != 10 ]; then
+  partial=$(tail -n 1 in.jsonl) || exit 14
+  case "$data" in
+    "$partial"*) printf '%s\n' "${{data#"$partial"}}" >> in.jsonl || exit 14; echo ok; exit 0 ;;
+    *) echo "输入日志包含不匹配的未完成记录，已保留原数据；请恢复原输入后重试" >&2; exit 15 ;;
+  esac
+fi
+existing=$(awk -F'\t' -v id={id} '$1==id{{print;exit}}' in.jsonl) || exit 14
+if [ -n "$existing" ]; then
+  [ "$existing" = "$data" ] || {{ echo "输入标识已对应不同内容，已保留原数据" >&2; exit 15; }}
+  echo dup; exit 0
+fi
+cat "$T" >> in.jsonl || exit 14
 echo ok"#,
             id = shell_quote(msg_id),
         );
@@ -321,7 +339,7 @@ echo ok"#,
             .await?;
         match (out.code, out.stdout.trim()) {
             (0, "dup") => Ok(Appended::Duplicate),
-            (0, _) => Ok(Appended::Written),
+            (0, "ok") => Ok(Appended::Written),
             (c, _) => Err(TransportError::Command {
                 code: c,
                 stderr: out.stderr.trim().to_owned(),
@@ -692,6 +710,121 @@ mod tests {
 
     fn local() -> Arc<dyn NodeTransport> {
         Arc::new(TestLocal)
+    }
+
+    #[cfg(unix)]
+    fn input_fixture(transport: Arc<dyn NodeTransport>, initial: &[u8]) -> TestRun {
+        use std::os::unix::fs::MetadataExt;
+        let root = tempfile::tempdir().unwrap();
+        let input = root.path().join("in.jsonl");
+        std::fs::write(&input, initial).unwrap();
+        std::fs::write(
+            root.path().join("in.inode"),
+            std::fs::metadata(input).unwrap().ino().to_string(),
+        )
+        .unwrap();
+        let run = DetachedRun::attach(transport, root.path().display().to_string(), rid("input"));
+        TestRun { run, _root: root }
+    }
+
+    #[cfg(unix)]
+    struct TruncatedInput;
+
+    #[cfg(unix)]
+    #[async_trait::async_trait]
+    impl NodeTransport for TruncatedInput {
+        fn kind(&self) -> crate::TransportKind {
+            crate::TransportKind::Local
+        }
+        fn target(&self) -> &str {
+            "local"
+        }
+        async fn exec(&self, mut spec: ExecSpec) -> Result<crate::ExecOutput> {
+            let input = spec.stdin.as_mut().unwrap();
+            input.truncate(input.len() - 3);
+            LocalTransport.exec(without_login(spec)).await
+        }
+        async fn spawn_lines(&self, _spec: ExecSpec) -> Result<LineStream> {
+            unreachable!()
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn append_truncated_upload_does_not_modify_input_log() {
+        let run = input_fixture(Arc::new(TruncatedInput), b"");
+        assert!(run.append("a-test", r#"{"answer":"A"}"#).await.is_err());
+        assert_eq!(
+            std::fs::read(run._root.path().join("in.jsonl")).unwrap(),
+            b""
+        );
+        let retry = DetachedRun::attach(local(), run.dir.clone(), run.run_id.clone());
+        assert_eq!(
+            retry.append("a-test", r#"{"answer":"A"}"#).await.unwrap(),
+            Appended::Written
+        );
+        assert_eq!(
+            retry.append("a-test", r#"{"answer":"A"}"#).await.unwrap(),
+            Appended::Duplicate
+        );
+        assert_eq!(
+            std::fs::read(run._root.path().join("in.jsonl")).unwrap(),
+            b"a-test\t{\"answer\":\"A\"}\n"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn append_completes_matching_partial_line_once() {
+        let prior = b"u-1\t{}\n";
+        let full = "a-test\t{\"answer\":\"选项甲\"}\n".as_bytes();
+        for missing in [1, 3, 4] {
+            let mut initial = prior.to_vec();
+            initial.extend(&full[..full.len() - missing]);
+            let run = input_fixture(local(), &initial);
+            assert_eq!(
+                run.append("a-test", r#"{"answer":"选项甲"}"#)
+                    .await
+                    .unwrap(),
+                Appended::Written
+            );
+            assert_eq!(
+                run.append("a-test", r#"{"answer":"选项甲"}"#)
+                    .await
+                    .unwrap(),
+                Appended::Duplicate
+            );
+            let mut expected = prior.to_vec();
+            expected.extend(full);
+            assert_eq!(
+                std::fs::read(run._root.path().join("in.jsonl")).unwrap(),
+                expected
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn append_refuses_inconsistent_partial_line_without_rewriting_it() {
+        let initial = b"a-test\t{\"answer\":\"A";
+        let run = input_fixture(local(), initial);
+        assert!(run.append("a-test", r#"{"answer":"B"}"#).await.is_err());
+        assert_eq!(
+            std::fs::read(run._root.path().join("in.jsonl")).unwrap(),
+            initial
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn append_refuses_reused_id_with_a_different_complete_payload() {
+        let initial = b"a-test\t{\"answer\":\"A\"}\n";
+        let run = input_fixture(local(), initial);
+        assert!(run.append("a-test", r#"{"answer":"B"}"#).await.is_err());
+        assert_eq!(
+            std::fs::read(run._root.path().join("in.jsonl")).unwrap(),
+            initial
+        );
     }
 
     fn echo_agent() -> ExecSpec {

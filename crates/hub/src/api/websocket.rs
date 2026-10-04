@@ -199,18 +199,46 @@ pub async fn decide_approval(
         .ok_or_else(|| ApiError(anyhow::anyhow!("审批 id 不合法")))?;
     let decision = if req.allow { "allow" } else { "deny" };
 
-    let Some(a) = st.db.decide_approval(aid, decision, None).await? else {
-        return Ok(Json(serde_json::json!({
-            "delivered": false, "reason": "这条审批已经被处理过了",
-        })));
-    };
     let message = if req.allow || !req.message.trim().is_empty() {
         req.message.clone()
     } else {
         "用户在 Blazar 界面上拒绝了这次操作".to_owned()
     };
     let answers = req.answers.map(serde_json::Value::Object);
-    match crate::run::deliver_approval(&st, &a, req.allow, &message, answers.as_ref()).await {
+    let response = blazar_db::ApprovalResponse {
+        message,
+        answers,
+        auto_rule: None,
+    };
+    let a = match st
+        .db
+        .decide_approval_with_response(aid, decision, None, &response)
+        .await?
+    {
+        Some(a) => a,
+        None => {
+            let Some(a) = st.db.approval(aid).await? else {
+                return Ok(Json(serde_json::json!({
+                    "delivered": false, "reason": "这条审批已经被处理过了",
+                })));
+            };
+            if let Some(saved) = &a.response
+                && (a.decision.as_deref() != Some(decision)
+                    || saved.message != response.message
+                    || saved.answers != response.answers)
+            {
+                return Ok(Json(serde_json::json!({
+                    "delivered": false,
+                    "reason": "已有待送达的审批决定，请按原选择重试；要更改决定，请先中断当前会话",
+                })));
+            }
+            if a.delivered && a.response.is_some() {
+                return Ok(Json(serde_json::json!({"delivered": true})));
+            }
+            a
+        }
+    };
+    match crate::run::deliver_saved_approval(&st, &a).await {
         Ok(()) => Ok(Json(serde_json::json!({ "delivered": true }))),
 
         Err(reason) => Ok(Json(
