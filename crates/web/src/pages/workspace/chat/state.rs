@@ -1,5 +1,3 @@
-//! 对话栏的状态和动作：标签页、历史、实时事件、发送 / 排队 / 中断 / 重试 / 回退、实时控制。
-
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
@@ -19,8 +17,12 @@ use super::super::diff_panel::{Comment, DiffState};
 use super::super::files::Files;
 use super::super::git_panel::Git;
 
+#[path = "delivery.rs"]
+mod delivery;
+pub use delivery::{Deliveries, edit_request};
+use delivery::{steer_request, take_composer};
+
 pub const CONTINUE_TEXT: &str = "（已换账号接着做）请从刚才中断的地方继续，把没做完的工作完成。";
-/// 支持多账号的运行时。
 pub const ACC_RUNTIMES: [&str; 2] = ["claude", "codex"];
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -53,6 +55,8 @@ pub struct Queued {
     pub images: usize,
     #[serde(default)]
     pub held: Option<String>,
+    #[serde(default)]
+    pub request: Option<Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -122,7 +126,6 @@ pub struct Snippet {
     pub body: String,
 }
 
-/// 选的模型 / 推理强度（按运行时记，沿用已有的键）。
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct ModelSel {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -131,7 +134,6 @@ pub struct ModelSel {
     pub effort: Option<String>,
 }
 
-/// Claude 的偏好：思考、快速模式、输出风格。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Prefs {
     #[serde(default = "yes")]
@@ -176,7 +178,6 @@ struct SavedTabs {
     active: Option<String>,
 }
 
-/// 权限模式：(值, 名字, 说明, 图标)
 pub type Mode = (&'static str, &'static str, &'static str, &'static str);
 
 pub const MODES_CLAUDE: [Mode; 5] = [
@@ -232,7 +233,6 @@ pub const MODES_CODEX: [Mode; 3] = [
     ),
 ];
 
-/// 跟插件一样默认 Auto（Codex 的 Auto 是 workspace-write）。
 pub fn default_mode(rt: &str) -> &'static str {
     match rt {
         "codex" => "workspace-write",
@@ -257,49 +257,36 @@ pub struct Chat {
     pub diff: DiffState,
     pub git: Git,
     pub running: Signal<bool>,
-    /// 想让对话栏露出来（发消息、点「查看」时）
     pub show_aux: Callback<()>,
-    /// 想看差异页签
     pub show_diff: Callback<()>,
 
     pub tabs: RwSignal<Vec<Option<String>>>,
-    /// 正在看的对话（None 是还没发出去的新对话）
     pub view: RwSignal<Option<String>>,
     pub threads: RwSignal<Vec<Thread>>,
     pub rows: RwSignal<Vec<Row>>,
     seen: StoredValue<HashSet<String>>,
-    /// 这个对话里的会话（实时事件只收这些）
     sessions: StoredValue<HashSet<String>>,
     pub transcript: RwSignal<Rc<Transcript>, LocalStorage>,
-    /// 本地已经裁决过、等事件回来的审批（先藏起来）
     pub decided: RwSignal<HashSet<String>>,
-    /// 对话栏所在的组件：异步任务挂在它下面，离开页面时一起取消。
     owner: StoredValue<Owner>,
-    /// 刚发出、还没等到服务端回显的消息：先显示出来
     pub pending: RwSignal<Vec<PendingMsg>>,
-    next_pending: StoredValue<u32>,
-    /// 发送期间收到的、还不知道属于哪个对话的事件（等认出自己发的那条再并进来）
+    pub deliveries: RwSignal<Deliveries>,
+    pub editing_queue: RwSignal<Option<Queued>>,
     orphans: StoredValue<HashMap<String, Vec<Row>>>,
-    /// 发送失败之类只在本地显示的错误
     pub local_errors: RwSignal<Vec<String>>,
     pub loading: RwSignal<bool>,
     pub queue: RwSignal<Vec<Queued>>,
-    /// "session:seq" → 检查点 id
     pub checkpoints: RwSignal<HashMap<String, String>>,
 
     pub prompt: RwSignal<String>,
     pub attach: RwSignal<Vec<Attach>>,
-    /// 下一条消息开新对话
     pub fresh: RwSignal<bool>,
-    /// "r:<运行时>" 或 "p:<Agent 档案>"
     pub agent: RwSignal<String>,
     pub perm: RwSignal<String>,
-    /// 当前文件不附带（关掉的那个文件）
     pub ctx_off: RwSignal<Option<String>>,
     pub prefs: RwSignal<Prefs>,
     pub model_rev: RwSignal<u32>,
     pub acc_rev: RwSignal<u32>,
-    /// 还没回来的发送请求数
     pub busy: RwSignal<u32>,
 
     pub agents: RwSignal<Vec<AgentInfo>>,
@@ -309,7 +296,6 @@ pub struct Chat {
     pub models: RwSignal<HashMap<String, Vec<ModelInfo>>>,
     pub catalog: RwSignal<Option<Catalog>>,
     pub snippets: RwSignal<Vec<Snippet>>,
-    /// 远端工作区那台机器上 Codex 有没有登录
     pub remote_codex: RwSignal<Option<bool>>,
 }
 
@@ -350,7 +336,8 @@ impl Chat {
             decided: RwSignal::new(HashSet::new()),
             owner: StoredValue::new(Owner::current().unwrap_or_default()),
             pending: RwSignal::new(Vec::new()),
-            next_pending: StoredValue::new(0),
+            deliveries: RwSignal::new(Deliveries::default()),
+            editing_queue: RwSignal::new(None),
             orphans: StoredValue::new(HashMap::new()),
             local_errors: RwSignal::new(Vec::new()),
             loading: RwSignal::new(true),
@@ -379,19 +366,16 @@ impl Chat {
         }
     }
 
-    // 这几个可能在页面离开之后的延迟回调里读到：读不到就当空。
     pub fn ws_id(self) -> String {
         self.ws.try_get_value().unwrap_or_default()
     }
 
-    /// 起一个异步任务；对话栏销毁（离开这个工作区）时任务被取消，不会再碰已经不在的状态。
     pub fn spawn(self, fut: impl std::future::Future<Output = ()> + 'static) {
         if let Some(o) = self.owner.try_get_value() {
             o.with(|| leptos::task::spawn_local_scoped_with_cancellation(fut));
         }
     }
 
-    /// 页面还在（异步请求回来时先看一眼：用户可能已经离开了这个工作区）。
     pub fn alive(self) -> bool {
         self.ws.try_get_value().is_some()
     }
@@ -399,8 +383,6 @@ impl Chat {
     pub fn remote(self) -> bool {
         self.node.try_with_value(|n| n != "local").unwrap_or(false)
     }
-
-    // ───────── 选中的运行时 / 模型 / 账号 ─────────
 
     pub fn profile(self) -> Option<Profile> {
         let a = self.agent.get();
@@ -435,7 +417,6 @@ impl Chat {
         modes_for(&self.runtime())
     }
 
-    /// 实际生效的权限模式：选过的、Agent 档案里的、或者第一个。
     pub fn effective_mode(self) -> Option<Mode> {
         let list = self.modes();
         let pick = |v: &str| list.iter().find(|m| m.0 == v).copied();
@@ -479,7 +460,6 @@ impl Chat {
         format!("blazar.acc.{}.{}", self.ws_id(), thread.unwrap_or("new"))
     }
 
-    /// 这个对话里手动选的账号（按对话记）。
     pub fn acc_sel(self) -> String {
         self.acc_rev.track();
         let v = self.view.get();
@@ -496,7 +476,6 @@ impl Chat {
         self.acc_rev.update(|n| *n += 1);
     }
 
-    /// 接下来用哪个账号：对话里选过的，否则运行时上设的那个。
     pub fn current_account(self, rt: &str) -> Option<String> {
         let sel = self.acc_sel();
         if !sel.is_empty() && sel != "auto" {
@@ -525,7 +504,6 @@ impl Chat {
             return m;
         }
         let rt = rt.to_owned();
-        // 先放一个占位，免得重复拉。
         self.models.update(|m| {
             m.insert(
                 rt.clone(),
@@ -555,8 +533,6 @@ impl Chat {
         let cur = self.files.current.get()?;
         (self.ctx_off.get().as_deref() != Some(cur.as_str())).then_some(cur)
     }
-
-    // ───────── 加载 ─────────
 
     pub fn load_catalogs(self) {
         self.spawn(async move {
@@ -622,7 +598,6 @@ impl Chat {
         });
     }
 
-    /// 可选的运行时（本机装好、登录了的；远端工作区只要能驱动远端的）。
     pub fn runtimes(self) -> Vec<AgentInfo> {
         let installed = self.installed.get();
         let remote = self.remote();
@@ -635,7 +610,6 @@ impl Chat {
             .collect()
     }
 
-    /// 选的 Agent 不在可选列表里了（或者还没选）：换成第一个。
     fn fix_agent(self) {
         if !self.alive() {
             return;
@@ -692,7 +666,6 @@ impl Chat {
         }
     }
 
-    /// 标签上的「在跑」圆点：工作区真在跑，而且是这个对话（会话状态有时比事件晚一步更新）。
     pub fn thread_running(self, id: &str) -> bool {
         self.running.get()
             && self.threads.with(|t| {
@@ -711,7 +684,6 @@ impl Chat {
         );
     }
 
-    /// 进来时：恢复上次开着的标签（没有就开最近的对话）。
     pub fn init(self, requested: Signal<Option<String>>, ready: RwSignal<bool>) {
         self.spawn(async move {
             self.load_threads().await;
@@ -811,7 +783,6 @@ impl Chat {
         });
     }
 
-    /// 重新拉当前对话的全部历史。
     pub fn load_history(self) {
         let view = self.view.get_untracked();
         self.decided.set(HashSet::new());
@@ -831,7 +802,6 @@ impl Chat {
                 api::enc(&thread)
             ))
             .await;
-            // 拉的过程中换了标签：丢掉。
             if self.view.try_get_untracked().flatten().as_deref() != Some(thread.as_str()) {
                 return;
             }
@@ -887,7 +857,6 @@ impl Chat {
         });
     }
 
-    /// 实时事件。
     pub fn on_event(self, ev: &ServerEvent) {
         let ws = self.ws_id();
         match ev {
@@ -898,7 +867,6 @@ impl Chat {
             } if workspace_id.to_string() == ws => {
                 let sid = session_id.to_string();
                 if matches!(entry.kind, blazar_core_types::EntryKind::Finished(_)) {
-                    // 这一轮结束：文件树、差异、Git、开着的文件都可能变了；标签上「在跑」的点也要更新。
                     self.git.changed.update(|n| *n = n.wrapping_add(1));
                     self.git.reload.update(|n| *n = n.wrapping_add(1));
                     self.spawn(async move { self.load_threads().await });
@@ -907,7 +875,6 @@ impl Chat {
                 if self.sessions.with_value(|s| s.contains(&sid)) {
                     self.push_row(row);
                 } else if self.pending.with_untracked(|p| !p.is_empty()) {
-                    // 刚发出去、服务端还没告诉我们是哪个会话：先攒着，认出自己发的那条就并进来。
                     let mine = matches!(&row.kind, blazar_core_types::EntryKind::UserMessage { text } if self.matches_pending(text));
                     self.orphans
                         .update_value(|o| o.entry(sid.clone()).or_default().push(row));
@@ -974,10 +941,8 @@ impl Chat {
         .forget();
     }
 
-    /// 发出去了：记下会话；新对话拿到 id 后换成真的标签。
     pub fn note_sent(self, session_id: Option<String>, thread_id: Option<String>) {
         let Some(sid) = session_id else { return };
-        // 事件已经（或刚刚）收到了：并进来就行，不用整段重拉。
         let known = self.sessions.with_value(|s| s.contains(&sid))
             || self.orphans.with_value(|o| o.contains_key(&sid));
         self.adopt(&sid);
@@ -993,7 +958,6 @@ impl Chat {
                 }
             });
             if view.is_none() {
-                // 新对话上选的账号挪给真的对话。
                 let a = storage::load_raw(&self.acc_key(None)).unwrap_or_default();
                 if !a.is_empty() {
                     self.set_acc_sel(&a, Some(&t));
@@ -1025,7 +989,6 @@ impl Chat {
         self.rows.update(|r| r.push(row));
     }
 
-    /// 认领一个会话：之后它的事件都进这个对话，之前攒下的一并补上。
     fn adopt(self, sid: &str) {
         self.sessions.update_value(|s| {
             s.insert(sid.to_owned());
@@ -1046,7 +1009,6 @@ impl Chat {
             .with_untracked(|p| p.iter().any(|m| t.starts_with(m.text.trim())))
     }
 
-    /// 服务端回显了自己发的那条：去掉先放上去的那个。
     fn take_pending(self, text: &str) {
         let t = text.trim().to_owned();
         self.pending.update(|p| {
@@ -1060,8 +1022,6 @@ impl Chat {
         let _ = self.pending.try_update(|p| p.retain(|m| m.id != id));
     }
 
-    // ───────── 发送 ─────────
-
     fn send_options(self) -> serde_json::Map<String, Value> {
         let rt = untrack(move || self.runtime());
         let agent = self.agent.get_untracked();
@@ -1073,12 +1033,10 @@ impl Chat {
         o.insert("resume".into(), json!(!self.fresh.get_untracked()));
         o.insert("model".into(), json!(sel.model.filter(|m| !m.is_empty())));
         o.insert("effort".into(), json!(sel.effort));
-        // 没手动选过也把实际生效的模式发过去（默认 Auto），别让后端回落到逐个确认。
         let perm = untrack(move || self.effective_mode()).map(|m| m.0);
         o.insert("permission_mode".into(), json!(perm));
         o.insert("agent".into(), json!(agent.strip_prefix("r:")));
         o.insert("profile".into(), json!(agent.strip_prefix("p:")));
-        // 远端工作区：CLI 直接在那台机器上跑，能力和在那边敲 claude / codex 一样；账号经 Blazar 的凭据代理带过去。
         o.insert(
             "brain".into(),
             json!(if self.remote() { "node" } else { "local" }),
@@ -1149,35 +1107,25 @@ impl Chat {
     }
 
     pub fn send(self) {
-        let mut text = self.prompt.get_untracked().trim().to_owned();
         let reviews = self.diff.comments.get_untracked();
-        let images: Vec<Attach> = self.attach.get_untracked();
-        // 上一条的请求还没回来也照常发：要不要排队由 hub 决定。
-        if text.is_empty() && images.is_empty() && reviews.is_empty() {
+        if self.prompt.with_untracked(|p| p.trim().is_empty())
+            && self.attach.with_untracked(Vec::is_empty)
+            && reviews.is_empty()
+        {
             return;
         }
-        if text.is_empty() {
-            text = if reviews.is_empty() {
-                "看一下这张图".into()
+        let (text, images) = take_composer(&mut self.prompt.write(), &mut self.attach.write());
+        let text = if text.trim().is_empty() {
+            if reviews.is_empty() {
+                "看一下这张图"
             } else {
-                "请逐条处理下面的审阅意见。".into()
-            };
-        }
+                "请逐条处理下面的审阅意见。"
+            }
+            .to_owned()
+        } else {
+            text.trim().to_owned()
+        };
         let wire = format!("{text}{}", Self::review_block(&reviews));
-        self.prompt.set(String::new());
-        // 先把自己发的这条放上去、开始转圈，不等网络。
-        let pid = self.next_pending.get_value();
-        self.next_pending.set_value(pid.wrapping_add(1));
-        self.pending.update(|p| {
-            p.push(PendingMsg {
-                id: pid,
-                text: wire.clone(),
-                images: images.len(),
-            })
-        });
-        self.orphans.set_value(HashMap::new());
-        self.show_aux.run(());
-        self.busy.update(|n| *n += 1);
         let mut body = self.send_options();
         body.insert("text".into(), json!(wire));
         body.insert("resume_session".into(), json!(self.view.get_untracked()));
@@ -1195,43 +1143,54 @@ impl Chat {
             json!(untrack(move || self.ctx_file())),
         );
         body.insert("wait_secs".into(), json!(20));
-        let body = Value::Object(body);
+        if !reviews.is_empty() {
+            self.clear_review();
+        }
+        self.send_request(Value::Object(body));
+    }
+
+    pub fn retry_failed(self, id: u32) {
+        let request = self.deliveries.write().take_failed(id);
+        if let Some(request) = request {
+            self.send_request(request);
+        }
+    }
+
+    fn send_request(self, body: Value) {
+        let pid = self.deliveries.write().begin(body.clone());
+        self.pending.update(|p| {
+            p.push(PendingMsg {
+                id: pid,
+                text: body["text"].as_str().unwrap_or_default().to_owned(),
+                images: body["images"].as_array().map_or(0, Vec::len),
+            })
+        });
+        self.orphans.set_value(HashMap::new());
+        self.show_aux.run(());
+        self.busy.update(|n| *n += 1);
         let ws = self.ws_id();
         self.spawn(async move {
-            let r =
-                api::send::<Value>("POST", &format!("/api/workspaces/{ws}/prompt"), &body).await;
+            let r = api::send::<Value>("POST", &format!("/api/workspaces/{ws}/prompt"), &body).await;
             let _ = self.busy.try_update(|n| *n = n.saturating_sub(1));
             match r {
                 Ok(r) if r["admitted"] == json!(false) => {
-                    // 正在跑：排进队，这一轮结束后自动发出。
                     let q = api::send::<Vec<Queued>>(
                         "PUT",
                         &format!("/api/workspaces/{ws}/queue"),
                         &json!({ "thread_id": self.view.get_untracked(), "request": body, "append": true }),
-                    )
-                    .await;
+                    ).await;
+                    self.drop_pending(pid);
+                    self.deliveries.update(|d| d.finish(pid, q.is_ok()));
                     match q {
                         Ok(q) => {
-                            self.drop_pending(pid);
                             self.queue.set(q);
-                            if !reviews.is_empty() {
-                                self.clear_review();
-                            }
-                            self.attach.set(Vec::new());
-                            toast("Queued. It sends when this turn ends.");
+                            toast("已排队，当前轮次结束后发送");
                         }
-                        Err(e) => {
-                            self.drop_pending(pid);
-                            self.prompt.set(text);
-                            toast(format!("Couldn't queue: {e}"));
-                        }
+                        Err(e) => toast(format!("排队失败，消息已保留：{e}")),
                     }
                 }
                 Ok(r) => {
-                    if !reviews.is_empty() {
-                        self.clear_review();
-                    }
-                    self.attach.set(Vec::new());
+                    self.deliveries.update(|d| d.finish(pid, true));
                     let started = r["activity"]["started"].as_bool();
                     let sid = r["session_id"].as_str().map(str::to_owned);
                     let tid = r["thread_id"].as_str().map(str::to_owned);
@@ -1242,32 +1201,22 @@ impl Chat {
                     if started == Some(false) {
                         self.drop_pending(pid);
                         let why = r["activity"]["reason"].as_str().unwrap_or("").to_owned();
-                        toast(if why.is_empty() {
-                            "The agent did not start".to_owned()
-                        } else {
-                            why.clone()
-                        });
-                        let class = r["activity"]["failure_class"]
-                            .as_str()
-                            .map(|c| format!(" ({c})"))
-                            .unwrap_or_default();
-                        self.local_errors
-                            .update(|e| e.push(format!("The agent did not start: {why}{class}")));
+                        toast(if why.is_empty() { "The agent did not start".to_owned() } else { why.clone() });
+                        let class = r["activity"]["failure_class"].as_str().map(|c| format!(" ({c})")).unwrap_or_default();
+                        self.local_errors.update(|e| e.push(format!("The agent did not start: {why}{class}")));
                     }
                 }
                 Err(e) => {
                     self.drop_pending(pid);
-                    self.prompt.set(text);
-                    toast(format!("Send failed: {e}"));
+                    self.deliveries.update(|d| d.finish(pid, false));
+                    toast(format!("发送失败，消息已保留：{e}"));
                 }
             }
-            // 万一回显丢了：一分钟后不再显示这条占位。
             gloo_timers::future::TimeoutFuture::new(60_000).await;
             self.drop_pending(pid);
         });
     }
 
-    /// 中断当前这一轮。
     pub fn stop(self) {
         let Some(sid) = self.transcript.with_untracked(|t| t.last_session.clone()) else {
             toast("Nothing is running in this conversation");
@@ -1293,7 +1242,6 @@ impl Chat {
         });
     }
 
-    /// 正在跑时改模型、权限模式等：发给那个会话，当前这一轮立即生效（不支持的话下一轮生效）。
     pub fn live(self, body: Value, what: &'static str) {
         if !self.running.get_untracked() {
             return;
@@ -1334,8 +1282,6 @@ impl Chat {
             .map_or(0, |i| (i + 1) % list.len());
         self.set_mode(list[i].0);
     }
-
-    // ───────── 审批 ─────────
 
     pub fn decide(self, id: String, allow: bool, message: String, answers: Option<Value>) {
         self.decided.update(|d| {
@@ -1389,9 +1335,15 @@ impl Chat {
         });
     }
 
-    // ───────── 排队 ─────────
-
     pub fn queue_act(self, act: &'static str, q: Queued) {
+        if act == "edit" {
+            if q.request.is_some() {
+                self.editing_queue.set(Some(q));
+            } else {
+                toast("这条消息含有不能在此编辑的设置，已保留在队列中");
+            }
+            return;
+        }
         let ws = self.ws_id();
         let base = format!("/api/workspaces/{ws}/queue/{}", q.id);
         self.spawn(async move {
@@ -1401,27 +1353,28 @@ impl Chat {
                         api::send::<Value>("DELETE", &base, &json!({})).await?;
                         toast("Removed");
                     }
-                    "edit" => {
-                        api::send::<Value>("DELETE", &base, &json!({})).await?;
-                        self.prompt.update(|p| *p = if p.trim().is_empty() { q.text.clone() } else { format!("{}\n\n{p}", q.text) });
-                    }
                     "send" => {
                         let r = api::send::<Value>("POST", &format!("{base}/send"), &json!({})).await?;
                         self.note_sent(r["session_id"].as_str().map(str::to_owned), r["thread_id"].as_str().map(str::to_owned));
                     }
                     _ => {
-                        // 插话：不等这一轮结束，现在就塞进去。
                         let Some(sid) = self.transcript.with_untracked(|t| t.last_session.clone()) else {
                             toast("No running session to steer");
                             return Ok(());
                         };
-                        let thinking = (untrack(move || self.runtime()) == "claude").then(|| self.prefs.get_untracked().thinking);
-                        let i = api::send::<Value>("POST", &format!("/api/sessions/{sid}/input"), &json!({ "text": q.text, "thinking": thinking })).await?;
+                        let Some(request) = q.request.as_ref() else {
+                            toast("这条消息的设置无法用于插话，已保留在队列中");
+                            return Ok(());
+                        };
+                        if dialog::ask("发送插话？", "附件和文件上下文会一并发送；模型、账号和权限沿用当前轮次，原排队消息的启动设置不会应用。", vec![Choice::plain("取消"), Choice::plain("发送插话")]).await != Some(1) {
+                            return Ok(());
+                        }
+                        let i = api::send::<Value>("POST", &format!("/api/sessions/{sid}/input"), &steer_request(request)).await?;
                         if i["accepted"].as_bool() != Some(true) {
                             toast(i["reason"].as_str().unwrap_or("This runtime can't take messages mid-turn. It sends when the turn ends.").to_owned());
                             return Ok(());
                         }
-                        api::send::<Value>("DELETE", &base, &json!({})).await?;
+                        api::send::<Value>("DELETE", &base, &json!({"expected": request})).await?;
                         toast("Sent into the current turn");
                     }
                 }
@@ -1434,8 +1387,6 @@ impl Chat {
             self.load_queue();
         });
     }
-
-    // ───────── 重来 / 回退 ─────────
 
     pub fn retry(self, sid: String, text: Option<String>, later: usize) {
         if self.running.get_untracked() {
@@ -1543,7 +1494,6 @@ impl Chat {
         });
     }
 
-    /// 因为账号失败的那一轮：换个账号，在同一个对话里接着做。
     pub fn continue_on_another(self, pick: String) {
         self.set_acc_sel(&pick, self.view.get_untracked().as_deref());
         let mut body = self.send_options();
@@ -1582,7 +1532,6 @@ impl Chat {
         });
     }
 
-    /// 订阅实时事件、在工作区跑完 / 重连时刷新。页面离开时自动退订。
     pub fn wire(self, bus: Bus) {
         let id = bus.subscribe(move |ev| self.on_event(ev));
         on_cleanup(move || bus.unsubscribe(id));
@@ -1593,7 +1542,6 @@ impl Chat {
                 self.load_queue();
             }
         });
-        // 事件或运行状态变了：重建对话记录。
         Effect::new(move |_| {
             let running = self.running.get();
             let root = self.root.get_value();

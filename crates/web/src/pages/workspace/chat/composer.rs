@@ -1,5 +1,3 @@
-//! 输入框（跟 Claude Code 插件一样的那一块）：文本框、附件、各种小标签、弹出菜单，以及上方的待办 / 额度 / 审阅意见 / 排队条。
-
 use leptos::ev;
 use leptos::html;
 use leptos::prelude::*;
@@ -8,13 +6,14 @@ use serde_json::json;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
 
+use crate::api;
 use crate::components::dialog::{self, Choice};
 use crate::components::toast::toast;
 use crate::storage;
 
 use super::dock::Dock;
 use super::log::todo_list;
-use super::state::{ACC_RUNTIMES, Attach, Chat, ModelSel};
+use super::state::{ACC_RUNTIMES, Attach, Chat, ModelSel, Queued, edit_request};
 
 #[wasm_bindgen(module = "/js/files.js")]
 extern "C" {
@@ -103,7 +102,6 @@ struct UiPrefs {
     send_key: String,
 }
 
-/// 编辑器协议链接：vscode://… / cursor://…（远端走 Remote-SSH）。
 fn editor_url(node: &str, path: &str, line: Option<u32>) -> (String, String) {
     let k = storage::load_raw("blazar.editor").unwrap_or_else(|| "vscode".into());
     let (label, scheme) = match k.as_str() {
@@ -153,7 +151,6 @@ pub fn Composer(chat: Chat, tick: RwSignal<u32>, tree_files: Signal<Vec<String>>
             let _ = s.set_property("height", &format!("{h}px"));
         }
     };
-    // 外部改了文本（排队「编辑」、开场白……）也要跟着长高。
     Effect::new(move |_| {
         chat.prompt.track();
         request_animation_frame(grow);
@@ -164,7 +161,6 @@ pub fn Composer(chat: Chat, tick: RwSignal<u32>, tree_files: Signal<Vec<String>>
         }
     };
 
-    // 点在弹出菜单和它的按钮之外：关掉。
     let closer = window_event_listener(ev::mousedown, move |e| {
         let inside = e
             .target()
@@ -176,7 +172,6 @@ pub fn Composer(chat: Chat, tick: RwSignal<u32>, tree_files: Signal<Vec<String>>
     });
     on_cleanup(move || closer.remove());
 
-    // ───── 斜杠命令 ─────
     let slash_items = move || -> Vec<SlashItem> {
         let q = chat.prompt.get();
         let Some(k) = q
@@ -398,7 +393,6 @@ pub fn Composer(chat: Chat, tick: RwSignal<u32>, tree_files: Signal<Vec<String>>
         }
     };
 
-    // ───── 附件 ─────
     let add_image = move |f: web_sys::File| {
         let t = f.type_();
         if !["image/png", "image/jpeg", "image/gif", "image/webp"].contains(&t.as_str()) {
@@ -451,7 +445,6 @@ pub fn Composer(chat: Chat, tick: RwSignal<u32>, tree_files: Signal<Vec<String>>
             .ok()
             .flatten()
             .map_or(v.len(), |n| n as usize);
-        // selection_start 是 UTF-16 下标
         let chars: Vec<u16> = v.encode_utf16().collect();
         let at = at.min(chars.len());
         let pre = String::from_utf16_lossy(&chars[..at]);
@@ -486,7 +479,6 @@ pub fn Composer(chat: Chat, tick: RwSignal<u32>, tree_files: Signal<Vec<String>>
         } else if pop.get_untracked() == Some(Pop::Slash) {
             pop.set(None);
         }
-        // 刚敲的是 @（行首或空格后）：去掉它，弹出文件列表。
         if let Some(t) = ta.try_get_untracked().flatten() {
             let at = t.selection_start().ok().flatten().unwrap_or(0) as usize;
             let u: Vec<u16> = v.encode_utf16().collect();
@@ -557,7 +549,6 @@ pub fn Composer(chat: Chat, tick: RwSignal<u32>, tree_files: Signal<Vec<String>>
         }
     };
 
-    // ───── 状态 ─────
     let running = chat.running;
     let ring = move || {
         let (used, model) = chat.transcript.with(|t| {
@@ -654,6 +645,12 @@ pub fn Composer(chat: Chat, tick: RwSignal<u32>, tree_files: Signal<Vec<String>>
                 </div>
             })}
             <QueueBand chat/>
+            {move || chat.deliveries.with(|d| d.failed()).into_iter().map(|(id, request)| {
+                let text = request["text"].as_str().unwrap_or_default().to_owned();
+                let images = request["images"].as_array().map_or(0, Vec::len);
+                view! { <div class="cb-band queue"><div class="cq-h"><b>"发送失败"</b><span class="grow"></span><button class="linkbtn" on:click=move |_| chat.retry_failed(id)>"重试"</button></div><div class="cq-t">{text}{(images > 0).then(|| format!(" · {images} 张附件"))}</div></div> }
+            }).collect_view()}
+            {move || chat.editing_queue.get().map(|queued| view! { <QueueEditor chat queued/> })}
             <Dock chat/>
             <div class="cc-box" on:dragover=move |e: ev::DragEvent| {
                     if e.data_transfer().is_some_and(|d| (0..d.items().length()).any(|i| d.items().get(i).is_some_and(|x| x.type_().starts_with("image/")))) { e.prevent_default(); }
@@ -990,7 +987,6 @@ fn agent_pop(chat: Chat, pop: RwSignal<Option<Pop>>) -> impl IntoView {
         }
     };
     let acc_rows = move |rt: String, current: bool| -> AnyView {
-        // 远端工作区：Codex 用那台机器自己的登录；Claude 只能用长期 token（浏览器登录的凭据带不过去）。
         if remote && rt == "codex" {
             let st = match chat.remote_codex.get_untracked() {
                 Some(true) => "logged in",
@@ -1207,7 +1203,6 @@ struct SavedRate {
 #[component]
 fn RateBanner(chat: Chat) -> impl IntoView {
     let off = RwSignal::new(storage::load_raw("blazar.rate.off").unwrap_or_default());
-    // 最近一次 Claude 报告的额度存一份，换对话也看得到。
     Effect::new(move |_| {
         let w = chat.transcript.with(|t| t.rate.clone());
         if !w.is_empty() {
@@ -1301,5 +1296,67 @@ fn QueueBand(chat: Chat) -> impl IntoView {
             }
             None => view! { <div class="cb-band queue"><div class="cq-o muted">{format!("{others} message{} queued in other conversations", if others == 1 { "" } else { "s" })}</div></div> }.into_any(),
         })
+    }
+}
+
+#[component]
+fn QueueEditor(chat: Chat, queued: Queued) -> impl IntoView {
+    let text = RwSignal::new(queued.text.clone());
+    let busy = RwSignal::new(false);
+    let error = RwSignal::new(String::new());
+    let queued = StoredValue::new(queued);
+    let ws = chat.ws_id();
+    let close = move || {
+        if !busy.get_untracked() {
+            chat.editing_queue.set(None);
+        }
+    };
+    let save = move |_| {
+        if busy.get_untracked() {
+            return;
+        }
+        let queued = queued.get_value();
+        let Some(original) = queued.request else {
+            return;
+        };
+        let request = edit_request(&original, text.get_untracked());
+        if request["text"].as_str().is_none_or(|t| t.trim().is_empty())
+            && request["images"].as_array().is_none_or(Vec::is_empty)
+        {
+            error.set("请输入消息".into());
+            return;
+        }
+        let ws = ws.clone();
+        busy.set(true);
+        error.set(String::new());
+        chat.spawn(async move {
+            let result = api::send::<Vec<Queued>>(
+                "PUT",
+                &format!("/api/workspaces/{ws}/queue"),
+                &json!({ "thread_id": queued.thread_id, "request": request, "expected": original }),
+            )
+            .await;
+            let _ = busy.try_set(false);
+            match result {
+                Ok(queue) => {
+                    let _ = chat.queue.try_set(queue);
+                    let _ = chat.editing_queue.try_set(None);
+                }
+                Err(e) => {
+                    let _ = error.try_set(e.to_string());
+                }
+            }
+        });
+    };
+    view! {
+        <div class="dlg-mask" on:click=move |_| close() on:keydown=move |e| if e.key() == "Escape" { e.stop_propagation(); close(); }>
+            <div class="dlg" role="dialog" aria-modal="true" aria-label="编辑排队消息" on:click=|e| e.stop_propagation()>
+                <h3>"编辑排队消息"</h3>
+                <textarea autofocus prop:value=move || text.get() disabled=move || busy.get() on:input=move |e| text.set(event_target_value(&e))></textarea>
+                <p class="muted">"附件、文件上下文和原发送设置会保留。"</p>
+                <Show when=move || !error.get().is_empty()><div class="err" role="alert">{move || error.get()}</div></Show>
+                <div class="dlg-foot"><button class="btn" disabled=move || busy.get() on:click=move |_| close()>"取消"</button><button class="btn primary" disabled=move || busy.get() on:click=save>{move || if busy.get() { "保存中…" } else { "保存" }}</button></div>
+            </div>
+        </div>
     }
 }

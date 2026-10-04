@@ -11,6 +11,8 @@ use sqlx::Row;
 use crate::api::{PromptRequest, Shared};
 use crate::state::ServerEvent;
 
+mod queue_payload;
+
 const MAX_QUEUED_BYTES: usize = 12 * 1024 * 1024;
 
 const PREFACE_CHARS: usize = 8000;
@@ -34,6 +36,7 @@ fn view(r: &sqlx::sqlite::SqliteRow) -> Value {
         "thread_id": r.try_get::<Option<String>, _>("thread_id").ok().flatten(),
         "text": req["text"].as_str().unwrap_or_default(),
         "images": req["images"].as_array().map_or(0, Vec::len),
+        "request": queue_payload::editable_request(&req),
         "held": r.try_get::<Option<String>, _>("held").ok().flatten(),
         "created_at": r.try_get::<String, _>("created_at").unwrap_or_default(),
     })
@@ -60,6 +63,9 @@ pub struct QueueBody {
 
     #[serde(default)]
     pub append: bool,
+
+    #[serde(default)]
+    pub expected: Option<Value>,
 }
 
 pub async fn put(
@@ -85,7 +91,7 @@ pub async fn put(
         Err(e) => return fail(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
     };
 
-    let old = if b.append {
+    let old = if b.append || b.expected.is_some() {
         match sqlx::query_scalar::<_, String>(
             "SELECT request FROM queued_messages WHERE workspace_id = ?1 AND COALESCE(thread_id, '') = ?2",
         )
@@ -100,7 +106,18 @@ pub async fn put(
     } else {
         None
     };
-    if let Some(old) = old {
+    if let Some(expected) = b.expected {
+        let stored = old
+            .as_deref()
+            .and_then(|raw| serde_json::from_str::<Value>(raw).ok());
+        if stored.as_ref() != Some(&expected) {
+            return fail(
+                StatusCode::CONFLICT,
+                "排队消息已变化或已发出，请刷新后再编辑",
+            );
+        }
+    }
+    if let Some(old) = old.filter(|_| b.append) {
         let old = match serde_json::from_str::<Value>(&old) {
             Ok(old) => old,
             Err(e) => {
@@ -157,12 +174,27 @@ pub async fn put(
     list(State(st), Path(id)).await
 }
 
-pub async fn remove(State(st): State<Shared>, Path((id, qid)): Path<(String, String)>) -> Response {
-    let _ = sqlx::query("DELETE FROM queued_messages WHERE id = ?1 AND workspace_id = ?2")
+pub async fn remove(
+    State(st): State<Shared>,
+    Path((id, qid)): Path<(String, String)>,
+    body: Option<Json<Value>>,
+) -> Response {
+    let expected = body
+        .and_then(|Json(body)| body.get("expected").cloned())
+        .map(|expected| expected.to_string());
+    let result = sqlx::query("DELETE FROM queued_messages WHERE id = ?1 AND workspace_id = ?2 AND (?3 IS NULL OR request = ?3)")
         .bind(&qid)
         .bind(&id)
+        .bind(&expected)
         .execute(st.db.pool())
         .await;
+    if expected.is_some()
+        && result
+            .as_ref()
+            .is_ok_and(|result| result.rows_affected() == 0)
+    {
+        return fail(StatusCode::CONFLICT, "排队消息已变化，未删除新增内容");
+    }
     if let Ok(ws) = id.parse().map(WorkspaceId) {
         changed(&st, ws);
     }
@@ -651,6 +683,34 @@ mod queue_tests {
     }
 
     #[tokio::test]
+    async fn queued_edits_and_steers_cannot_replace_or_delete_newer_payloads() {
+        let (st, ws) = queued().await;
+        let old = json!({"text": "original"});
+        edit_queued(&st).await;
+        let before = queue_contents(&st).await;
+        let response = put(
+            State(st.clone()),
+            Path(ws.to_string()),
+            Json(QueueBody {
+                thread_id: None,
+                request: json!({"text": "edited draft"}),
+                append: false,
+                expected: Some(old.clone()),
+            }),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        let response = remove(
+            State(st.clone()),
+            Path((ws.to_string(), "queued".into())),
+            Some(Json(json!({"expected":old}))),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        assert_eq!(queue_contents(&st).await, before);
+    }
+
+    #[tokio::test]
     async fn concurrent_appends_preserve_both_messages() {
         let (st, ws) = queued().await;
         let sid = SessionId::new();
@@ -671,6 +731,7 @@ mod queue_tests {
                     thread_id: None,
                     request: json!({"text": text, "images": [{"media_type": "image/png", "data": "YQ=="}]}),
                     append: true,
+                    expected: None,
                 }),
             )
         };
@@ -700,6 +761,7 @@ mod queue_tests {
                 thread_id: None,
                 request: json!({"text": "a".repeat(MAX_QUEUED_BYTES)}),
                 append: true,
+                expected: None,
             }),
         )
         .await;
