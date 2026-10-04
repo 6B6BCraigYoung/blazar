@@ -12,7 +12,7 @@ const PROTOCOL_VERSION: &str = "2025-06-18";
 #[derive(Parser)]
 #[command(name = "blazar-mcp", version, about = "Blazar 的 MCP server（stdio）")]
 struct Cli {
-    #[arg(long, env = "BLAZAR_HUB", default_value = "http://127.0.0.1:7777")]
+    #[arg(long, env = "BLAZAR_HUB", default_value = "auto")]
     hub: String,
 
     #[arg(long, requires = "remote_root")]

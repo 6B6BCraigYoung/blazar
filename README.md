@@ -133,7 +133,7 @@ on macOS); `--db` or `BLAZAR_DB` picks another file.
 
 ### First five minutes
 
-1. **Open Blazar.** It starts an embedded hub on `127.0.0.1:61528` and shows the machine it runs on.
+1. **Open Blazar.** It starts an embedded hub on an available loopback port and shows the machine it runs on.
 2. **Add a workspace.** `New workspace`, pick a machine — `local`, any `Host` from `~/.ssh/config`, or a mesh node — and browse to a directory; git repositories are marked.
 3. **Talk to an agent.** The composer lists the agent CLIs found on that machine; model and permission mode are per conversation. Ask for something, watch the transcript, review the diff, leave comments and send them back, or commit from the Git panel.
 4. **Connect a second machine.** Open *Machines & mesh*, configure an issuer (a node that holds the network secret), generate an invite, and double-click the `.blazar` file on the other computer.
@@ -228,8 +228,7 @@ and a status endpoint in a module under `crates/hub/src/office/`. Use the produc
 
 ## CLI and MCP server
 
-Both talk to a running hub; set `BLAZAR_HUB` (default `http://127.0.0.1:61528`, the desktop
-app's embedded hub).
+Both discover the running desktop profile and its session automatically. `BLAZAR_PROFILE` selects a profile; `--hub` / `BLAZAR_HUB` overrides the address. For a custom database, set `BLAZAR_HUB_SESSION` to the adjacent `hub.session` file. An explicit remote address requires `BLAZAR_HUB_TOKEN`; tokens are never sent to a different discovered address.
 
 ```
 blazar run --host <node> --cwd <path> "<prompt>"    start a conversation and stream it
@@ -250,7 +249,7 @@ blazar join <invite.blazar> | leave | mesh-status
 ```json
 { "mcpServers": { "blazar": {
     "command": "/path/to/blazar-mcp",
-    "args": ["--hub", "http://127.0.0.1:61528"] } } }
+    "args": [] } } }
 ```
 
 Tools: `list_workspaces`, `list_nodes`, `discover_agents`, `probe_node`, `create_workspace`,

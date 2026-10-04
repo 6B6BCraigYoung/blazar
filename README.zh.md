@@ -124,7 +124,7 @@ scripts/package-macos.sh           # macOS 上打桌面应用（.app + .dmg）
 
 ### 头五分钟
 
-1. **打开 Blazar。** 它在 `127.0.0.1:61528` 起一个内嵌的 hub，显示它所在的这台机器。
+1. **打开 Blazar。** 它在可用的回环端口启动内嵌 hub，显示它所在的这台机器。
 2. **加一个工作区。** 点「新建工作区」，选机器——`local`、`~/.ssh/config` 里的任意 `Host`、或组网里的节点——浏览到目录，git 仓库会标出来。
 3. **和智能体说话。** 输入栏列出那台机器上找到的智能体命令行，模型和权限模式按对话选。提需求，看转录，审差异，留评论发回去，或者从 Git 面板提交。
 4. **接第二台机器。** 打开「机器与组网」，配置签发节点（持有网络密钥的那台），生成邀请，在另一台电脑上双击 `.blazar` 文件。
@@ -193,7 +193,7 @@ IPv4 地址，流量加密，能打洞就直连，不能就中转。
 
 ## CLI 与 MCP 服务器
 
-两者都连一个正在运行的 hub；用 `BLAZAR_HUB` 指定（默认 `http://127.0.0.1:61528`，即桌面应用内嵌的 hub）。
+两者默认自动发现正在运行的桌面配置及其会话；`BLAZAR_PROFILE` 选择配置，`--hub` / `BLAZAR_HUB` 覆盖地址。自定义数据库可用 `BLAZAR_HUB_SESSION` 指向旁边的 `hub.session` 文件。显式连接远端需设置 `BLAZAR_HUB_TOKEN`；发现到的令牌不会发送给其他地址。
 
 ```
 blazar run --host <node> --cwd <path> "<prompt>"    开一段对话并流式输出
@@ -214,7 +214,7 @@ blazar join <invite.blazar> | leave | mesh-status
 ```json
 { "mcpServers": { "blazar": {
     "command": "/path/to/blazar-mcp",
-    "args": ["--hub", "http://127.0.0.1:61528"] } } }
+    "args": [] } } }
 ```
 
 工具：`list_workspaces`、`list_nodes`、`discover_agents`、`probe_node`、`create_workspace`、`read_file`、`list_files`、

@@ -107,7 +107,7 @@ enum Command {
     Prompt {
         workspace: String,
         text: String,
-        #[arg(long, env = "BLAZAR_HUB", default_value = "http://127.0.0.1:61528")]
+        #[arg(long, env = "BLAZAR_HUB", default_value = "auto")]
         hub: String,
 
         #[arg(long)]
@@ -132,7 +132,7 @@ enum Command {
 
     Wait {
         workspace: String,
-        #[arg(long, env = "BLAZAR_HUB", default_value = "http://127.0.0.1:61528")]
+        #[arg(long, env = "BLAZAR_HUB", default_value = "auto")]
         hub: String,
         #[arg(long, default_value = "idle")]
         until: String,
@@ -145,14 +145,14 @@ enum Command {
         arg: Option<String>,
         #[arg(long)]
         workspace: Option<String>,
-        #[arg(long, env = "BLAZAR_HUB", default_value = "http://127.0.0.1:61528")]
+        #[arg(long, env = "BLAZAR_HUB", default_value = "auto")]
         hub: String,
     },
 
     Autopilot {
         action: String,
         arg: Option<String>,
-        #[arg(long, env = "BLAZAR_HUB", default_value = "http://127.0.0.1:61528")]
+        #[arg(long, env = "BLAZAR_HUB", default_value = "auto")]
         hub: String,
     },
 }
@@ -476,4 +476,23 @@ fn truncate(s: &str) -> String {
         return flat;
     }
     flat.chars().take(100).collect::<String>() + "…"
+}
+
+#[cfg(test)]
+mod connection_tests {
+    use super::*;
+    use clap::CommandFactory;
+
+    #[test]
+    fn hub_commands_discover_the_running_profile_by_default() {
+        let command = Cli::command();
+        for name in ["prompt", "wait", "task", "autopilot"] {
+            let subcommand = command.find_subcommand(name).unwrap();
+            let hub = subcommand
+                .get_arguments()
+                .find(|arg| arg.get_id() == "hub")
+                .unwrap();
+            assert_eq!(hub.get_default_values(), ["auto"], "{name}");
+        }
+    }
 }
