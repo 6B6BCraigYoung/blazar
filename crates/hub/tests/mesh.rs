@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use axum::body::Body;
 use axum::extract::ConnectInfo;
 use axum::http::{Request, StatusCode, header};
-use blazar_hub::{HubConfig, build_router, build_state};
+use blazar_hub::{HubConfig, build_router, build_state_with_services, services::Services};
 use blazar_netmesh::Invite;
 use http_body_util::BodyExt;
 use tower::ServiceExt;
@@ -77,7 +77,9 @@ impl Harness {
             mesh_container: None,
             engine_dir: None,
         };
-        let st = build_state(&cfg).await.unwrap();
+        let st = build_state_with_services(&cfg, Services::Isolated)
+            .await
+            .unwrap();
         let h = Self {
             app: build_router(st),
             dir,

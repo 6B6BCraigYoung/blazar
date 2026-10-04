@@ -17,14 +17,13 @@ mod work;
 pub use agent::{accounts, agents, catalog, chat, checkpoint, proxy, remote_cli, run, titles};
 pub use skills::{library, skillhub};
 pub use work::{analytics, autopilot, inbox, rules, scripts, snippets, tasks};
+pub mod services;
 pub mod state;
 
 pub use state::AppState;
 
-// 第三方静态资源（Monaco、xterm、字体、图标），界面引用 /vendor/… 和 /img/…。
 static ASSETS: include_dir::Dir<'_> = include_dir::include_dir!("$CARGO_MANIFEST_DIR/static");
 
-// 界面（crates/web，Leptos）的构建产物，挂在 / 下。没构建过时 build.rs 放一个占位页。
 static WEB: include_dir::Dir<'_> = include_dir::include_dir!("$CARGO_MANIFEST_DIR/../web/dist");
 
 #[derive(Debug, Clone)]
@@ -60,6 +59,13 @@ pub fn default_db_path() -> anyhow::Result<std::path::PathBuf> {
 }
 
 pub async fn build_state(cfg: &HubConfig) -> Result<Arc<AppState>> {
+    build_state_with_services(cfg, services::Services::Interactive).await
+}
+
+pub async fn build_state_with_services(
+    cfg: &HubConfig,
+    services: services::Services,
+) -> Result<Arc<AppState>> {
     let db = open_db(&cfg.db_path).await?;
     reconcile_after_restart(&db).await?;
     let staging = cfg
@@ -69,24 +75,25 @@ pub async fn build_state(cfg: &HubConfig) -> Result<Arc<AppState>> {
         .unwrap_or_else(|| Path::new("."))
         .join("mesh-staging");
     let mesh_ctx = mesh::MeshCtx::new(cfg.engine_dir.as_deref(), staging);
-    let st = AppState::new(
+    let st = AppState::with_services(
         db,
         cfg.mesh_via.clone(),
         cfg.mesh_container.clone(),
         mesh_ctx,
+        services,
     );
 
-    tokio::spawn(run::reattach_all(st.clone()));
-    tokio::spawn(proxy::restore(st.clone()));
+    services.spawn(run::reattach_all(st.clone()));
+    services.spawn(proxy::restore(st.clone()));
 
     let cat = st.clone();
-    tokio::spawn(async move {
+    services.spawn(async move {
         let _ = catalog::claude(&cat, false).await;
     });
     let warm = st.clone();
-    tokio::spawn(async move { mesh::MeshCtx::warm(&warm).await });
-    tokio::spawn(git::poll_prs(st.clone()));
-    tokio::spawn(autopilot::scheduler(st.clone()));
+    services.spawn(async move { mesh::MeshCtx::warm(&warm).await });
+    services.spawn(git::poll_prs(st.clone()));
+    services.spawn(autopilot::scheduler(st.clone()));
     Ok(st)
 }
 
@@ -125,7 +132,6 @@ async fn open_db(path: &Path) -> Result<Db> {
 pub fn build_router(st: Arc<AppState>) -> Router {
     Router::new()
         .route("/", get(web))
-        // 新界面曾经挂在 /v2 下：旧链接和书签跳到同一页。
         .route(
             "/v2",
             get(|| async { axum::response::Redirect::permanent("/") }),
@@ -573,8 +579,6 @@ async fn v2_redirect(
     axum::response::Redirect::permanent(&format!("/{}{q}", path.trim_start_matches('/')))
 }
 
-// 界面：Trunk 产出的 js/wasm/css 文件名带内容哈希，可以长期缓存；其余路径都是前端路由，回 index.html。
-// 找不到的接口和静态文件回 404，不能拿页面顶替（浏览器会把 HTML 当脚本解析，报错也看不懂）。
 async fn web(method: axum::http::Method, uri: axum::http::Uri) -> axum::response::Response {
     use axum::http::{Method, StatusCode, header};
     use axum::response::IntoResponse;
@@ -586,7 +590,6 @@ async fn web(method: axum::http::Method, uri: axum::http::Uri) -> axum::response
         Some(f) if !rel.is_empty() && rel != "index.html" => (
             [
                 (header::CONTENT_TYPE, mime_of(rel)),
-                // 顶层文件名带内容哈希，可以永久缓存；snippets/ 下的 JS 文件名不随内容变，每次都要重新验证
                 (
                     header::CACHE_CONTROL,
                     if rel.contains('/') {

@@ -3,7 +3,7 @@ use std::net::SocketAddr;
 use axum::body::Body;
 use axum::extract::ConnectInfo;
 use axum::http::{Request, StatusCode, header};
-use blazar_hub::{HubConfig, build_router, build_state};
+use blazar_hub::{HubConfig, build_router, build_state_with_services, services::Services};
 use http_body_util::BodyExt;
 use tower::ServiceExt;
 
@@ -16,7 +16,9 @@ async fn app() -> (axum::Router, tempfile::TempDir) {
         mesh_container: None,
         engine_dir: None,
     };
-    let st = build_state(&cfg).await.unwrap();
+    let st = build_state_with_services(&cfg, Services::Isolated)
+        .await
+        .unwrap();
     (build_router(st), dir)
 }
 
@@ -109,7 +111,6 @@ async fn the_ui_is_served_at_the_root_and_missing_assets_are_not_html() {
             "{path}"
         );
     }
-    // 页面引用的文件：带哈希的永久缓存，snippets/ 下文件名不变的每次重新验证
     let index = app.clone().oneshot(get("/", None)).await.unwrap();
     let index = String::from_utf8(
         index
@@ -155,7 +156,6 @@ async fn the_ui_is_served_at_the_root_and_missing_assets_are_not_html() {
             "{path}"
         );
     }
-    // 界面曾经挂在 /v2 下：旧链接跳到同一页。
     for (from, to) in [
         ("/v2", "/"),
         ("/v2/", "/"),

@@ -32,6 +32,7 @@ impl Drop for AdmitGuard {
 }
 
 pub struct AppState {
+    pub services: crate::services::Services,
     pub db: Db,
     pub bus: broadcast::Sender<ServerEvent>,
     pub running: RwLock<HashMap<SessionId, RunningSession>>,
@@ -53,8 +54,25 @@ impl AppState {
         mesh_container: Option<String>,
         mesh_ctx: crate::mesh::MeshCtx,
     ) -> Arc<Self> {
+        Self::with_services(
+            db,
+            mesh_via,
+            mesh_container,
+            mesh_ctx,
+            crate::services::Services::Interactive,
+        )
+    }
+
+    pub fn with_services(
+        db: Db,
+        mesh_via: String,
+        mesh_container: Option<String>,
+        mesh_ctx: crate::mesh::MeshCtx,
+        services: crate::services::Services,
+    ) -> Arc<Self> {
         let (bus, _) = broadcast::channel(4096);
         Arc::new(Self {
+            services,
             db,
             bus,
             running: RwLock::new(HashMap::new()),

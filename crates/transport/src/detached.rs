@@ -14,8 +14,7 @@ alive() {
 }
 "#;
 
-const RUN_SH: &str = r#"#!/bin/bash
-# blazar-run v2 —— bash run.sh <rundir> <relay|null> <run-id>
+const RUN_SH: &str = r#"# blazar-run v2 —— bash run.sh <rundir> <relay|null> <run-id>
 D=$1; MODE=$2; RID=$3
 cd "$D" || exit 97
 trap '' HUP
@@ -46,7 +45,6 @@ fi
 A=$!
 trap 'kill -TERM $A 2>/dev/null' TERM INT
 while :; do wait $A; E=$?; kill -0 $A 2>/dev/null || break; done
-# 按环境标记收掉被 init 收养的孤儿（只在有 /proc 的系统上有效）
 orphans() { grep -lz "^BLAZAR_RUN=$RID\$" /proc/[0-9]*/environ 2>/dev/null | sed 's#/proc/\([0-9]*\)/environ#\1#' | grep -vx "$$"; }
 L=$(orphans | tr '\n' ' ')
 if [ -n "$L" ]; then kill -TERM $L 2>/dev/null; sleep 2; L=$(orphans | tr '\n' ' '); [ -n "$L" ] && kill -KILL $L 2>/dev/null; fi
@@ -123,7 +121,7 @@ fn check_run_id(id: &str) -> Result<()> {
 }
 
 fn render_cmd(spec: &ExecSpec) -> String {
-    let mut s = String::from("#!/bin/bash\n");
+    let mut s = String::new();
     if !spec.program.contains('/') {
         s.push_str(crate::PATH_PRELUDE);
     }
@@ -203,6 +201,50 @@ impl DetachedRun {
         first_input: Option<&str>,
         mode: RunMode,
     ) -> Result<Self> {
+        Self::launch_at(
+            transport,
+            &format!("\"{RUNS_ROOT}\""),
+            run_id,
+            cmd,
+            first_input,
+            mode,
+        )
+        .await
+    }
+
+    pub async fn launch_in(
+        transport: Arc<dyn NodeTransport>,
+        root: &std::path::Path,
+        run_id: &str,
+        cmd: &ExecSpec,
+        first_input: Option<&str>,
+        mode: RunMode,
+    ) -> Result<Self> {
+        if !root.is_absolute() {
+            return Err(TransportError::Command {
+                code: -1,
+                stderr: "运行目录必须是绝对路径".into(),
+            });
+        }
+        Self::launch_at(
+            transport,
+            &shell_quote(&root.to_string_lossy()),
+            run_id,
+            cmd,
+            first_input,
+            mode,
+        )
+        .await
+    }
+
+    async fn launch_at(
+        transport: Arc<dyn NodeTransport>,
+        root: &str,
+        run_id: &str,
+        cmd: &ExecSpec,
+        first_input: Option<&str>,
+        mode: RunMode,
+    ) -> Result<Self> {
         check_run_id(run_id)?;
         let run_sh = RUN_SH.replace("__IDENTITY__", IDENTITY_FNS);
         let payload = format!(
@@ -217,24 +259,20 @@ impl DetachedRun {
         );
         let script = format!(
             r#"set -e; umask 077
-D="{root}/{rid}"
+D={root}/{rid}
 mkdir -p "$D"; cd "$D"
 IFS= read -r A; IFS= read -r B; IFS= read -r C
 printf '%s' "$A" | base64 --decode > run.sh
 printf '%s' "$B" | base64 --decode > cmd.sh
 printf '%s' "$C" | base64 --decode > in.jsonl
-# inode 在这里同步记下，不留给 run.sh：launch 一返回调用方就可能追加输入，
-# 那时 run.sh 可能还没跑到那一行，会被误判成"输入文件被换过"
 (stat -c %i in.jsonl 2>/dev/null || stat -f %i in.jsonl) > in.inode
 set +e
 set -m
 bash "$D/run.sh" "$D" {mode} {rid} </dev/null >/dev/null 2>&1 &
-# 等 run.sh 写出 pid 再返回：否则紧接着的探活会因为没有 pid 文件而判成 lost
 i=0; while [ ! -s pid ] && [ $i -lt 50 ]; do sleep 0.1; i=$((i+1)); done
 [ -s pid ] || {{ echo "run.sh 5 秒内没有起来" >&2; exit 98; }}
 echo "__BLAZAR_LAUNCHED__ $D"
 "#,
-            root = RUNS_ROOT,
             rid = run_id,
             mode = mode.as_str(),
         );
@@ -270,7 +308,6 @@ echo "__BLAZAR_LAUNCHED__ $D"
         }
         let body = format!(
             r#"I=$(stat -c %i in.jsonl 2>/dev/null || stat -f %i in.jsonl 2>/dev/null)
-# 文件被删了重建的话，中继还攥着旧文件的 fd，写进新文件的输入永远到不了 agent
 [ -n "$I" ] && [ "$I" = "$(cat in.inode 2>/dev/null)" ] || {{ echo "in.jsonl 已被替换，输入无法送达" >&2; exit 12; }}
 [ -e exit.code ] && {{ echo "agent 已经结束" >&2; exit 13; }}
 awk -F'\t' -v id={id} '$1==id{{f=1;exit}} END{{exit !f}}' in.jsonl && {{ echo dup; exit 0; }}
@@ -324,7 +361,6 @@ else echo lost; fi"#
             r#"{IDENTITY_FNS}
 tail -c +{start} -F out.jsonl 2>/dev/null & T=$!
 while [ ! -e exit.code ] && alive; do sleep 1; done
-# 给 tail 一点时间把最后几行吐完
 sleep 1; kill $T 2>/dev/null; wait $T 2>/dev/null
 exit 0"#,
             start = offset + 1,
@@ -366,7 +402,6 @@ read -r P B S < pid
 kill -TERM "$P" 2>/dev/null
 i=0; while [ $i -lt 20 ] && [ ! -e exit.code ]; do sleep 0.5; i=$((i+1)); done
 [ -e exit.code ] && exit 0
-# TERM 没用：整组 KILL。run.sh 自己也在这组里，它写不出退出码了，这里代写
 kill -KILL -"$P" 2>/dev/null
 L=$(grep -lz "^BLAZAR_RUN={rid}\$" /proc/[0-9]*/environ 2>/dev/null | sed 's#/proc/\([0-9]*\)/environ#\1#' | tr '\n' ' ')
 [ -n "$L" ] && kill -KILL $L 2>/dev/null
@@ -450,8 +485,85 @@ mod tests {
     use crate::LocalTransport;
     use futures::StreamExt;
 
+    struct TestRun {
+        run: DetachedRun,
+        _root: tempfile::TempDir,
+    }
+
+    impl std::ops::Deref for TestRun {
+        type Target = DetachedRun;
+
+        fn deref(&self) -> &Self::Target {
+            &self.run
+        }
+    }
+
+    async fn launch(
+        transport: Arc<dyn NodeTransport>,
+        id: &str,
+        spec: &ExecSpec,
+        input: Option<&str>,
+        mode: RunMode,
+    ) -> Result<TestRun> {
+        let root = tempfile::tempdir()?;
+        let run = DetachedRun::launch_in(transport, root.path(), id, spec, input, mode).await?;
+        Ok(TestRun { run, _root: root })
+    }
+
+    struct TestLocal;
+
+    fn without_login(mut spec: ExecSpec) -> ExecSpec {
+        if spec.program == "bash" && spec.args.first().is_some_and(|a| a == "-lc") {
+            spec.args[0] = "-c".into();
+        }
+        spec
+    }
+
+    #[async_trait::async_trait]
+    impl NodeTransport for TestLocal {
+        fn kind(&self) -> crate::TransportKind {
+            crate::TransportKind::Local
+        }
+
+        fn target(&self) -> &str {
+            "local"
+        }
+
+        async fn exec(&self, spec: ExecSpec) -> Result<crate::ExecOutput> {
+            LocalTransport.exec(without_login(spec)).await
+        }
+
+        async fn spawn_lines(&self, spec: ExecSpec) -> Result<LineStream> {
+            LocalTransport.spawn_lines(without_login(spec)).await
+        }
+    }
+
+    #[tokio::test]
+    async fn explicit_run_root_is_used_without_changing_home() {
+        let root = tempfile::tempdir().unwrap();
+        let home = std::env::var_os("HOME");
+        let run = DetachedRun::launch_in(
+            local(),
+            root.path(),
+            &rid("root"),
+            &ExecSpec::new("/usr/bin/printf").arg("isolated"),
+            None,
+            RunMode::Null,
+        )
+        .await
+        .unwrap();
+        assert!(std::path::Path::new(&run.dir).starts_with(root.path()));
+        assert_eq!(std::env::var_os("HOME"), home);
+        assert!(matches!(
+            wait_exit(&run).await,
+            RunState::Exited { code: 0, .. }
+        ));
+        assert!(run.drain(0).await.unwrap().contains("isolated"));
+        run.remove().await.unwrap();
+    }
+
     fn local() -> Arc<dyn NodeTransport> {
-        Arc::new(LocalTransport)
+        Arc::new(TestLocal)
     }
 
     fn echo_agent() -> ExecSpec {
@@ -484,7 +596,7 @@ mod tests {
     #[tokio::test]
     async fn a_running_run_refuses_to_be_removed() {
         let spec = ExecSpec::new("bash").arg("-c").arg("sleep 30");
-        let run = DetachedRun::launch(local(), &rid("rm"), &spec, None, RunMode::Null)
+        let run = launch(local(), &rid("rm"), &spec, None, RunMode::Null)
             .await
             .unwrap();
         assert!(run.remove().await.is_err(), "还在跑的不能删");
@@ -538,7 +650,7 @@ mod tests {
 
     #[tokio::test]
     async fn relay_delivers_input_and_eof_ends_the_agent() {
-        let run = DetachedRun::launch(
+        let run = launch(
             local(),
             &rid("relay"),
             &echo_agent(),
@@ -578,7 +690,7 @@ mod tests {
         let _ = std::fs::remove_file(&marker);
         let evil = format!("fix bug\nBLZ_CMD_EOF\ntouch {}\nEOF\n'", marker.display());
         let spec = ExecSpec::new("printf").arg("%s").arg(&evil);
-        let run = DetachedRun::launch(local(), &rid("inject"), &spec, None, RunMode::Null)
+        let run = launch(local(), &rid("inject"), &spec, None, RunMode::Null)
             .await
             .unwrap();
         wait_exit(&run).await;
@@ -598,7 +710,7 @@ mod tests {
             .arg("-c")
             .arg(r#"printf '[%s]' "$TOKEN""#)
             .env_file("TOKEN", &file);
-        let run = DetachedRun::launch(local(), &rid("secret"), &spec, None, RunMode::Null)
+        let run = launch(local(), &rid("secret"), &spec, None, RunMode::Null)
             .await
             .unwrap();
         wait_exit(&run).await;
@@ -626,7 +738,7 @@ mod tests {
     #[tokio::test]
     async fn the_agent_outlives_whoever_launched_it() {
         let spec = ExecSpec::new("bash").arg("-c").arg("sleep 30");
-        let run = DetachedRun::launch(local(), &rid("outlive"), &spec, None, RunMode::Null)
+        let run = launch(local(), &rid("outlive"), &spec, None, RunMode::Null)
             .await
             .unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
@@ -640,7 +752,7 @@ mod tests {
 
     #[tokio::test]
     async fn following_resumes_exactly_from_the_byte_offset() {
-        let run = DetachedRun::launch(
+        let run = launch(
             local(),
             &rid("follow"),
             &echo_agent(),
@@ -671,7 +783,7 @@ mod tests {
     #[tokio::test]
     async fn a_dead_pid_that_got_reused_is_not_mistaken_for_the_agent() {
         let spec = ExecSpec::new("bash").arg("-c").arg("sleep 30");
-        let run = DetachedRun::launch(local(), &rid("reuse"), &spec, None, RunMode::Null)
+        let run = launch(local(), &rid("reuse"), &spec, None, RunMode::Null)
             .await
             .unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(400)).await;
@@ -707,7 +819,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_replaced_input_file_is_detected_instead_of_silently_dropping_input() {
-        let run = DetachedRun::launch(local(), &rid("inode"), &echo_agent(), None, RunMode::Relay)
+        let run = launch(local(), &rid("inode"), &echo_agent(), None, RunMode::Relay)
             .await
             .unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
@@ -753,6 +865,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires an explicitly authorized remote test machine"]
     async fn remote_dedup_holds_on_gnu_grep_hosts() {
         let Some(t) = remote() else { return };
         let run = DetachedRun::launch(t, &rid("rdedup"), &echo_agent(), None, RunMode::Relay)
@@ -772,6 +885,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires an explicitly authorized remote test machine"]
     async fn remote_orphaned_tool_processes_are_reaped_after_an_agent_crash() {
         let Some(t) = remote() else { return };
         let tag = rid("orphan");
@@ -798,6 +912,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires an explicitly authorized remote test machine"]
     async fn remote_survives_launcher_and_resumes_from_offset() {
         let Some(t) = remote() else { return };
         let run = DetachedRun::launch(

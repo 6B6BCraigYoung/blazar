@@ -8,6 +8,7 @@ use blazar_transport::{ExecSpec, LocalTransport, NodeTransport, SshTransport};
 use futures::StreamExt;
 
 #[tokio::test]
+#[ignore = "requires an explicitly configured test agent and optional test SSH host"]
 async fn a_permission_prompt_can_be_answered_and_the_tool_then_runs() {
     if std::env::var("BLAZAR_TEST_CLAUDE").is_err() {
         return;

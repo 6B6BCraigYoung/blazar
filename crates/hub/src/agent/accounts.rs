@@ -17,21 +17,15 @@ use crate::state::ServerEvent;
 
 pub const PROVIDERS: &[&str] = &["claude", "codex"];
 
-// 自动选号时，续接的会话只要原账号还没用到这个比例就不换号，免得白白丢掉提示词缓存。
 const SWITCH_AT: f64 = 0.9;
 
-// 只知道「被限流了」却拿不到重置时间时（Codex 失败、Claude 没带窗口），先按这么久不可用算。
 const BLOCKED_MINUTES: i64 = 60;
 
-// 没带重置时间的窗口，观察到之后这么久内还作数。
 const STALE_HOURS: i64 = 5;
 
-// `claude setup-token` 生成的长期 token 放在账号目录里的这个文件（0600），启动时由 shell 读进环境变量。
 pub const TOKEN_FILE: &str = ".blazar-oauth-token";
 const TOKEN_ENV: &str = "CLAUDE_CODE_OAUTH_TOKEN";
 
-// setup-token 的权限查不了 /api/oauth/usage，只能发一个最小请求读响应头里的额度。
-// 被限流时请求直接被拒、不耗额度；没被限流时大约耗一次 Haiku 的十几个 token。
 const QUOTA_MODEL: &str = "claude-haiku-4-5-20251001";
 const QUOTA_FRESH_MINUTES: i64 = 5;
 
@@ -52,8 +46,6 @@ fn mode_key(provider: &str) -> String {
     format!("accounts.mode.{provider}")
 }
 
-// 从默认配置目录链接进每个账号目录的东西：设置、技能、会话历史跟着人走，凭据留在各自目录里。
-// 第二项为 true 的是目录，默认目录里没有时先建出来，保证各账号之间能互相续接会话。
 fn shared_items(provider: &str) -> &'static [(&'static str, bool)] {
     match provider {
         "claude" => &[
@@ -304,7 +296,6 @@ pub struct Candidate {
     pub running: i64,
 }
 
-// 剩余额度最多的优先；额度相同就挑手上会话少的，把并发摊开。
 #[must_use]
 pub fn best(cands: &[Candidate]) -> Option<&Candidate> {
     cands
@@ -321,7 +312,6 @@ pub struct Chosen {
 
     pub auto: bool,
 
-    // 远端运行：凭据不出本机，经 SSH 隧道走 Blazar 的凭据代理。
     pub proxy: bool,
 }
 
@@ -337,10 +327,8 @@ impl From<&Account> for Chosen {
     }
 }
 
-// 记下来的「某账号不能用某模型」过这么久就不作数了，订阅升级之后能自己恢复。
 const MODEL_BLOCK_DAYS: i64 = 7;
 
-// 模型按家族比：claude-fable-5-1、fable、fable[1m] 都算 fable。
 #[must_use]
 pub fn model_family(model: &str) -> String {
     let m = model.trim().to_ascii_lowercase();
@@ -377,9 +365,6 @@ async fn mode_of(st: &Shared, provider: &str) -> String {
         .to_owned()
 }
 
-// 本机运行：给 CLI 指账号目录 / 长期 token。远端运行：Claude 只能用长期 token，凭据留在本机、经凭据代理转过去；
-// Codex 用那台机器自己的登录。
-// `exclude` 是这一轮已经试过、失败了的账号：自动换号重发时传进来，挑不出新的就报错，不再重发。
 pub async fn resolve(
     st: &Shared,
     provider: &str,
@@ -616,10 +601,7 @@ async fn note_model_block(
     st.emit(ServerEvent::AccountsChanged);
 }
 
-// 因为账号的原因失败（这个模型用不了、额度用尽、token 失效）时，自动挑另一个账号接着来，只对自动选号的会话生效：
-// 一点活还没干就把原消息重发；已经干了一半就续接同一个会话、让它从中断处继续，不重复已经做过的事。
 pub async fn on_run_finished(st: Shared, sid: blazar_core_types::SessionId, status: &'static str) {
-    // Codex 的额度只能主动问：每跑完一轮顺手更新一次它用的那个账号。
     if let Ok(Some((Some(acc), rt))) = sqlx::query_as::<_, (Option<String>, String)>(
         "SELECT account_id, runtime_kind FROM sessions WHERE id = ?1",
     )
@@ -715,7 +697,6 @@ pub async fn on_run_finished(st: Shared, sid: blazar_core_types::SessionId, stat
     }
 
     if !midway {
-        // 一点活都没干：这一轮不再参与续接，从上一轮正常结束的位置把原消息重发一遍。
         let _ = sqlx::query("UPDATE sessions SET provider_session_id = NULL WHERE id = ?1")
             .bind(sid.to_string())
             .execute(st.db.pool())
@@ -762,7 +743,6 @@ pub async fn on_run_finished(st: Shared, sid: blazar_core_types::SessionId, stat
     }
 }
 
-// 换号接着来的那条请求：干了一半的续接同一个会话、让它接着做；没开始干的把原消息原样重发。
 #[must_use]
 pub fn retry_request(mut req: Value, midway: bool, exclude: &[String], thread: &str) -> Value {
     if midway {
@@ -785,7 +765,6 @@ pub fn retry_request(mut req: Value, midway: bool, exclude: &[String], thread: &
 pub const CONTINUE_TEXT: &str =
     "（上一个账号额度用尽，已换账号接着做）请从刚才中断的地方继续，把没做完的工作完成。";
 
-// prompt 跑完又会回到这里，装箱打断 async 的递归类型。
 fn send_again<'a>(
     st: &'a Shared,
     ws: &'a str,
@@ -798,7 +777,6 @@ fn send_again<'a>(
     ))
 }
 
-// 「这个模型要额外用量」「换个模型」这类拒绝只针对某个模型，账号本身还能用。
 #[must_use]
 pub fn model_only_limit(message: &str) -> bool {
     let t = message.to_ascii_lowercase();
@@ -827,7 +805,6 @@ pub async fn note_failure(st: &Shared, sid: blazar_core_types::SessionId, messag
         return;
     };
     if class == FailureClass::QuotaLimit {
-        // 已经有带重置时间的满额窗口时，它比一条没有重置时间的「已限流」更准，别再补一条。
         let now = Utc::now();
         let full = windows_of(st).await.get(&account).is_some_and(|ws| {
             ws.iter()
@@ -843,7 +820,6 @@ pub async fn note_failure(st: &Shared, sid: blazar_core_types::SessionId, messag
         return;
     };
     if a.kind == "token" {
-        // 本地检查只能看到 token 在不在，认证失败才说明它被吊销或过期了。
         let _ =
             sqlx::query("UPDATE accounts SET status = 'logged_out', checked_at = ?2 WHERE id = ?1")
                 .bind(&a.id)
@@ -898,7 +874,6 @@ pub fn parse_codex_status(out: &str) -> Probe {
     Probe {
         logged_in: Some(true),
         email: None,
-        // ChatGPT 登录的具体套餐（Plus / Pro / Pro Lite…）查额度时由 app-server 报，这里只认 API key。
         plan: t.contains("api key").then(|| "API key".into()),
     }
 }
@@ -939,6 +914,9 @@ pub async fn probe(a: &Account) -> Probe {
 }
 
 async fn check(st: &Shared, a: &Account) -> Option<Account> {
+    if st.services == crate::services::Services::Isolated {
+        return None;
+    }
     let p = probe(a).await;
     let status = match p.logged_in {
         Some(true) => "ok",
@@ -1077,7 +1055,7 @@ pub async fn create(State(st): State<Shared>, Json(req): Json<NewAccount>) -> Re
     };
     let id = uuid::Uuid::now_v7().to_string();
     let dir = root(&st).join(&req.provider).join(&id);
-    let shared = default_home(&req.provider);
+    let shared = st.services.local(|| default_home(&req.provider)).flatten();
     let (provider, d) = (req.provider.clone(), dir.clone());
     let tok = token.clone();
     let made = tokio::task::spawn_blocking(move || {
@@ -1146,13 +1124,11 @@ pub async fn set_token(
         Ok(t) => t,
         Err(e) => return fail(StatusCode::BAD_REQUEST, e),
     };
-    // 默认登录转成 token 账号：给它建一个自己的账号目录，之后就和其它 token 账号一样。
-    // 本机 ~/.claude 里的浏览器登录原样留着，终端里的 claude 不受影响。
     let (dir, adopt) = match a.config_dir.clone() {
         Some(d) => (PathBuf::from(d), false),
         None => (root(&st).join("claude").join(&a.id), true),
     };
-    let shared = default_home("claude");
+    let shared = st.services.local(|| default_home("claude")).flatten();
     let (d, path) = (dir.clone(), dir.join(TOKEN_FILE));
     let written = tokio::task::spawn_blocking(move || {
         if adopt {
@@ -1403,7 +1379,6 @@ pub fn parse_quota_headers(raw: &str) -> Quota {
     }
 }
 
-// 能主动查额度的：Claude 的长期 token 账号（发最小请求读响应头），以及所有 Codex 账号（问 codex app-server）。
 fn can_query_quota(a: &Account) -> bool {
     (a.provider == "claude" && a.kind == "token") || a.provider == "codex"
 }
@@ -1439,7 +1414,6 @@ fn codex_window_name(mins: i64) -> String {
     }
 }
 
-// `account/rateLimits/read` 的结果 → 额度窗口和套餐。
 #[must_use]
 pub fn parse_codex_rate_limits(v: &Value) -> (Quota, Option<String>) {
     let rl = &v["rateLimits"];
@@ -1477,7 +1451,6 @@ pub fn parse_codex_rate_limits(v: &Value) -> (Quota, Option<String>) {
     )
 }
 
-// 让 Codex CLI 自己去问额度：起一个 `codex app-server`，发 initialize 和 account/rateLimits/read。凭据全程不经过 Blazar。
 async fn refresh_codex_quota(st: &Shared, a: &Account) -> Result<(), String> {
     use std::process::Stdio;
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -1649,7 +1622,6 @@ pub async fn set_mode(State(st): State<Shared>, Json(m): Json<Mode>) -> Response
     if let Err(e) = crate::office::kv_put(&st, &mode_key(&m.provider), &json!(mode)).await {
         return fail(StatusCode::INTERNAL_SERVER_ERROR, e);
     }
-    // 开了全局切换：终端里的 CLI 和编辑器插件也跟着换。
     let global = if global_enabled(&st).await && mode != "auto" {
         Some(sync_global(&st, &m.provider, mode).await)
     } else {
@@ -1665,8 +1637,6 @@ pub async fn set_mode(State(st): State<Shared>, Json(m): Json<Mode>) -> Response
     }
 }
 
-// ── 全局切换 ──
-
 const GLOBAL_KEY: &str = "accounts.global_sync";
 
 fn global_key(provider: &str) -> String {
@@ -1677,7 +1647,6 @@ async fn global_enabled(st: &Shared) -> bool {
     crate::office::kv_get(st, GLOBAL_KEY).await.as_bool() == Some(true)
 }
 
-/// 现在这台机器的全局登录是哪个账号（None = 原来的默认登录）。
 async fn global_current(st: &Shared, provider: &str) -> Option<Account> {
     let id = crate::office::kv_get(st, &global_key(provider))
         .await
@@ -1690,7 +1659,6 @@ async fn global_current(st: &Shared, provider: &str) -> Option<Account> {
     get(st, &id).await.filter(|a| !a.builtin)
 }
 
-/// 把 `provider` 的全局登录换成 `mode` 指的账号（"" = 默认登录）。
 async fn sync_global(st: &Shared, provider: &str, mode: &str) -> Result<(), String> {
     let target = if mode.is_empty() {
         None
@@ -1742,7 +1710,6 @@ pub struct GlobalBody {
     pub enabled: bool,
 }
 
-/// 打开：两个运行时都换成现在选的账号；关掉：都换回原来的默认登录。
 pub async fn global_put(State(st): State<Shared>, Json(b): Json<GlobalBody>) -> Response {
     let mut errors = Vec::new();
     for p in PROVIDERS {
@@ -1782,7 +1749,6 @@ pub async fn clear_model_block(
     StatusCode::NO_CONTENT.into_response()
 }
 
-// 在远端机器上登录 Codex：经 SSH 在那台机器上跑设备码登录，你在本地浏览器里完成验证，凭据只落在那台机器上。
 pub async fn node_login_ws(
     ws: WebSocketUpgrade,
     State(st): State<Shared>,
