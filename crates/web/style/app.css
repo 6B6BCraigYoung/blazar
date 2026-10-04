@@ -506,3 +506,6 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 .editor-empty { text-align: center; }
 .editor-empty .ui-state-detail { color: var(--fg-4); }
 .ws-error > .ui-error { flex: 1; min-width: 0; }
+
+.df-toggle { display: flex; align-items: center; gap: var(--space-md); flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.df-toggle .st { flex-shrink: 0; }

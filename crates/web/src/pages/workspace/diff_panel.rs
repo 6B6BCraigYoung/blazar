@@ -1,6 +1,8 @@
 use std::collections::HashSet;
 
 use leptos::prelude::*;
+
+use crate::components::status::{EmptyState, InlineError, LoadingState};
 use leptos::task::spawn_local;
 use serde::{Deserialize, Serialize};
 
@@ -57,6 +59,8 @@ fn review_key(ws: &str) -> String {
 pub struct DiffState {
     pub files: RwSignal<Vec<File>>,
     pub note: RwSignal<String>,
+    pub loading: RwSignal<bool>,
+    pub error: RwSignal<Option<String>>,
     pub truncated: RwSignal<bool>,
     pub base: RwSignal<String>,
     pub prefs: RwSignal<Prefs>,
@@ -69,6 +73,8 @@ impl DiffState {
         Self {
             files: RwSignal::new(Vec::new()),
             note: RwSignal::new(String::new()),
+            loading: RwSignal::new(false),
+            error: RwSignal::new(None),
             truncated: RwSignal::new(false),
             base: RwSignal::new(String::new()),
             prefs: RwSignal::new(storage::load(PREFS_KEY).unwrap_or_default()),
@@ -114,6 +120,8 @@ pub fn keep_loaded(ws: String, d: DiffState, git: Git) {
         };
         let ws = ws.clone();
         let request = latest.begin();
+        d.loading.set(true);
+        d.error.set(None);
         let latest = latest.clone();
         spawn_local(async move {
             let mut q = Vec::new();
@@ -128,6 +136,7 @@ pub fn keep_loaded(ws: String, d: DiffState, git: Git) {
             if !latest.accepts(request) {
                 return;
             }
+            let _ = d.loading.try_set(false);
             match r {
                 Ok(r) => {
                     let _ = d.files.try_set(diff::parse(&r.diff));
@@ -135,6 +144,7 @@ pub fn keep_loaded(ws: String, d: DiffState, git: Git) {
                     let _ = d.truncated.try_set(r.truncated);
                 }
                 Err(e) => {
+                    let _ = d.error.try_set(Some(e.to_string()));
                     let _ = d.files.try_set(Vec::new());
                     let _ = d.note.try_set(e.to_string());
                     let _ = d.truncated.try_set(false);
@@ -184,7 +194,7 @@ pub fn DiffBar(
     };
     view! {
         <div class="diffbar">
-            <button class="laybtn" title="改动文件列表" aria-pressed=move || p().tree.to_string()
+            <button class="laybtn" aria-label="切换改动文件列表" title="改动文件列表" aria-pressed=move || p().tree.to_string()
                 on:click=move |_| d.set_prefs(|p| p.tree = !p.tree) inner_html=super::ICON_LEFT></button>
             <span class="seg" title="和谁比">
                 <button data-on=move || (p().base == "head").to_string() title="还没提交的改动（相对 HEAD）"
@@ -215,8 +225,8 @@ pub fn DiffBar(
                 }>
                 {move || if !d.files.with(Vec::is_empty) && collapsed.with(HashSet::len) >= d.files.with(Vec::len) { "全部展开" } else { "全部折叠" }}
             </button>
-            <button class="btn small" disabled=move || d.files.with(Vec::is_empty) title="开一个新对话，让 agent 只审阅不改代码" on:click=review>"让 agent 审阅"</button>
-            <button class="laybtn" title="刷新" inner_html=super::ICON_REFRESH
+            <button class="btn small" disabled=move || d.files.with(Vec::is_empty) title="开一个新对话，让 agent 只审阅不改代码" on:click=review>"审阅改动"</button>
+            <button class="laybtn" aria-label="刷新差异" title="刷新" inner_html=super::ICON_REFRESH
                 on:click=move |_| { d.reload.update(|n| *n += 1); git.reload.update(|n| *n += 1); }></button>
             <button class="laybtn" title=move || if panel_max.get() { "还原面板" } else { "最大化面板" }
                 aria-pressed=move || panel_max.get().to_string() on:click=move |_| panel_max.update(|m| *m = !*m)>"⤢"</button>
@@ -255,6 +265,12 @@ pub fn DiffView(
     let ws_c = StoredValue::new(ws);
 
     let body = move || {
+        if d.loading.get() && d.files.with(Vec::is_empty) {
+            return view! { <LoadingState text="读取差异…"/> }.into_any();
+        }
+        if let Some(error) = d.error.get() {
+            return view! { <InlineError message=error class="empty" retry=Callback::new(move |_| d.reload.update(|n| *n += 1))/> }.into_any();
+        }
         let list = d.files.get();
         if list.is_empty() {
             let note = d.note.get();
@@ -263,18 +279,18 @@ pub fn DiffView(
             } else if p().base == "target" {
                 let b = d.base.get();
                 if b.is_empty() {
-                    "没找到可对比的目标分支（或当前就在目标分支上）：到 Git 页签里选一个".to_owned()
+                    "请在 Git 面板选择可对比的目标分支".to_owned()
                 } else {
                     format!("相对 {b} 没有改动")
                 }
             } else {
                 "没有未提交的改动".to_owned()
             };
-            return view! { <div class="empty">{msg}</div> }.into_any();
+            return view! { <EmptyState title=msg/> }.into_any();
         }
         let split = p().view == "split";
         view! {
-            {move || d.truncated.get().then(|| view! { <div class="df-note warn">"改动太大，只显示了前 3MB"</div> })}
+            {move || d.truncated.get().then(|| view! { <div class="df-note warn">"差异较大，仅显示前 3MB"</div> })}
             {list.into_iter().enumerate().map(|(i, f)| file_view(i, f, split, collapsed, expanded, editing, d, files, ws_c)).collect_view()}
         }.into_any()
     };
@@ -304,7 +320,7 @@ pub fn DiffView(
         <div class="diffwrap">
             <Show when=move || p().tree && !d.files.with(Vec::is_empty)>
                 <div class="difftree">
-                    <input class="tree-filter" placeholder="筛选文件…" prop:value=move || filter.get()
+                    <input class="tree-filter" aria-label="筛选改动文件" placeholder="筛选文件…" prop:value=move || filter.get()
                         on:input=move |e| filter.set(event_target_value(&e))/>
                     {tree}
                 </div>
@@ -345,14 +361,15 @@ fn file_view(
     view! {
         <section class="df" id=format!("df-{i}") data-folded=move || folded.get().to_string()>
             <header class="df-head" on:click=move |_| collapsed.update(|c| if !c.remove(&p_toggle) { c.insert(p_toggle.clone()); })>
+                <button type="button" class="df-toggle" aria-expanded=move || (!folded.get()).to_string() aria-label=title.clone()>
                 <span class="caret">"▾"</span>
                 <b class=format!("mk {cls}")>{mk}</b>
-                <span class="path">{title}</span>
+                <span class="path">{title.clone()}</span>
                 <span class="st">
                     <i class="ok">{format!("+{}", f.with_value(|f| f.added))}</i>" "
                     <i class="bad">{format!("−{}", f.with_value(|f| f.removed))}</i>
                 </span>
-                <span class="grow"></span>
+                </button>
                 {(!deleted).then(|| view! {
                     <button class="linkbtn" title="在编辑器里打开" on:click=move |e| { e.stop_propagation(); files.open(p_open.clone(), 0); }>"打开"</button>
                 })}
@@ -364,7 +381,7 @@ fn file_view(
                     let n = f.with_value(|f| f.lines);
                     return view! {
                         <div class="df-body"><button class="df-more" on:click=move |_| expanded.update(|e| { e.insert(p.clone()); })>
-                            {format!("这个文件改了 {n} 行，点这里展开")}
+                            {format!("展开 {n} 行改动")}
                         </button></div>
                     }.into_any();
                 }
@@ -495,7 +512,7 @@ fn add_btn(
         code: code.to_owned(),
         id: None,
     };
-    view! { <button class="dcm" title="对这一行写意见" on:click=move |_| editing.set(Some(e.clone()))>"+"</button> }
+    view! { <button class="dcm" aria-label="添加行级意见" title="对这一行写意见" on:click=move |_| editing.set(Some(e.clone()))>"+"</button> }
 }
 
 fn half(
@@ -617,14 +634,14 @@ fn CommentEditor(
     let done3 = done.clone();
     view! {
         <div class="dcmt-edit">
-            <textarea node_ref=ta rows="3" placeholder="对这一行的意见：哪里不对、希望怎么改…（⌘↩ 保存）"
+            <textarea node_ref=ta rows="3" aria-label="行级审阅意见" title="⌘↩ 保存" placeholder="写下意见…"
                 prop:value=move || text.get() on:input=move |ev| text.set(event_target_value(&ev))
                 on:keydown=move |ev| {
                     if ev.key() == "Escape" { ev.prevent_default(); ev.stop_propagation(); done(false); }
                     if ev.key() == "Enter" && (ev.meta_key() || ev.ctrl_key()) { ev.prevent_default(); done(true); }
                 }></textarea>
             <div class="row">
-                <span class="muted">"意见会攒着，随你的下一条消息一起发给 agent"</span><span class="grow"></span>
+                <span class="muted">"随下一条消息发送给智能体"</span><span class="grow"></span>
                 <button class="btn small" on:click=move |_| done2(false)>"取消"</button>
                 <button class="btn small primary" on:click=move |_| done3(true)>{if is_edit { "保存" } else { "添加意见" }}</button>
             </div>
