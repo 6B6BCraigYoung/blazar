@@ -99,7 +99,7 @@ fn List(kind: Kind) -> impl IntoView {
                 <span class="gchip">{move || list().len()}</span>
                 <span class="grow"></span>
                 <input class="page-filter" aria-label="筛选工作区" placeholder="搜索工作区…" prop:value=move || q.get() on:input=move |e| q.set(event_target_value(&e))/>
-                <button type="button" class=if kind == Kind::Running { "btn" } else { "btn primary" } on:click=move |_| app.new_ws.set(true)>"新建工作区"</button>
+                <button type="button" class=if matches!(kind, Kind::Running | Kind::Waiting) { "btn" } else { "btn primary" } on:click=move |_| app.new_ws.set(true)>"新建工作区"</button>
             </div>
             {move || app.state_error.get().map(|message| view! {
                 <InlineError message retry=Callback::new(move |_| app.load_state())/>
@@ -115,6 +115,9 @@ fn List(kind: Kind) -> impl IntoView {
                     };
                 }
                 if r.is_empty() {
+                    if kind == Kind::Waiting && q.get().trim().is_empty() {
+                        return ().into_any();
+                    }
                     let (title, detail) = if !q.get().trim().is_empty() {
                         ("没有匹配的工作区", "试试其他名称或路径。")
                     } else if kind == Kind::All || kind == Kind::Project {
@@ -126,7 +129,10 @@ fn List(kind: Kind) -> impl IntoView {
                     };
                     return view! { <EmptyState title detail/> }.into_any();
                 }
-                view! { <div class="ws-list">{r.into_iter().map(|w| card(w, insp)).collect_view()}</div> }.into_any()
+                view! {
+                    {(kind == Kind::Waiting).then(|| view! { <h2 class="workspaces-section-title">"相关工作区"</h2> })}
+                    <div class="ws-list">{r.into_iter().map(|w| card(w, insp)).collect_view()}</div>
+                }.into_any()
             }}
             {move || insp.get().map(|id| view! { <Inspector id on_close=move || insp.set(None)/> })}
         </div>
@@ -205,25 +211,25 @@ fn PendingApprovals() -> impl IntoView {
         });
     };
     view! {
-        <div class="appr-all">
+        <section class="appr-all" aria-label="待处理的请求">
             {move || match list.get() {
-                None => view! { <div class="muted small">"读取中…"</div> }.into_any(),
-                Some(Err(e)) => view! { <div class="err-line">{e.to_string()}</div> }.into_any(),
-                Some(Ok(l)) if l.is_empty() => view! { <div class="muted small">"没有等你裁决的操作"</div> }.into_any(),
+                None => view! { <LoadingState text="读取待处理请求…"/> }.into_any(),
+                Some(Err(e)) => view! { <InlineError message=e.to_string() retry=Callback::new(move |_| rev.update(|n| *n += 1))/> }.into_any(),
+                Some(Ok(l)) if l.is_empty() => view! { <EmptyState title="暂无待处理的请求" detail="需要审批或回答的问题会显示在这里。"/> }.into_any(),
                 Some(Ok(l)) => l.into_iter().map(|a| {
                     let id = a["id"].as_str().unwrap_or("").to_owned();
                     let wid = a["workspace_id"].as_str().unwrap_or("").to_owned();
                     let w = app.workspaces().into_iter().find(|w| w.id == wid);
                     let root = w.as_ref().map(|w| w.path.clone()).unwrap_or_default();
                     let ask = chat_model::tool_name(a["request"]["tool_name"].as_str().unwrap_or("")) == "AskUserQuestion";
-                    let title = if ask { "agent 有问题要问你".to_owned() } else { chat_model::approval_title(&a["request"], &root, None) };
+                    let title = if ask { "需要你回答的问题".to_owned() } else { chat_model::approval_title(&a["request"], &root, None) };
                     let what = if ask { String::new() } else { chat_model::approval_what(&a["request"], &root) };
                     let (i1, i2, i3, i4) = (id.clone(), id.clone(), id.clone(), id.clone());
                     view! {
                         <div class="cc-appr static">
                             <div class="muted small">
-                                <a href=format!("/w/{wid}")>{w.as_ref().map_or(wid.clone(), |w| w.name.clone())}</a>
-                                {format!(" · {} · {}", w.as_ref().map(|w| w.node.clone()).unwrap_or_default(), fmt::ago(a["created_at"].as_str().unwrap_or("")))}
+                                <a href=format!("/w/{wid}") title=w.as_ref().map(|w| w.node.clone()).unwrap_or_default()>{w.as_ref().map_or("工作区".to_owned(), |w| w.name.clone())}</a>
+                                {format!(" · {}", fmt::ago(a["created_at"].as_str().unwrap_or("")))}
                             </div>
                             <div class="ahd"><span class="ah">{title}</span></div>
                             {(!what.is_empty()).then(|| view! { <pre class="acmd">{what}</pre> })}
@@ -242,7 +248,7 @@ fn PendingApprovals() -> impl IntoView {
                     }
                 }).collect_view().into_any(),
             }}
-        </div>
+        </section>
     }
 }
 

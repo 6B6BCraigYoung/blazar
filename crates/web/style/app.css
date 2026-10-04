@@ -444,3 +444,5 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 .ws-card .meta > span { max-width: 100%; overflow-wrap: anywhere; }
 .ws-card .act { opacity: 1; }
 .ws-card .act a.btn { display: inline-flex; align-items: center; }
+
+.workspaces-section-title { margin: var(--space-sm) 0 0; font-size: var(--font-size-label); font-weight: var(--font-weight-medium); color: var(--fg-3); }
