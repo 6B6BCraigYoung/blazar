@@ -849,40 +849,34 @@ async fn post_json(hub: &str, path: &str, body: &Value) -> anyhow::Result<(u16, 
     s.write_all(format!("POST {path} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{payload}", payload.len()).as_bytes()).await?;
     let mut raw = Vec::new();
     s.read_to_end(&mut raw).await?;
-    let text = String::from_utf8_lossy(&raw);
-    let (head, rest) = text
-        .split_once("\r\n\r\n")
-        .ok_or_else(|| anyhow::anyhow!("不是合法的 HTTP 响应"))?;
-    let status = head
-        .split_whitespace()
-        .nth(1)
-        .and_then(|c| c.parse().ok())
-        .unwrap_or(0);
-    let body = if head
-        .to_ascii_lowercase()
-        .contains("transfer-encoding: chunked")
-    {
-        let (mut acc, mut r) = (String::new(), rest);
-        while let Some((size, tail)) = r.split_once("\r\n") {
-            let Ok(n) = usize::from_str_radix(size.trim(), 16) else {
-                break;
-            };
-            if n == 0 || tail.len() < n {
-                break;
-            }
-            acc.push_str(&tail[..n]);
-            r = tail[n..].trim_start_matches("\r\n");
-        }
-        acc
-    } else {
-        rest.to_owned()
-    };
-    Ok((status, serde_json::from_str(&body).unwrap_or(Value::Null)))
+    parse_http_response(&raw)
+}
+
+fn parse_http_response(raw: &[u8]) -> anyhow::Result<(u16, Value)> {
+    let response = blazar_core_types::http::decode_response(raw)?;
+    let body = std::str::from_utf8(&response.body)
+        .map_err(|e| anyhow::anyhow!("hub 返回的 HTTP 正文不是合法 UTF-8：{e}"))?;
+    Ok((
+        response.status,
+        serde_json::from_str(body).unwrap_or(Value::Null),
+    ))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn office_chunked_response_preserves_split_utf8() {
+        let raw = b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n2\r\n\"\xe4\r\n3\r\n\xb8\xad\"\r\n0\r\n\r\n";
+        assert_eq!(parse_http_response(raw).unwrap(), (200, json!("中")));
+    }
+
+    #[test]
+    fn office_chunked_response_rejects_truncation() {
+        let raw = b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhi";
+        assert!(parse_http_response(raw).is_err());
+    }
 
     fn a(v: &[&str]) -> Vec<String> {
         sv(v)
