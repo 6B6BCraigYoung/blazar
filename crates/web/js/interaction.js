@@ -1,8 +1,15 @@
 const modals = [];
-const focusableSelector = 'a[href], button, input:not([type="hidden"]), select, textarea, [tabindex], [contenteditable="true"]';
+const focusableSelector = 'a[href], button, input:not([type="hidden"]), select, textarea, details > summary, [tabindex], [contenteditable="true"]';
 
 function visible(element) {
-  return element instanceof HTMLElement && element.isConnected && !element.closest('[hidden], [inert]') && element.getClientRects().length > 0 && getComputedStyle(element).visibility !== 'hidden';
+  if (!(element instanceof HTMLElement) || !element.isConnected || element.closest('[hidden], [inert]') || element.getClientRects().length === 0 || getComputedStyle(element).visibility === 'hidden') return false;
+  for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+    if (parent instanceof HTMLDetailsElement && !parent.open) {
+      const summary = [...parent.children].find(child => child.tagName === 'SUMMARY');
+      if (!summary?.contains(element)) return false;
+    }
+  }
+  return true;
 }
 
 function enabled(element) {
@@ -127,7 +134,13 @@ export function attachModal(root, opener, close, closeOnBackdrop) {
       queueMicrotask(() => {
         if (topModal() !== next) return;
         if (restoreFocus(opener, next)) return;
-        if (next) focusWithin(next);
+        if (next) {
+          focusWithin(next);
+          return;
+        }
+        requestAnimationFrame(() => {
+          if (!topModal() && document.activeElement === document.body) restoreFocus(opener, null);
+        });
       });
     }
   };
