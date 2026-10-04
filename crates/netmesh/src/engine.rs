@@ -455,8 +455,10 @@ pub fn windows_install_script(
         "$ErrorActionPreference = 'Stop'\n\
          New-Item -ItemType Directory -Force -Path {bin}, {logs} | Out-Null\n\
          icacls {root} /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-32-545:(OI)(CI)RX' | Out-Null\n\
-         & {cli} service -n {svc} stop 2>$null\n\
-         & {cli} service -n {svc} uninstall 2>$null\n\
+         if (Test-Path -LiteralPath {cli}) {{\n\
+           & {cli} service -n {svc} stop 2>$null\n\
+           & {cli} service -n {svc} uninstall 2>$null\n\
+         }}\n\
          Copy-Item -Force -Path (Join-Path {src} '*') -Destination {bin}\n\
          Copy-Item -Force -Path {staged} -Destination {cfg}\n\
          icacls {cfg} /inheritance:r /grant:r '*S-1-5-18:F' '*S-1-5-32-544:F' | Out-Null\n\
@@ -721,6 +723,22 @@ mod tests {
         let s = windows_install_script(&l, &b, Path::new(r"C:\Users\a\cfg.toml"));
         assert!(s.contains("/inheritance:r"));
         assert!(s.contains("'*S-1-5-32-545:(OI)(CI)RX'"), "普通用户只读");
+    }
+
+    #[test]
+    fn windows_first_install_only_stops_an_existing_engine() {
+        let script = windows_install_script(&layout(), &bundle(), Path::new("/tmp/config.toml"));
+        let guard = script
+            .find("if (Test-Path -LiteralPath ")
+            .expect("首次安装时跳过尚不存在的旧引擎");
+        let stop = script.find(" stop 2>$null").unwrap();
+        let uninstall = script.find(" uninstall 2>$null").unwrap();
+        let end = script[guard..].find("}\n").unwrap() + guard;
+        let copy = script.find("Copy-Item -Force -Path (Join-Path ").unwrap();
+        let install = script.find(" install --display-name ").unwrap();
+        assert!(
+            guard < stop && stop < uninstall && uninstall < end && end < copy && copy < install
+        );
     }
 
     #[test]
