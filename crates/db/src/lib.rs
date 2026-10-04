@@ -286,7 +286,7 @@ impl Db {
         after_seq: u64,
     ) -> Result<Vec<NormalizedEntry>> {
         let rows = sqlx::query(
-            "SELECT seq, ts, payload FROM events
+            "SELECT seq, ts, payload, parent_tool_id FROM events
              WHERE session_id = ?1 AND seq > ?2
              ORDER BY seq",
         )
@@ -305,7 +305,9 @@ impl Db {
                     ts: chrono::DateTime::parse_from_rfc3339(&ts)
                         .map(|t| t.with_timezone(&Utc))
                         .unwrap_or_else(|_| Utc::now()),
-                    parent_tool_use_id: None,
+                    parent_tool_use_id: row
+                        .try_get::<Option<String>, _>("parent_tool_id")?
+                        .map(blazar_core_types::ToolId),
                     kind: serde_json::from_str::<EntryKind>(&payload)?,
                 })
             })
@@ -513,6 +515,37 @@ mod tests {
         let replay = db.events_since(session, 2).await.unwrap();
         assert_eq!(replay.len(), 3);
         assert_eq!(replay[0].seq, 3);
+    }
+
+    #[tokio::test]
+    async fn events_replay_preserves_parent_tool_ids() {
+        let db = Db::open_in_memory().await.unwrap();
+        let (ws, session) = fixture(&db).await;
+        let parent = ToolId("tool-parent".into());
+        let mut nested = entry(
+            1,
+            EntryKind::AssistantMessage {
+                text: "子任务结果".into(),
+            },
+        );
+        nested.parent_tool_use_id = Some(parent.clone());
+        db.append_event(session, ws, &nested).await.unwrap();
+        db.append_event(
+            session,
+            ws,
+            &entry(
+                2,
+                EntryKind::AssistantMessage {
+                    text: "主任务结果".into(),
+                },
+            ),
+        )
+        .await
+        .unwrap();
+
+        let replay = db.events_since(session, 0).await.unwrap();
+        assert_eq!(replay[0].parent_tool_use_id, Some(parent));
+        assert_eq!(replay[1].parent_tool_use_id, None);
     }
 
     #[tokio::test]
