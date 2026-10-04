@@ -5,6 +5,7 @@ use crate::api::{self, GitOpResult, GitStatus, PrDetail};
 use crate::components::dialog::{self, Choice};
 use crate::components::toast::toast;
 use crate::fmt;
+use crate::git_preferences::GitPreferences;
 use crate::realtime::use_bus;
 
 use super::files::Files;
@@ -610,6 +611,53 @@ pub fn GitView(git: Git, files: Files, draft: RwSignal<Option<String>>) -> impl 
 
 #[component]
 fn GitForm(f: Form, git: Git, form: RwSignal<Option<Form>>) -> impl IntoView {
+    if f == Form::Rename
+        || (f == Form::Pr
+            && !git
+                .status
+                .with_untracked(|s| s.as_ref().is_some_and(|s| s.gh)))
+    {
+        return view! { <GitFormReady f git form prefs=GitPreferences::from_values(None, None)/> }
+            .into_any();
+    }
+    let revision = RwSignal::new(0u32);
+    let prefs = LocalResource::new(move || {
+        revision.track();
+        api::get::<serde_json::Value>("/api/settings")
+    });
+    (move || match prefs.get() {
+        Some(Ok(value)) => {
+            let prefs = GitPreferences::from_values(
+                value["git"]["pr_draft"].as_bool(),
+                value["git"]["ai_draft"].as_bool(),
+            );
+            view! { <GitFormReady f=f.clone() git form prefs/> }.into_any()
+        }
+        state => view! {
+            <div class="dlg-mask" on:click=move |_| form.set(None)>
+                <div class="dlg wide" role="dialog" on:click=|e| e.stop_propagation()>
+                    <h3>"读取 Git 设置"</h3>
+                    {match state {
+                        Some(Err(error)) => view! {
+                            <p class="err-line" role="alert">{error.to_string()}</p>
+                            <button class="btn" on:click=move |_| revision.update(|n| *n = n.wrapping_add(1))>"重试"</button>
+                        }.into_any(),
+                        _ => view! { <p class="muted">"加载中…"</p> }.into_any(),
+                    }}
+                    <div class="dlg-foot"><button class="btn" on:click=move |_| form.set(None)>"取消"</button></div>
+                </div>
+            </div>
+        }.into_any(),
+    }).into_any()
+}
+
+#[component]
+fn GitFormReady(
+    f: Form,
+    git: Git,
+    form: RwSignal<Option<Form>>,
+    prefs: GitPreferences,
+) -> impl IntoView {
     let g = git.status.get_untracked().unwrap_or_default();
     let title = RwSignal::new(match f {
         Form::Pr if g.commits.len() == 1 => g.commits[0].subject.clone(),
@@ -617,7 +665,7 @@ fn GitForm(f: Form, git: Git, form: RwSignal<Option<Form>>) -> impl IntoView {
         _ => String::new(),
     });
     let body = RwSignal::new(String::new());
-    let draft = RwSignal::new(false);
+    let draft = RwSignal::new(prefs.draft_pr);
     let drafting = RwSignal::new(false);
     let close = move || form.set(None);
 
@@ -784,11 +832,12 @@ fn GitForm(f: Form, git: Git, form: RwSignal<Option<Form>>) -> impl IntoView {
             <label class="field"><input prop:value=move || title.get() on:input=move |e| title.set(event_target_value(&e))/></label>
         }.into_any(),
     };
-    let show_ai = match f {
-        Form::Commit => true,
-        Form::Pr => g.gh,
-        Form::Rename => false,
-    };
+    let show_ai = prefs.show_ai
+        && match f {
+            Form::Commit => true,
+            Form::Pr => g.gh,
+            Form::Rename => false,
+        };
     view! {
         <div class="dlg-mask" on:click=move |_| close()>
             <div class="dlg wide" role="dialog" on:click=|e| e.stop_propagation()>
