@@ -667,7 +667,19 @@ fn GitFormReady(
     let body = RwSignal::new(String::new());
     let draft = RwSignal::new(prefs.draft_pr);
     let drafting = RwSignal::new(false);
-    let close = move || form.set(None);
+    let gate = RwSignal::new(crate::action_gate::ActionGate::default());
+    let close = move || {
+        if !gate.with_untracked(|g| g.busy("form")) {
+            form.set(None);
+        }
+    };
+    let finish = move |success| {
+        let mut completed = false;
+        let _ = gate.try_update(|g| completed = g.complete("form", success));
+        if completed {
+            form.set(None);
+        }
+    };
 
     let ai = {
         let f = f.clone();
@@ -699,6 +711,9 @@ fn GitFormReady(
         let f = f.clone();
         let g = g.clone();
         move || {
+            if gate.with_untracked(|g| g.busy("form")) || git.busy.get_untracked().is_some() {
+                return;
+            }
             let f = f.clone();
             let g = g.clone();
             match f {
@@ -708,12 +723,13 @@ fn GitFormReady(
                         toast("写一句提交信息");
                         return;
                     }
-                    close();
+                    gate.write().begin("form");
                     spawn_local(async move {
-                        match git
+                        let result = git
                             .op("commit", serde_json::json!({ "message": message }))
-                            .await
-                        {
+                            .await;
+                        finish(result.as_ref().is_some_and(|r| r.ok));
+                        match result {
                             Some(r) if r.ok => toast(if r.changed {
                                 format!("已提交 {}", r.commit.unwrap_or_default())
                             } else {
@@ -726,14 +742,15 @@ fn GitFormReady(
                 }
                 Form::Rename => {
                     let name = title.get_untracked().trim().to_owned();
-                    close();
                     if name.is_empty() || name == g.branch {
                         return;
                     }
+                    gate.write().begin("form");
                     spawn_local(async move {
                         let r = git
                             .op("rename-branch", serde_json::json!({ "name": name }))
                             .await;
+                        finish(r.as_ref().is_some_and(|r| r.ok));
                         toast(if r.is_some_and(|r| r.ok) {
                             "已改名（远端的旧分支不会自动删除）"
                         } else {
@@ -749,7 +766,7 @@ fn GitFormReady(
                     }
                     let b = body.get_untracked();
                     let dr = draft.get_untracked();
-                    close();
+                    gate.write().begin("form");
                     spawn_local(async move {
                         if !g.gh {
                             let r = git.op("push", serde_json::json!({})).await;
@@ -758,6 +775,7 @@ fn GitFormReady(
                                     .and_then(|s| s.web.as_ref())
                                     .and_then(|w| w.new_pr.clone())
                             });
+                            finish(r.as_ref().is_some_and(|r| r.ok) && url.is_some());
                             match (r.is_some_and(|r| r.ok), url) {
                                 (true, Some(u)) => {
                                     let _ = window().open_with_url_and_target(&u, "_blank");
@@ -767,13 +785,14 @@ fn GitFormReady(
                             }
                             return;
                         }
-                        match git
+                        let result = git
                             .op(
                                 "pr-create",
                                 serde_json::json!({ "title": t, "body": b, "draft": dr }),
                             )
-                            .await
-                        {
+                            .await;
+                        finish(result.as_ref().is_some_and(|r| r.ok && r.url.is_some()));
+                        match result {
                             Some(r) if r.ok && r.url.is_some() => {
                                 toast(if r.existing {
                                     "这条分支已经有 PR 了"
@@ -811,7 +830,7 @@ fn GitFormReady(
         Form::Commit => view! {
             <div class="dlg-body small">{format!("{} 个文件的改动会全部提交到 {}（含未跟踪的新文件）", g.uncommitted, if g.branch.is_empty() { &g.head } else { &g.branch })}</div>
             <label class="field">"提交信息"
-                <textarea rows="5" placeholder="改了什么、为什么" prop:value=move || body.get() on:input=move |e| body.set(event_target_value(&e))
+                <textarea disabled=move || gate.with(|g| g.busy("form")) rows="5" placeholder="改了什么、为什么" prop:value=move || body.get() on:input=move |e| body.set(event_target_value(&e))
                     on:keydown=move |e| if e.key() == "Enter" && (e.meta_key() || e.ctrl_key()) { e.prevent_default(); submit2(); }></textarea>
             </label>
         }.into_any(),
@@ -823,13 +842,13 @@ fn GitFormReady(
                 {format!("{} → {} · {} 个提交", g.branch, base, g.ahead)}
                 {(g.uncommitted > 0).then(|| view! { <span class="warn-tx">{format!(" · 还有 {} 个没提交的改动不会进 PR", g.uncommitted)}</span> })}
             </div>
-            <label class="field">"标题"<input prop:value=move || title.get() on:input=move |e| title.set(event_target_value(&e)) placeholder="这个 PR 做了什么"/></label>
-            <label class="field">"描述（Markdown）"<textarea rows="9" prop:value=move || body.get() on:input=move |e| body.set(event_target_value(&e)) placeholder="改了什么、为什么、怎么验证"></textarea></label>
-            <label class="chk"><input type="checkbox" prop:checked=move || draft.get() on:change=move |_| draft.update(|d| *d = !*d)/>"作为草稿创建"</label>
+            <label class="field">"标题"<input disabled=move || gate.with(|g| g.busy("form")) prop:value=move || title.get() on:input=move |e| title.set(event_target_value(&e)) placeholder="这个 PR 做了什么"/></label>
+            <label class="field">"描述（Markdown）"<textarea disabled=move || gate.with(|g| g.busy("form")) rows="9" prop:value=move || body.get() on:input=move |e| body.set(event_target_value(&e)) placeholder="改了什么、为什么、怎么验证"></textarea></label>
+            <label class="chk"><input disabled=move || gate.with(|g| g.busy("form")) type="checkbox" prop:checked=move || draft.get() on:change=move |_| draft.update(|d| *d = !*d)/>"作为草稿创建"</label>
             <div class="muted small">"会先把分支推到 origin，再用那台机器上 gh 的登录态创建 PR。"</div>
         }.into_any(),
         Form::Rename => view! {
-            <label class="field"><input prop:value=move || title.get() on:input=move |e| title.set(event_target_value(&e))/></label>
+            <label class="field"><input disabled=move || gate.with(|g| g.busy("form")) prop:value=move || title.get() on:input=move |e| title.set(event_target_value(&e))/></label>
         }.into_any(),
     };
     let show_ai = prefs.show_ai
@@ -845,13 +864,13 @@ fn GitFormReady(
                 {fields}
                 <div class="dlg-foot">
                     {show_ai.then(|| view! {
-                        <button class="btn" disabled=move || drafting.get() title="让本机的 Claude（Haiku）看一眼改动，替你起草" on:click=ai.clone()>
+                        <button class="btn" disabled=move || drafting.get() || gate.with(|g| g.busy("form")) title="让本机的 Claude（Haiku）看一眼改动，替你起草" on:click=ai.clone()>
                             {move || if drafting.get() { "起草中…" } else { "AI 起草" }}
                         </button>
                     })}
                     <span class="grow"></span>
-                    <button class="btn" on:click=move |_| close()>"取消"</button>
-                    <button class="btn primary" on:click=move |_| submit()>{ok_label}</button>
+                    <button class="btn" disabled=move || gate.with(|g| g.busy("form")) on:click=move |_| close()>"取消"</button>
+                    <button class="btn primary" disabled=move || gate.with(|g| g.busy("form")) on:click=move |_| submit()>{move || if gate.with(|g| g.busy("form")) { "处理中…" } else { ok_label }}</button>
                 </div>
             </div>
         </div>

@@ -1,3 +1,5 @@
+#[cfg(any(target_arch = "wasm32", test))]
+mod action_gate;
 #[cfg(target_arch = "wasm32")]
 mod alerts;
 #[cfg(target_arch = "wasm32")]

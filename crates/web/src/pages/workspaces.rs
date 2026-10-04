@@ -1,5 +1,3 @@
-//! 工作区列表：全部 / 运行中 / 等我审批 / 某个项目；以及工作区的「属性」对话框（冻结、提交、推送、销毁）。
-
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_router::hooks::{use_navigate, use_params_map};
@@ -153,10 +151,10 @@ fn card(w: WorkspaceView, insp: RwSignal<Option<String>>) -> impl IntoView {
     }
 }
 
-/// 「等我审批」页：所有工作区里在等你裁决的操作。
 #[component]
 fn PendingApprovals() -> impl IntoView {
     let app = use_app();
+    let gate = RwSignal::new(crate::action_gate::ActionGate::default());
     let rev = RwSignal::new(0u32);
     let list = LocalResource::new(move || {
         rev.track();
@@ -164,6 +162,9 @@ fn PendingApprovals() -> impl IntoView {
         api::get::<Vec<Value>>("/api/approvals")
     });
     let decide = move |id: String, allow: bool| {
+        if !gate.write().begin(&id) {
+            return;
+        }
         spawn_local(async move {
             match api::send::<Value>(
                 "POST",
@@ -178,7 +179,10 @@ fn PendingApprovals() -> impl IntoView {
                 Ok(r) => toast(r["reason"].as_str().unwrap_or("没能送达").to_owned()),
                 Err(e) => toast(e.to_string()),
             }
-            rev.update(|n| *n += 1);
+            let _ = gate.try_update(|g| {
+                g.complete(&id, false);
+            });
+            let _ = rev.try_update(|n| *n += 1);
         });
     };
     view! {
@@ -195,7 +199,7 @@ fn PendingApprovals() -> impl IntoView {
                     let ask = chat_model::tool_name(a["request"]["tool_name"].as_str().unwrap_or("")) == "AskUserQuestion";
                     let title = if ask { "agent 有问题要问你".to_owned() } else { chat_model::approval_title(&a["request"], &root, None) };
                     let what = if ask { String::new() } else { chat_model::approval_what(&a["request"], &root) };
-                    let (i1, i2) = (id.clone(), id.clone());
+                    let (i1, i2, i3, i4) = (id.clone(), id.clone(), id.clone(), id.clone());
                     view! {
                         <div class="cc-appr static">
                             <div class="muted small">
@@ -209,8 +213,8 @@ fn PendingApprovals() -> impl IntoView {
                                     view! { <a class="btn small primary" href=format!("/w/{wid}")>"去回答"</a> }.into_any()
                                 } else {
                                     view! {
-                                        <button class="btn small primary" on:click=move |_| decide(i1.clone(), true)>"允许"</button>
-                                        <button class="btn small" on:click=move |_| decide(i2.clone(), false)>"拒绝"</button>
+                                        <button class="btn small primary" disabled=move || gate.with(|g| g.busy(&i3)) on:click=move |_| decide(i1.clone(), true)>"允许"</button>
+                                        <button class="btn small" disabled=move || gate.with(|g| g.busy(&i4)) on:click=move |_| decide(i2.clone(), false)>"拒绝"</button>
                                         <a class="linkbtn" href=format!("/w/{wid}")>"打开工作区"</a>
                                     }.into_any()
                                 }}
@@ -223,7 +227,6 @@ fn PendingApprovals() -> impl IntoView {
     }
 }
 
-/// 工作区属性和操作。
 #[component]
 pub fn Inspector(id: String, on_close: impl Fn() + Copy + Send + Sync + 'static) -> impl IntoView {
     let app = use_app();
@@ -236,7 +239,16 @@ pub fn Inspector(id: String, on_close: impl Fn() + Copy + Send + Sync + 'static)
         async move { api::get::<Value>(&format!("/api/workspaces/{id}/detail")).await }
     });
     let busy = RwSignal::new(None::<&'static str>);
+    let close = move || {
+        if busy.get_untracked().is_none() {
+            on_close();
+        }
+    };
     let act = StoredValue::new_local(move |d: Value, a: &'static str| {
+        if busy.get_untracked().is_some() {
+            return;
+        }
+        busy.set(Some(a));
         let navigate = navigate.clone();
         spawn_local(async move {
             let name = d["name"].as_str().unwrap_or("").to_owned();
@@ -259,6 +271,7 @@ pub fn Inspector(id: String, on_close: impl Fn() + Copy + Send + Sync + 'static)
                 .await
                     != Some(1)
                 {
+                    let _ = busy.try_set(None);
                     return;
                 }
             }
@@ -269,11 +282,11 @@ pub fn Inspector(id: String, on_close: impl Fn() + Copy + Send + Sync + 'static)
                     .ok()
                     .flatten();
                 let Some(m) = msg.filter(|m| !m.trim().is_empty()) else {
+                    let _ = busy.try_set(None);
                     return;
                 };
                 body = json!({ "message": m });
             }
-            busy.set(Some(a));
             let r = api::send::<Value>("POST", &format!("/api/workspaces/{id}/{a}"), &body).await;
             let _ = busy.try_set(None);
             match r {
@@ -367,7 +380,7 @@ pub fn Inspector(id: String, on_close: impl Fn() + Copy + Send + Sync + 'static)
     });
     let act = move |d: Value, a: &'static str| act.with_value(|f| f(d, a));
     view! {
-        <div class="dlg-mask" on:click=move |_| on_close()>
+        <div class="dlg-mask" on:click=move |_| close()>
             <div class="dlg wide" on:click=|e| e.stop_propagation()>
                 {move || match detail.get() {
                     None => view! { <div class="empty">"读取中…"</div> }.into_any(),
@@ -423,7 +436,7 @@ pub fn Inspector(id: String, on_close: impl Fn() + Copy + Send + Sync + 'static)
                             </div>
                             <div class="dlg-foot">
                                 <a class="btn" href=format!("/w/{}", d5["id"].as_str().unwrap_or(""))>"打开"</a>
-                                <button class="btn" on:click=move |_| on_close()>"关闭"</button>
+                                <button class="btn" disabled=move || busy.get().is_some() on:click=move |_| close()>"关闭"</button>
                             </div>
                         }.into_any()
                     }

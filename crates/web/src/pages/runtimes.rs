@@ -492,6 +492,12 @@ fn AccountForm(
     provider: String,
     on_close: impl Fn() + Copy + Send + Sync + 'static,
 ) -> impl IntoView {
+    let gate = RwSignal::new(crate::action_gate::ActionGate::default());
+    let close = move || {
+        if !gate.with_untracked(|g| g.busy("form")) {
+            on_close();
+        }
+    };
     let name = RwSignal::new(String::new());
     let how = RwSignal::new("token".to_owned());
     let token = RwSignal::new(String::new());
@@ -503,9 +509,13 @@ fn AccountForm(
     let f2 = f.clone();
     let p2 = provider.clone();
     let submit = move || {
+        if !gate.write().begin("form") {
+            return;
+        }
         let f = f2.clone();
         let provider = p2.clone();
         spawn_local(async move {
+            let mut saved = false;
             let r: Result<(), api::ApiError> = async {
                 match &f {
                     Form::Add => {
@@ -515,7 +525,7 @@ fn AccountForm(
                         let t = token.get_untracked().trim().to_owned();
                         if use_token && t.is_empty() { toast("把 claude setup-token 生成的 token 粘贴进来"); return Ok(()); }
                         let a: Account = api::send("POST", "/api/accounts", &json!({ "provider": provider, "label": n, "token": if use_token { Some(t) } else { None } })).await?;
-                        on_close();
+                        saved = true;
                         if use_token {
                             toast(if a.status == "ok" { format!("「{}」已添加，第一次运行时会验证 token", a.label) } else { format!("「{}」已添加，但 CLI 没认出这个 token", a.label) });
                         } else {
@@ -526,18 +536,23 @@ fn AccountForm(
                         let t = token.get_untracked().trim().to_owned();
                         if t.is_empty() { return Ok(()); }
                         let r = api::send::<Value>("PUT", &format!("/api/accounts/{}/token", api::enc(&a.id)), &json!({ "token": t })).await?;
-                        on_close();
+                        saved = true;
                         toast(if r["status"] == "ok" { "已保存，第一次运行时会验证 token" } else { "已保存，但 CLI 没认出这个 token" });
                     }
                     Form::Plan(a) => {
                         patch(a, json!({ "plan": plan.get_untracked() })).await?;
-                        on_close();
+                        saved = true;
                     }
                 }
                 Ok(())
             }.await;
+            let mut completed = false;
+            let _ = gate.try_update(|g| completed = g.complete("form", r.is_ok() && saved));
             if let Err(e) = r {
                 toast(e.to_string());
+            }
+            if completed {
+                on_close();
             }
         });
     };
@@ -572,10 +587,10 @@ fn AccountForm(
     };
     let body = match f {
         Form::Add => view! {
-            <label class="field">"名字"<input maxlength="40" placeholder="例如：工作号、个人 Max" prop:value=move || name.get() on:input=move |e| name.set(event_target_value(&e))/></label>
+            <label class="field">"名字"<input disabled=move || gate.with(|g| g.busy("form")) maxlength="40" placeholder="例如：工作号、个人 Max" prop:value=move || name.get() on:input=move |e| name.set(event_target_value(&e))/></label>
             {claude.then(|| view! {
                 <label class="field">"接入方式"
-                    <select on:change=move |e| how.set(event_target_value(&e))>
+                    <select disabled=move || gate.with(|g| g.busy("form")) on:change=move |e| how.set(event_target_value(&e))>
                         <option value="token" selected=true>"粘贴长期 token（claude setup-token）"</option>
                         <option value="login">"在浏览器里登录"</option>
                     </select>
@@ -583,20 +598,20 @@ fn AccountForm(
             })}
             <Show when=move || claude && how.get() == "token" fallback=|| view! { <div class="muted small">"创建后会打开一个终端运行官方登录命令，按提示在浏览器里登录这个账号即可。"</div> }>
                 <label class="field">"长期 token"
-                    <input class="mono" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-oat01-…" prop:value=move || token.get() on:input=move |e| token.set(event_target_value(&e))/>
+                    <input disabled=move || gate.with(|g| g.busy("form")) class="mono" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-oat01-…" prop:value=move || token.get() on:input=move |e| token.set(event_target_value(&e))/>
                 </label>
                 <div class="muted small" inner_html=TOKEN_HELP></div>
             </Show>
         }.into_any(),
         Form::Token(_) => view! {
-            <label class="field"><input class="mono" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-oat01-…"
+            <label class="field"><input disabled=move || gate.with(|g| g.busy("form")) class="mono" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-oat01-…"
                 prop:value=move || token.get() on:input=move |e| token.set(event_target_value(&e))
                 on:keydown=move |e| if e.key() == "Enter" { submit2() }/></label>
             <div class="muted small" inner_html=format!("{TOKEN_HELP}{token_note}")></div>
         }.into_any(),
         Form::Plan(_) => view! {
             <label class="field">
-                <select on:change=move |e| plan.set(event_target_value(&e))>
+                <select disabled=move || gate.with(|g| g.busy("form")) on:change=move |e| plan.set(event_target_value(&e))>
                     <option value="" selected=move || plan.get().is_empty()>"不标"</option>
                     {["pro", "max5x", "max20x", "team", "enterprise"].into_iter().map(|x| view! { <option value=x selected=move || plan.get() == x>{plan_label(x)}</option> }).collect_view()}
                 </select>
@@ -605,14 +620,14 @@ fn AccountForm(
         }.into_any(),
     };
     view! {
-        <div class="dlg-mask" on:click=move |_| on_close()>
+        <div class="dlg-mask" on:click=move |_| close()>
             <div class="dlg" on:click=|e| e.stop_propagation()>
                 <h3>{title}</h3>
                 {body}
                 <div class="dlg-foot">
-                    <button class="btn" on:click=move |_| on_close()>"取消"</button>
-                    <button class="btn primary" on:click=move |_| submit()>
-                        {move || if ok == "创建" && !(claude && how.get() == "token") { "创建并登录".to_owned() } else { ok.clone() }}
+                    <button class="btn" disabled=move || gate.with(|g| g.busy("form")) on:click=move |_| close()>"取消"</button>
+                    <button class="btn primary" disabled=move || gate.with(|g| g.busy("form")) on:click=move |_| submit()>
+                        {move || if gate.with(|g| g.busy("form")) { "保存中…".to_owned() } else if ok == "创建" && !(claude && how.get() == "token") { "创建并登录".to_owned() } else { ok.clone() }}
                     </button>
                 </div>
             </div>
