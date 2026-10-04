@@ -285,6 +285,7 @@ fn port_key(node: &str) -> String {
 
 async fn open_tunnel(node: &str, remote: u16, local: u16) -> Result<tokio::process::Child, String> {
     use std::process::Stdio;
+    blazar_transport::validate_ssh_target(node).map_err(|e| e.to_string())?;
     let resolved = blazar_transport::ssh_opts_without_forwards(node).await;
     let mut child = tokio::process::Command::new("ssh")
         .args([
@@ -305,6 +306,7 @@ async fn open_tunnel(node: &str, remote: u16, local: u16) -> Result<tokio::proce
             &format!("127.0.0.1:{remote}:127.0.0.1:{local}"),
         ])
         .args(&resolved)
+        .arg("--")
         .arg(node)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -443,6 +445,13 @@ pub async fn restore(st: Shared) {
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn ssh_targets_are_rejected_before_proxy_tunnel_setup() {
+        for node in ["-invalid", "", "Alice@-invalid", "host name"] {
+            assert!(super::open_tunnel(node, 30000, 30001).await.is_err());
+        }
+    }
+
     #[test]
     fn loopback_bypasses_the_proxy_and_keeps_existing_entries() {
         let mut env = std::collections::BTreeMap::new();

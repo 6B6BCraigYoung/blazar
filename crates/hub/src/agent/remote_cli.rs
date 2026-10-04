@@ -108,7 +108,25 @@ async fn other_nodes(st: &Shared, node: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
+fn scp_remote_path(target: &str, path: &str) -> Result<String, String> {
+    blazar_transport::validate_ssh_target(target).map_err(|e| e.to_string())?;
+    let (user, host) = target
+        .split_once('@')
+        .map_or((None, target), |(user, host)| (Some(user), host));
+    let host = if host.contains(':') && !host.starts_with('[') {
+        format!("[{host}]")
+    } else {
+        host.to_owned()
+    };
+    Ok(match user {
+        Some(user) => format!("{user}@{host}:{path}"),
+        None => format!("{host}:{path}"),
+    })
+}
+
 async fn scp3(src: &str, src_path: &str, dst: &str, dst_path: &str) -> Result<(), String> {
+    let src = scp_remote_path(src, src_path)?;
+    let dst = scp_remote_path(dst, dst_path)?;
     let out = tokio::process::Command::new("scp")
         .args([
             "-3",
@@ -117,8 +135,9 @@ async fn scp3(src: &str, src_path: &str, dst: &str, dst_path: &str) -> Result<()
             "BatchMode=yes",
             "-o",
             "ConnectTimeout=15",
-            &format!("{src}:{src_path}"),
-            &format!("{dst}:{dst_path}"),
+            "--",
+            &src,
+            &dst,
         ])
         .output()
         .await
@@ -135,6 +154,7 @@ async fn scp3(src: &str, src_path: &str, dst: &str, dst_path: &str) -> Result<()
 }
 
 async fn update_claude(st: &Shared, node: &str, want: (u64, u64, u64)) -> Result<String, String> {
+    blazar_transport::validate_ssh_target(node).map_err(|e| e.to_string())?;
     let v = fmt_version(want);
     let script = format!(
         "{}{}\nclaude install {v} 2>&1 | tail -3",
@@ -208,6 +228,7 @@ for b in codex codex-code-mode-host; do ln -sfn "$HOME/.codex/packages/standalon
 }
 
 async fn update_codex(st: &Shared, node: &str, want: (u64, u64, u64)) -> Result<String, String> {
+    blazar_transport::validate_ssh_target(node).map_err(|e| e.to_string())?;
     let v = fmt_version(want);
     let meta = tokio::process::Command::new("curl")
         .args([
@@ -248,8 +269,12 @@ async fn update_codex(st: &Shared, node: &str, want: (u64, u64, u64)) -> Result<
     }
     let up = tokio::process::Command::new("scp")
         .args(["-q", "-o", "BatchMode=yes"])
+        .arg("--")
         .arg(&tmp)
-        .arg(format!("{node}:/tmp/blazar-codex-{v}.tgz"))
+        .arg(scp_remote_path(
+            node,
+            &format!("/tmp/blazar-codex-{v}.tgz"),
+        )?)
         .status()
         .await;
     let _ = std::fs::remove_file(&tmp);
@@ -321,6 +346,25 @@ pub async fn update(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ssh_targets_are_validated_before_scp_path_generation() {
+        for target in ["-invalid", "", "Alice@-invalid", "host name"] {
+            assert!(scp_remote_path(target, "package.tgz").is_err());
+        }
+        assert_eq!(
+            scp_remote_path("hub-host", "package.tgz").unwrap(),
+            "hub-host:package.tgz"
+        );
+        assert_eq!(
+            scp_remote_path("Alice@::1", "package.tgz").unwrap(),
+            "Alice@[::1]:package.tgz"
+        );
+        assert_eq!(
+            scp_remote_path("[::1]", "package.tgz").unwrap(),
+            "[::1]:package.tgz"
+        );
+    }
 
     #[test]
     fn remote_checksum_requires_hexadecimal_digits() {

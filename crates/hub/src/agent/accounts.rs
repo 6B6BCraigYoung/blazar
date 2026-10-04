@@ -1749,12 +1749,29 @@ pub async fn clear_model_block(
     StatusCode::NO_CONTENT.into_response()
 }
 
+fn login_ssh_args(node: &str, remote: &str) -> Result<Vec<String>, String> {
+    blazar_transport::validate_ssh_target(node).map_err(|e| e.to_string())?;
+    Ok(vec![
+        "-tt".into(),
+        "-o".into(),
+        "BatchMode=yes".into(),
+        "-o".into(),
+        "ConnectTimeout=15".into(),
+        "--".into(),
+        node.into(),
+        remote.into(),
+    ])
+}
+
 pub async fn node_login_ws(
     ws: WebSocketUpgrade,
     State(st): State<Shared>,
     Path((node, runtime)): Path<(String, String)>,
     Query(q): Query<LoginQuery>,
 ) -> Response {
+    if let Err(error) = blazar_transport::validate_ssh_target(&node) {
+        return fail(StatusCode::BAD_REQUEST, error.to_string());
+    }
     if runtime != "codex" {
         return fail(
             StatusCode::BAD_REQUEST,
@@ -1767,12 +1784,7 @@ pub async fn node_login_ws(
         .await
         .ok()
         .flatten();
-    if known.is_none()
-        || node == "local"
-        || !node
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c))
-    {
+    if known.is_none() || node == "local" {
         return fail(StatusCode::NOT_FOUND, "没有这台机器");
     }
     let exports: String = crate::proxy::node_net_env(&st, &node)
@@ -1784,18 +1796,13 @@ pub async fn node_login_ws(
     let remote = format!("bash -lc '{}'", script.replace('\'', r"'\''"));
     let home = directories::BaseDirs::new()
         .map_or_else(std::env::temp_dir, |b| b.home_dir().to_path_buf());
+    let args = match login_ssh_args(&node, &remote) {
+        Ok(args) => args,
+        Err(error) => return fail(StatusCode::BAD_REQUEST, error),
+    };
     let target = blazar_terminal::TerminalTarget::Command {
         program: "ssh".into(),
-        args: vec![
-            "-tt".into(),
-            "-o".into(),
-            "BatchMode=yes".into(),
-            "-o".into(),
-            "ConnectTimeout=15".into(),
-            node.clone(),
-            "--".into(),
-            remote,
-        ],
+        args,
         env: Vec::new(),
         cwd: home.display().to_string(),
     };
@@ -1944,6 +1951,16 @@ pub async fn login_ws(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ssh_targets_are_validated_before_login_commands() {
+        for node in ["-invalid", "", "Alice@-invalid", "host name"] {
+            assert!(login_ssh_args(node, "true").is_err());
+        }
+        let args = login_ssh_args("hub-host", "true").unwrap();
+        let index = args.iter().position(|arg| arg == "hub-host").unwrap();
+        assert_eq!(args[index - 1], "--");
+    }
 
     fn w(name: &str, util: f64, resets: Option<DateTime<Utc>>, seen: DateTime<Utc>) -> Window {
         Window {

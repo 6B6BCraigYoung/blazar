@@ -469,6 +469,7 @@ fn tunnels() -> &'static Mutex<HashMap<String, Tunnel>> {
 }
 
 async fn ensure_tunnel(ws: &str, node: &str, remote_port: u16) -> Result<u16, String> {
+    blazar_transport::validate_ssh_target(node).map_err(|e| e.to_string())?;
     let mut map = tunnels().lock().await;
     if let Some(t) = map.get_mut(ws) {
         if t.remote_port == remote_port && t.child.try_wait().ok().flatten().is_none() {
@@ -482,7 +483,6 @@ async fn ensure_tunnel(ws: &str, node: &str, remote_port: u16) -> Result<u16, St
         .and_then(|l| l.local_addr())
         .map_err(|e| e.to_string())?
         .port();
-    // 用户 ~/.ssh/config 里给交互登录配的端口转发不能跟着开（见 ssh_opts_without_forwards）
     let resolved = blazar_transport::ssh_opts_without_forwards(node).await;
     let child = tokio::process::Command::new("ssh")
         .args([
@@ -503,6 +503,7 @@ async fn ensure_tunnel(ws: &str, node: &str, remote_port: u16) -> Result<u16, St
         ])
         .arg(format!("127.0.0.1:{local_port}:127.0.0.1:{remote_port}"))
         .args(&resolved)
+        .arg("--")
         .arg(node)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
@@ -676,6 +677,13 @@ rm -f "$D/pid"; echo "[blazar] 已停止" >> "$D/log""#,
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn ssh_targets_are_rejected_before_preview_tunnel_setup() {
+        for node in ["-invalid", "", "Alice@-invalid", "host name"] {
+            assert!(ensure_tunnel("test-workspace", node, 30000).await.is_err());
+        }
+    }
 
     #[test]
     fn dev_server_urls_are_found_in_real_world_logs() {

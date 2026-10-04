@@ -73,8 +73,12 @@ impl TerminalTarget {
         }
     }
 
-    fn command(&self) -> CommandBuilder {
-        match self {
+    fn command(&self) -> Result<CommandBuilder> {
+        if let Self::Ssh { host, .. } = self {
+            blazar_transport::validate_ssh_target(host)
+                .map_err(|e| TerminalError::Pty(e.to_string()))?;
+        }
+        Ok(match self {
             Self::Local { cwd, tmux_session } => {
                 let mut cmd = CommandBuilder::new("bash");
                 cmd.args(["-lc", &shell_command(cwd, tmux_session.as_deref())]);
@@ -99,8 +103,8 @@ impl TerminalTarget {
                     "StrictHostKeyChecking=accept-new",
                     "-o",
                     "ServerAliveInterval=30",
-                    host,
                     "--",
+                    host,
                     &shell_command(cwd, tmux_session.as_deref()),
                 ]);
                 cmd
@@ -120,7 +124,7 @@ impl TerminalTarget {
                 }
                 cmd
             }
-        }
+        })
     }
 
     fn detach_command(&self) -> Option<(String, Vec<String>)> {
@@ -131,6 +135,9 @@ impl TerminalTarget {
             } => (Some(host.as_str()), tmux_session.as_deref()?),
             Self::Command { .. } => return None,
         };
+        if let Some(host) = host {
+            blazar_transport::validate_ssh_target(host).ok()?;
+        }
         let inner = format!("tmux detach-client -s {} 2>/dev/null", shell_quote(name));
         Some(match host {
             None => ("bash".to_owned(), vec!["-lc".to_owned(), inner]),
@@ -141,8 +148,8 @@ impl TerminalTarget {
                     "BatchMode=yes".to_owned(),
                     "-o".to_owned(),
                     "NumberOfPasswordPrompts=0".to_owned(),
-                    h.to_owned(),
                     "--".to_owned(),
+                    h.to_owned(),
                     inner,
                 ],
             ),
@@ -215,6 +222,7 @@ pub struct TerminalSession {
 
 impl TerminalSession {
     pub fn open(target: &TerminalTarget, cols: u16, rows: u16) -> Result<Self> {
+        let command = target.command()?;
         let sys = NativePtySystem::default();
         let pair = sys
             .openpty(PtySize {
@@ -227,7 +235,7 @@ impl TerminalSession {
 
         let mut child = pair
             .slave
-            .spawn_command(target.command())
+            .spawn_command(command)
             .map_err(|e| TerminalError::Pty(e.to_string()))?;
 
         let mut reader = pair
@@ -290,6 +298,19 @@ impl TerminalSession {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn invalid_ssh_targets_cannot_build_detach_commands() {
+        for host in ["", "-invalid", "user@-invalid", "host name"] {
+            let target = TerminalTarget::Ssh {
+                host: host.into(),
+                cwd: "/home/me".into(),
+                tmux_session: Some("blazar-test".into()),
+            };
+            assert!(target.detach_command().is_none(), "{host:?}");
+            assert!(target.command().is_err(), "{host:?}");
+        }
+    }
 
     #[test]
     fn persistent_sessions_detach_on_close() {
@@ -375,7 +396,7 @@ mod tests {
             cwd: "/home/me/my proj".into(),
             tmux_session: None,
         };
-        let cmd = t.command();
+        let cmd = t.command().unwrap();
         let args: Vec<_> = cmd
             .get_argv()
             .iter()
@@ -383,6 +404,8 @@ mod tests {
             .collect();
 
         assert!(args.contains(&"-tt".to_owned()));
+        let host_index = args.iter().position(|a| a == "gpu1").unwrap();
+        assert_eq!(args[host_index - 1], "--");
 
         assert!(args.iter().any(|a| a.contains(r"'/home/me/my proj'")));
 

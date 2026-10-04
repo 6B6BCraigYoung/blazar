@@ -46,6 +46,49 @@ pub enum TransportError {
 
 pub type Result<T> = std::result::Result<T, TransportError>;
 
+pub fn validate_ssh_target(target: &str) -> Result<()> {
+    let error = || TransportError::Command {
+        code: -1,
+        stderr: "SSH 地址无效".into(),
+    };
+    let simple_name = |value: &str| {
+        !value.is_empty()
+            && !value.starts_with('-')
+            && value
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"._-+".contains(&b))
+    };
+    let host = if let Some((user, host)) = target.split_once('@') {
+        if !simple_name(user) {
+            return Err(error());
+        }
+        host
+    } else {
+        target
+    };
+    if host.contains(':') {
+        let literal = match (host.strip_prefix('['), host.strip_suffix(']')) {
+            (Some(left), Some(_)) => &left[..left.len() - 1],
+            (None, None) => host,
+            _ => return Err(error()),
+        };
+        let address = if let Some((address, scope)) = literal.split_once('%') {
+            if !simple_name(scope) {
+                return Err(error());
+            }
+            address
+        } else {
+            literal
+        };
+        if address.parse::<std::net::Ipv6Addr>().is_err() {
+            return Err(error());
+        }
+    } else if !simple_name(host) {
+        return Err(error());
+    }
+    Ok(())
+}
+
 pub fn validate_env_key(name: &str) -> Result<()> {
     let mut bytes = name.bytes();
     if !bytes
@@ -611,7 +654,8 @@ fn wrap_with_watchdog(inner: &str) -> String {
 }
 
 impl SshTransport {
-    fn ssh_base(&self, remote: &str) -> Command {
+    fn ssh_base(&self, remote: &str) -> Result<Command> {
+        validate_ssh_target(&self.host)?;
         let mut cmd = Command::new("ssh");
         cmd.arg("-o")
             .arg(format!("ConnectTimeout={}", self.connect_timeout_secs))
@@ -635,20 +679,20 @@ impl SshTransport {
                 .arg("-o")
                 .arg("ClearAllForwardings=yes");
         }
-        cmd.arg(&self.host)
-            .arg("--")
+        cmd.arg("--")
+            .arg(&self.host)
             .arg(format!("bash -lc {remote}"));
-        cmd
+        Ok(cmd)
     }
 
     fn build(&self, spec: &ExecSpec) -> Result<Command> {
-        let mut cmd = self.ssh_base(&shell_quote(&spec.to_shell()?));
+        let mut cmd = self.ssh_base(&shell_quote(&spec.to_shell()?))?;
         cmd.stdin(Stdio::null());
         Ok(cmd)
     }
 
     fn build_streaming(&self, spec: &ExecSpec) -> Result<Command> {
-        let mut cmd = self.ssh_base(&shell_quote(&wrap_with_watchdog(&spec.to_shell()?)));
+        let mut cmd = self.ssh_base(&shell_quote(&wrap_with_watchdog(&spec.to_shell()?)))?;
 
         cmd.stdin(Stdio::piped());
         Ok(cmd)
@@ -656,6 +700,9 @@ impl SshTransport {
 }
 
 pub async fn ssh_opts_without_forwards(host: &str) -> Vec<String> {
+    if validate_ssh_target(host).is_err() {
+        return Vec::new();
+    }
     let Ok(out) = Command::new("ssh")
         .args(["-G", "--", host])
         .stdin(Stdio::null())
@@ -720,6 +767,66 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn ssh_targets_cannot_be_interpreted_as_options() {
+        for host in [
+            "",
+            "-invalid",
+            "user@-invalid",
+            "host name",
+            "host\nname",
+            "user@@host",
+        ] {
+            let transport = SshTransport::new(host);
+            assert!(transport.build(&ExecSpec::new("true")).is_err(), "{host:?}");
+            assert!(
+                transport.build_streaming(&ExecSpec::new("true")).is_err(),
+                "{host:?}"
+            );
+        }
+        let command = SshTransport::new("hub-host")
+            .build(&ExecSpec::new("true"))
+            .unwrap();
+        let args: Vec<_> = command
+            .as_std()
+            .get_args()
+            .map(|a| a.to_string_lossy())
+            .collect();
+        let host = args.iter().position(|arg| arg == "hub-host").unwrap();
+        assert_eq!(args[host - 1], "--");
+    }
+
+    #[test]
+    fn ssh_targets_accept_aliases_users_and_ip_addresses() {
+        for host in [
+            "hub-host",
+            "gpu-1",
+            "Alice@hub-host",
+            "203.0.113.10",
+            "Alice@10.99.0.1",
+            "::1",
+            "[::1]",
+            "Alice@[::1]",
+            "fe80::1%eth0",
+        ] {
+            assert!(validate_ssh_target(host).is_ok(), "{host:?}");
+        }
+        for host in [
+            "@hub-host",
+            "Alice@",
+            "[::1",
+            "::1]",
+            "host:path",
+            "host/name",
+            "-host",
+            "Alice@-host",
+            "host\rname",
+            "host\0name",
+        ] {
+            assert!(validate_ssh_target(host).is_err(), "{host:?}");
+        }
+    }
 
     #[tokio::test]
     async fn invalid_environment_names_are_rejected_before_local_execution() {
