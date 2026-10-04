@@ -35,9 +35,7 @@ pub struct LiveState {
     pub eof_sent: bool,
     pub interrupt_requested: bool,
 
-    // 还在跑的后台任务。有它们在就不给 CLI 发 EOF：跟 Claude Code 一样，后台任务跑完会通知 agent 接着处理。
     pub bg: std::collections::HashSet<String>,
-    // 这一轮已经答完、进程只是为了等后台任务而活着：这时再发消息就直接送进去，不用排队。
     pub idle: bool,
 }
 
@@ -46,7 +44,6 @@ pub fn bg_alive(status: &str) -> bool {
     matches!(status, "started" | "running" | "pending")
 }
 
-// 后台任务都结束了但 CLI 没有接着开一轮：等一会儿还是没动静就收尾。
 const BG_SETTLE: Duration = Duration::from_secs(20);
 
 fn settle_later(live: Arc<Live>) {
@@ -63,7 +60,6 @@ fn settle_later(live: Arc<Live>) {
     });
 }
 
-// 进程在等后台任务、这一轮已经答完：新消息直接送进这个会话，跟在 Claude Code 里一样接着聊。
 pub async fn send_to_idle(
     st: &Shared,
     ws: WorkspaceId,
@@ -176,13 +172,12 @@ async fn process_line(ctx: &Ctx, line: &str, at: u64, p: &mut Progress) -> Line 
         tracing::warn!(target: "blazar::run", "偏移 {at} 处的行反复解析失败，跳过");
     }
 
-    note_chain_uuid(ctx, t).await;
     let parsed = ctx.runtime.parse_line(line);
     let mut entries = Vec::with_capacity(parsed.len());
     let mut approvals = Vec::new();
-    let interrupting = ctx.live.state.lock().await.interrupt_requested;
+    let mut state = ctx.live.state.lock().await;
     for (mut kind, parent) in parsed {
-        if interrupting
+        if state.interrupt_requested
             && matches!(&kind, EntryKind::BackgroundTask { status, .. }
                 if matches!(status.as_str(), "killed" | "stopped"))
         {
@@ -198,45 +193,13 @@ async fn process_line(ctx: &Ctx, line: &str, at: u64, p: &mut Progress) -> Line 
                 src_offset: at,
                 request: request.clone(),
             }),
-            EntryKind::InputConsumed { .. } => {
-                let mut s = ctx.live.state.lock().await;
-                s.pending_user = s.pending_user.saturating_sub(1);
-            }
-            EntryKind::SessionStarted {
-                provider_session_id,
-                ..
-            } => {
-                let _ = sqlx::query("UPDATE sessions SET provider_session_id = ?1 WHERE id = ?2")
-                    .bind(&provider_session_id.0)
-                    .bind(ctx.sid.to_string())
-                    .execute(ctx.st.db.pool())
-                    .await;
-            }
-            EntryKind::Finished(_) => {
-                p.saw_finished = true;
-                if ctx.live.state.lock().await.interrupt_requested {
-                    kind = EntryKind::Finished(Outcome::Interrupted);
-                }
-            }
-            EntryKind::BackgroundTask {
-                task_id, status, ..
-            } => {
-                let mut s = ctx.live.state.lock().await;
-                if bg_alive(status) {
-                    s.bg.insert(task_id.clone());
-                } else if s.bg.remove(task_id) && s.bg.is_empty() && s.idle {
-                    settle_later(ctx.live.clone());
-                }
-            }
-            EntryKind::AssistantMessage { .. }
-            | EntryKind::ToolUse { .. }
-            | EntryKind::Thinking { .. } => {
-                ctx.live.state.lock().await.idle = false;
+            EntryKind::Finished(_) if state.interrupt_requested => {
+                kind = EntryKind::Finished(Outcome::Interrupted);
             }
             _ => {}
         }
         entries.push(NormalizedEntry {
-            seq: ctx.live.take_seq().await,
+            seq: state.next_seq + entries.len() as u64,
             ts: Utc::now(),
             parent_tool_use_id: parent,
             kind,
@@ -251,6 +214,43 @@ async fn process_line(ctx: &Ctx, line: &str, at: u64, p: &mut Progress) -> Line 
     {
         tracing::error!(target: "blazar::run", "落库失败，稍后重读: {e}");
         return Line::Partial;
+    }
+    state.next_seq += entries.len() as u64;
+    for entry in &entries {
+        match &entry.kind {
+            EntryKind::InputConsumed { .. } => {
+                state.pending_user = state.pending_user.saturating_sub(1);
+            }
+            EntryKind::Finished(_) => p.saw_finished = true,
+            EntryKind::BackgroundTask {
+                task_id, status, ..
+            } => {
+                if bg_alive(status) {
+                    state.bg.insert(task_id.clone());
+                } else if state.bg.remove(task_id) && state.bg.is_empty() && state.idle {
+                    settle_later(ctx.live.clone());
+                }
+            }
+            EntryKind::AssistantMessage { .. }
+            | EntryKind::ToolUse { .. }
+            | EntryKind::Thinking { .. } => state.idle = false,
+            _ => {}
+        }
+    }
+    drop(state);
+    note_chain_uuid(ctx, t).await;
+    for entry in &entries {
+        if let EntryKind::SessionStarted {
+            provider_session_id,
+            ..
+        } = &entry.kind
+        {
+            let _ = sqlx::query("UPDATE sessions SET provider_session_id = ?1 WHERE id = ?2")
+                .bind(&provider_session_id.0)
+                .bind(ctx.sid.to_string())
+                .execute(ctx.st.db.pool())
+                .await;
+        }
     }
 
     triage_approvals(ctx, &approvals).await;
@@ -308,7 +308,7 @@ async fn process_line(ctx: &Ctx, line: &str, at: u64, p: &mut Progress) -> Line 
             }
         }
         let (st, node, hook) = (ctx.st.clone(), ctx.node.clone(), ctx.hook.clone());
-        tokio::spawn(async move {
+        ctx.st.services.spawn(async move {
             let t = st.transport(&node);
             crate::api::fire_hooks(&st, blazar_hooks::HookEvent::TurnEnd, hook, Some(t)).await;
         });
@@ -345,44 +345,68 @@ pub async fn supervise(
             Err(e) => tracing::warn!(target: "blazar::run", "跟读 {} 失败: {e}", ctx.sid),
         }
 
-        match ctx.live.run.probe().await {
-            Ok(RunState::Alive { .. }) => {
-                tokio::time::sleep(Duration::from_secs(backoff)).await;
-                backoff = (backoff * 2).min(30);
-            }
-            Ok(RunState::Exited { code, .. }) => {
-                if let Ok(rest) = ctx.live.run.drain(offset).await {
-                    for chunk in rest.split_inclusive('\n') {
-                        if !chunk.ends_with('\n') {
-                            break;
-                        }
-                        let line = &chunk[..chunk.len() - 1];
-                        let at = offset;
-                        if matches!(process_line(&ctx, line, at, &mut p).await, Line::Partial) {
-                            break;
-                        }
-                        offset = at + line.len() as u64 + 1;
-                    }
-                }
-                finalize(&ctx, Some(code), &p).await;
-                return;
-            }
-            Ok(RunState::Lost { .. } | RunState::Missing) => {
-                finalize(&ctx, None, &p).await;
-                return;
-            }
+        let terminal = match ctx.live.run.probe().await {
+            Ok(RunState::Alive { .. }) => None,
+            Ok(RunState::Exited { code, size }) => Some((Some(code), size)),
+            Ok(RunState::Lost { size }) => Some((None, size)),
+            Ok(RunState::Missing) => Some((None, offset)),
             Err(e) => {
                 tracing::info!(target: "blazar::run", "{} 暂时连不上: {e}", ctx.node);
-                tokio::time::sleep(Duration::from_secs(backoff)).await;
-                backoff = (backoff * 2).min(30);
+                None
+            }
+        };
+        if let Some((code, size)) = terminal
+            && drain_remaining(&ctx, &mut offset, size, &mut p).await
+        {
+            match finalize(&ctx, code, &mut p).await {
+                Ok(()) => return,
+                Err(e) => tracing::error!(target: "blazar::run", "收尾落库失败，保留日志重试: {e}"),
             }
         }
+        tokio::time::sleep(Duration::from_secs(backoff)).await;
+        backoff = (backoff * 2).min(30);
     }
 }
 
-async fn finalize(ctx: &Ctx, code: Option<i32>, p: &Progress) {
+async fn drain_remaining(ctx: &Ctx, offset: &mut u64, size: u64, p: &mut Progress) -> bool {
+    if *offset == size {
+        return true;
+    }
+    if *offset > size {
+        tracing::error!(target: "blazar::run", "原始日志长度小于已提交位置，保留会话待恢复");
+        return false;
+    }
+    let rest = match ctx.live.run.drain(*offset).await {
+        Ok(rest) => rest,
+        Err(e) => {
+            tracing::warn!(target: "blazar::run", "重读剩余日志失败，稍后重试: {e}");
+            return false;
+        }
+    };
+    for chunk in rest.split_inclusive('\n') {
+        let Some(line) = chunk.strip_suffix('\n') else {
+            return false;
+        };
+        if matches!(process_line(ctx, line, *offset, p).await, Line::Partial) {
+            return false;
+        }
+        *offset += chunk.len() as u64;
+    }
+    *offset >= size
+}
+
+async fn finalize(ctx: &Ctx, code: Option<i32>, p: &mut Progress) -> Result<(), String> {
     let interrupted = ctx.live.state.lock().await.interrupt_requested;
 
+    if !p.saw_finished {
+        p.saw_finished = sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS(SELECT 1 FROM events WHERE session_id = ?1 AND payload LIKE '{\"type\":\"finished\"%')",
+        )
+        .bind(ctx.sid.to_string())
+        .fetch_one(ctx.st.db.pool())
+        .await
+        .map_err(|e| e.to_string())?;
+    }
     if !p.saw_finished {
         let outcome = if interrupted {
             Outcome::Interrupted
@@ -398,7 +422,6 @@ async fn finalize(ctx: &Ctx, code: Option<i32>, p: &Progress) {
                         } else {
                             format!("。stderr: {tail}")
                         },
-                        // Blazar 拼的参数照本机 CLI 来；远端版本旧了就会不认。
                         if ctx.node != "local" && tail.contains("unknown option") {
                             format!(
                                 "。{} 上的 CLI 比本机旧，不认这个参数：到「机器 → {}」里把它更新到和本机一致",
@@ -414,26 +437,30 @@ async fn finalize(ctx: &Ctx, code: Option<i32>, p: &Progress) {
                 },
             }
         };
-        if let Outcome::Failed { message } = &outcome {
-            crate::accounts::note_failure(&ctx.st, ctx.sid, message).await;
-        }
+        let mut state = ctx.live.state.lock().await;
         let e = NormalizedEntry {
-            seq: ctx.live.take_seq().await,
+            seq: state.next_seq,
             ts: Utc::now(),
             parent_tool_use_id: None,
             kind: EntryKind::Finished(outcome),
         };
-        let _ = ctx.st.db.append_event(ctx.sid, ctx.ws, &e).await;
+        ctx.st
+            .db
+            .append_event(ctx.sid, ctx.ws, &e)
+            .await
+            .map_err(|e| e.to_string())?;
+        state.next_seq += 1;
+        p.saw_finished = true;
+        drop(state);
+        if let EntryKind::Finished(Outcome::Failed { message }) = &e.kind {
+            crate::accounts::note_failure(&ctx.st, ctx.sid, message).await;
+        }
         ctx.st.emit(ServerEvent::Entry {
             workspace_id: ctx.ws,
             session_id: ctx.sid,
             entry: Box::new(e),
         });
     }
-    let _ = ctx.st.db.abort_open_approvals(ctx.sid).await;
-    crate::inbox::resolve_session(&ctx.st, ctx.sid).await;
-
-    tokio::spawn(crate::titles::maybe_title(ctx.st.clone(), ctx.sid, ctx.ws));
     let status = if interrupted {
         "interrupted"
     } else if code == Some(0) {
@@ -441,52 +468,77 @@ async fn finalize(ctx: &Ctx, code: Option<i32>, p: &Progress) {
     } else {
         "failed"
     };
-    let _ = sqlx::query("UPDATE sessions SET status = ?1, exit_code = ?2 WHERE id = ?3")
+    let mut tx = ctx
+        .st
+        .db
+        .pool()
+        .begin_with("BEGIN IMMEDIATE")
+        .await
+        .map_err(|e| e.to_string())?;
+    sqlx::query(
+        "UPDATE approvals SET decision = 'aborted', decided_at = ?1
+         WHERE session_id = ?2 AND decision IS NULL",
+    )
+    .bind(Utc::now().to_rfc3339())
+    .bind(ctx.sid.to_string())
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| e.to_string())?;
+    sqlx::query("UPDATE sessions SET status = ?1, exit_code = ?2 WHERE id = ?3")
         .bind(status)
         .bind(code)
         .bind(ctx.sid.to_string())
-        .execute(ctx.st.db.pool())
-        .await;
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| e.to_string())?;
+    tx.commit().await.map_err(|e| e.to_string())?;
+    crate::inbox::resolve_session(&ctx.st, ctx.sid).await;
+    ctx.st
+        .services
+        .spawn(crate::titles::maybe_title(ctx.st.clone(), ctx.sid, ctx.ws));
     ctx.st.running.write().await.remove(&ctx.sid);
 
-    tokio::spawn(crate::tasks::on_run_finished(
+    ctx.st.services.spawn(crate::tasks::on_run_finished(
         ctx.st.clone(),
         ctx.sid,
         status,
     ));
-    tokio::spawn(crate::inbox::on_run_finished(
+    ctx.st.services.spawn(crate::inbox::on_run_finished(
         ctx.st.clone(),
         ctx.sid,
         status,
     ));
-    tokio::spawn(crate::scripts::on_run_finished(
+    ctx.st.services.spawn(crate::scripts::on_run_finished(
         ctx.st.clone(),
         ctx.ws,
         status,
     ));
-    tokio::spawn(crate::autopilot::on_run_finished(
+    ctx.st.services.spawn(crate::autopilot::on_run_finished(
         ctx.st.clone(),
         ctx.sid,
         status,
     ));
 
-    tokio::spawn(crate::accounts::on_run_finished(
+    ctx.st.services.spawn(crate::accounts::on_run_finished(
         ctx.st.clone(),
         ctx.sid,
         status,
     ));
 
-    tokio::spawn(crate::chat::on_run_finished(
+    ctx.st.services.spawn(crate::chat::on_run_finished(
         ctx.st.clone(),
         ctx.ws,
         ctx.sid,
         status,
     ));
 
-    if code.is_some() {
-        let _ = ctx.live.run.remove().await;
+    if code.is_some()
+        && let Err(e) = ctx.live.run.remove().await
+    {
+        tracing::warn!(target: "blazar::run", "清理已保存的日志失败: {e}");
     }
     ctx.st.emit(ServerEvent::WorkspacesChanged);
+    Ok(())
 }
 
 pub async fn interject(
@@ -887,16 +939,5 @@ pub fn parse_approval_id(s: &str) -> Option<ApprovalId> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn only_unfinished_background_tasks_keep_the_cli_alive() {
-        for st in ["started", "running", "pending"] {
-            assert!(bg_alive(st), "{st}");
-        }
-        for st in ["completed", "killed", "stopped", "failed"] {
-            assert!(!bg_alive(st), "{st}");
-        }
-    }
-}
+#[path = "run_tests.rs"]
+mod tests;

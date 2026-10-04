@@ -379,7 +379,7 @@ exit 0"#,
                 &format!("tail -c +{} out.jsonl", offset + 1),
             )))
             .await?;
-        Ok(out.stdout)
+        out.ok()
     }
 
     pub async fn line_at(&self, offset: u64) -> Result<Option<String>> {
