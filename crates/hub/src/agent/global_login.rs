@@ -1,13 +1,3 @@
-//! 全局切换：Blazar 里换账号时，顺带把这台机器的「默认登录」也换过去，
-//! 让终端里的 `claude` / `codex` 和编辑器插件跟着用同一个账号。
-//!
-//! - Claude：macOS 写钥匙串 `Claude Code-credentials`（Linux 写 `~/.claude/.credentials.json`），
-//!   同时改 `~/.claude.json` 里的 `oauthAccount`，其它字段原样保留；写的时候持有 Claude Code 自己的锁。
-//! - Codex：换 `~/.codex/auth.json`。
-//!
-//! 第一次切走时先把原来的登录备份下来（0600），切回「默认登录」时恢复；浏览器登录的账号切走前
-//! 把当前（可能刚刷新过的）凭据存回它自己那里，免得 refresh token 轮换后作废。
-
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
@@ -15,9 +5,7 @@ use serde_json::{Map, Value, json};
 
 use super::accounts::{Account, TOKEN_FILE};
 
-/// setup token 只有推理权限，跟 `claude setup-token` 给的一样。
 const SETUP_TOKEN_SCOPES: [&str; 1] = ["user:inference"];
-/// 机器共享的字段（MCP 登录等），换账号时保留现有的，不用账号那份旧的。
 const SHARED_KEYS: [&str; 5] = [
     "mcpOAuth",
     "mcpOAuthClientConfig",
@@ -26,14 +14,11 @@ const SHARED_KEYS: [&str; 5] = [
     "pluginSecrets",
 ];
 
-/// 这台机器上 CLI 读登录的位置。测试时用环境变量指到别处，绝不碰真实的登录。
 #[derive(Debug, Clone)]
 pub struct Places {
     pub home: PathBuf,
-    /// Claude 默认登录在钥匙串里的服务名
     pub keychain_service: String,
     pub keychain_account: String,
-    /// 不用钥匙串（Linux，或测试）时，凭据存在 `<home>/.claude/.credentials.json`
     pub use_keychain: bool,
 }
 
@@ -66,8 +51,6 @@ impl Places {
     }
 }
 
-// ───────────────────────── 读写凭据 ─────────────────────────
-
 fn security(args: &[&str]) -> std::io::Result<std::process::Output> {
     std::process::Command::new("/usr/bin/security")
         .args(args)
@@ -83,7 +66,6 @@ fn keychain_get(service: &str, account: &str) -> Option<String> {
     })
 }
 
-/// 凭据经标准输入、十六进制传给 security，不出现在进程参数里。
 fn keychain_set(service: &str, account: &str, secret: &str) -> Result<(), String> {
     use std::io::Write;
     let quote = |s: &str| format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""));
@@ -117,7 +99,6 @@ fn keychain_set(service: &str, account: &str, secret: &str) -> Result<(), String
     }
 }
 
-/// Claude Code 给 CLAUDE_CONFIG_DIR 算的钥匙串服务名（浏览器登录、带独立目录的账号存在这里）。
 pub fn hashed_service(config_dir: &str) -> String {
     use sha2::{Digest, Sha256};
     let digest = Sha256::digest(config_dir.as_bytes());
@@ -172,7 +153,6 @@ fn read_oauth_account(path: &Path) -> Value {
         .unwrap_or(Value::Null)
 }
 
-/// 只改 `oauthAccount`，其它字段（项目、MCP 配置……）原样写回。
 fn set_oauth_account(path: &Path, account: &Value) -> Result<(), String> {
     let mut doc: Map<String, Value> = match std::fs::read_to_string(path) {
         Ok(t) => serde_json::from_str(&t)
@@ -189,9 +169,6 @@ fn set_oauth_account(path: &Path, account: &Value) -> Result<(), String> {
     write_private(path, &text)
 }
 
-// ───────────────────────── Claude Code 的锁 ─────────────────────────
-
-/// 跟 Claude Code 用同一套目录锁（proper-lockfile：mkdir 即加锁）。拿不到就等，过期的才抢。
 struct DirLock(PathBuf);
 
 impl DirLock {
@@ -239,9 +216,6 @@ fn claude_locks(p: &Places) -> Result<Vec<DirLock>, String> {
     ])
 }
 
-// ───────────────────────── 组装 ─────────────────────────
-
-/// 用目标账号的登录、配上这台机器现有的共享字段（MCP 登录等）。
 pub fn compose(target: &str, live: Option<&str>) -> String {
     let Ok(Value::Object(mut t)) = serde_json::from_str::<Value>(target) else {
         return target.to_owned();
@@ -269,7 +243,6 @@ pub fn token_oauth_account(a: &Account) -> Value {
         .clone()
         .filter(|e| !e.is_empty())
         .unwrap_or_else(|| {
-            // 没有邮箱的 token 账号：用名字拼一个，`/status` 里看得出是哪个。
             let name: String = a
                 .label
                 .chars()
@@ -303,7 +276,6 @@ fn backup_file(dir: &Path, provider: &str) -> PathBuf {
     dir.join(format!("{provider}-default.json"))
 }
 
-/// 一个账号的登录在哪：（凭据, oauthAccount）。
 fn claude_target(
     p: &Places,
     backups: &Path,
@@ -342,8 +314,6 @@ fn claude_target(
     }
 }
 
-/// 现在的全局登录属于谁：None 是原来的默认登录；Some(account) 是之前切过去的那个。
-/// 切走之前把它当前的凭据存回去（浏览器登录的会自己刷新 token）。
 fn claude_save_back(
     p: &Places,
     backups: &Path,
@@ -352,11 +322,7 @@ fn claude_save_back(
 ) -> Result<(), String> {
     match prev {
         None => {
-            // 只在第一次（还没有备份）时记下原来的登录；之后切回默认时恢复的就是它。
             let f = backup_file(backups, "claude");
-            if f.exists() {
-                return Ok(());
-            }
             let Some(live) = live else { return Ok(()) };
             let doc =
                 json!({ "credential": live, "oauthAccount": read_oauth_account(&p.claude_json()) });
@@ -372,12 +338,10 @@ fn claude_save_back(
                 write_private(&Path::new(dir).join(".credentials.json"), live)
             }
         }
-        // token 不会变，不用存回去。
         Some(_) => Ok(()),
     }
 }
 
-/// 把 Claude 的全局登录换成 `target`（None = 原来的默认登录）。`prev` 是现在全局用的那个。
 pub fn switch_claude(
     p: &Places,
     backups: &Path,
@@ -386,7 +350,6 @@ pub fn switch_claude(
 ) -> Result<(), String> {
     let _locks = claude_locks(p)?;
     let live = read_live_claude(p);
-    // 切回默认登录、而它从来没被换掉过：什么都不用做。
     if prev.is_none() && target.is_none() {
         return Ok(());
     }
@@ -396,7 +359,6 @@ pub fn switch_claude(
     set_oauth_account(&p.claude_json(), &oauth)
 }
 
-/// 把 Codex 的全局登录（`~/.codex/auth.json`）换成 `target`。
 pub fn switch_codex(
     p: &Places,
     backups: &Path,
@@ -409,9 +371,7 @@ pub fn switch_codex(
     let live_path = p.codex_auth();
     let live = std::fs::read_to_string(&live_path).ok();
     match (prev, &live) {
-        (None, Some(l)) if !backup_file(backups, "codex").exists() => {
-            write_private(&backup_file(backups, "codex"), l)?
-        }
+        (None, Some(l)) => write_private(&backup_file(backups, "codex"), l)?,
         (Some(a), Some(l)) => {
             if let Some(dir) = a.config_dir.as_deref() {
                 write_private(&Path::new(dir).join("auth.json"), l)?;
@@ -463,8 +423,78 @@ mod tests {
 
     #[test]
     fn hashed_service_matches_claude_code() {
-        // sha256("/tmp/x") 的前 8 位十六进制
         assert_eq!(hashed_service("/tmp/x"), "Claude Code-credentials-2e56aa36");
+    }
+
+    #[test]
+    fn refreshed_default_claude_login_replaces_its_previous_snapshot() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path().join("home");
+        let backups = tmp.path().join("backups");
+        let p = places(&home);
+        let live_path = home.join(".claude/.credentials.json");
+        std::fs::create_dir_all(live_path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &live_path,
+            r#"{"claudeAiOauth":{"accessToken":"default-old"}}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            home.join(".claude.json"),
+            r#"{"oauthAccount":{"emailAddress":"old@example.com"}}"#,
+        )
+        .unwrap();
+        let other = tmp.path().join("other");
+        std::fs::create_dir_all(&other).unwrap();
+        std::fs::write(other.join(TOKEN_FILE), "fixture-other-token").unwrap();
+        let other = account("other", "token", &other);
+        switch_claude(&p, &backups, None, Some(&other)).unwrap();
+        switch_claude(&p, &backups, Some(&other), None).unwrap();
+        std::fs::write(
+            &live_path,
+            r#"{"claudeAiOauth":{"accessToken":"default-refreshed"}}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            home.join(".claude.json"),
+            r#"{"oauthAccount":{"emailAddress":"new@example.com"},"projects":{"fixture":{}}}"#,
+        )
+        .unwrap();
+        switch_claude(&p, &backups, None, Some(&other)).unwrap();
+        switch_claude(&p, &backups, Some(&other), None).unwrap();
+        let current: Value =
+            serde_json::from_str(&std::fs::read_to_string(&live_path).unwrap()).unwrap();
+        assert_eq!(current["claudeAiOauth"]["accessToken"], "default-refreshed");
+        let metadata: Value =
+            serde_json::from_str(&std::fs::read_to_string(home.join(".claude.json")).unwrap())
+                .unwrap();
+        assert_eq!(metadata["oauthAccount"]["emailAddress"], "new@example.com");
+        assert!(metadata["projects"]["fixture"].is_object());
+    }
+
+    #[test]
+    fn refreshed_default_codex_login_replaces_its_previous_snapshot() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path().join("home");
+        let backups = tmp.path().join("backups");
+        let p = places(&home);
+        let live_path = home.join(".codex/auth.json");
+        std::fs::create_dir_all(live_path.parent().unwrap()).unwrap();
+        std::fs::write(&live_path, "default-old").unwrap();
+        let other = tmp.path().join("other");
+        std::fs::create_dir_all(&other).unwrap();
+        std::fs::write(other.join("auth.json"), "fixture-other-login").unwrap();
+        let mut other = account("other", "login", &other);
+        other.provider = "codex".into();
+        switch_codex(&p, &backups, None, Some(&other)).unwrap();
+        switch_codex(&p, &backups, Some(&other), None).unwrap();
+        std::fs::write(&live_path, "default-refreshed").unwrap();
+        switch_codex(&p, &backups, None, Some(&other)).unwrap();
+        switch_codex(&p, &backups, Some(&other), None).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&live_path).unwrap(),
+            "default-refreshed"
+        );
     }
 
     #[test]
@@ -537,7 +567,6 @@ mod tests {
         let work = account("work", "login", &dir);
 
         switch_claude(&p, &backups, None, Some(&work)).unwrap();
-        // 终端里的 claude 刷新了 token
         std::fs::write(
             home.join(".claude/.credentials.json"),
             r#"{"claudeAiOauth":{"accessToken":"w2"}}"#,
