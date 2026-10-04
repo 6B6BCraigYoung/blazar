@@ -38,6 +38,97 @@ pub const CODEX_SANDBOX: &[&str] = &["read-only", "workspace-write", "danger-ful
 
 pub const EFFORTS: &[&str] = &["minimal", "low", "medium", "high", "xhigh", "max", "ultra"];
 
+fn toml_string(value: &str) -> String {
+    serde_json::Value::String(value.to_owned()).to_string()
+}
+
+fn env_reference(value: &str) -> Option<&str> {
+    value
+        .strip_prefix("${")
+        .and_then(|value| value.strip_suffix('}'))
+        .filter(|name| blazar_transport::validate_env_key(name).is_ok())
+}
+
+fn toml_map(values: impl IntoIterator<Item = (String, String)>) -> String {
+    format!(
+        "{{{}}}",
+        values
+            .into_iter()
+            .map(|(key, value)| format!("{}={}", toml_string(&key), toml_string(&value)))
+            .collect::<Vec<_>>()
+            .join(",")
+    )
+}
+
+fn codex_mcp_args(server: &crate::McpServerSpec, extra: &mut Vec<String>) {
+    let prefix = format!("mcp_servers.{}", server.name);
+    let mut field = |name: &str, value: String| {
+        extra.push("-c".into());
+        extra.push(format!("{prefix}.{name}={value}"));
+    };
+    if server.http {
+        field("url", toml_string(&server.url));
+        let (indirect, literal): (Vec<_>, Vec<_>) = server
+            .headers
+            .iter()
+            .partition(|(_, value)| env_reference(value).is_some());
+        if !literal.is_empty() {
+            field(
+                "http_headers",
+                toml_map(
+                    literal
+                        .into_iter()
+                        .map(|(key, value)| (key.clone(), value.clone())),
+                ),
+            );
+        }
+        if !indirect.is_empty() {
+            field(
+                "env_http_headers",
+                toml_map(indirect.into_iter().filter_map(|(key, value)| {
+                    env_reference(value).map(|name| (key.clone(), name.to_owned()))
+                })),
+            );
+        }
+        return;
+    }
+    let mut forwarded = std::collections::BTreeSet::new();
+    let mut script = String::new();
+    let mut literal = Vec::new();
+    for (key, value) in &server.env {
+        if let Some(source) = env_reference(value) {
+            forwarded.insert(source);
+            let key = format!("'{}'", key.replace('\'', "'\\''"));
+            script.push_str(&format!(
+                "export -- {key}=\"${{{source}?MCP environment variable missing}}\" || exit 1\n"
+            ));
+        } else {
+            literal.push((key.clone(), value.clone()));
+        }
+    }
+    if forwarded.is_empty() {
+        field("command", toml_string(&server.command));
+        field("args", serde_json::json!(server.args).to_string());
+    } else {
+        script.push_str("exec -- \"$@\"");
+        let mut args = vec![
+            "--noprofile".to_owned(),
+            "--norc".to_owned(),
+            "-c".to_owned(),
+            script,
+            "blazar-mcp".to_owned(),
+            server.command.clone(),
+        ];
+        args.extend(server.args.iter().cloned());
+        field("command", toml_string("bash"));
+        field("args", serde_json::json!(args).to_string());
+        field("env_vars", serde_json::json!(forwarded).to_string());
+    }
+    if !literal.is_empty() {
+        field("env", toml_map(literal));
+    }
+}
+
 impl CliRuntime {
     pub fn new(transport: Arc<dyn NodeTransport>, spec: &'static AgentSpec) -> Self {
         Self {
@@ -227,9 +318,9 @@ impl CliRuntime {
             }
         }
 
-        if session.remote_hands.is_none() && !session.mcp_servers.is_empty() {
+        if !session.mcp_servers.is_empty() {
             match self.spec.id {
-                "claude" => {
+                "claude" if session.remote_hands.is_none() => {
                     let servers: serde_json::Map<String, serde_json::Value> = session
                         .mcp_servers
                         .iter()
@@ -240,25 +331,11 @@ impl CliRuntime {
                     extra.push(serde_json::json!({ "mcpServers": servers }).to_string());
                 }
                 "codex" => {
-                    let toml_str = |s: &str| serde_json::Value::String(s.to_owned()).to_string();
                     for m in &session.mcp_servers {
-                        let key = format!("mcp_servers.{}", m.name);
-                        if m.http {
-                            extra.push("-c".into());
-                            extra.push(format!("{key}.url={}", toml_str(&m.url)));
+                        if session.remote_hands.is_some() && m.name == crate::REMOTE_HANDS_SERVER {
                             continue;
                         }
-                        extra.push("-c".into());
-                        extra.push(format!("{key}.command={}", toml_str(&m.command)));
-                        extra.push("-c".into());
-                        extra.push(format!(
-                            "{key}.args=[{}]",
-                            m.args
-                                .iter()
-                                .map(|a| toml_str(a))
-                                .collect::<Vec<_>>()
-                                .join(",")
-                        ));
+                        codex_mcp_args(m, &mut extra);
                     }
                 }
                 _ => {}
@@ -609,6 +686,129 @@ mod tests {
         CliRuntime::by_id(Arc::new(LocalTransport), id).expect("内置表里应有该 agent")
     }
 
+    fn codex_overrides(spec: &ExecSpec) -> toml::Value {
+        let source = spec
+            .args
+            .windows(2)
+            .filter(|pair| pair[0] == "-c")
+            .map(|pair| pair[1].as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        toml::from_str(&source).unwrap()
+    }
+
+    #[test]
+    fn mcp_codex_preserves_static_environment_and_http_headers() {
+        let mut session = SessionSpec::new("/p", "hi");
+        session.mcp_servers = vec![
+            crate::McpServerSpec {
+                name: "local".into(),
+                command: "fake-mcp".into(),
+                env: [("SETTING".into(), "with spaces and \"quotes\"".into())].into(),
+                ..Default::default()
+            },
+            crate::McpServerSpec {
+                name: "http".into(),
+                http: true,
+                url: "https://mcp.example/mcp".into(),
+                headers: [
+                    ("Authorization".into(), "${BLAZAR_MCP_HTTP_AUTH}".into()),
+                    ("X-Region".into(), "fixture-region".into()),
+                ]
+                .into(),
+                ..Default::default()
+            },
+        ];
+        let config = codex_overrides(&rt("codex").exec_spec(&session, None));
+        assert_eq!(
+            config["mcp_servers"]["local"]["env"]["SETTING"].as_str(),
+            Some("with spaces and \"quotes\"")
+        );
+        assert_eq!(
+            config["mcp_servers"]["http"]["env_http_headers"]["Authorization"].as_str(),
+            Some("BLAZAR_MCP_HTTP_AUTH")
+        );
+        assert_eq!(
+            config["mcp_servers"]["http"]["http_headers"]["X-Region"].as_str(),
+            Some("fixture-region")
+        );
+    }
+
+    #[test]
+    fn mcp_codex_restores_private_environment_for_each_fake_server() {
+        let mut session = SessionSpec::new("/p", "hi");
+        session
+            .env
+            .insert("BLAZAR_MCP_ONE_API_KEY".into(), "fixture-one".into());
+        session
+            .env
+            .insert("BLAZAR_MCP_TWO_API_KEY".into(), "fixture-two".into());
+        for name in ["one", "two"] {
+            session.mcp_servers.push(crate::McpServerSpec {
+                name: name.into(),
+                command: "bash".into(),
+                args: vec![
+                    "--noprofile".into(),
+                    "--norc".into(),
+                    "-c".into(),
+                    "printf '%s' \"$API_KEY\"".into(),
+                ],
+                env: [(
+                    "API_KEY".into(),
+                    format!("${{BLAZAR_MCP_{}_API_KEY}}", name.to_uppercase()),
+                )]
+                .into(),
+                ..Default::default()
+            });
+        }
+        let exec = rt("codex").exec_spec(&session, None);
+        assert!(
+            !exec
+                .args
+                .iter()
+                .any(|arg| arg.contains("fixture-one") || arg.contains("fixture-two"))
+        );
+        let config = codex_overrides(&exec);
+        for name in ["one", "two"] {
+            let server = &config["mcp_servers"][name];
+            let mut fake = std::process::Command::new(server["command"].as_str().unwrap());
+            fake.args(
+                server["args"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|arg| arg.as_str().unwrap()),
+            );
+            fake.env_remove("API_KEY").env("BASH_ENV", "/dev/null");
+            if let Some(vars) = server.get("env_vars").and_then(toml::Value::as_array) {
+                for var in vars {
+                    let var = var.as_str().unwrap();
+                    fake.env(var, exec.env.get(var).unwrap());
+                }
+            }
+            let output = fake.output().unwrap();
+            assert!(output.status.success());
+            assert_eq!(
+                String::from_utf8(output.stdout).unwrap(),
+                format!("fixture-{name}")
+            );
+        }
+    }
+
+    #[test]
+    fn mcp_codex_remote_hands_keeps_additional_servers() {
+        let mut session = SessionSpec::new("/p", "hi");
+        session.remote_hands = Some(hands());
+        session.mcp_servers.push(crate::McpServerSpec {
+            name: "docs".into(),
+            command: "fake-mcp".into(),
+            ..Default::default()
+        });
+        let config = codex_overrides(&rt("codex").exec_spec(&session, None));
+        assert!(config["mcp_servers"].get("docs").is_some());
+        assert!(config["mcp_servers"].get("blazar").is_some());
+    }
+
     #[test]
     fn unknown_agent_id_is_rejected() {
         assert!(CliRuntime::by_id(Arc::new(LocalTransport), "不存在的agent").is_none());
@@ -784,7 +984,7 @@ mod tests {
 
         let x = rt("codex").exec_spec(&s, None).args.join(" ");
         assert!(
-            x.contains(r#"mcp_servers.docs.command="npx""#)
+            x.contains(r#"mcp_servers.docs.command="bash""#)
                 && x.contains(r#"mcp_servers.remote.url="https://mcp.example/mcp""#)
         );
         assert!(!x.contains("--add-dir"));

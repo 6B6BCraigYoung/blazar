@@ -481,6 +481,9 @@ fn check_mcp(b: &McpBody) -> Result<(), String> {
         "stdio" | "http" => {}
         _ => return Err("类型只能是 stdio 或 http".into()),
     }
+    for key in b.env.iter().flat_map(|env| env.keys()) {
+        blazar_transport::validate_env_key(key).map_err(|error| error.to_string())?;
+    }
     for m in [&b.env, &b.headers].into_iter().flatten() {
         for k in m.keys() {
             if k.is_empty()
@@ -640,18 +643,13 @@ pub struct Caps {
 }
 
 fn env_var_name(server: &str, key: &str) -> String {
-    let clean = |s: &str| {
-        s.chars()
-            .map(|c| {
-                if c.is_ascii_alphanumeric() {
-                    c.to_ascii_uppercase()
-                } else {
-                    '_'
-                }
-            })
+    let encode = |value: &str| {
+        value
+            .bytes()
+            .map(|byte| format!("{byte:02X}"))
             .collect::<String>()
     };
-    format!("BLAZAR_MCP_{}_{}", clean(server), clean(key))
+    format!("BLAZAR_MCP_{}_{}", encode(server), encode(key))
 }
 
 pub async fn for_agent(st: &Shared, agent: &str) -> Caps {
@@ -669,6 +667,7 @@ pub async fn for_agent(st: &Shared, agent: &str) -> Caps {
     for r in &rows {
         let s = |k: &str| r.try_get::<String, _>(k).unwrap_or_default();
         let name = s("name");
+        let http = s("transport") == "http";
         let mut indirect = |raw: String| -> BTreeMap<String, String> {
             let m: BTreeMap<String, String> = serde_json::from_str(&raw).unwrap_or_default();
             m.into_iter()
@@ -679,11 +678,19 @@ pub async fn for_agent(st: &Shared, agent: &str) -> Caps {
                 })
                 .collect()
         };
-        let env = indirect(s("env"));
-        let headers = indirect(s("headers"));
+        let env = if http {
+            BTreeMap::new()
+        } else {
+            indirect(s("env"))
+        };
+        let headers = if http {
+            indirect(s("headers"))
+        } else {
+            BTreeMap::new()
+        };
         caps.mcp.push(McpServerSpec {
             name: name.clone(),
-            http: s("transport") == "http",
+            http,
             command: s("command"),
             args: serde_json::from_str(&s("args")).unwrap_or_default(),
             url: s("url"),
@@ -790,7 +797,19 @@ mod tests {
     fn secrets_become_env_indirections() {
         assert_eq!(
             env_var_name("git-hub", "api.key"),
-            "BLAZAR_MCP_GIT_HUB_API_KEY"
+            "BLAZAR_MCP_6769742D687562_6170692E6B6579"
+        );
+    }
+
+    #[test]
+    fn mcp_environment_indirections_do_not_alias_distinct_servers_or_keys() {
+        assert_ne!(
+            env_var_name("git-hub", "api-key"),
+            env_var_name("git_hub", "api_key")
+        );
+        assert_ne!(
+            env_var_name("docs", "api_key"),
+            env_var_name("docs", "API_KEY")
         );
     }
 
@@ -813,6 +832,8 @@ mod tests {
         assert!(check_mcp(&b("sse", "", "")).is_err());
         let mut bad = b("stdio", "npx", "");
         bad.env = Some(BTreeMap::from([("A B".to_owned(), "v".to_owned())]));
+        assert!(check_mcp(&bad).is_err());
+        bad.env = Some(BTreeMap::from([("A-B".to_owned(), "v".to_owned())]));
         assert!(check_mcp(&bad).is_err());
     }
 }
