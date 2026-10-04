@@ -47,6 +47,10 @@ impl Bus {
             f(ev);
         }
         match ev {
+            ServerEvent::ResyncRequired => {
+                self.bump_all();
+                bump(self.reconnects);
+            }
             ServerEvent::AccountsChanged => bump(self.accounts),
             ServerEvent::WorkspacesChanged | ServerEvent::SessionTitled { .. } => {
                 bump(self.workspaces);

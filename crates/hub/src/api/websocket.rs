@@ -1,5 +1,7 @@
 use super::*;
 
+mod resync;
+
 pub async fn ws_handler(ws: WebSocketUpgrade, State(st): State<Shared>) -> Response {
     ws.on_upgrade(move |socket| async move {
         let (mut tx, mut rx) = socket.split();
@@ -19,13 +21,13 @@ pub async fn ws_handler(ws: WebSocketUpgrade, State(st): State<Shared>) -> Respo
 
                     Err(broadcast::error::RecvError::Lagged(n)) => {
                         tracing::warn!("WS 订阅者落后 {n} 条，触发全量刷新");
-                        let msg = serde_json::json!({ "kind": "workspaces_changed" });
-                        if tx
-                            .send(ws::Message::Text(msg.to_string().into()))
-                            .await
-                            .is_err()
-                        {
-                            break;
+                        for event in [resync::lag_notification(), ServerEvent::WorkspacesChanged] {
+                            let Ok(text) = serde_json::to_string(&event) else {
+                                continue;
+                            };
+                            if tx.send(ws::Message::Text(text.into())).await.is_err() {
+                                return;
+                            }
                         }
                     }
                     Err(broadcast::error::RecvError::Closed) => break,

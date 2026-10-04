@@ -26,6 +26,10 @@ use delivery::{steer_request, take_composer};
 mod send_context;
 use send_context::SendContext;
 
+#[path = "history.rs"]
+mod history;
+use history::{HistoryRequests, RowKey, merge_history};
+
 pub const CONTINUE_TEXT: &str = "（已换账号接着做）请从刚才中断的地方继续，把没做完的工作完成。";
 pub const ACC_RUNTIMES: [&str; 2] = ["claude", "codex"];
 
@@ -267,6 +271,8 @@ pub struct Chat {
     pub tabs: RwSignal<Vec<Option<String>>>,
     pub view: RwSignal<Option<String>>,
     view_revision: StoredValue<u64>,
+    history_requests: StoredValue<HistoryRequests>,
+    refresh_pending: StoredValue<bool>,
     pub threads: RwSignal<Vec<Thread>>,
     pub rows: RwSignal<Vec<Row>>,
     seen: StoredValue<HashSet<String>>,
@@ -334,6 +340,8 @@ impl Chat {
             tabs: RwSignal::new(Vec::new()),
             view: RwSignal::new(None),
             view_revision: StoredValue::new(0),
+            history_requests: StoredValue::new(HistoryRequests::default()),
+            refresh_pending: StoredValue::new(false),
             threads: RwSignal::new(Vec::new()),
             rows: RwSignal::new(Vec::new()),
             seen: StoredValue::new(HashSet::new()),
@@ -792,6 +800,17 @@ impl Chat {
 
     pub fn load_history(self) {
         let view = self.view.get_untracked();
+        let (changed, request) = self.history_requests.write_value().begin(view.clone());
+        if changed {
+            self.sessions.set_value(view.iter().cloned().collect());
+            self.seen.set_value(HashSet::new());
+            self.rows.set(Vec::new());
+        }
+        let baseline: HashSet<RowKey> = self.rows.with_untracked(|rows| {
+            rows.iter()
+                .map(|row| (row.session_id.clone(), row.seq))
+                .collect()
+        });
         self.decided.set(HashSet::new());
         self.local_errors.set(Vec::new());
         let Some(thread) = view else {
@@ -809,12 +828,23 @@ impl Chat {
                 api::enc(&thread)
             ))
             .await;
-            if self.view.try_get_untracked().flatten().as_deref() != Some(thread.as_str()) {
+            if self.view.try_get_untracked().flatten().as_deref() != Some(thread.as_str())
+                || !self
+                    .history_requests
+                    .try_with_value(|requests| requests.accepts(&request))
+                    .unwrap_or(false)
+            {
                 return;
             }
             match r {
                 Ok(list) => {
-                    let rows: Vec<Row> = list.into_iter().filter_map(Row::from_history).collect();
+                    let history: Vec<Row> =
+                        list.into_iter().filter_map(Row::from_history).collect();
+                    let rows = self.rows.with_untracked(|current| {
+                        merge_history(history, current, &baseline, |row| {
+                            (row.session_id.clone(), row.seq)
+                        })
+                    });
                     self.sessions.set_value(
                         rows.iter()
                             .map(|r| r.session_id.clone())
@@ -932,17 +962,15 @@ impl Chat {
     }
 
     fn refresh_threads_soon(self) {
-        thread_local! {
-            static PENDING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-        }
-        if PENDING.get() {
+        if self.refresh_pending.get_value() {
             return;
         }
-        PENDING.set(true);
+        self.refresh_pending.set_value(true);
         gloo_timers::callback::Timeout::new(2500, move || {
-            PENDING.set(false);
-            if self.ws.try_get_value().is_some() {
+            let _ = self.refresh_pending.try_set_value(false);
+            if self.alive() {
                 self.spawn(async move { self.load_threads().await });
+                self.load_history();
             }
         })
         .forget();
@@ -993,6 +1021,9 @@ impl Chat {
             || self.orphans.with_value(|o| o.contains_key(&sid));
         self.adopt(&sid);
         let view = self.view.get_untracked();
+        let changed = thread_id
+            .as_ref()
+            .is_some_and(|thread| Some(thread) != view.as_ref());
         if let Some(t) = thread_id.filter(|t| Some(t) != view.as_ref()) {
             self.tabs.update(|tabs| {
                 if view.is_none() {
@@ -1015,7 +1046,7 @@ impl Chat {
             self.save_tabs();
             self.spawn(async move { self.load_threads().await });
         }
-        if !known {
+        if !known || changed {
             self.load_history();
         }
     }

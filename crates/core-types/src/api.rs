@@ -117,6 +117,8 @@ pub enum ServerEvent {
 
     WorkspacesChanged,
 
+    ResyncRequired,
+
     NodesChanged,
 
     TasksChanged,
@@ -150,6 +152,23 @@ pub enum ServerEvent {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn resync_event_round_trips_without_changing_existing_event_tags() {
+        let event = serde_json::json!({"kind":"resync_required"});
+        assert!(matches!(
+            serde_json::from_value::<ServerEvent>(event.clone()).unwrap(),
+            ServerEvent::ResyncRequired
+        ));
+        assert_eq!(
+            serde_json::to_value(ServerEvent::ResyncRequired).unwrap(),
+            event
+        );
+        assert_eq!(
+            serde_json::to_value(ServerEvent::WorkspacesChanged).unwrap(),
+            serde_json::json!({"kind":"workspaces_changed"})
+        );
+    }
 
     #[test]
     fn file_versions_preserve_legacy_response_compatibility() {
