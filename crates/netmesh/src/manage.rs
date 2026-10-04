@@ -424,7 +424,7 @@ fn parse_route(v: &serde_json::Value) -> RouteEntry {
         cost: v
             .get("cost")
             .and_then(|c| c.as_u64().or_else(|| c.as_str()?.parse().ok()))
-            .map(|c| c as u32),
+            .and_then(|c| u32::try_from(c).ok()),
         version: s("version").unwrap_or_default(),
     }
 }
@@ -617,6 +617,44 @@ mod tests {
         );
 
         assert!(parse_credentials("{}").unwrap().is_empty());
+    }
+
+    #[test]
+    fn route_cost_rejects_overflow_without_discarding_the_route() {
+        for (number, expected) in [
+            (0, Some(0)),
+            (1, Some(1)),
+            (u64::from(u32::MAX), Some(u32::MAX)),
+            (u64::from(u32::MAX) + 1, None),
+            (u64::MAX, None),
+        ] {
+            for cost in [
+                serde_json::json!(number),
+                serde_json::json!(number.to_string()),
+            ] {
+                let parsed = parse_route(&serde_json::json!({
+                    "hostname": "hub-host",
+                    "ipv4": "10.99.0.1",
+                    "next_hop_hostname": "gpu-1",
+                    "cost": cost,
+                    "version": "fixture-version"
+                }));
+                assert_eq!(parsed.cost, expected, "cost {cost}");
+                assert_eq!(parsed.hostname, "hub-host");
+                assert_eq!(parsed.ipv4, "10.99.0.1");
+                assert_eq!(parsed.next_hop.as_deref(), Some("gpu-1"));
+                assert_eq!(parsed.version, "fixture-version");
+            }
+        }
+        for cost in [
+            serde_json::Value::Null,
+            serde_json::json!(-1),
+            serde_json::json!(1.5),
+            serde_json::json!("not-a-number"),
+        ] {
+            assert_eq!(parse_route(&serde_json::json!({"cost": cost})).cost, None);
+        }
+        assert_eq!(parse_route(&serde_json::json!({})).cost, None);
     }
 
     #[test]
