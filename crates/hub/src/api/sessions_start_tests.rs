@@ -18,7 +18,7 @@ struct FakeTransport {
 
 impl NodeTransport for FakeTransport {
     fn kind(&self) -> TransportKind {
-        TransportKind::Local
+        TransportKind::Ssh
     }
     fn target(&self) -> &str {
         "local"
@@ -52,14 +52,28 @@ impl NodeTransport for FakeTransport {
                         format!("__BLAZAR_LAUNCHED__ {}/run\n", self.root.display()),
                     )
                 }
-            } else if script.contains("kill -TERM") {
-                self.killed.store(true, Ordering::SeqCst);
+            } else if script.contains("TABLE=$(ps -eo pid=,pgid=,stat=)") {
+                (
+                    0,
+                    if self.killed.load(Ordering::SeqCst) {
+                        "stopped\n"
+                    } else {
+                        "alive=12345\n"
+                    }
+                    .into(),
+                )
+            } else if script.contains("builtin kill -TERM") || script.contains("builtin kill -KILL")
+            {
                 if self.fail_kill.load(Ordering::SeqCst) {
                     return Err(TransportError::Command {
                         code: 1,
                         stderr: "fake stop unavailable".into(),
                     });
                 }
+                self.killed.store(true, Ordering::SeqCst);
+                (0, String::new())
+            } else if script.contains("echo 137 > exit.code.tmp") {
+                assert!(self.killed.load(Ordering::SeqCst));
                 (0, String::new())
             } else if script.contains("printf") && script.contains(".blazar/runs") {
                 (0, format!("__BLAZAR_RUNS_ROOT__ {}\n", self.root.display()))
@@ -105,6 +119,7 @@ impl NodeTransport for FakeTransport {
 
 async fn fixture() -> (tempfile::TempDir, Shared, WorkspaceId, Arc<FakeTransport>) {
     let dir = tempfile::tempdir().unwrap();
+    blazar_db::ensure_private_dir(dir.path()).unwrap();
     let db = blazar_db::Db::open(dir.path().join("hub.db"))
         .await
         .unwrap();
@@ -191,6 +206,7 @@ async fn failed_launch_is_compensated_before_releasing_admission() {
             .is_err()
     );
     assert!(fake.launched.load(Ordering::SeqCst));
+    assert!(fake.killed.load(Ordering::SeqCst));
     assert_eq!(running_rows(&st).await, 0);
     assert!(st.admit(ws).await.is_ok());
 }
@@ -301,6 +317,7 @@ async fn uncertain_launch_keeps_admission_closed_and_attaches_a_supervisor() {
     fake.offline.store(true, Ordering::SeqCst);
     let result = prompt_fake(st.clone(), ws, fake.clone(), "claude").await;
     assert!(result.is_err());
+    assert!(!fake.killed.load(Ordering::SeqCst));
     assert_eq!(running_rows(&st).await, 1);
     assert_eq!(st.running.read().await.len(), 1);
     assert!(st.admit(ws).await.is_err());
