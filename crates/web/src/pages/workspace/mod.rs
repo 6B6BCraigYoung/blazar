@@ -1,5 +1,3 @@
-//! 工作区页：资源管理器 + 编辑器 + 底部面板 + 对话栏。
-
 pub mod chat;
 mod diff_panel;
 mod files;
@@ -50,7 +48,6 @@ pub(crate) const ICON_REFRESH: &str = r#"<svg viewBox="0 0 24 24" fill="none" st
 pub fn WorkspacePage() -> impl IntoView {
     let params = use_params_map();
     let id = move || params.read().get("id").unwrap_or_default();
-    // 换工作区就整个重建（各种状态都是按工作区来的）。
     move || {
         let id = id();
         view! { <Workspace id/> }
@@ -67,7 +64,6 @@ fn Workspace(id: String) -> impl IntoView {
         async move { api::get::<WorkspaceDetail>(&format!("/api/workspaces/{id}/detail")).await }
     });
 
-    // 正在看这个工作区：不算「新结果」，离开时记一下看到了哪。
     let app = crate::app_state::use_app();
     app.current_ws.set(Some(id.clone()));
     app.mark_seen(&id);
@@ -98,7 +94,6 @@ fn Workspace(id: String) -> impl IntoView {
     let grid = NodeRef::<html::Div>::new();
     let host = NodeRef::<html::Div>::new();
 
-    // 文件树：进来读一次，之后 agent / 保存触发的 workspaces_changed 都重读。
     let tree_rev = RwSignal::new(0u32);
     let tid = id.clone();
     let tree = LocalResource::new(move || {
@@ -132,7 +127,6 @@ fn Workspace(id: String) -> impl IntoView {
         bus.workspaces.track();
         tree_rev.get()
     });
-    // 第一次拿到树时，改动不多（≤40）就把有改动的目录都展开。
     let expanded_once = StoredValue::new(false);
     Effect::new(move |_| {
         let changes = tree.with(|t| {
@@ -151,7 +145,6 @@ fn Workspace(id: String) -> impl IntoView {
             }
         }
     });
-    // 树变了（多半是 agent 改了文件）：当前开着的文件没改过的话就重新读。
     Effect::new(move |prev: Option<()>| {
         bus.workspaces.track();
         if prev.is_some()
@@ -186,7 +179,6 @@ fn Workspace(id: String) -> impl IntoView {
         })
     };
 
-    // 编辑器：宿主节点挂上后加载 Monaco；离开页面时释放。
     Effect::new(move |done: Option<bool>| {
         if done == Some(true) {
             return true;
@@ -201,7 +193,6 @@ fn Workspace(id: String) -> impl IntoView {
     });
     on_cleanup(move || files.dispose());
 
-    // 进来时接着上次在编辑器里开着的文件。
     let cid = id.clone();
     leptos::task::spawn_local(async move {
         if let Ok(ctx) =
@@ -217,7 +208,6 @@ fn Workspace(id: String) -> impl IntoView {
         }
     });
 
-    // 底部面板：Git 状态和差异整页共用（页签角标、差异的「整条分支」都要用）。
     let git = Git::new(&id);
     git.keep_loaded();
     let diff = DiffState::new(&id);
@@ -233,7 +223,6 @@ fn Workspace(id: String) -> impl IntoView {
         }
     });
 
-    // 对话：运行状态跟着工作区详情走（hub 推 workspaces_changed 时会重拉）。等你审批也算这一轮还在进行。
     let panel_tab = RwSignal::new(
         storage::load::<String>("blazar.v2.ws.panel").unwrap_or_else(|| "term".into()),
     );
@@ -294,12 +283,10 @@ fn Workspace(id: String) -> impl IntoView {
                 view! { <chat::ChatPane chat=c tree_files on_hide=hide_aux draft/> }
             })
     };
-    // 详情第一次拿到之后才建对话栏，之后不跟着详情重建。
     let chat_once = Memo::new(move |was: Option<&bool>| {
         was.copied().unwrap_or(false) || detail.with(|d| d.as_ref().is_some_and(Result::is_ok))
     });
 
-    // 网格尺寸跟着窗口走。
     let measure = move || {
         if let Some(g) = grid.try_get_untracked().flatten() {
             let r = g.get_bounding_client_rect();
@@ -340,7 +327,6 @@ fn Workspace(id: String) -> impl IntoView {
         keys.remove();
     });
 
-    // 离开页面前提醒没保存的改动。
     let unload = window_event_listener(ev::beforeunload, move |e| {
         if files.dirty.with_untracked(|d| !d.is_empty()) {
             e.prevent_default();
@@ -348,8 +334,8 @@ fn Workspace(id: String) -> impl IntoView {
     });
     on_cleanup(move || unload.remove());
 
-    // Markdown 文件默认看渲染结果，切到源码后记住。
-    let md_preview = RwSignal::new(storage::load::<String>(MD_KEY).as_deref() != Some("source"));
+    let md_preview =
+        RwSignal::new(crate::markdown_mode::load() == crate::markdown_mode::MarkdownMode::Preview);
 
     let sizes = move || state.sizes();
     let lay = move || state.lay.get();
@@ -456,8 +442,6 @@ fn Tabs(
     }
 }
 
-const MD_KEY: &str = "blazar.md.mode";
-
 #[component]
 fn EdBar(files: Files, preview: RwSignal<bool>) -> impl IntoView {
     view! {
@@ -488,9 +472,9 @@ fn EdBar(files: Files, preview: RwSignal<bool>) -> impl IntoView {
                     {is_md.then(|| view! {
                         <span class="seg">
                             <button data-on=move || preview.get().to_string()
-                                on:click=move |_| { preview.set(true); storage::save(MD_KEY, &"preview"); }>"预览"</button>
+                                on:click=move |_| { preview.set(true); crate::markdown_mode::save(crate::markdown_mode::MarkdownMode::Preview); }>"预览"</button>
                             <button data-on=move || (!preview.get()).to_string()
-                                on:click=move |_| { preview.set(false); storage::save(MD_KEY, &"source"); }>"源码"</button>
+                                on:click=move |_| { preview.set(false); crate::markdown_mode::save(crate::markdown_mode::MarkdownMode::Source); }>"源码"</button>
                         </span>
                     })}
                 </div>
@@ -508,7 +492,6 @@ fn MdView(files: Files, preview: RwSignal<bool>) -> impl IntoView {
                 .current
                 .with(|c| c.as_deref().is_some_and(Files::is_md))
     };
-    // 内容变了就重渲染（打字时稍微攒一下）。
     let html = RwSignal::new(String::new());
     let timer = StoredValue::new_local(None::<gloo_timers::callback::Timeout>);
     Effect::new(move |_| {
@@ -525,7 +508,6 @@ fn MdView(files: Files, preview: RwSignal<bool>) -> impl IntoView {
         });
         timer.set_value(Some(t));
     });
-    // 代码块用 Monaco 上色。
     Effect::new(move |_| {
         html.track();
         let Some(root) = el.get() else { return };
@@ -553,7 +535,6 @@ fn MdView(files: Files, preview: RwSignal<bool>) -> impl IntoView {
             });
         }
     });
-    // 工作区内的链接在编辑器里打开，外链开新窗口。
     let click = move |e: ev::MouseEvent| {
         let Some(a) = e
             .target()

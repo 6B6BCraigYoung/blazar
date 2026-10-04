@@ -1,4 +1,3 @@
-//! 设置保留旧版的存储键，便于用户直接继续使用已有偏好。
 use leptos::prelude::*;
 use leptos_router::hooks::use_query_map;
 use serde_json::{Value, json};
@@ -7,6 +6,7 @@ use crate::components::{
     dialog::{Choice, ask},
     toast::toast,
 };
+use crate::markdown_mode::{self, MarkdownMode};
 use crate::{alerts, api, app_state::use_app, storage};
 
 pub(super) fn text(v: &Value, key: &str) -> String {
@@ -110,7 +110,7 @@ fn ChatSettings() -> impl IntoView {
     let ui = ui_prefs();
     let diff =
         storage::load::<Value>("blazar.diffprefs").unwrap_or(json!({"view":"unified","w":false}));
-    let md = storage::load_raw("blazar.md.mode").unwrap_or_else(|| "preview".into());
+    let md = markdown_mode::load().as_str();
     let set_diff = |k: &str, v: Value| {
         let mut d = storage::load::<Value>("blazar.diffprefs").unwrap_or(json!({}));
         d[k] = v;
@@ -120,7 +120,7 @@ fn ChatSettings() -> impl IntoView {
     view! {
         <section class="card settings-card"><h3>"对话与编辑"</h3>
             <div class="settings-row"><label for="settings-send">"发送键"</label><select id="settings-send" class="settings-input" prop:value=text(&ui,"sendKey") on:change=|e| set_ui("sendKey",json!(event_target_value(&e)))><option value="enter" selected=text(&ui,"sendKey")=="enter">"Enter 发送，Shift+Enter 换行"</option><option value="mod" selected=text(&ui,"sendKey")=="mod">"⌘ / Ctrl + Enter 发送，Enter 换行"</option></select></div>
-            <div class="settings-row"><label for="settings-md">"打开 Markdown 时"</label><select id="settings-md" class="settings-input" prop:value=md.clone() on:change=|e| { storage::save_raw("blazar.md.mode",&event_target_value(&e)); toast("已保存"); }><option value="preview" selected=md=="preview">"先看预览"</option><option value="source" selected=md=="source">"先看源码"</option></select></div>
+            <div class="settings-row"><label for="settings-md">"打开 Markdown 时"</label><select id="settings-md" class="settings-input" prop:value=md on:change=|e| { markdown_mode::save(MarkdownMode::from_stored(Some(&event_target_value(&e)))); toast("已保存"); }><option value="preview" selected=md=="preview">"先看预览"</option><option value="source" selected=md=="source">"先看源码"</option></select></div>
             <div class="settings-row"><label for="settings-diff">"差异默认视图"</label><select id="settings-diff" class="settings-input" prop:value=text(&diff,"view") on:change=move |e| set_diff("view",json!(event_target_value(&e)))><option value="unified" selected=text(&diff,"view")=="unified">"统一"</option><option value="split" selected=text(&diff,"view")=="split">"并排"</option></select></div>
             <div class="settings-row"><label for="settings-whitespace">"差异里忽略空白"</label><input id="settings-whitespace" type="checkbox" prop:checked=flag(&diff,"w") on:change=move |e| set_diff("w",json!(event_target_checked(&e)))/></div>
         </section>

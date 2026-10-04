@@ -18,6 +18,8 @@ mod files_js;
 mod fmt;
 #[cfg(any(target_arch = "wasm32", test))]
 mod git_policy;
+#[cfg(any(target_arch = "wasm32", test))]
+mod markdown_mode;
 #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 mod md;
 #[cfg(target_arch = "wasm32")]
