@@ -154,6 +154,10 @@ pub async fn prompt(
     Path(id): Path<String>,
     Json(req): Json<PromptRequest>,
 ) -> ApiResult<Json<serde_json::Value>> {
+    for key in req.env.keys() {
+        blazar_transport::validate_env_key(key)
+            .map_err(|error| ApiError::bad_request(error.to_string()))?;
+    }
     let (node, path) = locate(&st, &id).await?;
     let workspace_id = WorkspaceId(id.parse()?);
     if let Err(e) = check_images(&req.images) {
@@ -722,6 +726,36 @@ pub async fn workspace_history(
 #[cfg(test)]
 mod configuration_tests {
     use super::*;
+
+    #[tokio::test]
+    async fn invalid_environment_names_are_rejected_before_session_lookup() {
+        let db = blazar_db::Db::open_in_memory().await.unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let st = AppState::with_services(
+            db,
+            "local".into(),
+            None,
+            crate::mesh::MeshCtx::new(None, root.path().to_path_buf()),
+            crate::services::Services::Isolated,
+        );
+        let request = serde_json::from_value(
+            serde_json::json!({"text": "test", "env": {"A-B": "test-value"}}),
+        )
+        .unwrap();
+        let response = prompt(
+            State(st.clone()),
+            Path("missing-workspace".into()),
+            Json(request),
+        )
+        .await
+        .into_response();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sessions")
+            .fetch_one(st.db.pool())
+            .await
+            .unwrap();
+        assert_eq!(count, 0);
+    }
 
     fn profile() -> crate::agents::Agent {
         serde_json::from_value(serde_json::json!({

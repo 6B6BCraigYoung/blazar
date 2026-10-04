@@ -76,7 +76,20 @@ pub async fn list_agent_configs(State(st): State<Shared>) -> ApiResult<Json<Vec<
 pub async fn upsert_agent_config(
     State(st): State<Shared>,
     Json(c): Json<AgentConfigInput>,
-) -> ApiResult<Json<serde_json::Value>> {
+) -> Response {
+    for key in c.custom_env.keys() {
+        if let Err(error) = blazar_transport::validate_env_key(key) {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": error.to_string() })),
+            )
+                .into_response();
+        }
+    }
+    save_agent_config(st, c).await.into_response()
+}
+
+async fn save_agent_config(st: Shared, c: AgentConfigInput) -> ApiResult<Json<serde_json::Value>> {
     if blazar_runtime::spec::find(&c.agent_id).is_none() {
         return Err(ApiError(anyhow::anyhow!("未知 agent: {}", c.agent_id)));
     }
@@ -181,4 +194,49 @@ pub(crate) fn merge_agent_config(
     base.max_concurrent = over.max_concurrent;
     base.enabled = over.enabled;
     base
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn invalid_environment_names_are_rejected_before_config_persistence() {
+        let db = blazar_db::Db::open_in_memory().await.unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let st = AppState::with_services(
+            db,
+            "local".into(),
+            None,
+            crate::mesh::MeshCtx::new(None, root.path().to_path_buf()),
+            crate::services::Services::Isolated,
+        );
+        let input = serde_json::from_value(serde_json::json!({
+            "agent_id": "claude", "custom_env": {"A-B": "test-value"}
+        }))
+        .unwrap();
+        let response = upsert_agent_config(State(st.clone()), Json(input))
+            .await
+            .into_response();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM agent_configs")
+            .fetch_one(st.db.pool())
+            .await
+            .unwrap();
+        assert_eq!(count, 0);
+        let valid = serde_json::from_value(serde_json::json!({
+            "agent_id": "claude", "custom_env": {"VALID_NAME_1": "test-value"}
+        }))
+        .unwrap();
+        let response = upsert_agent_config(State(st.clone()), Json(valid)).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let saved: String = sqlx::query_scalar("SELECT custom_env FROM agent_configs")
+            .fetch_one(st.db.pool())
+            .await
+            .unwrap();
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&saved).unwrap(),
+            serde_json::json!({"VALID_NAME_1": "test-value"})
+        );
+    }
 }

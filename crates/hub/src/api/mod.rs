@@ -18,7 +18,22 @@ pub type Shared = Arc<AppState>;
 
 pub struct ApiError(anyhow::Error);
 
+#[derive(Debug)]
+struct InvalidRequest(String);
+
+impl std::fmt::Display for InvalidRequest {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for InvalidRequest {}
+
 impl ApiError {
+    pub(crate) fn bad_request(message: impl Into<String>) -> Self {
+        Self(anyhow::Error::new(InvalidRequest(message.into())))
+    }
+
     #[must_use]
     pub fn message(&self) -> String {
         format!("{:#}", self.0)
@@ -33,10 +48,12 @@ impl<E: Into<anyhow::Error>> From<E> for ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        if matches!(
-            self.0.downcast_ref::<blazar_vfs::VfsError>(),
-            Some(blazar_vfs::VfsError::PathEscape(_))
-        ) {
+        if self.0.is::<InvalidRequest>()
+            || matches!(
+                self.0.downcast_ref::<blazar_vfs::VfsError>(),
+                Some(blazar_vfs::VfsError::PathEscape(_))
+            )
+        {
             return (
                 StatusCode::BAD_REQUEST,
                 Json(serde_json::json!({ "error": self.0.to_string() })),
@@ -146,6 +163,22 @@ mod tests {
 #[cfg(test)]
 mod control_tests {
     use super::*;
+
+    #[test]
+    fn invalid_requests_do_not_reclassify_internal_errors() {
+        assert_eq!(
+            ApiError::bad_request("环境变量名无效")
+                .into_response()
+                .status(),
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            ApiError(anyhow::anyhow!("internal failure"))
+                .into_response()
+                .status(),
+            StatusCode::INTERNAL_SERVER_ERROR
+        );
+    }
 
     #[test]
     fn editor_context_is_appended_but_not_to_commands() {
