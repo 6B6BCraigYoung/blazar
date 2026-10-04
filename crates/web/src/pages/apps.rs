@@ -1,4 +1,3 @@
-//! 本机办公软件：连接流程由 hub 管理，页面轮询任务并呈现授权链接。
 use leptos::prelude::*;
 use leptos_router::hooks::{use_navigate, use_params_map};
 use serde_json::{Value, json};
@@ -9,6 +8,9 @@ use crate::components::{
     toast::toast,
 };
 use crate::{api, app_state::use_app};
+
+mod job_poll;
+use job_poll::JobPoll;
 
 const APPS: &[(&str, &str, &str)] = &[
     (
@@ -124,38 +126,42 @@ const DOMAINS: &[(&str, &str)] = &[
 fn ConnectApp(id: &'static str, initial: Value, rev: RwSignal<u32>) -> impl IntoView {
     let tick = RwSignal::new(0u32);
     let pending = RwSignal::new(false);
-    let last_running = RwSignal::new(false);
+    let fetching = RwSignal::new(false);
+    let poll = RwSignal::new(JobPoll::default());
+    let last_job = RwSignal::new(None::<Value>);
     let job = LocalResource::new(move || {
         tick.get();
-        async move { api::get::<Value>(&format!("/api/office/{id}/job")).await }
+        fetching.set(true);
+        async move {
+            let result = api::get::<Value>(&format!("/api/office/{id}/job")).await;
+            let _ = fetching.try_set(false);
+            result
+        }
     });
     let interval = StoredValue::new_local(gloo_timers::callback::Interval::new(1100, move || {
         if !pending.get_untracked()
-            && job
-                .get_untracked()
-                .and_then(Result::ok)
-                .is_some_and(|v| text(&v, "status") == "running")
+            && !fetching.get_untracked()
+            && poll.get_untracked().should_poll()
         {
             tick.update(|n| *n += 1);
         }
     }));
     on_cleanup(move || interval.dispose());
-    Effect::new(move |_| {
-        if let Some(Ok(v)) = job.get() {
-            let running = text(&v, "status") == "running";
-            if !running && last_running.get_untracked() {
+    Effect::new(move |_| match job.get() {
+        Some(Ok(value)) => {
+            let mut finished = false;
+            poll.update(|poll| finished = poll.observe(Ok(text(&value, "status") == "running")));
+            last_job.set((!value.is_null()).then_some(value));
+            if finished {
                 rev.update(|n| *n += 1);
             }
-            last_running.set(running);
         }
+        Some(Err(_)) => poll.update(|poll| {
+            poll.observe(Err(()));
+        }),
+        None => {}
     });
-    let busy = move || {
-        pending.get()
-            || job
-                .get()
-                .and_then(Result::ok)
-                .is_some_and(|v| text(&v, "status") == "running")
-    };
+    let busy = move || pending.get() || fetching.get() || poll.get().busy();
     let start = Callback::new(move |body: Value| {
         if busy() {
             return;
@@ -184,10 +190,18 @@ fn ConnectApp(id: &'static str, initial: Value, rev: RwSignal<u32>) -> impl Into
             if confirm {
                 match api::send::<Value>("POST", &format!("/api/office/{id}/connect"), &body).await
                 {
-                    Ok(_) => {
+                    Ok(value) => {
+                        poll.update(JobPoll::started);
+                        last_job.set(Some(value));
+                        job.set(None);
                         tick.update(|n| *n += 1);
                     }
-                    Err(e) => toast(e.to_string()),
+                    Err(e) => {
+                        toast(e.to_string());
+                        poll.update(JobPoll::start_failed);
+                        job.set(None);
+                        tick.update(|n| *n += 1);
+                    }
                 }
             }
             pending.set(false);
@@ -215,7 +229,12 @@ fn ConnectApp(id: &'static str, initial: Value, rev: RwSignal<u32>) -> impl Into
         {(id=="lark").then(||view! { <div class="settings-row"><div class="settings-label"><b>"2. 创建飞书应用"</b><span>{if configured{"已配置"}else{"先安装，再创建应用"}}</span></div><div class="settings-actions"><select class="settings-input" aria-label="飞书品牌" prop:value=move ||brand.get() disabled=move ||busy()||!installed on:change=move |e|brand.set(event_target_value(&e))><option value="feishu" selected=move ||brand.get()=="feishu">"飞书"</option><option value="lark" selected=move ||brand.get()=="lark">"Lark"</option></select><button class="btn" disabled=move ||busy()||!installed on:click=move |_|start.run(json!({"step":"init","brand":brand.get_untracked(),"force":configured}))>{if configured{"重新创建…"}else{"创建应用"}}</button></div></div>})}
         <div class="settings-row"><div class="settings-label"><b>{if id=="lark"{"3. 登录授权"}else{"2. 登录授权"}}</b><span>{if authed{"已登录，可以再次授权增加权限"}else{"在浏览器完成设备授权"}}</span></div><div class="settings-actions">{(id=="lark").then(||view! { <select class="settings-input" aria-label="授权范围" prop:value=move ||scope.get() disabled=busy on:change=move |e|scope.set(event_target_value(&e))><option value="recommend" selected=move ||scope.get()=="recommend">"推荐权限"</option><option value="all" selected=move ||scope.get()=="all">"全部权限"</option><option value="domains" selected=move ||scope.get()=="domains">"自选业务域"</option></select> })}<button class="btn primary" disabled=move ||busy()||!installed||(id=="lark"&&!configured) on:click=move |_|{if id=="lark"&&scope.get_untracked()=="domains"&&domains.get_untracked().is_empty(){toast("至少选择一个业务域");return;}start.run(json!({"step":"login","scope":scope.get_untracked(),"domains":domains.get_untracked()}));}>{if authed{"加权限 / 重新授权"}else{"登录"}}</button>{authed.then(||view! { <button class="btn danger" disabled=busy on:click=move |_|start.run(json!({"step":"logout"}))>"退出登录"</button> })}</div></div>
         <Show when=move ||id=="lark"&&scope.get()=="domains"><div class="settings-checks">{DOMAINS.iter().map(move |&(domain,label)|view! { <label><input type="checkbox" disabled=busy prop:checked=move ||domains.get().iter().any(|d|d==domain) on:change=move |e|{let checked=event_target_checked(&e);domains.update(|d|{d.retain(|s|s!=domain);if checked{d.push(domain.into());}});}/>{label}</label> }).collect_view()}</div></Show>
-        {move ||match job.get(){Some(Err(e))=>view! { <p class="err-line">{format!("连接任务状态读取失败：{e}")}</p> }.into_any(),Some(Ok(v))if !v.is_null()=>view! { <ConnectJob id data=v tick/> }.into_any(),_=>().into_any()}}
+        {move ||job.get().and_then(Result::err).map(|error| view! {
+            <p class="err-line" role="alert">{format!("连接任务状态读取失败：{error}，正在重试")}</p>
+            <button class="btn" disabled=move || fetching.get() || pending.get() on:click=move |_| tick.update(|n| *n += 1)>"重试"</button>
+        })}
+        {move ||last_job.get().map(|data| view! { <ConnectJob id data tick/> })}
+        {move ||(last_job.get().is_none() && fetching.get()).then(|| view! { <p class="muted">"读取连接任务…"</p> })}
         <details><summary>"也可以在终端里做"</summary><p class="muted">"绑定已有飞书应用需要 App ID 和 Secret，请直接在终端配置。"</p><pre class="settings-pre">{format!("安装：{}\n配置：{}\n登录：{}",text(&initial,"install"),initial["init"].as_str().unwrap_or("—"),initial["login"].as_str().unwrap_or(if id=="lark"{"lark-cli auth login --recommend"}else{"gh auth login"}))}</pre></details>
     </section> }
 }
