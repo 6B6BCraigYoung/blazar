@@ -391,9 +391,11 @@ mod tests {
 
     #[tokio::test]
     async fn local_session_echoes() {
-        let t = TerminalTarget::Local {
+        let t = TerminalTarget::Command {
+            program: "bash".into(),
+            args: vec!["--noprofile".into(), "--norc".into()],
+            env: vec![("HISTFILE".into(), "/dev/null".into())],
             cwd: std::env::temp_dir().display().to_string(),
-            tmux_session: None,
         };
         let mut s = TerminalSession::open(&t, 80, 24).expect("应能开 PTY");
         s.write(b"echo blazar_pty_ok\n").await.unwrap();
@@ -416,9 +418,11 @@ mod tests {
 
     #[tokio::test]
     async fn resize_does_not_error() {
-        let t = TerminalTarget::Local {
+        let t = TerminalTarget::Command {
+            program: "bash".into(),
+            args: vec!["--noprofile".into(), "--norc".into()],
+            env: vec![("HISTFILE".into(), "/dev/null".into())],
             cwd: std::env::temp_dir().display().to_string(),
-            tmux_session: None,
         };
         let s = TerminalSession::open(&t, 80, 24).unwrap();
         s.resize(120, 40).await.expect("resize 应成功");
