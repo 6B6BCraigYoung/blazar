@@ -120,7 +120,8 @@ fn check_run_id(id: &str) -> Result<()> {
     Ok(())
 }
 
-fn render_cmd(spec: &ExecSpec) -> String {
+fn render_cmd(spec: &ExecSpec) -> Result<String> {
+    spec.validate()?;
     let mut s = String::new();
     if !spec.program.contains('/') {
         s.push_str(crate::PATH_PRELUDE);
@@ -136,7 +137,7 @@ fn render_cmd(spec: &ExecSpec) -> String {
     }
     for (k, p) in &spec.env_files {
         s.push_str(&format!(
-            "export {k}=\"$(cat {})\"\n",
+            "export {k}=\"$(cat -- {})\"\n",
             shell_quote(&p.display().to_string())
         ));
     }
@@ -147,7 +148,7 @@ fn render_cmd(spec: &ExecSpec) -> String {
         s.push_str(&shell_quote(a));
     }
     s.push('\n');
-    s
+    Ok(s)
 }
 
 fn b64(data: &[u8]) -> String {
@@ -250,7 +251,7 @@ impl DetachedRun {
         let payload = format!(
             "{}\n{}\n{}\n",
             b64(run_sh.as_bytes()),
-            b64(render_cmd(cmd).as_bytes()),
+            b64(render_cmd(cmd)?.as_bytes()),
             b64(first_input
                 .filter(|_| mode == RunMode::Relay)
                 .map(|l| format!("{l}\n"))
@@ -629,7 +630,8 @@ mod tests {
                 .arg("it's")
                 .cwd("/w x")
                 .env("K", "v 1"),
-        );
+        )
+        .unwrap();
         assert!(c.contains("cd '/w x' || exit 96"));
         assert!(c.contains("export K='v 1'"));
         assert!(
@@ -641,11 +643,35 @@ mod tests {
                 .is_some_and(|i| c.find("export K=").is_some_and(|j| i < j)),
             "按名字找的 CLI 先补 PATH，且在显式 env 之前: {c}"
         );
-        let abs = render_cmd(&ExecSpec::new("/opt/claude/bin/claude"));
+        let abs = render_cmd(&ExecSpec::new("/opt/claude/bin/claude")).unwrap();
         assert!(
             !abs.contains(crate::PATH_PRELUDE),
             "给了绝对路径就不用补 PATH"
         );
+    }
+
+    #[tokio::test]
+    async fn invalid_environment_names_never_create_a_run_directory() {
+        let root = tempfile::tempdir().unwrap();
+        for spec in [
+            ExecSpec::new("true").env("A-B", "test-value"),
+            ExecSpec::new("true").env_file("A-B", root.path().join("absent")),
+        ] {
+            assert!(render_cmd(&spec).is_err());
+            assert!(
+                DetachedRun::launch_in(
+                    local(),
+                    root.path(),
+                    "invalid-env",
+                    &spec,
+                    None,
+                    RunMode::Null
+                )
+                .await
+                .is_err()
+            );
+            assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 0);
+        }
     }
 
     #[tokio::test]
