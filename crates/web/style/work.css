@@ -77,3 +77,10 @@
 .tasks-page .tasks-column-empty { padding: var(--space-xl) var(--space-sm); font-size: var(--font-size-label); color: var(--fg-3); }
 .tasks-page .tasks-inline-empty { padding: var(--space-sm) 0; color: var(--fg-3); font-size: var(--font-size-label); }
 .tasks-dialog .tasks-fields { border: 0; padding: 0; margin: 0; min-width: 0; }
+
+.autopilots-page .work-ap-row { gap: var(--space-sm); }
+.autopilots-page .autopilot-schedule { color: var(--fg); font-size: var(--font-size-label); }
+.autopilots-page .work-ap-row .row-actions:last-child { margin-top: var(--space-sm); }
+.autopilots-page .autopilot-inline-empty { padding: var(--space-control) 0; color: var(--fg-3); font-size: var(--font-size-label); }
+.autopilots-page .work-hook { margin: var(--space-lg) 0; }
+.autopilots-dialog .autopilot-fields { border: 0; padding: 0; margin: 0; min-width: 0; }

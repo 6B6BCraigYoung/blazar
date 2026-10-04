@@ -1,7 +1,8 @@
-//! 自动化日程、运行记录和 Webhook 管理。
 use super::work_shared::*;
 use crate::components::{
     dialog::{self, Choice},
+    modal::Modal,
+    status::{EmptyState, InlineError, LoadingState},
     toast::toast,
 };
 use crate::{api, fmt};
@@ -95,6 +96,40 @@ fn until(iso: &str) -> String {
         format!("{:.0} 天后", s / 86400.0)
     }
 }
+fn schedule_label(value: &Value) -> String {
+    let schedule = Schedule::parse(&s(value, "cron"));
+    let label = match schedule.kind.as_str() {
+        "none" => {
+            return if value["webhook"] == true {
+                "手动或外部触发"
+            } else {
+                "手动触发"
+            }
+            .into();
+        }
+        "minutes" => format!("每 {} 分钟", schedule.n),
+        "hours" => format!("每 {} 小时，第 {} 分钟", schedule.n, schedule.minute),
+        "daily" => format!("每天 {}", schedule.time),
+        "weekly" => {
+            let weekdays = ["日", "一", "二", "三", "四", "五", "六"];
+            let days = schedule
+                .days
+                .iter()
+                .filter_map(|day| weekdays.get(usize::from(*day)))
+                .copied()
+                .collect::<Vec<_>>()
+                .join("、");
+            format!("每周{days} {}", schedule.time)
+        }
+        _ => "自定日程".into(),
+    };
+    let timezone = s(value, "timezone");
+    if timezone.is_empty() {
+        label
+    } else {
+        format!("{label} · {timezone}")
+    }
+}
 #[component]
 pub fn AutopilotsPage() -> impl IntoView {
     let ui = ApUi {
@@ -115,9 +150,9 @@ pub fn AutopilotsPage() -> impl IntoView {
         tick.try_update(|n| *n = n.wrapping_add(1));
     }));
     on_cleanup(move || timer.dispose());
-    view! {<div class="page work-page"><div class="page-head"><h1>"自动化"</h1><span class="grow"></span><button class="btn small" on:click=move |_|refresh(ui.rev)>"刷新"</button><button class="btn primary" on:click=move |_|ui.editor.set(Some(json!({})))>"新建自动化"</button></div><div class="work-layout"><div class="work-main">{move ||match data.get(){None=>view!{<div class="empty">"加载中…"</div>}.into_any(),Some(r)=>match &r{Err(e)=>view!{<div class="card pad bad" role="alert">{e.to_string()}</div>}.into_any(),Ok(items)=>{
-        if items.is_empty(){return view!{<div class="empty"><h3>"把反复要做的事交给智能体"</h3><p>"按日程或 Webhook 触发，每次建一条任务，也可以直接运行。"</p><button class="btn primary" on:click=move |_|ui.editor.set(Some(json!({})))>"新建自动化"</button></div>}.into_any();}
-        items.iter().cloned().map(|a|{let id=s(&a,"id");let selected=id.clone();let next=s(&a,"next_run_at");view!{<button class="card work-ap-row" class:work-selected=move ||ui.selected.get()==selected on:click=move |_|ui.selected.set(id.clone())><div class="row-actions"><strong>{s(&a,"name")}</strong>{badge(&s(&a,"status"))}<span class="gchip">{if s(&a,"mode")=="run"{"直接运行"}else{"建任务"}}</span>{(a["webhook"]==true).then(||view!{<span class="gchip">"Webhook"</span>})}</div><span class="muted">{format!("{} · {}",s(&a,"workspace_name"),who(&a))}</span><span class="mono small">{if s(&a,"cron").is_empty(){"手动 / Webhook 触发".into()}else{format!("{} · {}",s(&a,"cron"),s(&a,"timezone"))}}</span><div class="row-actions">{(!s(&a,"last_status").is_empty()).then(||badge(&s(&a,"last_status")))}<small class="muted">{format!("上次：{}",if s(&a,"last_run_at").is_empty(){"还没跑过".into()}else{fmt::ago(&s(&a,"last_run_at"))})}</small><span class="grow"></span>{(!next.is_empty()&&s(&a,"status")=="active").then(||{let title=local_time(&next);view!{<small title=title>{move ||{tick.track();format!("下次：{}",until(&next))}}</small>}})}</div></button>}}).collect_view().into_any()
+    view! {<div class="page work-page autopilots-page"><div class="page-head"><h1>"自动化"</h1><span class="grow"></span><button class="btn small" on:click=move |_|refresh(ui.rev)>"刷新"</button><button class="btn primary" on:click=move |_|ui.editor.set(Some(json!({})))>"新建自动化"</button></div><div class="work-layout"><div class="work-main">{move ||match data.get(){None=>view!{<LoadingState text="正在读取自动化…"/>}.into_any(),Some(r)=>match &r{Err(e)=>view!{<InlineError message=format!("无法读取自动化：{e}") retry=Callback::new(move |()|refresh(ui.rev))/>}.into_any(),Ok(items)=>{
+        if items.is_empty(){return view!{<EmptyState title="还没有自动化" detail="新建自动化，让智能体按日程处理重复工作。也支持手动和 Webhook 触发。"/>}.into_any();}
+        items.iter().cloned().map(|a|{let id=s(&a,"id");let selected=id.clone();let next=s(&a,"next_run_at");view!{<button class="card work-ap-row" class:work-selected=move ||ui.selected.get()==selected on:click=move |_|ui.selected.set(id.clone())><div class="row-actions"><strong>{s(&a,"name")}</strong>{badge(&s(&a,"status"))}</div><span class="muted">{format!("{} · {}",s(&a,"workspace_name"),who(&a))}</span><span class="autopilot-schedule">{schedule_label(&a)}</span><div class="row-actions">{(!s(&a,"last_status").is_empty()).then(||badge(&s(&a,"last_status")))}<small class="muted">{format!("上次：{}",if s(&a,"last_run_at").is_empty(){"尚未运行".into()}else{fmt::ago(&s(&a,"last_run_at"))})}</small><span class="grow"></span>{(!next.is_empty()&&s(&a,"status")=="active").then(||{let title=local_time(&next);view!{<small title=title>{move ||{tick.track();format!("下次：{}",until(&next))}}</small>}})}</div></button>}}).collect_view().into_any()
     }}}}</div><Show when=move ||!ui.selected.get().is_empty()>{move ||{let id=ui.selected.get();view!{<AutopilotDetail id ui/>}}}</Show></div>{move ||ui.editor.get().map(|init|view!{<AutopilotEditor init ui/>})}</div>}
 }
 #[component]
@@ -128,17 +163,20 @@ fn AutopilotDetail(id: String, ui: ApUi) -> impl IntoView {
         let id = key.get_value();
         async move { api::get::<Value>(&format!("/api/autopilots/{}", api::enc(&id))).await }
     });
-    view! {<aside class="card work-detail"><header class="work-detail-head"><strong>"自动化详情"</strong><span class="grow"></span><button class="btn small ghost" aria-label="关闭自动化详情" on:click=move |_|{ui.selected.set(String::new());ui.token.set(None);}>"×"</button></header>{move ||match data.get(){None=>view!{<div class="empty">"加载中…"</div>}.into_any(),Some(r)=>match &r{Err(e)=>view!{<div class="pad bad" role="alert">{e.to_string()}<button class="btn small" on:click=move |_|refresh(ui.rev)>"重试"</button></div>}.into_any(),Ok(a)=>{
-        let a=a.clone();let id=s(&a,"id");let (run_id,toggle_id,hook_id,off_id,token_id)=(id.clone(),id.clone(),id.clone(),id.clone(),id.clone());let (edit,duplicate,delete)=(a.clone(),a.clone(),a.clone());let paused=s(&a,"status")=="paused";let hook=a["webhook"]==true;let ws=s(&a,"workspace_id");
-        view!{<div class="pad"><div class="row-actions"><h2>{s(&a,"name")}</h2>{badge(&s(&a,"status"))}</div><div class="row-actions"><button class="btn small primary" disabled=move ||ui.busy.get() on:click=move |_|ui.mutate(run_id.clone(),"POST","/run",json!({}))>"立即运行"</button><button class="btn small" disabled=move ||ui.busy.get() on:click=move |_|ui.mutate(toggle_id.clone(),"PUT","",json!({"status":if paused{"active"}else{"paused"}}))>{if paused{"恢复"}else{"暂停"}}</button><button class="btn small" on:click=move |_|ui.editor.set(Some(edit.clone()))>"编辑"</button><button class="btn small" on:click=move |_|{let mut copy=duplicate.clone();copy["id"]=Value::Null;copy["name"]=json!(format!("{} 副本",s(&copy,"name")));ui.editor.set(Some(copy));}>"复制一份"</button></div>
+    view! {<aside class="card work-detail" aria-label="自动化详情"><header class="work-detail-head"><strong>"自动化详情"</strong><span class="grow"></span><button class="btn small ghost" aria-label="关闭自动化详情" on:click=move |_|{ui.selected.set(String::new());ui.token.set(None);}>"×"</button></header>{move ||match data.get(){None=>view!{<LoadingState text="正在读取自动化…"/>}.into_any(),Some(r)=>match &r{Err(e)=>view!{<InlineError message=format!("无法读取自动化：{e}") retry=Callback::new(move |()|refresh(ui.rev)) class="pad"/>}.into_any(),Ok(a)=>{
+        let a=a.clone();let id=s(&a,"id");let (run_id,toggle_id,hook_id,off_id,token_id)=(id.clone(),id.clone(),id.clone(),id.clone(),id.clone());let (edit,duplicate,delete)=(a.clone(),a.clone(),a.clone());let paused=s(&a,"status")=="paused";let hook=a["webhook"]==true;let ws=s(&a,"workspace_id");let visible_token_id=token_id.clone();
+        view!{<div class="pad"><div class="row-actions"><h2>{s(&a,"name")}</h2>{badge(&s(&a,"status"))}</div><div class="row-actions"><button class="btn small primary" disabled=move ||ui.busy.get() on:click=move |_|ui.mutate(run_id.clone(),"POST","/run",json!({}))>"立即运行"</button><button class="btn small" disabled=move ||ui.busy.get() on:click=move |_|ui.mutate(toggle_id.clone(),"PUT","",json!({"status":if paused{"active"}else{"paused"}}))>{if paused{"恢复"}else{"暂停"}}</button><button class="btn small" disabled=move ||ui.busy.get() on:click=move |_|ui.editor.set(Some(edit.clone()))>"编辑"</button></div>
         {(!s(&a,"paused_reason").is_empty()).then(||view!{<p class="warn-tx">{s(&a,"paused_reason")}</p>})}
-        <dl class="work-kv"><dt>"在哪做"</dt><dd><a href=format!("/w/{}",api::enc(&ws))>{if s(&a,"workspace_name").is_empty(){"工作区已删除".into()}else{s(&a,"workspace_name")}}</a></dd><dt>"谁来做"</dt><dd>{who(&a)}</dd><dt>"触发"</dt><dd class="mono">{if s(&a,"cron").is_empty(){"不定时".into()}else{format!("{} · {}",s(&a,"cron"),s(&a,"timezone"))}}</dd><dt>"方式"</dt><dd>{if s(&a,"mode")=="run"{"直接运行"}else{"每次建一条任务"}}</dd><dt>"工作区正忙"</dt><dd>{if s(&a,"concurrency")=="wait"{"等待空闲（最多 30 分钟）"}else{"跳过这一次"}}</dd><dt>"权限 / 模型"</dt><dd>{format!("{} / {}",if s(&a,"permission_mode").is_empty(){"跟随设置".into()}else{s(&a,"permission_mode")},if s(&a,"model").is_empty(){"跟随设置".into()}else{s(&a,"model")})}</dd></dl>
+        <dl class="work-kv"><dt>"工作区"</dt><dd><a href=format!("/w/{}",api::enc(&ws))>{if s(&a,"workspace_name").is_empty(){"工作区已删除".into()}else{s(&a,"workspace_name")}}</a></dd><dt>"指派给"</dt><dd>{who(&a)}</dd><dt>"日程"</dt><dd>{schedule_label(&a)}</dd></dl>
+        <h3>"执行内容"</h3><pre class="work-instructions">{s(&a,"instructions")}</pre>
+        <details class="work-more"><summary>"运行设置"</summary><dl class="work-kv"><dt>"表达式"</dt><dd class="mono">{if s(&a,"cron").is_empty(){"未设置".into()}else{s(&a,"cron")}}</dd><dt>"时区"</dt><dd>{s(&a,"timezone")}</dd><dt>"方式"</dt><dd>{if s(&a,"mode")=="run"{"直接运行"}else{"每次建一条任务"}}</dd><dt>"工作区正忙"</dt><dd>{if s(&a,"concurrency")=="wait"{"等待空闲（最多 30 分钟）"}else{"跳过这一次"}}</dd><dt>"权限 / 模型"</dt><dd>{format!("{} / {}",if s(&a,"permission_mode").is_empty(){"跟随设置".into()}else{s(&a,"permission_mode")},if s(&a,"model").is_empty(){"跟随设置".into()}else{s(&a,"model")})}</dd></dl></details>
         {(s(&a,"status")=="active"&&!arr(&a,"upcoming").is_empty()).then(||view!{<h3>"接下来（本地时间）"</h3>{arr(&a,"upcoming").iter().filter_map(Value::as_str).map(|t|view!{<div class="work-run"><span>{local_time(t)}</span><small class="muted">{until(t)}</small></div>}).collect_view()}})}
-        <h3>"指令"</h3><pre class="work-instructions">{s(&a,"instructions")}</pre><h3>"Webhook"</h3>
-        {move ||ui.token.get().filter(|(id,_)|id==&token_id).map(|(_,url)|{let (copy_url,curl_url)=(url.clone(),url.clone());view!{<div class="work-hook"><p class="warn-tx small">"地址只显示这一次，请立即复制；丢失后需要轮换。"</p><input class="input mono" readonly aria-label="Webhook 地址" prop:value=url/><div class="row-actions"><button class="btn small" on:click=move |_|{let url=copy_url.clone();spawn_local(copy(url));}>"复制地址"</button><button class="btn small" on:click=move |_|{let command=format!("curl -X POST '{}' -H 'content-type: application/json' -d '{{\"reason\":\"ci failed\"}}'",curl_url);spawn_local(copy(command));}>"复制 curl 示例"</button></div></div>}})}
-        <p class="muted small">{if hook{format!("已开启，地址以 …{} 结尾。POST 请求体会作为数据附给智能体。",s(&a,"webhook_hint"))}else{"开启后，外部系统可通过带令牌的地址触发运行。".into()}}</p><div class="row-actions"><button class="btn small" disabled=move ||ui.busy.get() on:click=move |_|{let id=hook_id.clone();spawn_local(async move{if hook&&dialog::ask("轮换 Webhook 地址","旧地址将立即失效，外部系统需要更新为新地址。",vec![Choice::plain("取消"),Choice::danger("轮换")]).await!=Some(1){return;}ui.mutate(id,"POST","/webhook",json!({}));});}>{if hook{"轮换地址"}else{"开启 Webhook"}}</button>{hook.then(||view!{<button class="btn small" disabled=move ||ui.busy.get() on:click=move |_|{let id=off_id.clone();spawn_local(async move{if dialog::ask("关闭 Webhook","关闭后地址立即失效。",vec![Choice::plain("取消"),Choice::danger("关闭")]).await==Some(1){ui.mutate(id,"DELETE","/webhook",json!({}));}});}>"关闭 Webhook"</button>})}</div>
-        <h3>{format!("运行记录（{}）",a["runs"].as_u64().unwrap_or(0))}</h3>{if arr(&a,"run_list").is_empty(){view!{<p class="muted small">"还没有运行记录"</p>}.into_any()}else{arr(&a,"run_list").into_iter().map(|r|{let task=s(&r,"task_id");let thread=s(&r,"thread_id");view!{<article class="work-run"><div class="row-actions">{badge(&s(&r,"status"))}<span class="muted small">{match s(&r,"source").as_str(){"manual"=>"手动","schedule"=>"日程",_=>"Webhook"}}</span><span class="grow"></span><small class="muted" title=s(&r,"triggered_at")>{fmt::ago(&s(&r,"triggered_at"))}</small></div>{if !task.is_empty(){view!{<a href=format!("/tasks?task={}",api::enc(&task))>{format!("{} {}",s(&r,"task_key"),s(&r,"task_title"))}</a>}.into_any()}else if !thread.is_empty(){view!{<a href=thread_link(&ws,&thread)>"打开对话"</a>}.into_any()}else{().into_any()}}<small class="muted">{s(&r,"reason")}</small></article>}}).collect_view().into_any()}}
-        <div class="work-section-head"><span class="grow"></span><button class="btn small danger" disabled=move ||ui.busy.get() on:click=move |_|{let a=delete.clone();spawn_local(async move{if dialog::ask("删除自动化",&format!("删除「{}」和它的运行记录？已创建的任务与对话会保留。",s(&a,"name")),vec![Choice::plain("取消"),Choice::danger("删除")]).await==Some(1){ui.mutate(s(&a,"id"),"DELETE","",json!({}));}});}>"删除自动化"</button></div>
+        <details class="work-more" open=move ||ui.token.with(|token|token.as_ref().is_some_and(|(id,_)|id==&visible_token_id))><summary>"外部触发（Webhook）"</summary>
+        {move ||ui.token.get().filter(|(id,_)|id==&token_id).map(|(_,url)|{let (copy_url,curl_url)=(url.clone(),url.clone());view!{<div class="work-hook"><p class="warn-tx small">"地址只显示这一次，请立即复制；丢失后需要轮换。持有地址的人可触发运行，请勿公开。"</p><input class="input mono" readonly aria-label="Webhook 地址" prop:value=url/><div class="row-actions"><button class="btn small" on:click=move |_|{let url=copy_url.clone();spawn_local(copy(url));}>"复制地址"</button><button class="btn small" on:click=move |_|{let command=format!("curl -X POST '{}' -H 'content-type: application/json' -d '{{\"reason\":\"ci failed\"}}'",curl_url);spawn_local(copy(command));}>"复制 curl 示例"</button></div></div>}})}
+        <p class="muted small">{if hook{format!("已开启，地址以 …{} 结尾。POST 请求体会作为数据附给智能体。",s(&a,"webhook_hint"))}else{"开启后，外部系统可通过带令牌的地址触发运行。".into()}}</p><div class="row-actions"><button class=if hook{"btn small danger"}else{"btn small"} disabled=move ||ui.busy.get() on:click=move |_|{let id=hook_id.clone();spawn_local(async move{if hook&&dialog::ask("轮换 Webhook 地址","旧地址将立即失效，外部系统需要更新为新地址。",vec![Choice::plain("取消"),Choice::danger("轮换")]).await!=Some(1){return;}ui.mutate(id,"POST","/webhook",json!({}));});}>{if hook{"轮换地址"}else{"开启 Webhook"}}</button>{hook.then(||view!{<button class="btn small danger" disabled=move ||ui.busy.get() on:click=move |_|{let id=off_id.clone();spawn_local(async move{if dialog::ask("关闭 Webhook","关闭后地址立即失效。",vec![Choice::plain("取消"),Choice::danger("关闭")]).await==Some(1){ui.mutate(id,"DELETE","/webhook",json!({}));}});}>"关闭 Webhook"</button>})}</div>
+        </details>
+        <h3>{format!("运行记录（{}）",a["runs"].as_u64().unwrap_or(0))}</h3>{if arr(&a,"run_list").is_empty(){view!{<EmptyState title="还没有运行记录" detail="可以立即运行一次，或等待下次触发。" class="autopilot-inline-empty"/>}.into_any()}else{arr(&a,"run_list").into_iter().map(|r|{let task=s(&r,"task_id");let thread=s(&r,"thread_id");view!{<article class="work-run"><div class="row-actions">{badge(&s(&r,"status"))}<span class="muted small">{match s(&r,"source").as_str(){"manual"=>"手动","schedule"=>"日程",_=>"Webhook"}}</span><span class="grow"></span><small class="muted" title=s(&r,"triggered_at")>{fmt::ago(&s(&r,"triggered_at"))}</small></div>{if !task.is_empty(){view!{<a href=format!("/tasks?task={}",api::enc(&task))>{format!("{} {}",s(&r,"task_key"),s(&r,"task_title"))}</a>}.into_any()}else if !thread.is_empty(){view!{<a href=thread_link(&ws,&thread)>"打开对话"</a>}.into_any()}else{().into_any()}}<small class="muted">{s(&r,"reason")}</small></article>}}).collect_view().into_any()}}
+        <details class="work-more"><summary>"更多操作"</summary><div class="work-section-head"><button class="btn small" disabled=move ||ui.busy.get() on:click=move |_|{let mut copy=duplicate.clone();copy["id"]=Value::Null;copy["name"]=json!(format!("{} 副本",s(&copy,"name")));ui.editor.set(Some(copy));}>"复制一份"</button><span class="grow"></span><button class="btn small danger" disabled=move ||ui.busy.get() on:click=move |_|{let a=delete.clone();spawn_local(async move{if dialog::ask("删除自动化",&format!("删除「{}」和它的运行记录？已创建的任务与对话会保留。",s(&a,"name")),vec![Choice::plain("取消"),Choice::danger("删除")]).await==Some(1){ui.mutate(s(&a,"id"),"DELETE","",json!({}));}});}>"删除自动化"</button></div></details>
         </div>}.into_any()
     }}}}</aside>}
 }
@@ -273,7 +311,9 @@ fn AutopilotEditor(init: Value, ui: ApUi) -> impl IntoView {
             _ => custom.get().trim().to_string(),
         }
     });
+    let preview_revision = RwSignal::new(0u32);
     let preview = LocalResource::new(move || {
+        preview_revision.track();
         let (c, tz) = (cron.get(), timezone.get());
         async move {
             if c.is_empty() {
@@ -290,6 +330,76 @@ fn AutopilotEditor(init: Value, ui: ApUi) -> impl IntoView {
     });
     let busy = RwSignal::new(false);
     let error = RwSignal::new(String::new());
+    let snapshot = move || {
+        vec![
+            name.get_untracked(),
+            instructions.get_untracked(),
+            ws.get_untracked(),
+            who.get_untracked(),
+            mode.get_untracked(),
+            permission.get_untracked(),
+            model.get_untracked(),
+            template.get_untracked(),
+            concurrency.get_untracked(),
+            timezone.get_untracked(),
+            kind.get_untracked(),
+            n.get_untracked(),
+            minute.get_untracked(),
+            time.get_untracked(),
+            custom.get_untracked(),
+            days.get_untracked()
+                .iter()
+                .map(u8::to_string)
+                .collect::<Vec<_>>()
+                .join(","),
+        ]
+    };
+    let initial_values = StoredValue::new(snapshot());
+    let dirty = RwSignal::new(false);
+    Effect::new(move |_| {
+        name.track();
+        instructions.track();
+        ws.track();
+        who.track();
+        mode.track();
+        permission.track();
+        model.track();
+        template.track();
+        concurrency.track();
+        timezone.track();
+        kind.track();
+        n.track();
+        minute.track();
+        time.track();
+        custom.track();
+        days.track();
+        dirty.set(snapshot() != initial_values.get_value());
+    });
+    super::agents::guard_unsaved(dirty);
+    let confirming_close = RwSignal::new(false);
+    let close = Callback::new(move |()| {
+        if busy.get_untracked() || confirming_close.get_untracked() {
+            return;
+        }
+        if snapshot() == initial_values.get_value() {
+            ui.editor.set(None);
+            return;
+        }
+        confirming_close.set(true);
+        spawn_local(async move {
+            if dialog::ask(
+                "放弃修改",
+                "自动化尚未保存。关闭后，本次修改将丢失。",
+                vec![Choice::plain("继续编辑"), Choice::danger("放弃修改")],
+            )
+            .await
+                == Some(1)
+            {
+                ui.editor.try_set(None);
+            }
+            confirming_close.try_set(false);
+        });
+    });
     let save = move |_| {
         if busy.get_untracked() {
             return;
@@ -330,12 +440,13 @@ fn AutopilotEditor(init: Value, ui: ApUi) -> impl IntoView {
             busy.try_set(false);
         });
     };
-    view! {<div class="dlg-mask"><section class="dlg work-dialog" role="dialog" aria-modal="true" aria-label=if editing{"编辑自动化"}else{"新建自动化"}><h3>{if editing{"编辑自动化"}else{"新建自动化"}}</h3>{text_field("名字",name,0)}{text_field("指令（每次触发都原样发给智能体）",instructions,5)}<div class="work-grid"><WorkspaceField value=ws/><AssigneeField value=who/>{select_field("方式",mode,&[("task","每次建一条任务"),("run","直接运行")])}{select_field("权限模式",permission,&[("","跟随智能体 / 运行时设置"),("acceptEdits","自动批准改文件"),("bypassPermissions","全部放行"),("plan","只规划"),("default","每一步手动审批")])}</div>{text_field("模型（留空跟随设置）",model,0)}<Show when=move ||mode.get()=="task">{text_field("任务标题模板（可用 {{name}} {{date}} {{time}}）",template,0)}</Show>
-        {select_field("日程",kind,&[("none","不定时"),("minutes","每 N 分钟"),("hours","每 N 小时"),("daily","每天"),("weekly","每周"),("custom","自定义 cron")])}
-        <Show when=move ||matches!(kind.get().as_str(),"minutes"|"hours")><div class="work-grid">{text_field("间隔 N",n,0)}<Show when=move ||kind.get()=="hours">{text_field("在第几分钟（0–59）",minute,0)}</Show></div></Show>
+    view! {<Modal label=if editing{"编辑自动化"}else{"新建自动化"} class="dlg work-dialog autopilots-dialog" on_close=close><h3>{if editing{"编辑自动化"}else{"新建自动化"}}</h3><fieldset class="autopilot-fields" disabled=move ||busy.get()><label class="work-field"><span>"名称"</span><input class="input" data-modal-initial-focus="" prop:value=move ||name.get() on:input=move |e|name.set(event_target_value(&e))/></label>{text_field("执行内容",instructions,5)}<p class="muted small">"每次触发都会将这些指令发给智能体。"</p><div class="work-grid"><WorkspaceField value=ws/><AssigneeField value=who/></div>
+        {select_field("日程",kind,&[("none","仅手动或外部触发"),("minutes","每 N 分钟"),("hours","每 N 小时"),("daily","每天"),("weekly","每周"),("custom","自定日程")])}
+        <Show when=move ||matches!(kind.get().as_str(),"minutes"|"hours")><div class="work-grid">{text_field("间隔",n,0)}<Show when=move ||kind.get()=="hours">{text_field("触发分钟（0–59）",minute,0)}</Show></div></Show>
         <Show when=move ||matches!(kind.get().as_str(),"daily"|"weekly")><label class="work-field"><span>"时间"</span><input class="input" type="time" prop:value=move ||time.get() on:input=move |e|time.set(event_target_value(&e))/></label></Show>
         <Show when=move ||kind.get()=="weekly"><div class="row-actions">{["日","一","二","三","四","五","六"].into_iter().enumerate().map(|(i,d)|view!{<label class="chk"><input type="checkbox" prop:checked=move ||days.with(|d|d.contains(&(i as u8))) on:change=move |e|{let checked=event_target_checked(&e);days.update(|d|{d.retain(|x|*x!=i as u8);if checked{d.push(i as u8);}});}/>{format!("周{d}")}</label>}).collect_view()}</div></Show>
-        <Show when=move ||kind.get()=="custom">{text_field("cron（分 时 日 月 周）",custom,0)}</Show><Show when=move ||kind.get()!="none">{text_field("时区（例如 Asia/Shanghai、UTC）",timezone,0)}<small class="muted mono">{move ||cron.get()}</small><div class="work-preview">{move ||match preview.get(){None=>view!{<span class="muted small">"计算日程…"</span>}.into_any(),Some(r)=>match &r{Err(e)=>view!{<span class="bad small">{e.to_string()}</span>}.into_any(),Ok(v)=>{if v["ok"]==false{view!{<span class="bad small">{s(v,"error")}</span>}.into_any()}else if arr(v,"upcoming").is_empty(){view!{<span class="warn-tx small">"这条日程没有后续触发时间"</span>}.into_any()}else{view!{<span class="muted small">"接下来（本地时间）："</span>{arr(v,"upcoming").iter().filter_map(Value::as_str).map(|t|view!{<span class="gchip">{local_time(t)}</span>}).collect_view()}}.into_any()}}}}}</div></Show>
-        {select_field("工作区正忙时",concurrency,&[("skip","跳过这一次"),("wait","等它空出来（最多 30 分钟）")])}<p class="muted small">"手动审批模式下，运行会在需要批准时等待，并出现在收件箱中。"</p><p class="bad" role="alert">{move ||error.get()}</p><div class="dlg-foot"><button class="btn" disabled=move ||busy.get() on:click=move |_|ui.editor.set(None)>"取消"</button><button class="btn primary" disabled=move ||busy.get() on:click=save>{move ||if busy.get(){"保存中…"}else if editing{"保存"}else{"创建"}}</button></div>
-    </section></div>}
+        <Show when=move ||kind.get()=="custom">{text_field("cron（分 时 日 月 周）",custom,0)}</Show><Show when=move ||kind.get()!="none">{text_field("时区（如 Asia/Shanghai 或 UTC）",timezone,0)}<details class="work-more"><summary>"查看表达式"</summary><code>{move ||cron.get()}</code></details><div class="work-preview">{move ||match preview.get(){None=>view!{<LoadingState text="正在计算日程…" class="muted small"/>}.into_any(),Some(r)=>match &r{Err(e)=>view!{<InlineError message=e.to_string() retry=Callback::new(move |()|preview_revision.update(|n|*n=n.wrapping_add(1)))/>}.into_any(),Ok(v)=>{if v["ok"]==false{view!{<InlineError message=s(v,"error")/>}.into_any()}else if arr(v,"upcoming").is_empty(){view!{<span class="warn-tx small">"这条日程没有后续触发时间"</span>}.into_any()}else{view!{<span class="muted small">"接下来（本地时间）："</span>{arr(v,"upcoming").iter().filter_map(Value::as_str).map(|t|view!{<span class="gchip">{local_time(t)}</span>}).collect_view()}}.into_any()}}}}}</div></Show>
+        <details class="work-more"><summary>"运行设置"</summary><div class="work-grid">{select_field("方式",mode,&[("task","每次建一条任务"),("run","直接运行")])}{select_field("权限模式",permission,&[("","跟随智能体 / 运行时设置"),("acceptEdits","自动批准改文件"),("bypassPermissions","全部放行"),("plan","只规划"),("default","每一步手动审批")])}</div>{text_field("模型（留空跟随设置）",model,0)}<Show when=move ||mode.get()=="task">{text_field("任务标题模板（可用 {{name}} {{date}} {{time}}）",template,0)}</Show>
+        {select_field("工作区正忙时",concurrency,&[("skip","跳过这一次"),("wait","等待空闲（最多 30 分钟）")])}</details></fieldset><p class="muted small">"手动审批模式下，运行会在需要批准时等待，并出现在收件箱中。"</p>{move ||(!error.get().is_empty()).then(||view!{<InlineError message=error.get()/>})}<div class="dlg-foot"><button class="btn" disabled=move ||busy.get() on:click=move |_|close.run(())>"取消"</button><button class="btn primary" disabled=move ||busy.get() on:click=save>{move ||if busy.get(){"保存中…"}else if editing{"保存"}else{"创建"}}</button></div>
+    </Modal>}
 }
