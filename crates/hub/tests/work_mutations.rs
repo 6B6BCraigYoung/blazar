@@ -9,6 +9,7 @@ use tower::ServiceExt;
 
 async fn fixture() -> (tempfile::TempDir, Arc<AppState>, axum::Router) {
     let dir = tempfile::tempdir().unwrap();
+    blazar_hub::ensure_private_dir(dir.path()).unwrap();
     let state = build_state_with_services(
         &HubConfig {
             db_path: dir.path().join("hub.sqlite"),

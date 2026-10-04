@@ -494,6 +494,7 @@ name = "blazar-netmesh"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
+ "blazar-core-types",
  "blazar-transport",
  "chrono",
  "serde",

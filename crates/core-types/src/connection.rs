@@ -103,6 +103,8 @@ pub fn read(path: &Path) -> io::Result<Endpoint> {
             return Err(io::Error::other("hub 会话文件权限过宽"));
         }
     }
+    #[cfg(windows)]
+    crate::private_storage::verify_file(path)?;
     let endpoint: Endpoint = serde_json::from_slice(&std::fs::read(path)?)?;
     if !valid_url(&endpoint.url)
         || endpoint.token.len() != 64
@@ -124,7 +126,7 @@ pub fn write(path: &Path, endpoint: &Endpoint) -> io::Result<()> {
         options.mode(0o600);
     }
     let result = (|| {
-        let mut file = options.open(&temporary)?;
+        let mut file = crate::private_storage::open(&temporary, &options)?;
         file.write_all(&serde_json::to_vec(endpoint)?)?;
         file.sync_all()?;
         std::fs::rename(&temporary, path)
@@ -143,6 +145,7 @@ mod tests {
     fn explicit_addresses_never_receive_an_unrelated_discovered_token() {
         let dir = std::env::temp_dir().join(format!("blazar-connection-{}", uuid::Uuid::now_v7()));
         std::fs::create_dir(&dir).unwrap();
+        crate::private_storage::protect_directory(&dir).unwrap();
         let path = dir.join("hub.session");
         let endpoint = Endpoint {
             url: "http://127.0.0.1:45678".into(),

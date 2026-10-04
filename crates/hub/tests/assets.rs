@@ -11,6 +11,7 @@ use tower::ServiceExt;
 
 async fn app() -> (axum::Router, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
+    blazar_hub::ensure_private_dir(dir.path()).unwrap();
     let cfg = HubConfig {
         db_path: dir.path().join("blazar.sqlite"),
         bind: ([127, 0, 0, 1], 0).into(),

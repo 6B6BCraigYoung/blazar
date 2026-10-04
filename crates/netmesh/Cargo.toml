@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 base64 = "0.22"
 blazar-transport.workspace = true
+blazar-core-types.workspace = true
 chrono.workspace = true
 
 serde.workspace = true

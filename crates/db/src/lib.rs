@@ -735,8 +735,9 @@ mod tests {
 
     #[tokio::test]
     async fn concurrent_writers_on_a_real_wal_file_never_lose_events() {
-        let path = std::env::temp_dir().join(format!("blazar-wal-{}.sqlite", std::process::id()));
-        let _ = std::fs::remove_file(&path);
+        let root = tempfile::tempdir().unwrap();
+        ensure_private_dir(root.path()).unwrap();
+        let path = root.path().join("blazar.sqlite");
         let db = Db::open(&path).await.unwrap();
         let (ws, s1) = fixture(&db).await;
         let s2 = SessionId::new();
@@ -779,7 +780,7 @@ mod tests {
                 .unwrap();
             assert_eq!(n, 200, "一条都不能丢");
         }
-        let _ = std::fs::remove_file(&path);
+        db.pool().close().await;
     }
 
     #[tokio::test]

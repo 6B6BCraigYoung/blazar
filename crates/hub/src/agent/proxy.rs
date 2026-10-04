@@ -109,6 +109,17 @@ fn data_dir(st: &Shared) -> PathBuf {
 
 fn load_key(dir: &std::path::Path) -> Result<Vec<u8>, String> {
     let path = dir.join("proxy.key");
+    #[cfg(windows)]
+    {
+        blazar_core_types::private_storage::protect_directory(dir)
+            .map_err(|error| error.to_string())?;
+        match std::fs::symlink_metadata(&path) {
+            Ok(_) => blazar_core_types::private_storage::protect_file(&path)
+                .map_err(|error| error.to_string())?,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.to_string()),
+        }
+    }
     if let Ok(k) = std::fs::read(&path)
         && k.len() == 32
     {
@@ -125,7 +136,7 @@ fn load_key(dir: &std::path::Path) -> Result<Vec<u8>, String> {
         opts.mode(0o600);
     }
     use std::io::Write;
-    opts.open(&path)
+    blazar_core_types::private_storage::open(&path, &opts)
         .and_then(|mut f| f.write_all(&k))
         .map_err(|e| format!("保存代理密钥失败：{e}"))?;
     Ok(k)

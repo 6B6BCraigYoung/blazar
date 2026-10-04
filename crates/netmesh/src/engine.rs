@@ -548,7 +548,7 @@ impl Staging {
 
     fn write(&self, name: &str, body: &str) -> Result<PathBuf> {
         let p = self.0.join(name);
-        std::fs::write(&p, body).map_err(io_err)?;
+        blazar_core_types::private_storage::write(&p, body.as_bytes()).map_err(io_err)?;
         restrict(&p, 0o600)?;
         Ok(p)
     }
@@ -567,8 +567,12 @@ fn restrict(p: &Path, mode: u32) -> Result<()> {
 }
 
 #[cfg(not(unix))]
-fn restrict(_p: &Path, _mode: u32) -> Result<()> {
-    Ok(())
+fn restrict(path: &Path, mode: u32) -> Result<()> {
+    if mode == 0o700 {
+        blazar_core_types::private_storage::protect_directory(path).map_err(io_err)
+    } else {
+        blazar_core_types::private_storage::protect_file(path).map_err(io_err)
+    }
 }
 
 fn io_err(e: std::io::Error) -> MeshError {

@@ -15,6 +15,7 @@ async fn fixture(
     std::sync::Arc<blazar_hub::AppState>,
 ) {
     let dir = tempfile::tempdir().unwrap();
+    blazar_hub::ensure_private_dir(dir.path()).unwrap();
     let cfg = HubConfig {
         db_path: dir.path().join("blazar.sqlite"),
         bind: ([127, 0, 0, 1], 0).into(),
@@ -358,6 +359,7 @@ async fn trunk_development_proxy_preserves_http_and_authenticated_websocket() {
 #[tokio::test]
 async fn api_and_websocket_require_a_session_even_without_origin() {
     let dir = tempfile::tempdir().unwrap();
+    blazar_hub::ensure_private_dir(dir.path()).unwrap();
     let cfg = HubConfig {
         db_path: dir.path().join("blazar.sqlite"),
         bind: ([127, 0, 0, 1], 0).into(),

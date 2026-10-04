@@ -11,6 +11,8 @@ pub fn ensure_private_dir(path: &Path) -> io::Result<()> {
         builder.mode(0o700);
     }
     builder.create(path)?;
+    #[cfg(windows)]
+    blazar_core_types::private_storage::protect_directory(path)?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
@@ -35,7 +37,7 @@ pub(crate) fn prepare_database(path: &Path) -> io::Result<()> {
         use std::os::unix::fs::OpenOptionsExt;
         options.mode(0o600);
     }
-    match options.open(path) {
+    match blazar_core_types::private_storage::open(path, &options) {
         Ok(file) => restrict_file(file)?,
         Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
             restrict_file(open_existing(path)?)?;
@@ -70,7 +72,7 @@ fn open_existing(path: &Path) -> io::Result<File> {
     if !std::fs::symlink_metadata(path)?.is_file() {
         return Err(io::Error::other("数据库文件不能是符号链接或特殊文件"));
     }
-    options.open(path)
+    blazar_core_types::private_storage::open(path, &options)
 }
 
 fn restrict_file(file: File) -> io::Result<()> {

@@ -110,8 +110,16 @@ fn write_private(path: &Path, text: &str) -> Result<(), String> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| format!("建不了 {}：{e}", dir.display()))?;
     }
+    #[cfg(windows)]
+    let staging = path.with_file_name(format!(".blazar-private-{}", uuid::Uuid::now_v7()));
+    #[cfg(windows)]
+    blazar_core_types::private_storage::protect_directory(&staging)
+        .map_err(|error| error.to_string())?;
+    #[cfg(windows)]
+    let tmp = staging.join("credential.tmp");
+    #[cfg(not(windows))]
     let tmp = path.with_extension(format!("blazar-{}.tmp", std::process::id()));
-    {
+    let result = (|| {
         use std::io::Write;
         let mut opts = std::fs::OpenOptions::new();
         opts.write(true).create(true).truncate(true);
@@ -120,13 +128,16 @@ fn write_private(path: &Path, text: &str) -> Result<(), String> {
             use std::os::unix::fs::OpenOptionsExt;
             opts.mode(0o600);
         }
-        let mut f = opts
-            .open(&tmp)
+        let mut f = blazar_core_types::private_storage::open(&tmp, &opts)
             .map_err(|e| format!("写不了 {}：{e}", tmp.display()))?;
         f.write_all(text.as_bytes()).map_err(|e| e.to_string())?;
         f.sync_all().map_err(|e| e.to_string())?;
-    }
-    std::fs::rename(&tmp, path).map_err(|e| format!("换不了 {}：{e}", path.display()))
+        drop(f);
+        std::fs::rename(&tmp, path).map_err(|e| format!("换不了 {}：{e}", path.display()))
+    })();
+    #[cfg(windows)]
+    let _ = std::fs::remove_dir_all(&staging);
+    result
 }
 
 fn read_live_claude(p: &Places) -> Option<String> {

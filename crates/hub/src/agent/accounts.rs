@@ -120,7 +120,8 @@ pub fn prepare_dir(
     dir: &FsPath,
     _shared_from: Option<&FsPath>,
 ) -> std::io::Result<()> {
-    std::fs::create_dir_all(dir)
+    std::fs::create_dir_all(dir)?;
+    blazar_core_types::private_storage::protect_directory(dir)
 }
 
 fn root(st: &Shared) -> PathBuf {
@@ -1021,7 +1022,7 @@ fn write_token(path: &FsPath, token: &str) -> std::io::Result<()> {
             std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
         }
     }
-    opts.open(path)?.write_all(token.as_bytes())
+    blazar_core_types::private_storage::open(path, &opts)?.write_all(token.as_bytes())
 }
 
 fn valid_label(s: &str) -> Result<String, String> {
