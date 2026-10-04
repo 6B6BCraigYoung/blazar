@@ -339,13 +339,25 @@ fn validate(b: &Body) -> Result<(), String> {
 }
 
 async fn reschedule(st: &Shared, id: &str) {
+    let result = async {
+        let mut connection = st.db.pool().acquire().await?;
+        reschedule_on(&mut connection, id).await
+    }
+    .await;
+    if let Err(error) = result {
+        tracing::warn!(target: "blazar::autopilot", "保存下次运行时间失败: {error}");
+    }
+}
+
+async fn reschedule_on(
+    connection: &mut sqlx::SqliteConnection,
+    id: &str,
+) -> Result<(), sqlx::Error> {
     let row = sqlx::query("SELECT cron, timezone, status FROM autopilots WHERE id = ?1")
         .bind(id)
-        .fetch_optional(st.db.pool())
-        .await
-        .ok()
-        .flatten();
-    let Some(row) = row else { return };
+        .fetch_optional(&mut *connection)
+        .await?;
+    let Some(row) = row else { return Ok(()) };
     let cron: Option<String> = row.try_get("cron").ok().flatten();
     let tz: String = row.try_get("timezone").unwrap_or_else(|_| "UTC".into());
     let active = row
@@ -357,11 +369,12 @@ async fn reschedule(st: &Shared, id: &str) {
         .zip(timezone(&tz).ok())
         .and_then(|(c, tz)| c.next_after(jiff::Timestamp::now(), &tz))
         .map(jiff::Timestamp::as_second);
-    let _ = sqlx::query("UPDATE autopilots SET next_run_at = ?2 WHERE id = ?1")
+    sqlx::query("UPDATE autopilots SET next_run_at = ?2 WHERE id = ?1")
         .bind(id)
         .bind(next)
-        .execute(st.db.pool())
-        .await;
+        .execute(&mut *connection)
+        .await?;
+    Ok(())
 }
 
 pub async fn create(State(st): State<Shared>, Json(b): Json<Body>) -> Response {
@@ -378,6 +391,10 @@ pub async fn create(State(st): State<Shared>, Json(b): Json<Body>) -> Response {
     let id = uuid::Uuid::now_v7().to_string();
     let now = Utc::now().to_rfc3339();
     let nz = |s: &Option<String>| s.clone().filter(|v| !v.trim().is_empty());
+    let mut tx = match st.db.pool().begin_with("BEGIN IMMEDIATE").await {
+        Ok(tx) => tx,
+        Err(e) => return fail(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    };
     let r = sqlx::query(
         "INSERT INTO autopilots (id, name, instructions, workspace_id, agent_profile, runtime, model,
              permission_mode, mode, title_template, status, cron, timezone, concurrency, created_at, updated_at)
@@ -398,14 +415,27 @@ pub async fn create(State(st): State<Shared>, Json(b): Json<Body>) -> Response {
     .bind(nz(&b.timezone).unwrap_or_else(|| "UTC".into()))
     .bind(b.concurrency.clone().unwrap_or_else(|| "skip".into()))
     .bind(&now)
-    .execute(st.db.pool())
+    .execute(&mut *tx)
     .await;
     if let Err(e) = r {
         return fail(StatusCode::INTERNAL_SERVER_ERROR, e.to_string());
     }
-    reschedule(&st, &id).await;
+    if let Err(e) = reschedule_on(&mut tx, &id).await {
+        return fail(StatusCode::INTERNAL_SERVER_ERROR, e.to_string());
+    }
+    let automation = match sqlx::query(&format!("{SELECT} WHERE a.id = ?1"))
+        .bind(&id)
+        .fetch_one(&mut *tx)
+        .await
+    {
+        Ok(row) => view(&row),
+        Err(e) => return fail(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    };
+    if let Err(e) = tx.commit().await {
+        return fail(StatusCode::INTERNAL_SERVER_ERROR, e.to_string());
+    }
     changed(&st);
-    Json(fetch(&st, &id).await.unwrap_or_default()).into_response()
+    Json(automation).into_response()
 }
 
 pub async fn update(
@@ -416,8 +446,18 @@ pub async fn update(
     if let Err(e) = validate(&b) {
         return fail(StatusCode::BAD_REQUEST, e);
     }
-    if fetch(&st, &id).await.is_none() {
-        return fail(StatusCode::NOT_FOUND, "没有这个自动化");
+    let mut tx = match st.db.pool().begin_with("BEGIN IMMEDIATE").await {
+        Ok(tx) => tx,
+        Err(e) => return fail(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    };
+    match sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM autopilots WHERE id = ?1)")
+        .bind(&id)
+        .fetch_one(&mut *tx)
+        .await
+    {
+        Ok(true) => {}
+        Ok(false) => return fail(StatusCode::NOT_FOUND, "没有这个自动化"),
+        Err(e) => return fail(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
     }
 
     let sets: [(&str, Option<Option<String>>); 12] = [
@@ -455,41 +495,67 @@ pub async fn update(
         ("concurrency", b.concurrency.map(Some)),
     ];
     for (col, val) in sets {
-        if let Some(v) = val {
-            let _ = sqlx::query(&format!("UPDATE autopilots SET {col} = ?2 WHERE id = ?1"))
+        if let Some(v) = val
+            && let Err(e) = sqlx::query(&format!("UPDATE autopilots SET {col} = ?2 WHERE id = ?1"))
                 .bind(&id)
                 .bind(v)
-                .execute(st.db.pool())
-                .await;
+                .execute(&mut *tx)
+                .await
+        {
+            return fail(StatusCode::INTERNAL_SERVER_ERROR, e.to_string());
         }
     }
-    if let Some(s) = b.status {
-        let _ = sqlx::query(
+    if let Some(s) = b.status
+        && let Err(e) = sqlx::query(
             "UPDATE autopilots SET status = ?2, paused_reason = NULL,
                     fail_streak = CASE WHEN ?2 = 'active' THEN 0 ELSE fail_streak END WHERE id = ?1",
         )
         .bind(&id)
         .bind(s)
-        .execute(st.db.pool())
-        .await;
+        .execute(&mut *tx)
+        .await
+        {
+            return fail(StatusCode::INTERNAL_SERVER_ERROR, e.to_string());
     }
-    let _ = sqlx::query("UPDATE autopilots SET updated_at = ?2 WHERE id = ?1")
+    if let Err(e) = sqlx::query("UPDATE autopilots SET updated_at = ?2 WHERE id = ?1")
         .bind(&id)
         .bind(Utc::now().to_rfc3339())
-        .execute(st.db.pool())
-        .await;
-    reschedule(&st, &id).await;
+        .execute(&mut *tx)
+        .await
+    {
+        return fail(StatusCode::INTERNAL_SERVER_ERROR, e.to_string());
+    }
+    if let Err(e) = reschedule_on(&mut tx, &id).await {
+        return fail(StatusCode::INTERNAL_SERVER_ERROR, e.to_string());
+    }
+    let automation = match sqlx::query(&format!("{SELECT} WHERE a.id = ?1"))
+        .bind(&id)
+        .fetch_one(&mut *tx)
+        .await
+    {
+        Ok(row) => view(&row),
+        Err(e) => return fail(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    };
+    if let Err(e) = tx.commit().await {
+        return fail(StatusCode::INTERNAL_SERVER_ERROR, e.to_string());
+    }
     changed(&st);
-    Json(fetch(&st, &id).await.unwrap_or_default()).into_response()
+    Json(automation).into_response()
 }
 
 pub async fn delete(State(st): State<Shared>, Path(id): Path<String>) -> Response {
-    let _ = sqlx::query("DELETE FROM autopilots WHERE id = ?1")
+    match sqlx::query("DELETE FROM autopilots WHERE id = ?1")
         .bind(&id)
         .execute(st.db.pool())
-        .await;
-    changed(&st);
-    StatusCode::NO_CONTENT.into_response()
+        .await
+    {
+        Ok(result) if result.rows_affected() == 0 => fail(StatusCode::NOT_FOUND, "没有这个自动化"),
+        Ok(_) => {
+            changed(&st);
+            StatusCode::NO_CONTENT.into_response()
+        }
+        Err(e) => fail(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    }
 }
 
 #[derive(Deserialize)]

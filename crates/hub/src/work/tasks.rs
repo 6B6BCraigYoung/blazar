@@ -313,19 +313,32 @@ pub async fn update(
     if let Err(e) = check(&b) {
         return fail(StatusCode::BAD_REQUEST, e);
     }
-    if fetch(&st, &id).await.is_none() {
-        return fail(StatusCode::NOT_FOUND, "没有这个任务");
+    let mut tx = match st.db.pool().begin_with("BEGIN IMMEDIATE").await {
+        Ok(tx) => tx,
+        Err(e) => return fail(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    };
+    match sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM tasks WHERE id = ?1)")
+        .bind(&id)
+        .fetch_one(&mut *tx)
+        .await
+    {
+        Ok(true) => {}
+        Ok(false) => return fail(StatusCode::NOT_FOUND, "没有这个任务"),
+        Err(e) => return fail(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
     }
     if let Some(Some(p)) = &b.parent_id {
         if p == &id {
             return fail(StatusCode::BAD_REQUEST, "不能把任务设成自己的子任务");
         }
         let has_children: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM tasks WHERE parent_id = ?1")
+            match sqlx::query_scalar("SELECT COUNT(*) FROM tasks WHERE parent_id = ?1")
                 .bind(&id)
-                .fetch_one(st.db.pool())
+                .fetch_one(&mut *tx)
                 .await
-                .unwrap_or(0);
+            {
+                Ok(count) => count,
+                Err(e) => return fail(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+            };
         if has_children > 0 {
             return fail(
                 StatusCode::BAD_REQUEST,
@@ -336,7 +349,7 @@ pub async fn update(
     let ts = now();
     macro_rules! set {
         ($col:literal, $val:expr) => {
-            let _ = sqlx::query(concat!(
+            if let Err(e) = sqlx::query(concat!(
                 "UPDATE tasks SET ",
                 $col,
                 " = ?2, updated_at = ?3 WHERE id = ?1"
@@ -344,8 +357,11 @@ pub async fn update(
             .bind(&id)
             .bind($val)
             .bind(&ts)
-            .execute(st.db.pool())
-            .await;
+            .execute(&mut *tx)
+            .await
+            {
+                return fail(StatusCode::INTERNAL_SERVER_ERROR, e.to_string());
+            }
         };
     }
     if let Some(v) = &b.title {
@@ -381,14 +397,28 @@ pub async fn update(
     if let Some(v) = &b.status {
         set!("status", v);
         let done = matches!(v.as_str(), "done" | "cancelled");
-        let _ = sqlx::query("UPDATE tasks SET completed_at = ?2 WHERE id = ?1")
+        if let Err(e) = sqlx::query("UPDATE tasks SET completed_at = ?2 WHERE id = ?1")
             .bind(&id)
             .bind(done.then(|| ts.clone()))
-            .execute(st.db.pool())
-            .await;
+            .execute(&mut *tx)
+            .await
+        {
+            return fail(StatusCode::INTERNAL_SERVER_ERROR, e.to_string());
+        }
+    }
+    let task = match sqlx::query(&format!("{SELECT} WHERE t.id = ?1"))
+        .bind(&id)
+        .fetch_one(&mut *tx)
+        .await
+    {
+        Ok(row) => row_json(&row),
+        Err(e) => return fail(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    };
+    if let Err(e) = tx.commit().await {
+        return fail(StatusCode::INTERNAL_SERVER_ERROR, e.to_string());
     }
     changed(&st);
-    Json(fetch(&st, &id).await.unwrap_or_default()).into_response()
+    Json(task).into_response()
 }
 
 pub async fn delete(State(st): State<Shared>, Path(id): Path<String>) -> Response {
@@ -414,7 +444,20 @@ async fn add_comment(
     note: bool,
     session: Option<&str>,
 ) {
-    let _ = sqlx::query(
+    if let Err(error) = save_comment(st, task, author, body, note, session).await {
+        tracing::warn!(target: "blazar::tasks", "保存任务记录失败: {error}");
+    }
+}
+
+async fn save_comment(
+    st: &Shared,
+    task: &str,
+    author: &str,
+    body: &str,
+    note: bool,
+    session: Option<&str>,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
         "INSERT INTO task_comments (id, task_id, author, body, note, session_id, created_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
     )
@@ -426,7 +469,8 @@ async fn add_comment(
     .bind(session)
     .bind(now())
     .execute(st.db.pool())
-    .await;
+    .await?;
+    Ok(())
 }
 
 async fn run(st: &Shared, task: &Value, text: &str) -> Result<Value, String> {
@@ -609,7 +653,9 @@ pub async fn comment(
             Err(e) => return fail(StatusCode::CONFLICT, e),
         }
     }
-    add_comment(&st, &id, "user", text, b.note, sent.as_deref()).await;
+    if let Err(e) = save_comment(&st, &id, "user", text, b.note, sent.as_deref()).await {
+        return fail(StatusCode::INTERNAL_SERVER_ERROR, e.to_string());
+    }
     changed(&st);
     Json(json!({ "ok": true, "triggered": sent.is_some(), "session_id": sent })).into_response()
 }

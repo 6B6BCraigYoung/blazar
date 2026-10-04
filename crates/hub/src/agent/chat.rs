@@ -188,12 +188,16 @@ pub async fn remove(
         .bind(&expected)
         .execute(st.db.pool())
         .await;
-    if expected.is_some()
-        && result
-            .as_ref()
-            .is_ok_and(|result| result.rows_affected() == 0)
-    {
-        return fail(StatusCode::CONFLICT, "排队消息已变化，未删除新增内容");
+    match result {
+        Err(error) => return fail(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()),
+        Ok(result) if result.rows_affected() == 0 => {
+            return if expected.is_some() {
+                fail(StatusCode::CONFLICT, "排队消息已变化，未删除新增内容")
+            } else {
+                fail(StatusCode::NOT_FOUND, "这条排队消息已经不在了")
+            };
+        }
+        Ok(_) => {}
     }
     if let Ok(ws) = id.parse().map(WorkspaceId) {
         changed(&st, ws);
@@ -680,6 +684,66 @@ mod queue_tests {
             .fetch_all(st.db.pool())
             .await
             .unwrap()
+    }
+
+    #[tokio::test]
+    async fn remove_queue_reports_database_failure_without_emitting_change() {
+        let (st, ws) = queued().await;
+        sqlx::query("DROP TABLE queued_messages")
+            .execute(st.db.pool())
+            .await
+            .unwrap();
+        let mut events = st.bus.subscribe();
+        let response = remove(
+            State(st.clone()),
+            Path((ws.to_string(), "queued".into())),
+            None,
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert!(matches!(
+            events.try_recv(),
+            Err(tokio::sync::broadcast::error::TryRecvError::Empty)
+        ));
+    }
+
+    #[tokio::test]
+    async fn remove_queue_reports_missing_message_without_emitting_change() {
+        let (st, ws) = queued().await;
+        let mut events = st.bus.subscribe();
+        let response = remove(
+            State(st.clone()),
+            Path((ws.to_string(), "missing".into())),
+            None,
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        assert_eq!(queue_contents(&st).await.len(), 1);
+        assert!(matches!(
+            events.try_recv(),
+            Err(tokio::sync::broadcast::error::TryRecvError::Empty)
+        ));
+    }
+
+    #[tokio::test]
+    async fn remove_queue_emits_change_only_after_deleting_the_message() {
+        let (st, ws) = queued().await;
+        let mut events = st.bus.subscribe();
+        let response = remove(
+            State(st.clone()),
+            Path((ws.to_string(), "queued".into())),
+            None,
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        assert!(queue_contents(&st).await.is_empty());
+        assert!(
+            matches!(events.try_recv(), Ok(ServerEvent::QueueChanged { workspace_id }) if workspace_id == ws)
+        );
+        assert!(matches!(
+            events.try_recv(),
+            Err(tokio::sync::broadcast::error::TryRecvError::Empty)
+        ));
     }
 
     #[tokio::test]
