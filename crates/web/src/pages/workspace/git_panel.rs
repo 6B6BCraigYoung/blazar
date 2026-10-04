@@ -1,5 +1,11 @@
 use leptos::prelude::*;
+
+use crate::components::menu::menu_keydown;
+use crate::components::modal::Modal;
+use crate::components::status::{EmptyState, InlineError, LoadingState};
+use leptos::html;
 use leptos::task::spawn_local;
+use wasm_bindgen::JsCast;
 
 use crate::api::{self, GitOpResult, GitStatus, PrDetail};
 use crate::components::dialog::{self, Choice};
@@ -13,6 +19,7 @@ use super::files::Files;
 #[derive(Clone, Copy)]
 pub struct Git {
     pub status: RwSignal<Option<GitStatus>>,
+    pub load_error: RwSignal<Option<String>>,
     pub busy: RwSignal<Option<&'static str>>,
     pub out: RwSignal<Option<(String, bool, String)>>,
     pub pr: RwSignal<Option<PrDetail>>,
@@ -25,6 +32,7 @@ impl Git {
     pub fn new(ws: &str) -> Self {
         Self {
             status: RwSignal::new(None),
+            load_error: RwSignal::new(None),
             busy: RwSignal::new(None),
             out: RwSignal::new(None),
             pr: RwSignal::new(None),
@@ -42,11 +50,17 @@ impl Git {
             let ws = self.ws.get_value();
             spawn_local(async move {
                 let s = match api::get::<GitStatus>(&format!("/api/workspaces/{ws}/git")).await {
-                    Ok(s) => s,
-                    Err(e) => GitStatus {
-                        reason: e.to_string(),
-                        ..GitStatus::default()
-                    },
+                    Ok(status) => {
+                        let _ = self.load_error.try_set(None);
+                        status
+                    }
+                    Err(error) => {
+                        let _ = self.load_error.try_set(Some(error.to_string()));
+                        GitStatus {
+                            reason: error.to_string(),
+                            ..GitStatus::default()
+                        }
+                    }
                 };
                 let _ = self.status.try_set(Some(s));
             });
@@ -135,6 +149,7 @@ enum Form {
 pub fn GitView(git: Git, files: Files, draft: RwSignal<Option<String>>) -> impl IntoView {
     let form = RwSignal::new(None::<Form>);
     let menu = RwSignal::new(None::<Vec<String>>);
+    let menu_trigger = NodeRef::<html::Button>::new();
     let busy = move |op: &str| git.busy.with(|b| *b == Some(op));
     let any_busy = move || git.busy.with(Option::is_some);
 
@@ -342,17 +357,17 @@ pub fn GitView(git: Git, files: Files, draft: RwSignal<Option<String>>) -> impl 
             chips.push(view! { <span class="gchip" title=format!("这条分支有、{} 没有的提交", g.target)>{format!("↑ {} 领先", g.ahead)}</span> }.into_any());
             chips.push(view! { <span class="gchip" class:warn={g.behind > 0} title=format!("{} 有、这条分支没有的提交", g.target)>{format!("↓ {} 落后", g.behind)}</span> }.into_any());
         }
-        chips.push(view! { <span class="gchip" class:warn={g.uncommitted > 0}>{if g.uncommitted > 0 { format!("{} 个未提交", g.uncommitted) } else { "工作区干净".to_owned() }}</span> }.into_any());
+        chips.push(view! { <span class="gchip" class:warn={g.uncommitted > 0}>{if g.uncommitted > 0 { format!("{} 个未提交", g.uncommitted) } else { "无未提交改动".to_owned() }}</span> }.into_any());
         chips.push(if g.remote.is_empty() {
-            view! { <span class="gchip">"没有 origin 远端"</span> }.into_any()
+            view! { <span class="gchip">"未设置远端"</span> }.into_any()
         } else if g.upstream.is_empty() {
-            view! { <span class="gchip warn">"还没推送过"</span> }.into_any()
+            view! { <span class="gchip warn">"未推送"</span> }.into_any()
         } else {
-            let t = if g.up_ahead > 0 || g.up_behind > 0 { format!("远端 ↑{} ↓{}", g.up_ahead, g.up_behind) } else { "已与远端同步".to_owned() };
+            let t = if g.up_ahead > 0 || g.up_behind > 0 { format!("远端 ↑{} ↓{}", g.up_ahead, g.up_behind) } else { "已同步".to_owned() };
             view! { <span class="gchip" class:bad={g.up_behind > 0} class:warn={g.up_ahead > 0 && g.up_behind == 0} title=format!("相对 {}", g.upstream)>{t}</span> }.into_any()
         });
         if g.running > 0 {
-            chips.push(view! { <span class="gchip info">"agent 运行中"</span> }.into_any());
+            chips.push(view! { <span class="gchip info">"智能体运行中"</span> }.into_any());
         }
         let branch = if g.detached {
             format!("游离 HEAD · {}", g.head)
@@ -376,18 +391,21 @@ pub fn GitView(git: Git, files: Files, draft: RwSignal<Option<String>>) -> impl 
                 </span>
                 <span class="muted">"→"</span>
                 <span class="more">
-                    <button class="gp-target" title="这条分支最终要合到哪里。领先 / 落后、变基、合并和 PR 都以它为准" on:click=move |_| run("target")>
+                    <button class="gp-target" node_ref=menu_trigger aria-haspopup="menu" aria-expanded=move || menu.get().is_some().to_string() title="这条分支最终要合到哪里。领先 / 落后、变基、合并和 PR 都以它为准" on:click=move |_| run("target")>
                         {target_label}{guess.then(|| view! { <i class="muted">" 自动"</i> })}" ▾"
                     </button>
                     {move || menu.get().map(|list| {
                         let cur = git.status.with_untracked(|s| s.as_ref().map(|s| s.target.clone()).unwrap_or_default());
+                        let menu_root = NodeRef::<html::Div>::new();
                         view! {
-                            <div class="menu" on:mouseleave=move |_| menu.set(None)>
-                                <button on:click=move |_| set_target(String::new())>"自动判断（main / master / origin 默认分支）"</button>
+                            <div class="menu" node_ref=menu_root role="menu" aria-label="目标分支" on:keydown=move |event| {
+                                if let Some(root) = menu_root.get_untracked() { menu_keydown(&event, root.unchecked_ref(), Callback::new(move |_| { menu.set(None); if let Some(trigger) = menu_trigger.get_untracked() { let _ = trigger.focus(); } })); }
+                            } on:mouseleave=move |_| menu.set(None)>
+                                <button role="menuitem" title="main / master / origin 默认分支" on:click=move |_| set_target(String::new())>"自动选择"</button>
                                 <div class="menu-sep"></div>
                                 {list.into_iter().map(|b| {
                                     let label = if b == cur { format!("✓ {b}") } else { b.clone() };
-                                    view! { <button on:click=move |_| set_target(b.clone())>{label}</button> }
+                                    view! { <button role="menuitem" on:click=move |_| set_target(b.clone())>{label}</button> }
                                 }).collect_view()}
                             </div>
                         }
@@ -395,9 +413,9 @@ pub fn GitView(git: Git, files: Files, draft: RwSignal<Option<String>>) -> impl 
                 </span>
                 {chips}
                 <span class="grow"></span>
-                <button class="btn small" disabled=move || no_remote || any_busy() title=if no_remote { "没有 origin 远端" } else { "" }
+                <button class="btn small" disabled=move || no_remote || any_busy() title=if no_remote { "未设置远端" } else { "" }
                     on:click=move |_| run("fetch")>{move || if busy("fetch") { "拉取中…" } else { "Fetch" }}</button>
-                <button class="laybtn" title="刷新" inner_html=super::ICON_REFRESH on:click=move |_| git.reload.update(|n| *n += 1)></button>
+                <button class="laybtn" aria-label="刷新 Git 状态" title="刷新" inner_html=super::ICON_REFRESH on:click=move |_| git.reload.update(|n| *n += 1)></button>
             </div>
         }
     };
@@ -443,7 +461,7 @@ pub fn GitView(git: Git, files: Files, draft: RwSignal<Option<String>>) -> impl 
             || in_op
             || (has_up && g.up_ahead == 0 && g.up_behind == 0);
         let push_why = if g.remote.is_empty() {
-            "没有 origin 远端"
+            "未设置远端"
         } else if push_off {
             "远端已经是最新的"
         } else {
@@ -456,7 +474,7 @@ pub fn GitView(git: Git, files: Files, draft: RwSignal<Option<String>>) -> impl 
         };
         let pr_off = g.remote.is_empty() || !tgt || g.detached || in_op || g.ahead == 0;
         let pr_why = if g.remote.is_empty() {
-            "没有 origin 远端"
+            "未设置远端"
         } else if g.ahead == 0 {
             "没有领先目标分支的提交"
         } else {
@@ -478,7 +496,7 @@ pub fn GitView(git: Git, files: Files, draft: RwSignal<Option<String>>) -> impl 
                     {move || if busy("push") { "推送中…".to_owned() } else { push_label.clone() }}
                 </button>
                 {(!has_pr).then(|| view! {
-                    <button class="btn primary" disabled=move || pr_off || any_busy() title=pr_why on:click=move |_| form.set(Some(Form::Pr))>"开 PR…"</button>
+                    <button class="btn primary" disabled=move || pr_off || any_busy() title=pr_why on:click=move |_| form.set(Some(Form::Pr))>"创建 PR…"</button>
                 })}
             </div>
         }
@@ -495,7 +513,7 @@ pub fn GitView(git: Git, files: Files, draft: RwSignal<Option<String>>) -> impl 
                     <span class="grow"></span>
                     {(n > 0).then(|| {
                         let g2 = g.clone();
-                        view! { <button class="btn small primary" on:click=move |_| draft.set(Some(resolve_text(&g2)))>"让 agent 解决"</button> }
+                        view! { <button class="btn small primary" on:click=move |_| draft.set(Some(resolve_text(&g2)))>"协助解决"</button> }
                     })}
                     <button class="btn small" disabled=any_busy on:click=move |_| run("continue")>{move || if busy("continue") { "继续中…" } else { "继续" }}</button>
                     <button class="btn small danger" disabled=any_busy on:click=move |_| run("abort")>{format!("放弃{what}")}</button>
@@ -509,7 +527,7 @@ pub fn GitView(git: Git, files: Files, draft: RwSignal<Option<String>>) -> impl 
             move || {
                 let d = git.pr.get();
                 let state = d.as_ref().map(|d| d.state.clone()).or_else(|| pr.state.clone()).unwrap_or_default();
-                let state_label = match state.as_str() { "OPEN" => "开着", "MERGED" => "已合并", "CLOSED" => "已关闭", s => s }.to_owned();
+                let state_label = match state.as_str() { "OPEN" => "待合并", "MERGED" => "已合并", "CLOSED" => "已关闭", s => s }.to_owned();
                 let extra = d.map(|d| {
                     let checks = if d.checks.failed > 0 {
                         Some(("bad", format!("{} 项检查失败", d.checks.failed)))
@@ -546,7 +564,7 @@ pub fn GitView(git: Git, files: Files, draft: RwSignal<Option<String>>) -> impl 
     let cols = move |g: &GitStatus| {
         let tgt = g.has_target();
         let files_list = if g.files.is_empty() {
-            view! { <div class="muted small">"没有"</div> }.into_any()
+            view! { <EmptyState title="没有未提交改动" class="muted small"/> }.into_any()
         } else {
             g.files.iter().map(|f| {
                 let (mk, cls) = code_mark(&f.code);
@@ -559,7 +577,7 @@ pub fn GitView(git: Git, files: Files, draft: RwSignal<Option<String>>) -> impl 
             }).collect_view().into_any()
         };
         let commits = if g.commits.is_empty() {
-            view! { <div class="muted small">{if tgt { "还没有" } else { "选了目标分支才知道哪些提交是这条分支的" }}</div> }.into_any()
+            view! { <EmptyState title=if tgt { "没有领先提交" } else { "选择目标分支查看提交" } class="muted small"/> }.into_any()
         } else {
             g.commits.iter().map(|c| {
                 let when = js_sys::Date::new(&wasm_bindgen::JsValue::from_f64(c.at as f64 * 1000.0)).to_iso_string();
@@ -588,8 +606,9 @@ pub fn GitView(git: Git, files: Files, draft: RwSignal<Option<String>>) -> impl 
     view! {
         <div class="gitview">
             {move || match git.status.get() {
-                None => view! { <div class="empty">"加载中…"</div> }.into_any(),
-                Some(g) if !g.repo => view! { <div class="empty">{if g.reason.is_empty() { "这个目录不是 git 仓库".to_owned() } else { g.reason.clone() }}</div> }.into_any(),
+                None => view! { <LoadingState text="读取 Git 状态…"/> }.into_any(),
+                Some(_) if git.load_error.with(Option::is_some) => view! { <InlineError message=git.load_error.get().unwrap_or_default() class="empty" retry=Callback::new(move |_| git.reload.update(|n| *n += 1))/> }.into_any(),
+                Some(g) if !g.repo => view! { <EmptyState title=if g.reason.is_empty() { "当前目录不是 Git 仓库".to_owned() } else { g.reason.clone() }/> }.into_any(),
                 Some(g) => view! {
                     {head(&g)}
                     {op_bar(&g)}
@@ -600,7 +619,7 @@ pub fn GitView(git: Git, files: Files, draft: RwSignal<Option<String>>) -> impl 
             }}
             {move || git.out.get().filter(|o| !o.2.is_empty()).map(|(op, ok, text)| view! {
                 <details class="gp-out" open=!ok>
-                    <summary>{format!("{} · {op}", if ok { "上一次操作的输出" } else { "上一次操作没成功" })}</summary>
+                    <summary>{format!("{} · {}", if ok { "操作输出" } else { "操作失败" }, op_text(&op))}</summary>
                     <pre>{text}</pre>
                 </details>
             })}
@@ -634,19 +653,16 @@ fn GitForm(f: Form, git: Git, form: RwSignal<Option<Form>>) -> impl IntoView {
             view! { <GitFormReady f=f.clone() git form prefs/> }.into_any()
         }
         state => view! {
-            <div class="dlg-mask" on:click=move |_| form.set(None)>
-                <div class="dlg wide" role="dialog" on:click=|e| e.stop_propagation()>
+            <Modal label="读取 Git 设置" class="dlg wide" on_close=Callback::new(move |_| form.set(None))>
                     <h3>"读取 Git 设置"</h3>
                     {match state {
                         Some(Err(error)) => view! {
-                            <p class="err-line" role="alert">{error.to_string()}</p>
-                            <button class="btn" on:click=move |_| revision.update(|n| *n = n.wrapping_add(1))>"重试"</button>
+                            <InlineError message=error.to_string() retry=Callback::new(move |_| revision.update(|n| *n = n.wrapping_add(1)))/>
                         }.into_any(),
-                        _ => view! { <p class="muted">"加载中…"</p> }.into_any(),
+                        _ => view! { <LoadingState text="读取 Git 设置…" class="muted"/> }.into_any(),
                     }}
                     <div class="dlg-foot"><button class="btn" on:click=move |_| form.set(None)>"取消"</button></div>
-                </div>
-            </div>
+            </Modal>
         }.into_any(),
     }).into_any()
 }
@@ -848,7 +864,7 @@ fn GitFormReady(
             <div class="muted small">"会先把分支推到 origin，再用那台机器上 gh 的登录态创建 PR。"</div>
         }.into_any(),
         Form::Rename => view! {
-            <label class="field"><input disabled=move || gate.with(|g| g.busy("form")) prop:value=move || title.get() on:input=move |e| title.set(event_target_value(&e))/></label>
+            <label class="field">"分支名称"<input disabled=move || gate.with(|g| g.busy("form")) prop:value=move || title.get() on:input=move |e| title.set(event_target_value(&e))/></label>
         }.into_any(),
     };
     let show_ai = prefs.show_ai
@@ -858,8 +874,7 @@ fn GitFormReady(
             Form::Rename => false,
         };
     view! {
-        <div class="dlg-mask" on:click=move |_| close()>
-            <div class="dlg wide" role="dialog" on:click=|e| e.stop_propagation()>
+        <Modal label=head_title class="dlg wide" on_close=Callback::new(move |_| close())>
                 <h3>{head_title}</h3>
                 {fields}
                 <div class="dlg-foot">
@@ -872,7 +887,6 @@ fn GitFormReady(
                     <button class="btn" disabled=move || gate.with(|g| g.busy("form")) on:click=move |_| close()>"取消"</button>
                     <button class="btn primary" disabled=move || gate.with(|g| g.busy("form")) on:click=move |_| submit()>{move || if gate.with(|g| g.busy("form")) { "处理中…" } else { ok_label }}</button>
                 </div>
-            </div>
-        </div>
+        </Modal>
     }
 }
