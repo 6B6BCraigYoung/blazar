@@ -1,5 +1,3 @@
-//! 底部面板的「Git」：分支状态、提交、变基、合并、推送、开 PR。
-
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 
@@ -15,11 +13,9 @@ use super::files::Files;
 pub struct Git {
     pub status: RwSignal<Option<GitStatus>>,
     pub busy: RwSignal<Option<&'static str>>,
-    /// 上一次操作：(操作名, 成功没有, 输出)
     pub out: RwSignal<Option<(String, bool, String)>>,
     pub pr: RwSignal<Option<PrDetail>>,
     pub reload: RwSignal<u32>,
-    /// 改了工作区文件的操作（提交、变基、合并……）做完后加一，文件树、差异、编辑器跟着刷新。
     pub changed: RwSignal<u32>,
     ws: StoredValue<String>,
 }
@@ -37,7 +33,6 @@ impl Git {
         }
     }
 
-    /// 进来拉一次，工作区有变化或手动刷新时再拉。
     pub fn keep_loaded(self) {
         let bus = use_bus();
         Effect::new(move |_| {
@@ -57,7 +52,6 @@ impl Git {
         });
     }
 
-    /// 跑一个 git 操作。正在跑别的就不跑，返回 None。
     async fn op(self, op: &'static str, body: serde_json::Value) -> Option<GitOpResult> {
         if self.busy.get_untracked().is_some() {
             return None;
@@ -91,7 +85,6 @@ impl Git {
     }
 }
 
-/// 冲突时交给 agent 的请求。
 fn resolve_text(g: &GitStatus) -> String {
     let op = g.op.as_deref().unwrap_or("");
     let what = match op {
@@ -615,7 +608,6 @@ pub fn GitView(git: Git, files: Files, draft: RwSignal<Option<String>>) -> impl 
     }
 }
 
-/// 提交 / 开 PR / 改分支名的表单。
 #[component]
 fn GitForm(f: Form, git: Git, form: RwSignal<Option<Form>>) -> impl IntoView {
     let g = git.status.get_untracked().unwrap_or_default();
@@ -703,7 +695,7 @@ fn GitForm(f: Form, git: Git, form: RwSignal<Option<Form>>) -> impl IntoView {
                 }
                 Form::Pr => {
                     let t = title.get_untracked().trim().to_owned();
-                    if t.is_empty() {
+                    if !crate::git_policy::valid_pr_title(g.gh, &t) {
                         toast("写一个标题");
                         return;
                     }
@@ -712,7 +704,6 @@ fn GitForm(f: Form, git: Git, form: RwSignal<Option<Form>>) -> impl IntoView {
                     close();
                     spawn_local(async move {
                         if !g.gh {
-                            // 那台机器上没有 gh：推上去后到网页上开。
                             let r = git.op("push", serde_json::json!({})).await;
                             let url = git.status.with_untracked(|s| {
                                 s.as_ref()

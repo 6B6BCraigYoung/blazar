@@ -1,5 +1,3 @@
-//! Blazar 的网页界面（Leptos，纯客户端渲染）。由 Trunk 编成 wasm，hub 挂在 `/` 下提供。
-
 #[cfg(target_arch = "wasm32")]
 mod alerts;
 #[cfg(target_arch = "wasm32")]
@@ -18,6 +16,8 @@ mod diff;
 mod files_js;
 #[cfg(target_arch = "wasm32")]
 mod fmt;
+#[cfg(any(target_arch = "wasm32", test))]
+mod git_policy;
 #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 mod md;
 #[cfg(target_arch = "wasm32")]
@@ -42,6 +42,5 @@ fn main() {
     leptos::mount::mount_to_body(app::App);
 }
 
-// 原生目标（工作区整体构建）下什么都不做：界面只在浏览器里跑。
 #[cfg(not(target_arch = "wasm32"))]
 fn main() {}
