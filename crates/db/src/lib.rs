@@ -28,6 +28,11 @@ pub enum Error {
     #[error("数据库迁移已停止：{0}。请先备份数据库并人工检查迁移记录")]
     MigrationHistory(String),
 
+    #[error(
+        "发现旧版任务数据（{tasks} 条任务、{leases} 条租约），已停止升级以保护数据。请先完整备份数据库，再进行人工任务迁移"
+    )]
+    LegacyTaskData { tasks: i64, leases: i64 },
+
     #[error("事件负载序列化失败: {0}")]
     Json(#[from] serde_json::Error),
 
@@ -83,6 +88,7 @@ impl Db {
     async fn migrate(&self) -> Result<()> {
         let mut tx = self.begin_write().await?;
         let migrator = migration_guard::compatible_migrator(&mut tx).await?;
+        migration_guard::protect_legacy_tasks(&mut tx).await?;
         migrator.run_direct(&mut *tx).await?;
         tx.commit().await?;
         Ok(())

@@ -99,6 +99,41 @@ pub(crate) async fn compatible_migrator(connection: &mut SqliteConnection) -> Re
     Ok(migrator)
 }
 
+pub(crate) async fn protect_legacy_tasks(connection: &mut SqliteConnection) -> Result<()> {
+    let tracked: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = '_sqlx_migrations')",
+    ).fetch_one(&mut *connection).await?;
+    if tracked {
+        let replaced: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM _sqlx_migrations WHERE version = 14 AND success = 1)",
+        )
+        .fetch_one(&mut *connection)
+        .await?;
+        if replaced {
+            return Ok(());
+        }
+    }
+    let mut tasks = 0;
+    let mut leases = 0;
+    for (table, count) in [("tasks", &mut tasks), ("leases", &mut leases)] {
+        let exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1)",
+        )
+        .bind(table)
+        .fetch_one(&mut *connection)
+        .await?;
+        if exists {
+            *count = sqlx::query_scalar(&format!("SELECT COUNT(*) FROM {table}"))
+                .fetch_one(&mut *connection)
+                .await?;
+        }
+    }
+    if tasks != 0 || leases != 0 {
+        return Err(Error::LegacyTaskData { tasks, leases });
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use std::borrow::Cow;
@@ -236,5 +271,83 @@ mod tests {
         let error = db.migrate().await.unwrap_err().to_string();
         assert!(error.contains("不认识") && error.contains("26"), "{error}");
         assert!(ledger(&db).await == before, "原迁移记录必须保持不变");
+    }
+
+    #[tokio::test]
+    async fn legacy_tasks_and_leases_stop_upgrade_without_losing_data() {
+        let db = historical_fixture(13).await;
+        sqlx::query("INSERT INTO nodes(id, name, transport, created_at) VALUES('node', 'hub-host', 'local', '0')")
+            .execute(db.pool()).await.unwrap();
+        sqlx::query("INSERT INTO tasks(id, title, body, created_at) VALUES('task', 'Keep this task', 'Original draft', '0')")
+            .execute(db.pool()).await.unwrap();
+        sqlx::query("INSERT INTO leases(task_id, node_id, token, acquired_at, expires_at) VALUES('task', 'node', 'fixture', '0', '1')")
+            .execute(db.pool()).await.unwrap();
+        let before = ledger(&db).await;
+        let error = db.migrate().await.unwrap_err().to_string();
+        assert!(
+            error.contains("旧版任务") && error.contains("备份"),
+            "{error}"
+        );
+        assert!(ledger(&db).await == before);
+        let body: String = sqlx::query_scalar("SELECT body FROM tasks WHERE id = 'task'")
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
+        assert_eq!(body, "Original draft");
+        let token: String = sqlx::query_scalar("SELECT token FROM leases WHERE task_id = 'task'")
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
+        assert_eq!(token, "fixture");
+    }
+
+    #[tokio::test]
+    async fn orphaned_legacy_leases_also_stop_upgrade() {
+        let db = historical_fixture(13).await;
+        sqlx::query("PRAGMA foreign_keys = OFF")
+            .execute(db.pool())
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO leases(task_id, node_id, token, acquired_at, expires_at) VALUES('task', 'node', 'fixture', '0', '1')")
+            .execute(db.pool()).await.unwrap();
+        let before = ledger(&db).await;
+        let error = db.migrate().await.unwrap_err().to_string();
+        assert!(error.contains("租约") && error.contains("备份"), "{error}");
+        assert!(ledger(&db).await == before);
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM leases")
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[tokio::test]
+    async fn empty_legacy_tables_can_upgrade() {
+        let db = historical_fixture(13).await;
+        db.migrate().await.unwrap();
+        assert_eq!(
+            ledger(&db).await.len(),
+            sqlx::migrate!("./migrations").iter().count()
+        );
+        let number_columns: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM pragma_table_info('tasks') WHERE name = 'number'",
+        )
+        .fetch_one(db.pool())
+        .await
+        .unwrap();
+        assert_eq!(number_columns, 1);
+    }
+
+    #[tokio::test]
+    async fn current_tasks_are_not_treated_as_legacy_data() {
+        let db = historical_fixture(i64::MAX).await;
+        sqlx::query("INSERT INTO tasks(id, number, title, created_at, updated_at) VALUES('task', 1, 'Keep this task', '0', '0')")
+            .execute(db.pool()).await.unwrap();
+        db.migrate().await.unwrap();
+        let title: String = sqlx::query_scalar("SELECT title FROM tasks WHERE id = 'task'")
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
+        assert_eq!(title, "Keep this task");
     }
 }
