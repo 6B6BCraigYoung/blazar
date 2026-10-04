@@ -448,7 +448,8 @@ case "$P" in ''|*[!0-9]*) echo '运行 PID 无效' >&2; exit 15;; esac
 [ "$P" -gt 1 ] || exit 15
 TABLE=$(ps -eo pid=,pgid=,stat=) || {{ echo '无法检查进程组' >&2; exit 15; }}
 STATE=$(printf '%s\n' "$TABLE" | awk -v p="$P" '$1 == p {{print $3}}')
-if alive && [ "${{STATE#Z}}" = "$STATE" ]; then
+if [ -n "$STATE" ] && [ "${{STATE#Z}}" = "$STATE" ]; then
+  alive || {{ echo '运行进程身份不匹配，无法确认已经停止' >&2; exit 15; }}
   PG=$(printf '%s\n' "$TABLE" | awk -v p="$P" '$1 == p {{print $2}}')
   [ "$PG" = "$P" ] || {{ echo '运行进程组身份不匹配' >&2; exit 15; }}
   echo "alive=$P"
@@ -662,7 +663,7 @@ mod tests {
         if spec.program == "bash" && spec.args.first().is_some_and(|a| a == "-lc") {
             spec.args[0] = "-c".into();
         }
-        spec
+        spec.env("BASH_ENV", "/dev/null")
     }
 
     #[async_trait::async_trait]
@@ -886,7 +887,7 @@ mod tests {
                 .replace(IDENTITY_FNS, "alive() { return 0; }\n")
                 .replace("builtin kill ", "fixture_kill ")
                 .replace("kill ", "fixture_kill ");
-            let stub = "fixture_kill() { return 1; }; fixture_fixture_kill() { return 1; }; sleep() { :; }; grep() { return 1; }; ps() { printf '12345 12345 S\\n'; }; ";
+            let stub = "fixture_kill() { echo 'fixture signal refused' >&2; return 1; }; fixture_fixture_kill() { fixture_kill; }; sleep() { :; }; grep() { return 1; }; ps() { printf '12345 12345 S\\n'; }; ";
             LocalTransport
                 .exec(
                     ExecSpec::new("bash")
@@ -907,15 +908,17 @@ mod tests {
     #[tokio::test]
     async fn hard_kill_reports_signal_failure_without_forging_exit() {
         let root = tempfile::tempdir().unwrap();
-        std::fs::write(root.path().join("pid"), "12345 fixture fixture").unwrap();
+        std::fs::write(root.path().join("pid"), "12345 fixture fixture\n").unwrap();
         std::fs::write(root.path().join("out.jsonl"), "").unwrap();
         let run = DetachedRun::attach(
             Arc::new(FailedKillTransport),
             root.path().display().to_string(),
             "fixture".into(),
         );
-        let result = run.hard_kill().await;
-        assert!(result.is_err(), "failed signals must not report success");
+        let error = run.hard_kill().await.unwrap_err();
+        assert!(
+            matches!(error, TransportError::Command { code: 1, ref stderr } if stderr.contains("fixture signal refused"))
+        );
         assert!(!root.path().join("exit.code").exists());
     }
 
@@ -1016,7 +1019,7 @@ mod tests {
     #[tokio::test]
     async fn hard_kill_does_not_trust_exit_markers_when_processes_are_alive() {
         let root = tempfile::tempdir().unwrap();
-        std::fs::write(root.path().join("pid"), "12345 fixture fixture").unwrap();
+        std::fs::write(root.path().join("pid"), "12345 fixture fixture\n").unwrap();
         std::fs::write(root.path().join("out.jsonl"), "").unwrap();
         std::fs::write(root.path().join("exit.code"), "137").unwrap();
         let run = DetachedRun::attach(
@@ -1227,41 +1230,112 @@ mod tests {
         assert_eq!(all, run.drain(0).await.unwrap(), "续读要逐字节一致");
     }
 
-    #[tokio::test]
-    async fn a_dead_pid_that_got_reused_is_not_mistaken_for_the_agent() {
-        let spec = ExecSpec::new("bash").arg("-c").arg("sleep 30");
-        let run = launch(local(), &rid("reuse"), &spec, None, RunMode::Null)
-            .await
-            .unwrap();
-        tokio::time::sleep(std::time::Duration::from_millis(400)).await;
-        let mut bystander = std::process::Command::new("sleep")
-            .arg("30")
-            .spawn()
-            .unwrap();
-        let pidfile = std::path::Path::new(&run.dir).join("pid");
-        let orig = std::fs::read_to_string(&pidfile).unwrap();
-        let mut parts: Vec<&str> = orig.split_whitespace().collect();
-        let b = bystander.id().to_string();
-        parts[0] = &b;
-        parts[2] = "not-the-same-start";
-        std::fs::write(&pidfile, parts.join(" ")).unwrap();
+    #[cfg(unix)]
+    struct OwnedProcess(std::process::Child);
 
-        assert!(
-            matches!(run.probe().await.unwrap(), RunState::Lost { .. }),
-            "身份对不上就必须判 Lost，而不是 Alive"
+    #[cfg(unix)]
+    impl OwnedProcess {
+        fn sleep(own_group: bool) -> Self {
+            use std::os::unix::process::CommandExt;
+            let mut command = std::process::Command::new("sleep");
+            command
+                .arg("30")
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null());
+            if own_group {
+                command.process_group(0);
+            }
+            Self(command.spawn().unwrap())
+        }
+    }
+
+    #[cfg(unix)]
+    impl Drop for OwnedProcess {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+
+    #[cfg(unix)]
+    async fn mismatched_identity_is_not_stopped(newline: bool) {
+        let root = tempfile::tempdir().unwrap();
+        let original = OwnedProcess::sleep(true);
+        let mut bystander = OwnedProcess::sleep(false);
+        let script = format!(
+            "{IDENTITY_FNS}printf '%s %s %s\\n' '{pid}' \"$(boot_of)\" \"$(start_of {pid})\"",
+            pid = original.0.id(),
         );
-        run.hard_kill().await.unwrap();
-        let still = std::process::Command::new("kill")
-            .args(["-0", &b])
-            .status()
+        let identity = LocalTransport
+            .exec(
+                ExecSpec::new("bash")
+                    .arg("--noprofile")
+                    .arg("--norc")
+                    .arg("-c")
+                    .arg(script)
+                    .env("BASH_ENV", "/dev/null"),
+            )
+            .await
             .unwrap()
-            .success();
-        assert!(still, "身份对不上时绝不能 kill —— 那是别人的进程");
-        std::process::Command::new("kill").arg(&b).status().ok();
-        let _ = bystander.wait();
+            .ok()
+            .unwrap();
+        let pidfile = root.path().join("pid");
+        let invalid = format!(
+            "{} {} not-the-same-start{}",
+            bystander.0.id(),
+            identity.split_whitespace().nth(1).unwrap(),
+            if newline { "\n" } else { "" },
+        );
+        std::fs::write(&pidfile, invalid).unwrap();
+        std::fs::write(root.path().join("out.jsonl"), "").unwrap();
+        let run = DetachedRun::attach(local(), root.path().display().to_string(), rid("identity"));
+        let probe = run.probe().await.unwrap();
+        let signals = std::cell::Cell::new(0);
+        let result = run
+            .hard_kill_with(|_, _| {
+                signals.set(signals.get() + 1);
+                Err(stop_error(
+                    "fixture forbids signaling a mismatched identity",
+                ))
+            })
+            .await;
+        let forged_exit = root.path().join("exit.code").exists();
+        let preserved_log = std::fs::read(root.path().join("out.jsonl"))
+            .unwrap()
+            .is_empty();
+        let untouched = bystander.0.try_wait().unwrap().is_none();
+        std::fs::write(&pidfile, identity).unwrap();
+        let cleanup = run.hard_kill().await;
+        assert!(cleanup.is_ok(), "owned process cleanup failed: {cleanup:?}");
+        assert!(result.is_err(), "a changed identity cannot confirm exit");
+        assert!(matches!(probe, RunState::Lost { .. }));
+        assert!(
+            preserved_log,
+            "identity mismatch must not forge an exit event"
+        );
+        assert_eq!(
+            signals.get(),
+            0,
+            "a mismatched identity must not be signaled"
+        );
+        assert!(
+            !forged_exit,
+            "identity mismatch must not forge an exit marker"
+        );
+        assert!(untouched, "the unrelated owned process must still be alive");
+    }
 
-        std::fs::write(&pidfile, orig).unwrap();
-        run.hard_kill().await.unwrap();
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn identity_mismatch_with_newline_cannot_confirm_exit() {
+        mismatched_identity_is_not_stopped(true).await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn identity_mismatch_without_newline_cannot_confirm_exit() {
+        mismatched_identity_is_not_stopped(false).await;
     }
 
     #[tokio::test]
