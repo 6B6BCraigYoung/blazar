@@ -1,9 +1,3 @@
-//! 对话记录的数据模型：把一串事件整理成界面上的条目，跟 Claude Code 插件的呈现一致——
-//! 一轮里连续的中间步骤（工具调用、思考、后台任务）收进一个可展开的「折叠行」，
-//! 助手说的话、错误单独成行；子 agent 的步骤挂在派它的那个 Task 下面；被回退的历史单独成组。
-//!
-//! 每次有新事件都整个重建（纯计算，很快）；每个条目带一个签名，界面只重绘签名变了的条目。
-
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 
@@ -14,12 +8,11 @@ use blazar_core_types::{
 use serde::Deserialize;
 use serde_json::Value;
 
-/// 一条事件（历史接口和实时推送统一成这个样子）。
 #[derive(Debug, Clone)]
 pub struct Row {
     pub session_id: String,
     pub seq: u64,
-    /// 毫秒时间戳，解析不了是 0。
+
     pub ts: i64,
     pub parent: Option<String>,
     pub rewound: bool,
@@ -44,7 +37,6 @@ fn parse_ts(s: &str) -> i64 {
 }
 
 impl Row {
-    /// 历史接口的一行；认不出的事件类型（新版 hub 多出来的）返回 None。
     pub fn from_history(v: Value) -> Option<Self> {
         let h: HistRow = serde_json::from_value(v).ok()?;
         Some(Self {
@@ -95,10 +87,10 @@ pub struct Todo {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Extra {
     None,
-    /// shell 命令全文
+
     Cmd(String),
     Todos(Vec<Todo>),
-    /// 改动的行：('+' / '-' / '⋯', 内容)；`more` 是没显示的行数
+
     Diff {
         rows: Vec<(char, String)>,
         more: usize,
@@ -107,13 +99,12 @@ pub enum Extra {
     Plan(String),
 }
 
-/// 工具结果的显示：默认只露几行，其余点开。
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Res {
     pub shown: String,
     pub full: String,
     pub more: usize,
-    /// "" / "sum"（摘要）/ "err"
+
     pub cls: &'static str,
 }
 
@@ -126,7 +117,7 @@ pub struct Tool {
     pub state: St,
     pub extra: Extra,
     pub result: Option<Res>,
-    /// 子 agent（Task）里的步骤。
+
     pub sub: Vec<Step>,
     pub sub_calls: usize,
     pub sub_last: String,
@@ -134,18 +125,15 @@ pub struct Tool {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Step {
-    Thinking {
-        text: String,
-        secs: i64,
-    },
+    Thinking { text: String, secs: i64 },
     Tool(Box<Tool>),
-    /// 子 agent 说的话
+
     Text(String),
-    /// 后台任务开始
+
     Bg(String),
-    /// 审批的结果，例如「已允许 · Bash」
+
     Note(String),
-    /// 找不到对应调用的工具结果
+
     Orphan(Res),
 }
 
@@ -189,14 +177,12 @@ pub enum Body {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Item {
-    /// 稳定的身份：开头那条事件的 session:seq
     pub key: String,
-    /// 内容签名：变了就重绘
+
     pub sig: u64,
     pub body: Body,
 }
 
-/// 在等你处理的审批 / 提问。
 #[derive(Debug, Clone, PartialEq)]
 pub struct Pending {
     pub id: String,
@@ -214,13 +200,12 @@ pub struct Transcript {
     pub model: String,
     pub mcp: Vec<McpServerStatus>,
     pub rate: Vec<RateLimitWindow>,
-    /// 最后一条事件所在的会话（中断、实时控制都发给它）
+
     pub last_session: Option<String>,
-    /// 这一轮到目前为止输出了多少 token
+
     pub turn_tokens: u64,
 }
 
-/// 粗估：英文约 4 个字符一个 token，中日韩约 1 个字一个
 fn est_tokens(s: &str) -> u64 {
     let (wide, narrow) = s.chars().fold((0u64, 0u64), |(w, n), c| {
         if (c as u32) >= 0x2E80 {
@@ -232,7 +217,6 @@ fn est_tokens(s: &str) -> u64 {
     wide + narrow.div_ceil(4)
 }
 
-/// 1234 → "1.2k"
 pub fn fmt_tokens(n: u64) -> String {
     if n >= 1000 {
         format!("{:.1}k", n as f64 / 1000.0)
@@ -240,8 +224,6 @@ pub fn fmt_tokens(n: u64) -> String {
         n.to_string()
     }
 }
-
-// ───────────────────────── 工具的标题、结果、改动 ─────────────────────────
 
 pub const SHELL_TOOLS: [&str; 5] = ["Bash", "Shell", "shell", "exec", "command_execution"];
 
@@ -283,7 +265,6 @@ pub fn command_of(input: &Value) -> String {
     }
 }
 
-/// (标题, 参数)
 pub fn tool_title(name: &str, input: &Value, root: &str) -> (String, String) {
     let rp = |k: &str| rel_path(s(input, k), root);
     let arg = if SHELL_TOOLS.contains(&name) {
@@ -373,7 +354,6 @@ pub fn todos_of(input: &Value) -> Vec<Todo> {
         .unwrap_or_default()
 }
 
-/// Write 要写的内容，按「新增的行」显示。
 pub fn write_preview(input: &Value) -> Extra {
     let content = s(input, "content");
     if content.is_empty() {
@@ -553,7 +533,6 @@ fn appr_kind_label(request: &Value) -> String {
     }
 }
 
-/// 失败原因像是账号的问题（额度、权限、认证）：给「换个账号继续」。
 pub fn looks_like_account_problem(why: &str) -> bool {
     let w = why.to_lowercase();
     [
@@ -574,9 +553,6 @@ pub fn looks_like_account_problem(why: &str) -> bool {
     .any(|k| w.contains(k))
 }
 
-// ───────────────────────── 构建 ─────────────────────────
-
-/// 构建过程中的条目：工具放在 `tools` 里，用下标引用，结果、子 agent 到达时直接找到它改。
 enum BStep {
     Thinking { text: String, secs: i64 },
     Tool(usize),
@@ -631,17 +607,17 @@ struct Builder<'a> {
     top: Vec<BItem>,
     tools: Vec<BTool>,
     by_id: HashMap<String, usize>,
-    /// 工具下标 → 它的输入（算结果摘要要用）
+
     inputs: HashMap<usize, Value>,
-    /// 当前容器（顶层或最后一个「已回退」组）末尾的折叠行是不是还开着
+
     fold_open: bool,
     in_rewound: bool,
     last_ts: i64,
     last_text: String,
     usage: Option<TokenUsage>,
-    /// 这一轮里每次模型调用的输出量（按调用取最大值）
+
     turn_tokens: HashMap<String, u64>,
-    /// 按这一轮已经出来的文字估的 token 数：Claude 只在每次调用开头报一次用量，靠它跟上
+
     turn_est: u64,
     user_seen: HashSet<String>,
     bg_shown: HashMap<String, String>,
@@ -698,7 +674,6 @@ impl Builder<'_> {
         self.container().push(BItem { key, body });
     }
 
-    /// 当前开着的折叠行（没有就新开一个）。
     fn fold(&mut self, key: &str) -> &mut Vec<BStep> {
         let open = self.fold_open
             && matches!(
@@ -728,7 +703,6 @@ impl Builder<'_> {
         let key = format!("{}:{}", r.session_id, r.seq);
         let name = kind_name(&r.kind);
 
-        // 被回退的历史单独成组。
         if r.rewound != self.in_rewound {
             self.fold_open = false;
             self.in_rewound = r.rewound;
@@ -753,7 +727,6 @@ impl Builder<'_> {
             *turns += 1;
         }
 
-        // 子 agent 的步骤挂到派它的 Task 下面。
         let sub_of = r
             .parent
             .as_ref()
@@ -898,7 +871,6 @@ impl Builder<'_> {
                 if status == "started" {
                     self.fold(&key).push(BStep::Bg(what));
                 } else if self.bg_shown.get(&task_id) != Some(&status) {
-                    // CLI 对同一个任务会先后发 task_updated 和 task_notification，结局只说一次。
                     self.bg_shown.insert(task_id, status.clone());
                     let bad = matches!(status.as_str(), "killed" | "stopped" | "failed");
                     let end = if status == "completed" {
@@ -1006,7 +978,7 @@ impl Builder<'_> {
 
     fn finished(&mut self, key: String, out: Outcome) {
         let interrupted = matches!(out, Outcome::Interrupted);
-        // 还挂着的工具：中断算失败，其余算完成。
+
         for t in &mut self.tools {
             if t.tool.state == St::Run {
                 t.tool.state = if interrupted { St::Err } else { St::Ok };
@@ -1050,8 +1022,6 @@ impl Builder<'_> {
         self.last_text.clear();
     }
 }
-
-// ───────────────────────── 收尾：变成界面用的结构 ─────────────────────────
 
 fn take_step(tools: &mut Vec<Option<BTool>>, st: BStep) -> Step {
     match st {
@@ -1170,7 +1140,6 @@ fn sig_body(b: &Body) -> u64 {
     h.finish()
 }
 
-/// `live_fold` 是最后一个顶层折叠行在不在跑（工作区在跑、它是最后开着的那个）。
 fn finish_items(
     items: Vec<BItem>,
     tools: &mut Vec<Option<BTool>>,
@@ -1225,8 +1194,6 @@ fn finish_items(
         .collect()
 }
 
-/// 把一串事件整理成对话记录。`root` 是工作区路径（工具参数里的绝对路径显示成相对路径）；
-/// `running` 是工作区现在是不是在跑（决定最后一个折叠行写「正在运行…」还是「N 个工具调用」）。
 pub fn build(rows: &[Row], root: &str, running: bool) -> Transcript {
     let mut b = Builder {
         root,
@@ -1242,7 +1209,7 @@ pub fn build(rows: &[Row], root: &str, running: bool) -> Transcript {
     }
     b.out.last_session = rows.last().map(|r| r.session_id.clone());
     b.out.usage = b.usage.take();
-    // 顶层最后一个是还开着的折叠行，而且工作区在跑：它就是「正在进行」的那一组。
+
     let live_last = running && b.fold_open && !b.in_rewound;
     let waiting = b.out.pending.first().map(|p| p.ask);
     let mut tools: Vec<Option<BTool>> =
@@ -1250,7 +1217,7 @@ pub fn build(rows: &[Row], root: &str, running: bool) -> Transcript {
     let top = std::mem::take(&mut b.top);
     b.out.items = finish_items(top, &mut tools, live_last, waiting);
     b.out.turn_tokens = b.turn_tokens.values().sum::<u64>().max(b.turn_est);
-    // 正在跑的那一行带上这一轮的 token 数（跟插件一样：「Thinking… · 1.2k tokens」）。
+
     if b.out.turn_tokens > 0
         && b.out.pending.is_empty()
         && let Some(Item {
@@ -1266,7 +1233,6 @@ pub fn build(rows: &[Row], root: &str, running: bool) -> Transcript {
     b.out
 }
 
-/// 审批卡片的标题。
 pub fn approval_title(request: &Value, root: &str, remote_node: Option<&str>) -> String {
     let tn = tool_name(s(request, "tool_name"));
     let input = request.get("input").cloned().unwrap_or(Value::Null);
@@ -1299,7 +1265,6 @@ pub fn approval_title(request: &Value, root: &str, remote_node: Option<&str>) ->
     format!("Allow {shown}?")
 }
 
-/// 审批卡片正文里展示的「要做什么」。
 pub fn approval_what(request: &Value, root: &str) -> String {
     let input = request.get("input").cloned().unwrap_or(Value::Null);
     let cmd = command_of(&input);
@@ -1316,7 +1281,6 @@ pub fn approval_what(request: &Value, root: &str) -> String {
     pretty.chars().take(800).collect()
 }
 
-/// 「以后不再询问」用的规则：工具名，加上 shell 命令的头一两个词。
 pub fn always_rule(request: &Value) -> (String, String) {
     let tn = tool_name(s(request, "tool_name"));
     let cmd = request
@@ -1446,7 +1410,6 @@ mod tests {
             }
         );
 
-        // 批准之后：不再挂着，折叠行里留一条记录。
         let mut rows2 = rows.clone();
         rows2.push(row("s", 4, 0, json!({"type":"approval_resolved","id":"01a0fa80-9ab8-7320-bd31-48d9174e2bcd","decision":{"kind":"allow"}})));
         let t2 = build(&rows2, "/w", true);

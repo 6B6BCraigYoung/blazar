@@ -1,5 +1,3 @@
-//! 本地文件相关的小工具（实现在 js/files.js）。
-
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen(module = "/js/files.js")]

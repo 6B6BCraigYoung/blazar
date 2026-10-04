@@ -1,4 +1,4 @@
-// 提醒：提示音（WebAudio 合成，不带音频文件）和系统通知。
+
 const TONES = { soft: ['sine', 1], bright: ['triangle', 1.5], wood: ['square', 0.5] };
 let ctx;
 
@@ -19,7 +19,7 @@ export function playSound(kind, tone, volume) {
       o.connect(g).connect(ctx.destination);
       o.start(t0 + at); o.stop(t0 + at + dur + 0.02);
     }
-  } catch (_) { /* 没有声音就算了 */ }
+  } catch (_) {  }
 }
 
 export function notifySupported() { return typeof Notification !== 'undefined'; }
@@ -29,7 +29,7 @@ export async function requestNotify() {
   return Notification.permission === 'granted' ? 'granted' : await Notification.requestPermission();
 }
 
-// 弹一条系统通知；点一下回到窗口并调 onClick。
+
 export function notify(title, body, tag, sticky, onClick) {
   try {
     const n = new Notification(title, { body, tag, requireInteraction: sticky });

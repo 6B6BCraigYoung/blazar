@@ -1,5 +1,5 @@
-// xterm.js 的薄封装：一个终端连一条 hub 的 /terminal/ws。xterm 和 fit 插件由 index.html 以全局脚本引入。
-// 远端是 tmux 会话：断线重连会回到原处。
+
+
 
 export class Term {
   constructor(host, url, onState) {
@@ -48,7 +48,7 @@ export class Term {
       onState('closed');
     };
     this.term.onData(d => { if (sock.readyState === 1) sock.send(JSON.stringify({ type: 'input', data: d })); });
-    // 面板拖动、收起展开、窗口缩放都会改尺寸：盯着宿主节点本身。
+
     this.ro = new ResizeObserver(() => this.resize());
     this.ro.observe(host);
   }

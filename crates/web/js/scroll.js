@@ -1,5 +1,5 @@
-// 对话记录改宽度时保持阅读位置：原来在底部就贴着底部，否则让顶上那一段原地不动。
-// 浏览器自带的滚动锚定（overflow-anchor）在 CSS 里关掉，全由这里处理。
+
+
 export function keepScroll(el) {
   let width = el.clientWidth;
   let bottom = true;

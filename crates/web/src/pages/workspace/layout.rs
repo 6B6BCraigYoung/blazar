@@ -1,5 +1,3 @@
-//! 工作区三栏布局：左资源管理器、中间编辑器 + 底部面板、右对话。宽高可拖、可收起，记在本地。
-
 use leptos::prelude::*;
 use serde::{Deserialize, Serialize};
 use web_sys::PointerEvent;
@@ -21,7 +19,7 @@ pub struct Layout {
     pub hide_ex: bool,
     pub hide_aux: bool,
     pub hide_panel: bool,
-    /// 底部面板占满中间一栏（看大 diff 时用）。
+
     pub panel_max: bool,
 }
 
@@ -46,7 +44,6 @@ pub enum Region {
     Aux,
 }
 
-/// 实际用的尺寸：窗口太窄时先压对话栏、再压资源管理器，给代码区至少留 `CODE_MIN`。
 #[derive(Clone, Copy, PartialEq)]
 pub struct Sizes {
     pub ex: f64,
@@ -57,7 +54,7 @@ pub struct Sizes {
 #[derive(Clone, Copy)]
 pub struct LayoutState {
     pub lay: RwSignal<Layout>,
-    /// 整个工作区网格的宽高，窗口一变就更新。
+
     pub area: RwSignal<(f64, f64)>,
 }
 
@@ -123,15 +120,13 @@ impl LayoutState {
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Edge {
-    /// 资源管理器右边
     Explorer,
-    /// 对话栏左边
+
     Aux,
-    /// 底部面板上边
+
     Panel,
 }
 
-/// 分隔条：按住拖动改尺寸，双击收起对应区域。用指针捕获，拖到哪里都收得到事件。
 #[component]
 pub fn Splitter(edge: Edge, state: LayoutState) -> impl IntoView {
     let start = StoredValue::new(None::<(f64, Sizes)>);

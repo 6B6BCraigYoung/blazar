@@ -1,4 +1,4 @@
-// 把本地文件（粘贴、拖进来、选的图片）读成 data URL。
+
 export function readDataUrl(file) {
   return new Promise((resolve, reject) => {
     const r = new FileReader();
@@ -8,7 +8,7 @@ export function readDataUrl(file) {
   });
 }
 
-// 把一段文本存成文件下载（邀请文件之类）。
+
 export function downloadText(name, text, mime) {
   const url = URL.createObjectURL(new Blob([text], { type: mime || 'text/plain' }));
   const a = Object.assign(document.createElement('a'), { href: url, download: name });

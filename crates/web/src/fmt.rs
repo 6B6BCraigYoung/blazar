@@ -1,5 +1,3 @@
-//! 时间、额度窗口这类显示用的小工具。
-
 fn parse_ms(iso: &str) -> Option<f64> {
     let ms = js_sys::Date::parse(iso);
     (!ms.is_nan()).then_some(ms)
@@ -18,7 +16,6 @@ fn span(secs: f64) -> String {
     }
 }
 
-/// 「14 分钟前」
 pub fn ago(iso: &str) -> String {
     parse_ms(iso).map_or_else(String::new, |t| {
         let d = (js_sys::Date::now() - t) / 1000.0;
@@ -30,7 +27,6 @@ pub fn ago(iso: &str) -> String {
     })
 }
 
-/// 「4 小时后重置」
 pub fn resets(iso: Option<&str>) -> String {
     iso.and_then(parse_ms).map_or_else(String::new, |t| {
         let d = (t - js_sys::Date::now()) / 1000.0;

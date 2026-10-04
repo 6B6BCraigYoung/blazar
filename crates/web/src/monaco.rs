@@ -1,5 +1,3 @@
-//! Monaco 编辑器（JS 库）的绑定，实现在 js/monaco.js。
-
 use js_sys::{Function, Promise};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
@@ -35,7 +33,6 @@ extern "C" {
     pub fn dispose(this: &Editor);
 }
 
-/// 在 `host` 里建编辑器。两个回调要跟编辑器活得一样久，所以一起交给调用方保管。
 pub struct Mounted {
     pub editor: Editor,
     _on_save: Closure<dyn Fn(String)>,
@@ -62,7 +59,6 @@ pub async fn mount(
     })
 }
 
-/// 用 Monaco 的高亮给一段代码上色，返回 HTML；失败返回 None（保持纯文本）。
 pub async fn colorize(text: &str, lang: &str) -> Option<String> {
     JsFuture::from(colorize_js(text, lang))
         .await

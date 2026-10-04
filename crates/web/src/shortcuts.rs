@@ -1,4 +1,3 @@
-//! 可自定义快捷键，存在浏览器本地（沿用已有的键，之前的设置不丢）。
 use std::collections::HashMap;
 use wasm_bindgen::JsCast;
 

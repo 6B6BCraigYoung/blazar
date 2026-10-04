@@ -1,5 +1,3 @@
-//! 提示音和系统通知（实现在 js/alerts.js），以及它们的偏好（沿用已有的键）。
-
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 
@@ -45,7 +43,6 @@ pub fn set_sound_prefs(p: &SoundPrefs) {
     storage::save("blazar.sound", p);
 }
 
-/// "done"（跑完了）或 "attention"（需要你处理）。`force` 用于试听。
 pub fn play(kind: &str, force: bool) {
     let p = sound_prefs();
     if p.on || force {
@@ -72,6 +69,6 @@ pub async fn request_permission() -> String {
 pub fn notify(title: &str, body: &str, tag: &str, sticky: bool, on_click: impl Fn() + 'static) {
     let cb = Closure::<dyn Fn()>::new(on_click);
     notify_js(title, body, tag, sticky, cb.as_ref().unchecked_ref());
-    // 通知可能过很久才被点：回调交给 JS 管。
+
     cb.forget();
 }

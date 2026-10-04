@@ -1,11 +1,7 @@
-//! Markdown 渲染（pulldown-cmark）。原始 HTML 一律当文本显示，不执行；
-//! 工作区里的相对链接改成 `#open:<路径>`，由页面拦截后在编辑器里打开；相对图片走 hub 的 /raw 接口。
-
 use pulldown_cmark::{CowStr, Event, Options, Parser, Tag};
 
 pub const OPEN_PREFIX: &str = "#open:";
 
-/// 把 `href` 按所在文件 `base`（工作区内相对路径）解析成工作区内路径；越出根目录返回 None。
 fn resolve(href: &str, base: &str) -> Option<String> {
     let dir = base.rsplit_once('/').map_or("", |(d, _)| d);
     let joined = if let Some(abs) = href.strip_prefix('/') {
@@ -47,7 +43,6 @@ fn link(dest: &str, base: &str) -> String {
     {
         h.to_owned()
     } else if has_scheme(h) {
-        // javascript: 之类的一律不要。
         "#".to_owned()
     } else {
         resolve(h, base).map_or_else(|| "#".to_owned(), |p| format!("{OPEN_PREFIX}{p}"))
@@ -80,7 +75,6 @@ fn image(dest: &str, base: &str, ws: &str) -> String {
     })
 }
 
-/// `base` 是这篇 Markdown 在工作区里的路径（解析相对链接用），`ws` 是工作区 id。
 pub fn render(src: &str, base: &str, ws: &str) -> String {
     let opts = Options::ENABLE_TABLES
         | Options::ENABLE_STRIKETHROUGH
@@ -88,7 +82,7 @@ pub fn render(src: &str, base: &str, ws: &str) -> String {
         | Options::ENABLE_FOOTNOTES;
     let events = Parser::new_ext(src, opts).map(|ev| match ev {
         Event::Html(h) | Event::InlineHtml(h) => Event::Text(h),
-        // Claude 的 `★ Insight ───` 标题和 `────` 分隔线写成行内代码，这里换成正经的样式
+
         Event::Code(c) | Event::Text(c) if insight(&c).is_some() => {
             Event::InlineHtml(CowStr::from(insight(&c).unwrap_or_default()))
         }
@@ -121,7 +115,6 @@ pub fn render(src: &str, base: &str, ws: &str) -> String {
     out
 }
 
-/// `★ Insight ────` 换成标签，整行 `────` 换成细分隔线；别的返回 None
 fn insight(c: &str) -> Option<String> {
     let t = c.trim();
     if t.starts_with('★') && (t.contains('─') || t.chars().count() < 40) {

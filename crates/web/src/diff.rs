@@ -1,5 +1,3 @@
-//! 解析 `git diff` 的统一格式输出。
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Status {
     Added,
@@ -24,7 +22,7 @@ pub enum Kind {
     Add,
     Del,
     Ctx,
-    /// "\ No newline at end of file"
+
     Note,
 }
 
@@ -53,7 +51,7 @@ pub struct File {
     pub added: u32,
     pub removed: u32,
     pub binary: bool,
-    /// 改动 + 上下文的总行数（太大的文件默认不展开）。
+
     pub lines: u32,
 }
 
@@ -62,7 +60,6 @@ fn unquote(s: &str) -> &str {
 }
 
 fn header_paths(line: &str) -> (String, String) {
-    // diff --git a/x b/y（路径带空格时可能有引号）
     let rest = line.trim_start_matches("diff --git ");
     if let Some(i) = rest.find(" b/").or_else(|| rest.find(" \"b/")) {
         let a = unquote(&rest[..i]);
@@ -139,7 +136,7 @@ pub fn parse(raw: &str) -> Vec<File> {
             Some(b'-') => (Kind::Del, &line[1..]),
             Some(b' ') => (Kind::Ctx, &line[1..]),
             Some(b'\\') => (Kind::Note, line.get(2..).unwrap_or("")),
-            // 空行出现在 hunk 里就是空的上下文行（有的工具会去掉行首空格）。
+
             None => (Kind::Ctx, ""),
             _ => continue,
         };

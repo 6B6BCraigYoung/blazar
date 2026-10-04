@@ -8,15 +8,15 @@ license.workspace = true
 publish = false
 
 [dependencies]
-# Markdown 渲染是纯 Rust，原生目标也编，这样 `cargo test` 能直接测它。
+
 pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
-# 对话的数据模型也是纯 Rust，原生目标下测。
+
 blazar-core-types.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 chrono.workspace = true
 
-# 只在编到 wasm 时才拉这些依赖：整个工作区 `cargo build` / `cargo test`（原生目标）不会被前端拖慢。
+
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 leptos = { version = "0.8", features = ["csr"] }
 leptos_router = "0.8"

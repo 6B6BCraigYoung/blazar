@@ -1,5 +1,3 @@
-//! 各家运行时的图标（单色 SVG 路径 + 品牌色）。
-
 const LOGOS: &[(&str, &str, &str)] = &[
     (
         "claude",
@@ -24,7 +22,6 @@ const LOGOS: &[(&str, &str, &str)] = &[
     ),
 ];
 
-/// 运行时的小图标（HTML）。没有图标的用首字母。
 pub fn mark(id: &str) -> String {
     let id = if id == "claude_cli" { "claude" } else { id };
     match LOGOS.iter().find(|l| l.0 == id) {

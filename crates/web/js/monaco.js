@@ -1,5 +1,5 @@
-// Monaco 的薄封装：一个编辑器实例 + 按路径存的 model。Rust 那边（src/monaco.rs）只通过这里的几个函数跟它打交道。
-// Monaco 本身用 hub 自带的 /vendor/vs（AMD 加载器在 index.html 里引入）。
+
+
 
 let ready = null;
 
@@ -73,7 +73,7 @@ function editorTheme() {
 export class Editor {
   constructor(m, host, onSave, onDirty) {
     this.m = m;
-    this.models = new Map(); // path -> { model, saved }
+    this.models = new Map();
     this.onDirty = onDirty;
     const prefs = preferences();
     this.ed = m.editor.create(host, {
@@ -107,13 +107,13 @@ export class Editor {
 
   has(path) { return this.models.has(path); }
 
-  // 打开（或切到）一个文件。已经有 model 的直接切过去，`text` 被忽略。
+
   open(path, text, readonly, line) {
     let e = this.models.get(path);
     if (!e) {
       const model = this.m.editor.createModel(text, readonly ? 'plaintext' : langOf(path));
       e = { model, saved: model.getAlternativeVersionId(), dirty: false };
-      // 每次改动都通知（Markdown 预览要跟着刷新），带上现在是不是「未保存」。
+
       model.onDidChangeContent(() => {
         e.dirty = model.getAlternativeVersionId() !== e.saved;
         this.onDirty(path, e.dirty);
@@ -130,7 +130,7 @@ export class Editor {
 
   value(path) { return this.models.get(path)?.model.getValue() ?? ''; }
 
-  // 用磁盘上的新内容替换（agent 改过文件之后）。保持光标和滚动位置。
+
   replace(path, text) {
     const e = this.models.get(path);
     if (!e || e.model.getValue() === text) { if (e) this.markSaved(path); return; }
@@ -175,7 +175,7 @@ export async function createEditor(host, onSave, onDirty) {
   return new Editor(m, host, onSave, onDirty);
 }
 
-// 给 Markdown 预览 / 对话里的代码块上色，返回 HTML。
+
 export async function colorize(text, lang) {
   const m = await load();
   return m.editor.colorize(text, lang, { tabSize: 2 });

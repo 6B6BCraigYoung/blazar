@@ -1,5 +1,3 @@
-//! 浏览器本地存储（只放每个人自己的界面偏好，比如面板宽度）。读写失败一律当没有。
-
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
@@ -17,7 +15,6 @@ pub fn save<T: Serialize>(key: &str, v: &T) {
     }
 }
 
-/// 原样存的字符串（有些已有的键不是 JSON）。
 pub fn load_raw(key: &str) -> Option<String> {
     store()?.get_item(key).ok().flatten()
 }
