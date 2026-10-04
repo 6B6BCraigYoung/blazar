@@ -34,6 +34,39 @@ fn tool_matches(rule: &str, tool: &str) -> bool {
 
 const SHELL_META: &[&str] = &[";", "&", "|", "`", "$(", ">", "<", "\n", "\r"];
 
+fn workspace_relative_path(path: &str, root: &str) -> Option<String> {
+    let parts = |value: &str| -> Option<Vec<String>> {
+        let normalized = value.replace('\\', "/");
+        if normalized.chars().any(char::is_control)
+            || normalized.split('/').any(|part| part == "..")
+        {
+            return None;
+        }
+        Some(
+            normalized
+                .split('/')
+                .filter(|part| !part.is_empty() && *part != ".")
+                .map(str::to_owned)
+                .collect(),
+        )
+    };
+    let absolute =
+        |value: &str| value.starts_with(['/', '\\']) || value.as_bytes().get(1) == Some(&b':');
+    if root.is_empty() {
+        return None;
+    }
+    let path_parts = parts(path)?;
+    if absolute(path) {
+        let root_parts = parts(root)?;
+        if !absolute(root) || !path_parts.starts_with(&root_parts) {
+            return None;
+        }
+        Some(path_parts[root_parts.len()..].join("/"))
+    } else {
+        Some(path_parts.join("/"))
+    }
+}
+
 #[must_use]
 pub fn matches(rule: &Rule, request: &Value, workspace_root: &str) -> bool {
     let tool = request["tool_name"].as_str().unwrap_or_default();
@@ -60,25 +93,62 @@ pub fn matches(rule: &Rule, request: &Value, workspace_root: &str) -> bool {
     if pat.is_empty() {
         return true;
     }
-
     let path = ["file_path", "path", "notebook_path"]
         .iter()
         .find_map(|k| input[*k].as_str());
     let Some(path) = path else {
         return false;
     };
-    if path.split('/').any(|seg| seg == "..") {
+    let Some(rel) = workspace_relative_path(path, workspace_root) else {
         return false;
+    };
+    let prefix = pat.trim_end_matches('*').trim_end_matches(['/', '\\']);
+    let Some(prefix) = workspace_relative_path(prefix, workspace_root) else {
+        return false;
+    };
+    if prefix.is_empty() {
+        return true;
     }
-    let root = workspace_root.trim_end_matches('/');
-    let rel = path
-        .strip_prefix(root)
-        .map_or(path, |r| r.trim_start_matches('/'));
-    let pat = pat
-        .trim_start_matches("./")
-        .trim_end_matches("**")
-        .trim_end_matches('*');
-    rel.starts_with(pat) || path.starts_with(pat)
+    let component_glob = pat.ends_with('*')
+        && !pat.ends_with("**")
+        && !pat.trim_end_matches('*').ends_with(['/', '\\']);
+    rel == prefix
+        || rel
+            .strip_prefix(&prefix)
+            .is_some_and(|rest| component_glob || rest.starts_with('/'))
+}
+
+async fn path_allowed(st: &Shared, node: &str, root: &str, rule: &Rule, request: &Value) -> bool {
+    if rule.pattern.trim().is_empty() || request["input"]["command"].is_string() {
+        return true;
+    }
+    let Some(path) = ["file_path", "path", "notebook_path"]
+        .iter()
+        .find_map(|key| request["input"][*key].as_str())
+    else {
+        return false;
+    };
+    let Some(rel) = workspace_relative_path(path, root) else {
+        return false;
+    };
+    if node == "local" {
+        let root = std::path::PathBuf::from(root);
+        return tokio::task::spawn_blocking(move || {
+            if rel.is_empty() {
+                root.canonicalize().is_ok()
+            } else {
+                blazar_vfs::confined_local_path(&root, &rel).is_ok()
+            }
+        })
+        .await
+        .unwrap_or(false);
+    }
+    tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        blazar_vfs::Vfs::new(st.transport(node), root).validate_path(&rel),
+    )
+    .await
+    .is_ok_and(|result| result.is_ok())
 }
 
 pub async fn find(st: &Shared, workspace: &str, request: &Value) -> Option<Rule> {
@@ -95,21 +165,20 @@ pub async fn find(st: &Shared, workspace: &str, request: &Value) -> Option<Rule>
     .fetch_all(st.db.pool())
     .await
     .ok()?;
-    let root: String = sqlx::query_scalar("SELECT path FROM workspaces WHERE id = ?1")
-        .bind(workspace)
-        .fetch_optional(st.db.pool())
-        .await
-        .ok()
-        .flatten()
-        .unwrap_or_default();
-    let hit = rows
-        .iter()
-        .map(|r| Rule {
-            id: r.try_get("id").unwrap_or_default(),
-            tool: r.try_get("tool").unwrap_or_default(),
-            pattern: r.try_get("pattern").unwrap_or_default(),
-        })
-        .find(|r| matches(r, request, &root))?;
+    let (node, root) = crate::api::locate(st, workspace).await.ok()?;
+    let mut hit = None;
+    for row in rows {
+        let rule = Rule {
+            id: row.try_get("id").unwrap_or_default(),
+            tool: row.try_get("tool").unwrap_or_default(),
+            pattern: row.try_get("pattern").unwrap_or_default(),
+        };
+        if matches(&rule, request, &root) && path_allowed(st, &node, &root, &rule, request).await {
+            hit = Some(rule);
+            break;
+        }
+    }
+    let hit = hit?;
     let _ = sqlx::query("UPDATE approval_rules SET hits = hits + 1 WHERE id = ?1")
         .bind(&hit.id)
         .execute(st.db.pool())
@@ -232,10 +301,78 @@ mod tests {
         json!({ "tool_name": tool, "input": input })
     }
 
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn path_rules_leave_symbolic_links_for_manual_approval() {
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root.path().join("src")).unwrap();
+        std::os::unix::fs::symlink(outside.path(), root.path().join("src/link")).unwrap();
+        let db = blazar_db::Db::open_in_memory().await.unwrap();
+        let st = crate::state::AppState::with_services(
+            db,
+            "local".into(),
+            None,
+            crate::mesh::MeshCtx::new(None, root.path().to_path_buf()),
+            crate::services::Services::Isolated,
+        );
+        sqlx::query("INSERT INTO nodes (id, name, transport, created_at) VALUES ('node', 'local', 'local', '0')")
+            .execute(st.db.pool()).await.unwrap();
+        sqlx::query("INSERT INTO workspaces (id, node_id, name, path, created_at) VALUES ('ws', 'node', 'repo', ?1, '0')")
+            .bind(root.path().to_str().unwrap()).execute(st.db.pool()).await.unwrap();
+        sqlx::query("INSERT INTO approval_rules (id, tool, pattern, created_at) VALUES ('rule', 'Read', 'src/', '0')")
+            .execute(st.db.pool()).await.unwrap();
+        let link = req("Read", json!({"file_path": "src/link/note.md"}));
+        assert!(find(&st, "ws", &link).await.is_none());
+        assert!(
+            find(&st, "ws", &req("Read", json!({"file_path": "src/new.md"})))
+                .await
+                .is_some()
+        );
+        sqlx::query("UPDATE approval_rules SET pattern = '' WHERE id = 'rule'")
+            .execute(st.db.pool())
+            .await
+            .unwrap();
+        assert!(find(&st, "ws", &link).await.is_some());
+    }
+
+    #[test]
+    fn path_rules_enforce_workspace_and_component_boundaries() {
+        for (pattern, path) in [
+            ("space/src", "/workspace/src/a.rs"),
+            ("src", "/work/src-other/a.rs"),
+            ("src/", r"src\..\outside"),
+        ] {
+            assert!(
+                !matches(
+                    &rule("Read", pattern),
+                    &req("Read", json!({"file_path":path})),
+                    "/work"
+                ),
+                "{pattern:?} {path:?}"
+            );
+        }
+        assert!(matches(
+            &rule("Read", "src"),
+            &req("Read", json!({"path":r"src\nested\file.rs"})),
+            "/work"
+        ));
+        assert!(matches(
+            &rule("Read", "src/**"),
+            &req("Read", json!({"path":"/work/src/nested/file.rs"})),
+            "/work"
+        ));
+    }
+
     #[test]
     fn tool_names_match_exactly_by_short_name_or_by_prefix() {
         let read = req("Read", json!({ "file_path": "/w/src/a.rs" }));
         assert!(matches(&rule("Read", ""), &read, "/w"));
+        assert!(matches(
+            &rule("Read", ""),
+            &req("Read", json!({"path":"/outside/note.md"})),
+            "/w"
+        ));
         assert!(!matches(&rule("Rea", ""), &read, "/w"));
         assert!(!matches(&rule("Write", ""), &read, "/w"));
         let remote = req("mcp__blazar__remote_read", json!({ "path": "src/a.rs" }));
