@@ -32,6 +32,8 @@ mod pages;
 mod realtime;
 #[cfg(target_arch = "wasm32")]
 mod rt_logo;
+#[cfg(any(target_arch = "wasm32", test))]
+mod runtime_config;
 #[cfg(target_arch = "wasm32")]
 mod shortcuts;
 #[cfg(target_arch = "wasm32")]
