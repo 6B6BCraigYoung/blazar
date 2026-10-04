@@ -446,3 +446,30 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 .ws-card .act a.btn { display: inline-flex; align-items: center; }
 
 .workspaces-section-title { margin: var(--space-sm) 0 0; font-size: var(--font-size-label); font-weight: var(--font-weight-medium); color: var(--fg-3); }
+
+.runtimes-page .page-head { flex-wrap: wrap; }
+.runtimes-page .acc-row { grid-template-columns: minmax(9rem, 1fr) 5rem minmax(10rem, 1.2fr) 5rem 8rem; gap: var(--space-lg); }
+.runtimes-page .acc-row .name { min-width: 0; overflow-wrap: anywhere; }
+.runtimes-page .runtime-row-action { text-align: right; }
+.runtimes-page .runtime-details summary { cursor: pointer; }
+.runtimes-page .runtime-details summary .state { margin-left: var(--space-lg); }
+.runtimes-page .runtime-details p { margin: var(--space-md) 0 0; overflow-wrap: anywhere; }
+.runtimes-page .runtime-card-details { padding: var(--space-lg) var(--space-section); }
+.runtimes-page .runtime-quota summary { cursor: pointer; }
+.runtimes-page .runtime-quota-bars { display: grid; gap: var(--space-sm); padding-top: var(--space-md); }
+.runtimes-page .quota { padding-right: 0; }
+.runtimes-page .qbar { grid-template-columns: 3rem minmax(2rem, 1fr) 3rem; }
+.runtimes-page .qbar .r { grid-column: 1 / -1; }
+.runtimes-page .global-sync .card-title { margin-top: var(--space-lg); }
+.runtimes-page .vt-body { min-width: 0; }
+.runtimes-page .tb { display: block; overflow-x: auto; }
+@media (max-width: 1100px) {
+  .runtimes-page .acc-row:not(.head) { grid-template-columns: minmax(0, 1fr) auto; }
+  .runtimes-page .acc-row .name { grid-column: 1; grid-row: 1; }
+  .runtimes-page .acc-row .act { grid-column: 2; grid-row: 1; }
+  .runtimes-page .acc-row > .state { grid-column: 1; grid-row: 2; }
+  .runtimes-page .acc-row .last { grid-column: 2; grid-row: 2; text-align: right; }
+  .runtimes-page .acc-row .quota { grid-column: 1 / -1; grid-row: 3; }
+  .runtimes-page .acc-row.head { display: flex; justify-content: flex-end; }
+  .runtimes-page .acc-row.head > span:not(:last-child) { display: none; }
+}
