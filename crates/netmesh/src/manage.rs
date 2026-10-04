@@ -28,46 +28,67 @@ pub struct MeshConfig {
 impl MeshConfig {
     #[must_use]
     pub fn to_toml(&self) -> String {
-        let list = |items: &[String]| {
-            items
-                .iter()
-                .map(|s| format!("    \"{}\",", s.replace('"', "")))
-                .collect::<Vec<_>>()
-                .join("\n")
-        };
-
-        let mut out = format!(
-            "# 由 blazar 生成\nhostname = \"{}\"\ninstance_name = \"{}\"\nipv4 = \"{}\"\n",
-            esc(&self.hostname),
-            esc(&self.instance_name),
-            esc(&self.ipv4),
-        );
-        if !self.listeners.is_empty() {
-            out.push_str(&format!("\nlisteners = [\n{}\n]\n", list(&self.listeners)));
+        let mut document = toml::Table::new();
+        for (key, value) in [
+            ("hostname", &self.hostname),
+            ("instance_name", &self.instance_name),
+            ("ipv4", &self.ipv4),
+        ] {
+            document.insert(key.into(), toml::Value::String(value.clone()));
         }
-        if !self.mapped_listeners.is_empty() {
-            out.push_str("\n# 云上 EIP 是 NAT 映射，不声明公网入口会把内网地址广播出去\n");
-            out.push_str(&format!(
-                "mapped_listeners = [\n{}\n]\n",
-                list(&self.mapped_listeners)
-            ));
-        }
-        if !self.peers.is_empty() {
-            for p in &self.peers {
-                out.push_str(&format!("\n[[peer]]\nuri = \"{}\"\n", esc(p)));
+        for (key, values) in [
+            ("listeners", &self.listeners),
+            ("mapped_listeners", &self.mapped_listeners),
+        ] {
+            if !values.is_empty() {
+                document.insert(
+                    key.into(),
+                    toml::Value::Array(values.iter().cloned().map(toml::Value::String).collect()),
+                );
             }
         }
-        out.push_str(&format!(
-            "\n[network_identity]\nnetwork_name = \"{}\"\nnetwork_secret = \"{}\"\n",
-            esc(&self.network_name),
-            esc(&self.network_secret),
-        ));
-        out
+        if !self.peers.is_empty() {
+            document.insert(
+                "peer".into(),
+                toml::Value::Array(
+                    self.peers
+                        .iter()
+                        .map(|uri| {
+                            toml::Value::Table(toml::Table::from_iter([(
+                                "uri".into(),
+                                toml::Value::String(uri.clone()),
+                            )]))
+                        })
+                        .collect(),
+                ),
+            );
+        }
+        document.insert(
+            "network_identity".into(),
+            toml::Value::Table(toml::Table::from_iter([
+                (
+                    "network_name".into(),
+                    toml::Value::String(self.network_name.clone()),
+                ),
+                (
+                    "network_secret".into(),
+                    toml::Value::String(self.network_secret.clone()),
+                ),
+            ])),
+        );
+        document.to_string()
     }
 }
 
-fn esc(s: &str) -> String {
-    s.replace('\\', r"\\").replace('"', r#"\""#)
+fn config_write_spec(cfg: &MeshConfig, path: &str) -> ExecSpec {
+    let script = format!(
+        "set -e\numask 077\nP={}\nmkdir -p -- \"$(dirname -- \"$P\")\"\nT=$(mktemp -- \"$P.blazar.XXXXXX\")\ntrap 'rm -f -- \"$T\"' EXIT\ncat > \"$T\"\nchmod 600 \"$T\"\nmv -f -- \"$T\" \"$P\"\nprintf '%s\\n' \"$P\"",
+        q(path),
+    );
+    ExecSpec::new("bash")
+        .arg("-c")
+        .arg(script)
+        .stdin(cfg.to_toml().into_bytes())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -278,16 +299,7 @@ impl MeshAdmin {
     }
 
     pub async fn write_config(&self, cfg: &MeshConfig, path: &str) -> Result<String> {
-        let toml = cfg.to_toml();
-
-        let script = format!(
-            "set -e\nmkdir -p \"$(dirname {p})\"\ncat > {p} <<'BLAZAR_EOF'\n{toml}\nBLAZAR_EOF\nchmod 600 {p}\necho {p}",
-            p = q(path),
-        );
-        let out = self
-            .transport
-            .exec(ExecSpec::new("bash").arg("-lc").arg(script))
-            .await?;
+        let out = self.transport.exec(config_write_spec(cfg, path)).await?;
         if out.code != 0 {
             return Err(MeshError::Transport(
                 blazar_transport::TransportError::Command {
@@ -435,6 +447,31 @@ mod tests {
     }
 
     #[test]
+    fn config_roundtrips_control_characters_and_quotes() {
+        let mut config = cfg();
+        let value = "first\nBLAZAR_EOF\nlast\r\t\"'\\";
+        config.hostname = value.into();
+        config.instance_name = value.into();
+        config.ipv4 = value.into();
+        config.network_name = value.into();
+        config.network_secret = value.into();
+        config.peers = vec![value.into()];
+        config.listeners = vec![value.into()];
+        config.mapped_listeners = vec![value.into()];
+        let document: toml::Value = config.to_toml().parse().unwrap();
+        for key in ["hostname", "instance_name", "ipv4"] {
+            assert_eq!(document[key].as_str(), Some(value));
+        }
+        for key in ["network_name", "network_secret"] {
+            assert_eq!(document["network_identity"][key].as_str(), Some(value));
+        }
+        assert_eq!(document["peer"][0]["uri"].as_str(), Some(value));
+        for key in ["listeners", "mapped_listeners"] {
+            assert_eq!(document[key][0].as_str(), Some(value));
+        }
+    }
+
+    #[test]
     fn config_renders_identity_and_peer() {
         let t = cfg().to_toml();
         assert!(t.contains(r#"ipv4 = "10.99.0.30""#));
@@ -444,20 +481,47 @@ mod tests {
     }
 
     #[test]
-    fn mapped_listeners_carry_the_nat_warning() {
+    fn mapped_listeners_are_preserved() {
         let mut c = cfg();
         c.listeners = vec!["tcp://0.0.0.0:11010".into()];
-        c.mapped_listeners = vec!["tcp://1.2.3.4:11010".into()];
+        c.mapped_listeners = vec!["tcp://203.0.113.10:11010".into()];
         let t = c.to_toml();
         assert!(t.contains("mapped_listeners"));
 
-        assert!(t.contains("NAT 映射"));
+        let document: toml::Value = t.parse().unwrap();
+        assert_eq!(
+            document["mapped_listeners"][0].as_str(),
+            Some("tcp://203.0.113.10:11010")
+        );
     }
 
     #[test]
-    fn secret_with_dollar_survives_heredoc() {
+    fn secret_with_dollar_is_preserved() {
         let t = cfg().to_toml();
         assert!(t.contains("s3cr$t"), "密钥应原样保留: {t}");
+    }
+
+    #[tokio::test]
+    async fn config_contents_use_stdin_and_private_atomic_files() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("config with ' quote.toml");
+        let mut config = cfg();
+        config.network_secret = "first\nBLAZAR_EOF\nlast\"'\\".into();
+        let spec = config_write_spec(&config, path.to_str().unwrap());
+        assert_eq!(spec.stdin.as_deref(), Some(config.to_toml().as_bytes()));
+        assert!(!spec.args.last().unwrap().contains("BLAZAR_EOF"));
+        let output = blazar_transport::LocalTransport.exec(spec).await.unwrap();
+        assert_eq!(output.code, 0, "{}", output.stderr);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), config.to_toml());
+        assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 1);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+        }
     }
 
     const NODE_JSON: &str = r#"{
