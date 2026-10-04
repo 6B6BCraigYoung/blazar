@@ -1,5 +1,3 @@
-//! 底部面板的终端：每个工作区可以开几个（远端是各自的 tmux 会话，断线重连回到原处）。
-
 use std::rc::Rc;
 
 use leptos::html;
@@ -10,7 +8,6 @@ use crate::storage;
 use crate::term;
 
 fn tabs_key(ws: &str) -> String {
-    // 沿用已有的键：之前开的终端标签还在。
     format!("blazar.terms.{ws}")
 }
 
@@ -18,9 +15,7 @@ fn tabs_key(ws: &str) -> String {
 pub struct Terms {
     pub tabs: RwSignal<Vec<u32>>,
     pub cur: RwSignal<u32>,
-    /// 当前终端的连接状态："connecting" / "open" / "closed"
     pub state: RwSignal<&'static str>,
-    /// 加一就重连当前终端。
     pub reconnect: RwSignal<u32>,
 }
 
@@ -39,7 +34,6 @@ impl Terms {
     }
 }
 
-/// 终端标签条（放在面板标题栏里）。
 #[component]
 pub fn TermTabs(ws: String, terms: Terms) -> impl IntoView {
     let key = tabs_key(&ws);
@@ -57,36 +51,35 @@ pub fn TermTabs(ws: String, terms: Terms) -> impl IntoView {
         save();
     };
     view! {
-        <div class="term-tabs">
+        <div class="term-tabs" role="group" aria-label="终端会话">
             {move || {
                 let list = terms.tabs.get();
                 let many = list.len() > 1;
                 list.into_iter().enumerate().map(|(i, n)| {
                     let save = save2.clone();
                     view! {
-                        <button class="term-tab" data-on=move || (terms.cur.get() == n).to_string()
-                            on:click=move |_| if terms.cur.get_untracked() != n { terms.cur.set(n) }>
-                            {format!("终端 {}", i + 1)}
+                        <span class="term-tab" data-on=move || (terms.cur.get() == n).to_string()>
+                            <button type="button" class="term-select" aria-pressed=move || (terms.cur.get() == n).to_string() on:click=move |_| if terms.cur.get_untracked() != n { terms.cur.set(n) }>
+                            {format!("终端 {}", i + 1)}</button>
                             {many.then(|| view! {
-                                <span class="x" title="关闭这个标签（远端会话保留）" on:click=move |e| {
+                                <button type="button" class="x" aria-label=format!("关闭终端 {} 标签", i + 1) title="关闭标签，保留远端会话" on:click=move |e| {
                                     e.stop_propagation();
                                     terms.tabs.update(|t| t.retain(|x| *x != n));
                                     if terms.cur.get_untracked() == n {
                                         terms.cur.set(terms.tabs.with_untracked(|t| t[0]));
                                     }
                                     save();
-                                }>"×"</span>
+                                }>"×"</button>
                             })}
-                        </button>
+                        </span>
                     }
                 }).collect_view()
             }}
-            <button class="term-tab" title="新建终端" on:click=add>"＋"</button>
+            <button type="button" class="term-tab" aria-label="新建终端" title="新建终端" on:click=add>"＋"</button>
         </div>
     }
 }
 
-/// 终端本体。`active` 为真（面板展开且选中终端页签）时才第一次连接，之后切走也保持连接。
 #[component]
 pub fn TermPane(ws: String, terms: Terms, active: Signal<bool>) -> impl IntoView {
     let host = NodeRef::<html::Div>::new();
@@ -99,7 +92,6 @@ pub fn TermPane(ws: String, terms: Terms, active: Signal<bool>) -> impl IntoView
             return;
         }
         let Some(el) = host.get() else { return };
-        // 先断开旧的，再连新的。
         live.set_value(None);
         terms.state.set("connecting");
         let loc = window().location();
@@ -121,7 +113,6 @@ pub fn TermPane(ws: String, terms: Terms, active: Signal<bool>) -> impl IntoView
         open.term.focus();
         live.set_value(Some(Rc::new(open)));
     });
-    // 切回终端页签时把焦点给它。
     Effect::new(move |_| {
         if active.get() {
             live.with_value(|t| {
@@ -132,5 +123,5 @@ pub fn TermPane(ws: String, terms: Terms, active: Signal<bool>) -> impl IntoView
         }
     });
     on_cleanup(move || live.set_value(None));
-    view! { <div class="term-host" node_ref=host></div> }
+    view! { <div class="term-host" role="region" aria-label="终端" node_ref=host></div> }
 }

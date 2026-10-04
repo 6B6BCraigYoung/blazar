@@ -509,3 +509,7 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 
 .df-toggle { display: flex; align-items: center; gap: var(--space-md); flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
 .df-toggle .st { flex-shrink: 0; }
+
+.term-tab .term-select, .term-tab .x { padding: 0; border: 0; background: transparent; font: inherit; color: inherit; cursor: pointer; }
+.term-tab .x { color: var(--fg-4); }
+.term-tab .x:hover { color: var(--fg); }

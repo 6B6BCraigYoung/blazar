@@ -636,13 +636,13 @@ fn Panel(
             </Show>
             <span class="grow"></span>
             <Show when=move || tab.get() == "term">
-                <span class="term-state" data-s=move || terms.state.get()>
+                <span class="term-state" role="status" aria-live="polite" data-s=move || terms.state.get()>
                     {move || match terms.state.get() { "open" => "", "closed" => "已断开", _ => "连接中…" }}
                 </span>
-                <button class="laybtn" title="重连这个终端（远端会话还在的话回到原处）" inner_html=ICON_REFRESH
+                <button class="laybtn" aria-label="重新连接终端" title="重新连接；远端会话仍在时会回到原处" inner_html=ICON_REFRESH
                     on:click=move |_| terms.reconnect.update(|n| *n += 1)></button>
             </Show>
-            <button class="laybtn" title="收起面板 ⌘J" on:click=move |_| state.toggle(Region::Panel)>"▾"</button>
+            <button class="laybtn" aria-label="收起底部面板" title="收起面板 ⌘J" on:click=move |_| state.toggle(Region::Panel)>"▾"</button>
         </div>
         <div class="panelbody">
             <div class="ppane" data-active=move || (tab.get() == "term").to_string()>
