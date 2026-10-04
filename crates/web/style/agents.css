@@ -69,3 +69,20 @@
   .agent-page .agent-summary { align-items: flex-start; }
   .agent-page .agent-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+.skills-page .page-head { flex-wrap: wrap; }
+.skills-page .agent-toolbar { align-items: center; }
+.skills-page .agent-table td { vertical-align: top; overflow-wrap: anywhere; }
+.skills-page .agent-table td:nth-child(2) { max-width: 30rem; }
+.skill-source-details summary { cursor: pointer; }
+.skill-modal .skill-editor { min-width: 0; }
+.skill-modal .skill-content { min-width: 0; }
+.skill-modal .skill-content textarea { width: 100%; }
+.skill-modal .skill-preview { min-width: 0; overflow-wrap: anywhere; }
+.skill-modal .skill-file { overflow-wrap: anywhere; }
+@media (max-width: 1000px) {
+  .skills-page .agent-toolbar > input { min-width: 0; flex: 1 1 12rem; }
+  .skill-modal .skill-editor { grid-template-columns: minmax(0, 1fr); }
+  .skill-modal .skill-editor > nav { max-height: 12rem; overflow: auto; }
+  .skill-modal .agent-form-grid { grid-template-columns: minmax(0, 1fr); }
+}
