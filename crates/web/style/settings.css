@@ -74,3 +74,20 @@
 .usage-page .usage-kpis { grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr)); }
 .usage-page .usage-heat { overflow-x: auto; }
 .usage-page .settings-table td:first-child { overflow-wrap: anywhere; }
+
+.settings-page .page-head { flex-wrap: wrap; }
+.settings-page .settings-nav { align-self: start; position: sticky; top: var(--space-2xl); }
+.settings-page .settings-row > code { min-width: 0; overflow-wrap: anywhere; }
+.settings-page .settings-actions { min-width: 0; }
+.settings-page .settings-actions code { overflow-wrap: anywhere; }
+.settings-page .settings-details summary { cursor: pointer; }
+.settings-page .settings-details[open] > p { margin-top: var(--space-lg); }
+.settings-page .settings-details + .settings-form { margin-top: var(--space-lg); }
+.settings-page .settings-form .ui-error { margin-top: var(--space-md); }
+@media (max-width: 1000px) {
+  .settings-page .settings-layout { grid-template-columns: minmax(0, 1fr); }
+  .settings-page .settings-nav { position: static; flex-direction: row; flex-wrap: wrap; }
+  .settings-page .settings-nav a { white-space: nowrap; }
+  .settings-page .settings-row { flex-wrap: wrap; }
+  .settings-page .settings-row > .settings-label { flex-basis: 100%; }
+}
