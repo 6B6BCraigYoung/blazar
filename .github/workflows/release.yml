@@ -34,11 +34,12 @@ jobs:
     continue-on-error: ${{ matrix.os == 'windows-latest' }}
     steps:
       - uses: actions/checkout@v4
-      - name: Tag must match the version in tauri.conf.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Tag and Tauri must match the Cargo workspace version
         shell: bash
-        run: |
-          v=$(sed -n 's/^ *"version": *"\([^"]*\)".*/\1/p' apps/desktop/tauri.conf.json | head -1)
-          [ "v$v" = "${GITHUB_REF_NAME}" ] || { echo "tag ${GITHUB_REF_NAME} != v$v"; exit 1; }
+        run: python3 -B scripts/sync_version.py --root . --check --tag "$GITHUB_REF_NAME"
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: "1.90"
