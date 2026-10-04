@@ -82,7 +82,20 @@ pub async fn record(
     seq: Option<u64>,
     label: &str,
 ) {
-    let _ = sqlx::query(
+    if let Err(error) = persist_record(st, workspace, &snap, session, seq, label).await {
+        tracing::warn!(target: "blazar::checkpoint", "保存检查点失败: {error}");
+    }
+}
+
+async fn persist_record(
+    st: &Shared,
+    workspace: &str,
+    snap: &(String, String),
+    session: Option<&str>,
+    seq: Option<u64>,
+    label: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
         "INSERT INTO checkpoints (id, workspace_id, session_id, seq, commit_sha, label, created_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
     )
@@ -94,7 +107,8 @@ pub async fn record(
     .bind(label)
     .bind(Utc::now().to_rfc3339())
     .execute(st.db.pool())
-    .await;
+    .await?;
+    Ok(())
 }
 
 #[derive(Serialize)]
@@ -169,10 +183,20 @@ pub async fn restore_to(st: &Shared, id: &str) -> Result<Option<String>, (Status
         ));
     }
 
-    let undo = snapshot(st, &node, &path).await;
-    if let Some(snap) = undo.clone() {
-        record(st, &ws, snap, None, None, "回退前").await;
-    }
+    let undo = snapshot(st, &node, &path).await.ok_or_else(|| {
+        (
+            StatusCode::BAD_GATEWAY,
+            "无法保存回退前的文件，已取消回退；请检查仓库状态和磁盘空间后重试".to_owned(),
+        )
+    })?;
+    persist_record(st, &ws, &undo, None, None, "回退前")
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("无法记录回退前的检查点，已取消回退：{e}"),
+            )
+        })?;
     let spec = ExecSpec::new("bash")
         .arg("-s")
         .stdin(restore_script(&path, &sha).into_bytes());
@@ -192,12 +216,83 @@ pub async fn restore_to(st: &Shared, id: &str) -> Result<Option<String>, (Status
         ));
     }
     tracing::info!(target: "blazar::checkpoint", "工作区 {ws} 回退到检查点 {id}");
-    Ok(undo.map(|u| u.0))
+    Ok(Some(undo.0))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    async fn restore_fixture() -> (tempfile::TempDir, Shared, String) {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("repo");
+        std::fs::create_dir(&root).unwrap();
+        assert_eq!(sh("git init -q", &root).0, 0);
+        std::fs::write(root.join("a.txt"), "checkpoint\n").unwrap();
+        let st = crate::state::AppState::with_services(
+            blazar_db::Db::open_in_memory().await.unwrap(),
+            "local".into(),
+            None,
+            crate::mesh::MeshCtx::new(None, dir.path().join("mesh")),
+            crate::services::Services::Isolated,
+        );
+        sqlx::query("INSERT INTO nodes (id, name, transport, created_at) VALUES ('node', 'local', 'local', '0')")
+            .execute(st.db.pool()).await.unwrap();
+        sqlx::query("INSERT INTO workspaces (id, node_id, name, path, created_at) VALUES ('workspace', 'node', 'repo', ?1, '0')")
+            .bind(root.display().to_string()).execute(st.db.pool()).await.unwrap();
+        let snap = snapshot(&st, "local", &root.display().to_string())
+            .await
+            .unwrap();
+        let id = snap.0.clone();
+        record(&st, "workspace", snap, None, None, "").await;
+        std::fs::write(root.join("a.txt"), "uncommitted changes\n").unwrap();
+        std::fs::write(root.join("new.txt"), "new work\n").unwrap();
+        (dir, st, id)
+    }
+
+    fn assert_work_preserved(root: &std::path::Path) {
+        assert_eq!(
+            std::fs::read_to_string(root.join("a.txt")).unwrap(),
+            "uncommitted changes\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join("new.txt")).unwrap(),
+            "new work\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn restore_requires_a_successful_safety_snapshot() {
+        let (dir, st, id) = restore_fixture().await;
+        let root = dir.path().join("repo");
+        std::fs::write(root.join(".git/index"), "invalid index").unwrap();
+        let result = restore_to(&st, &id).await;
+        assert_work_preserved(&root);
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn restore_requires_a_persisted_safety_snapshot() {
+        let (dir, st, id) = restore_fixture().await;
+        sqlx::query("CREATE TRIGGER reject_checkpoint BEFORE INSERT ON checkpoints BEGIN SELECT RAISE(ABORT, 'disk full'); END")
+            .execute(st.db.pool()).await.unwrap();
+        let result = restore_to(&st, &id).await;
+        assert_work_preserved(&dir.path().join("repo"));
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn restore_returns_a_usable_persisted_undo() {
+        let (dir, st, id) = restore_fixture().await;
+        let undo = restore_to(&st, &id).await.unwrap().unwrap();
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("repo/a.txt")).unwrap(),
+            "checkpoint\n"
+        );
+        assert!(!dir.path().join("repo/new.txt").exists());
+        restore_to(&st, &undo).await.unwrap();
+        assert_work_preserved(&dir.path().join("repo"));
+    }
 
     fn sh(script: &str, dir: &std::path::Path) -> (i32, String) {
         let out = std::process::Command::new("bash")
