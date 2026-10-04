@@ -79,10 +79,8 @@ fn field(src: &str, lo: usize, hi: usize, names: &[&str], what: &str) -> Result<
         if a < lo || b > hi || a > b {
             return Err(format!("{what}：{range} 超出范围 {lo}-{hi}"));
         }
-        let mut i = a;
-        while i <= b {
+        for i in (a..=b).step_by(step) {
             out[i] = true;
-            i += step;
         }
     }
     Ok(out)
@@ -994,6 +992,19 @@ mod tests {
             next("0 0 13 * 5", "UTC", "2026-09-19T00:00:00Z"),
             "2026-09-25T00:00:00Z"
         );
+    }
+
+    #[test]
+    fn maximum_step_never_wraps_into_an_earlier_value() {
+        for (lo, hi) in [(0, 59), (0, 23), (1, 31), (1, 12), (0, 7)] {
+            let values = field(&format!("1/{}", usize::MAX), lo, hi, &[], "分").unwrap();
+            let selected: Vec<usize> = values
+                .iter()
+                .enumerate()
+                .filter_map(|(i, selected)| selected.then_some(i))
+                .collect();
+            assert_eq!(selected, vec![1]);
+        }
     }
 
     #[test]
