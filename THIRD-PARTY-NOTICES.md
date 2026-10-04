@@ -19,10 +19,12 @@ the binaries are listed in `Cargo.lock`; `cargo license` or `cargo about` produc
 
 | Component | Version | License | Source |
 | --- | --- | --- | --- |
-| Monaco Editor (`vs/`) | 0.52.2 | MIT | <https://github.com/microsoft/monaco-editor> |
-| xterm.js (`xterm.js`, `xterm.css`, `addon-fit.js`) | — | MIT | <https://github.com/xtermjs/xterm.js> |
-| IBM Plex Sans (`fonts/ibm-plex-sans-*`) | — | SIL OFL 1.1 (`fonts/OFL-ibm-plex.txt`) | <https://github.com/IBM/plex> |
-| JetBrains Mono (`fonts/jetbrains-mono-*`) | — | SIL OFL 1.1 (`fonts/OFL-jetbrains-mono.txt`) | <https://github.com/JetBrains/JetBrainsMono> |
+| Monaco Editor (`vs/`; bundled components below) | 0.52.2 | MIT | <https://github.com/microsoft/monaco-editor/tree/v0.52.2> |
+| DOMPurify (embedded in `vs/editor/editor.main.js`) | 3.1.7 | [Apache-2.0 OR MPL-2.0](https://github.com/cure53/DOMPurify/blob/3.1.7/LICENSE) | <https://github.com/cure53/DOMPurify/tree/3.1.7> |
+| Microsoft Codicons (`vs/base/browser/ui/codicons/codicon/codicon.ttf`) | 1.11 (font metadata) | [CC-BY-4.0](https://github.com/microsoft/vscode-codicons/blob/main/LICENSE) | <https://github.com/microsoft/vscode-codicons> |
+| xterm.js and FitAddon (`xterm.js`, `xterm.css`, `addon-fit.js`) | Not recorded in the vendored files | MIT (notice in `xterm.css`) | <https://github.com/xtermjs/xterm.js> |
+| IBM Plex Sans (`fonts/ibm-plex-sans-*`) | 3.201 (font metadata) | SIL OFL 1.1 (`fonts/OFL-ibm-plex.txt`) | <https://github.com/IBM/plex> |
+| JetBrains Mono (`fonts/jetbrains-mono-*`) | 2.211 (font metadata) | SIL OFL 1.1 (`fonts/OFL-jetbrains-mono.txt`) | <https://github.com/JetBrains/JetBrainsMono> |
 
 ## Trademarks and product icons
 
@@ -45,4 +47,5 @@ The product names and connection actions remain available as text.
 These are installed by the user; Blazar invokes the copy already on the machine with the user's
 own login state: the agent CLIs (Claude Code, Codex, …); `git`, `ssh`, `curl`; `gh`
 (GitHub CLI); `lark-cli` (Feishu / Lark); `npx` and `brew` (only when the user clicks *Install*);
-Obsidian (Blazar reads only its vault registry `obsidian.json` and opens notes via `obsidian://`).
+Obsidian (Blazar reads its vault registry `obsidian.json`, writes requested notes into a selected
+vault, and opens notes via `obsidian://`).
