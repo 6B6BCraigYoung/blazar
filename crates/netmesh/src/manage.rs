@@ -230,7 +230,7 @@ impl MeshAdmin {
 
     async fn cli(&self, args: &[&str]) -> Result<String> {
         let out = self.transport.exec(self.invocation.spec(args)).await?;
-        Ok(out.stdout)
+        Ok(out.ok()?)
     }
 
     pub async fn status(&self) -> Result<NodeStatus> {
@@ -432,6 +432,39 @@ fn parse_route(v: &serde_json::Value) -> RouteEntry {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn failed_mesh_commands_never_report_success() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let program = dir.path().join("fake-cli");
+        std::fs::write(
+            &program,
+            "#!/bin/sh\nprintf '%s\\n' '{}'\nprintf '%s\\n' 'mesh unavailable' >&2\nexit 17\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let admin = MeshAdmin::new(
+            Arc::new(blazar_transport::LocalTransport),
+            CliInvocation::Direct {
+                program: program.display().to_string(),
+                rpc: None,
+            },
+        );
+        for result in [
+            admin.add_connector("tcp://203.0.113.10:11010").await,
+            admin.remove_connector("tcp://203.0.113.10:11010").await,
+            admin.revoke_credential("demo-id").await,
+            admin.status().await.map(|_| ()),
+            admin.credentials().await.map(|_| ()),
+        ] {
+            assert!(
+                matches!(result, Err(MeshError::Transport(blazar_transport::TransportError::Command { code: 17, ref stderr })) if stderr.trim() == "mesh unavailable"),
+                "{result:?}"
+            );
+        }
+    }
 
     fn cfg() -> MeshConfig {
         MeshConfig {
