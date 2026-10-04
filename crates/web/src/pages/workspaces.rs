@@ -99,7 +99,7 @@ fn List(kind: Kind) -> impl IntoView {
                 <span class="gchip">{move || list().len()}</span>
                 <span class="grow"></span>
                 <input class="page-filter" aria-label="筛选工作区" placeholder="搜索工作区…" prop:value=move || q.get() on:input=move |e| q.set(event_target_value(&e))/>
-                <button type="button" class="btn primary" on:click=move |_| app.new_ws.set(true)>"新建工作区"</button>
+                <button type="button" class=if kind == Kind::Running { "btn" } else { "btn primary" } on:click=move |_| app.new_ws.set(true)>"新建工作区"</button>
             </div>
             {move || app.state_error.get().map(|message| view! {
                 <InlineError message retry=Callback::new(move |_| app.load_state())/>
@@ -119,6 +119,8 @@ fn List(kind: Kind) -> impl IntoView {
                         ("没有匹配的工作区", "试试其他名称或路径。")
                     } else if kind == Kind::All || kind == Kind::Project {
                         ("打开第一个工作区", "选择一个代码目录，开始工作。")
+                    } else if kind == Kind::Running {
+                        ("暂无运行中的工作区", "开始一段对话后，可以在这里查看进展。")
                     } else {
                         ("还没有工作区", "点右上角新建工作区。")
                     };
