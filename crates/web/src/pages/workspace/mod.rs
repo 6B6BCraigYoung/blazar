@@ -12,6 +12,8 @@ use std::collections::HashSet;
 use leptos::ev;
 use leptos::html;
 use leptos::prelude::*;
+
+use crate::components::status::{EmptyState, InlineError};
 use leptos_router::hooks::use_params_map;
 use wasm_bindgen::JsCast;
 
@@ -350,14 +352,14 @@ fn Workspace(id: String) -> impl IntoView {
     view! {
         <div class="ws">
             <div class="ws-head">
-                {move || detail.get().and_then(|d| d.err()).map(|e| view! { <span class="err-line">{e.to_string()}</span> })}
+                {move || detail.get().and_then(|d| d.err()).map(|e| view! { <InlineError message=e.to_string()/> })}
                 <span class="grow"></span>
                 <button class="btn small" on:click=move |_| insp.set(true)>"属性"</button>
-                <button class="laybtn" title="资源管理器 ⌘B" aria-pressed=move || (!lay().hide_ex).to_string()
+                <button class="laybtn" aria-label="切换资源管理器" title="资源管理器 ⌘B" aria-pressed=move || (!lay().hide_ex).to_string()
                     on:click=move |_| state.toggle(Region::Explorer) inner_html=ICON_LEFT></button>
-                <button class="laybtn" title="面板 ⌘J" aria-pressed=move || (!lay().hide_panel).to_string()
+                <button class="laybtn" aria-label="切换底部面板" title="面板 ⌘J" aria-pressed=move || (!lay().hide_panel).to_string()
                     on:click=move |_| state.toggle(Region::Panel) inner_html=ICON_BOTTOM></button>
-                <button class="laybtn" title="对话 ⌘⌥B" aria-pressed=move || (!lay().hide_aux).to_string()
+                <button class="laybtn" aria-label="切换对话面板" title="对话 ⌘⌥B" aria-pressed=move || (!lay().hide_aux).to_string()
                     on:click=move |_| state.toggle(Region::Aux) inner_html=ICON_RIGHT></button>
             </div>
             {
@@ -365,7 +367,7 @@ fn Workspace(id: String) -> impl IntoView {
                 move || insp.get().then(|| view! { <crate::pages::workspaces::Inspector id=id.clone() on_close=move || insp.set(false)/> })
             }
             {move || files.error.get().map(|e| view! {
-                <div class="ws-error">{e}<button class="btn ghost" on:click=move |_| files.error.set(None)>"×"</button></div>
+                <div class="ws-error"><InlineError message=e/><button type="button" class="btn ghost" aria-label="关闭文件错误提示" on:click=move |_| files.error.set(None)>"×"</button></div>
             })}
             <div class="ws-grid" node_ref=grid style=grid_style>
                 <section class="region explorer" data-collapsed=move || lay().hide_ex.to_string()>
@@ -373,7 +375,7 @@ fn Workspace(id: String) -> impl IntoView {
                         <span>"资源管理器"</span>
                         <span class="grow"></span>
                         <span class="count">{tree_count}</span>
-                        <button class="laybtn" title="重新扫描" inner_html=ICON_REFRESH
+                        <button class="laybtn" aria-label="刷新文件树" title="重新扫描" inner_html=ICON_REFRESH
                             on:click=move |_| tree_rev.update(|n| *n += 1)></button>
                     </div>
                     <FileTree root opened files root_name=root_name reload=tree_reload/>
@@ -384,13 +386,10 @@ fn Workspace(id: String) -> impl IntoView {
                         <Tabs files changes/>
                         <EdBar files preview=md_preview/>
                         <div class="editor-stack">
-                            <div class="editor-host" node_ref=host></div>
+                            <div class="editor-host" node_ref=host aria-label="代码编辑器"></div>
                             <MdView files preview=md_preview/>
                             <Show when=move || files.open_tabs.with(Vec::is_empty)>
-                                <div class="welcome">
-                                    "从左边选一个文件"
-                                    <span>"⌘B 资源管理器 · ⌘J 面板 · ⌘⌥B 对话"</span>
-                                </div>
+                                <div class="welcome"><EmptyState title="选择文件开始编辑" detail="⌘B 资源管理器 · ⌘J 面板 · ⌘⌥B 对话" class="editor-empty"/></div>
                             </Show>
                         </div>
                     </div>
@@ -414,7 +413,7 @@ fn Tabs(
     changes: Memo<std::collections::HashMap<String, api::ChangeKind>>,
 ) -> impl IntoView {
     view! {
-        <div class="tabbar">
+        <div class="tabbar" role="group" aria-label="打开的文件">
             <For each=move || files.open_tabs.get() key=|p| p.clone() let:path>
                 {
                     let p = path.clone();
@@ -422,15 +421,18 @@ fn Tabs(
                     let p3 = path.clone();
                     let p4 = path.clone();
                     let active = move || files.current.with(|c| c.as_deref() == Some(p.as_str()));
+                    let active_button = active.clone();
                     let dirty = move || files.dirty.with(|d| d.contains(&p2));
                     let mark = Memo::new(move |_| change_mark(changes.with(|c| c.get(&p3).copied())));
                     view! {
                         <div class="etab" data-active=move || active().to_string() data-dirty=move || dirty().to_string()
                             title=path.clone()
                             on:click=move |_| if !files.current.with_untracked(|c| c.as_deref() == Some(p4.as_str())) { files.open(p4.clone(), 0) }>
+                            <button type="button" class="etab-select" aria-pressed=move || active_button().to_string() aria-label=path.clone()>
                             <span class=move || format!("ch {}", mark.get().1)>{move || mark.get().0}</span>
                             <span class="nm">{path.rsplit('/').next().unwrap_or(&path).to_owned()}</span>
-                            <button class="x" title="关闭" on:click={
+                            </button>
+                            <button type="button" class="x" aria-label=format!("关闭 {path}") title="关闭文件" on:click={
                                 let p = path.clone();
                                 move |e| { e.stop_propagation(); files.close(p.clone()); }
                             }>"×"</button>
@@ -465,15 +467,15 @@ fn EdBar(files: Files, preview: RwSignal<bool>) -> impl IntoView {
                         view! { <span class="muted">"只读"</span> }.into_any()
                     } else if files.dirty.with(|d| d.contains(&p_dirty)) {
                         let p = p_save.clone();
-                        view! { <button class="linkbtn" title="保存（⌘S）" on:click=move |_| files.save(p.clone(), false)>"● 未保存 · 保存"</button> }.into_any()
+                        view! { <button class="linkbtn" title="保存（⌘S）" on:click=move |_| files.save(p.clone(), false)>"保存改动"</button> }.into_any()
                     } else {
                         view! { <span class="muted">"已保存"</span> }.into_any()
                     }}
                     {is_md.then(|| view! {
                         <span class="seg">
-                            <button data-on=move || preview.get().to_string()
+                            <button type="button" aria-pressed=move || preview.get().to_string() data-on=move || preview.get().to_string()
                                 on:click=move |_| { preview.set(true); crate::markdown_mode::save(crate::markdown_mode::MarkdownMode::Preview); }>"预览"</button>
-                            <button data-on=move || (!preview.get()).to_string()
+                            <button type="button" aria-pressed=move || (!preview.get()).to_string() data-on=move || (!preview.get()).to_string()
                                 on:click=move |_| { preview.set(false); crate::markdown_mode::save(crate::markdown_mode::MarkdownMode::Source); }>"源码"</button>
                         </span>
                     })}
@@ -558,7 +560,7 @@ fn MdView(files: Files, preview: RwSignal<bool>) -> impl IntoView {
         }
     };
     view! {
-        <div class="mdview" node_ref=el hidden=move || !show() on:click=click>
+        <div class="mdview" aria-label="Markdown 预览" node_ref=el hidden=move || !show() on:click=click>
             <article class="md-body" inner_html=move || html.get()></article>
         </div>
     }

@@ -500,3 +500,9 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 .tree button.tn[data-sel="true"] { background: var(--bg-raised); }
 .tree button.tn[data-more="true"]:hover { background: none; }
 .tree-state { padding: var(--space-md); font-size: var(--font-size-label); }
+
+.etab-select { display: inline-flex; align-items: center; gap: var(--space-sm); height: 100%; min-width: 0; padding: 0; border: 0; background: transparent; color: inherit; cursor: pointer; }
+.etab:focus-within .x { visibility: visible; }
+.editor-empty { text-align: center; }
+.editor-empty .ui-state-detail { color: var(--fg-4); }
+.ws-error > .ui-error { flex: 1; min-width: 0; }
