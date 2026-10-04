@@ -52,3 +52,20 @@
 .skill-file { padding: var(--space-toolbar) var(--space-xs); overflow-wrap: anywhere; font: var(--font-size-label)/var(--line-height-compact) var(--font-mono); }
 .agent-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-xl); }
 @media (max-width:760px) { .agent-overview, .agent-form-grid { grid-template-columns: 1fr; } .agent-toolbar input { min-width: 130px; } .skill-editor { grid-template-columns: 1fr; } .skill-editor>nav { max-height: 180px; border-right: 0; border-bottom: 1px solid var(--border); } .agent-run { flex-wrap: wrap; } .agent-stats { gap: var(--space-md); } .agent-stats b { font-size: var(--font-size-detail-title); } }
+
+.agent-page .page-head { flex-wrap: wrap; }
+.agent-page .agent-filter-details { min-width: 0; }
+.agent-page .agent-filter-details summary { cursor: pointer; padding: var(--space-sm) 0; }
+.agent-page .agent-filter-details[open] { flex-basis: 100%; }
+.agent-page .agent-filter-details .agent-toolbar { margin-top: var(--space-md); }
+.agent-page .agent-runtime-details summary { cursor: pointer; }
+.agent-page .agent-table td { overflow-wrap: anywhere; }
+.agent-page .agent-table .agent-name { min-width: 0; }
+.agent-page .agent-tabs { flex-wrap: wrap; }
+.agent-page .agent-summary p { margin-top: 0; }
+@media (max-width: 1000px) {
+  .agent-page .agent-toolbar > input { min-width: 0; flex: 1 1 12rem; }
+  .agent-page .agent-overview { grid-template-columns: minmax(0, 1fr); }
+  .agent-page .agent-summary { align-items: flex-start; }
+  .agent-page .agent-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
