@@ -63,3 +63,14 @@
 .apps-inline-state { padding: var(--space-sm) 0; color: var(--fg-3); font-size: var(--font-size-label); }
 .apps-page .settings-row { flex-wrap: wrap; }
 .apps-page .app-connect-job > .settings-actions > code { min-width: 0; overflow-wrap: anywhere; }
+
+.usage-page .page-head { flex-wrap: wrap; }
+.usage-page .usage-period { flex-wrap: wrap; }
+.usage-page .usage-period h2 { margin-right: auto; }
+.usage-page .usage-details summary { cursor: pointer; }
+.usage-page .usage-details[open] > .usage-kpis { margin-top: var(--space-section); }
+.usage-page .usage-details > .settings-table-wrap { margin-top: var(--space-lg); }
+.usage-page .usage-details > .card { margin-top: var(--space-section); }
+.usage-page .usage-kpis { grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr)); }
+.usage-page .usage-heat { overflow-x: auto; }
+.usage-page .settings-table td:first-child { overflow-wrap: anywhere; }
