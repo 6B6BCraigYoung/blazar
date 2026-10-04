@@ -80,17 +80,36 @@ pub async fn put(
         return fail(StatusCode::BAD_REQUEST, "空消息不用排队");
     }
     let thread = b.thread_id.filter(|t| !t.is_empty());
+    let mut tx = match st.db.pool().begin_with("BEGIN IMMEDIATE").await {
+        Ok(tx) => tx,
+        Err(e) => return fail(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    };
 
-    if b.append
-        && let Ok(Some(old)) = sqlx::query_scalar::<_, String>(
+    let old = if b.append {
+        match sqlx::query_scalar::<_, String>(
             "SELECT request FROM queued_messages WHERE workspace_id = ?1 AND COALESCE(thread_id, '') = ?2",
         )
         .bind(&id)
         .bind(thread.as_deref().unwrap_or(""))
-        .fetch_optional(st.db.pool())
+        .fetch_optional(&mut *tx)
         .await
-        && let Ok(old) = serde_json::from_str::<Value>(&old)
-    {
+        {
+            Ok(old) => old,
+            Err(e) => return fail(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+        }
+    } else {
+        None
+    };
+    if let Some(old) = old {
+        let old = match serde_json::from_str::<Value>(&old) {
+            Ok(old) => old,
+            Err(e) => {
+                return fail(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("原排队消息无法读取，未追加新消息：{e}"),
+                );
+            }
+        };
         let joined = format!(
             "{}\n\n{}",
             old["text"].as_str().unwrap_or_default().trim_end(),
@@ -122,9 +141,12 @@ pub async fn put(
     .bind(thread.as_deref())
     .bind(&raw)
     .bind(Utc::now().to_rfc3339())
-    .execute(st.db.pool())
+    .execute(&mut *tx)
     .await;
     if let Err(e) = r {
+        return fail(StatusCode::INTERNAL_SERVER_ERROR, e.to_string());
+    }
+    if let Err(e) = tx.commit().await {
         return fail(StatusCode::INTERNAL_SERVER_ERROR, e.to_string());
     }
     changed(&st, ws);
@@ -183,6 +205,22 @@ fn dispatch_one<'a>(
 }
 
 async fn dispatch_inner(st: &Shared, ws: WorkspaceId, qid: &str) -> Result<Value, String> {
+    dispatch_using(st, ws, qid, |req| {
+        crate::api::prompt(State(st.clone()), Path(ws.to_string()), Json(req))
+    })
+    .await
+}
+
+async fn dispatch_using<F, Fut>(
+    st: &Shared,
+    ws: WorkspaceId,
+    qid: &str,
+    send: F,
+) -> Result<Value, String>
+where
+    F: FnOnce(PromptRequest) -> Fut,
+    Fut: Future<Output = crate::api::ApiResult<Json<Value>>>,
+{
     let row: Option<(String, Option<String>)> = sqlx::query_as(
         "SELECT request, thread_id FROM queued_messages WHERE id = ?1 AND workspace_id = ?2",
     )
@@ -193,21 +231,25 @@ async fn dispatch_inner(st: &Shared, ws: WorkspaceId, qid: &str) -> Result<Value
     .map_err(|e| e.to_string())?;
     let (raw, queued_thread) = row.ok_or("这条排队消息已经不在了")?;
     let req: PromptRequest = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
-    let sent = crate::api::prompt(State(st.clone()), Path(ws.to_string()), Json(req)).await;
+    let sent = send(req).await;
     let v = match sent {
         Ok(Json(v)) => v,
         Err(e) => {
-            hold(st, ws, qid, &format!("没发出去：{}", e.message())).await;
+            hold(st, ws, qid, &raw, &format!("没发出去：{}", e.message())).await;
             return Err(e.message());
         }
     };
     if v["admitted"] == json!(false) {
         return Err(v["reason"].as_str().unwrap_or("工作区正忙").to_owned());
     }
-    let _ = sqlx::query("DELETE FROM queued_messages WHERE id = ?1")
-        .bind(qid)
-        .execute(st.db.pool())
-        .await;
+    let _ = sqlx::query(
+        "DELETE FROM queued_messages WHERE id = ?1 AND workspace_id = ?2 AND request = ?3",
+    )
+    .bind(qid)
+    .bind(ws.to_string())
+    .bind(&raw)
+    .execute(st.db.pool())
+    .await;
     changed(st, ws);
     if let (Some(thread), Some(sid)) = (v["thread_id"].as_str(), v["session_id"].as_str()) {
         st.emit(ServerEvent::QueueSent {
@@ -220,12 +262,16 @@ async fn dispatch_inner(st: &Shared, ws: WorkspaceId, qid: &str) -> Result<Value
     Ok(v)
 }
 
-async fn hold(st: &Shared, ws: WorkspaceId, qid: &str, why: &str) {
-    let _ = sqlx::query("UPDATE queued_messages SET held = ?2 WHERE id = ?1")
-        .bind(qid)
-        .bind(why)
-        .execute(st.db.pool())
-        .await;
+async fn hold(st: &Shared, ws: WorkspaceId, qid: &str, raw: &str, why: &str) {
+    let _ = sqlx::query(
+        "UPDATE queued_messages SET held = ?2 WHERE id = ?1 AND workspace_id = ?3 AND request = ?4",
+    )
+    .bind(qid)
+    .bind(why)
+    .bind(ws.to_string())
+    .bind(raw)
+    .execute(st.db.pool())
+    .await;
     changed(st, ws);
 }
 
@@ -562,5 +608,184 @@ pub async fn retry(
             Json(v).into_response()
         }
         Err(e) => fail(StatusCode::BAD_GATEWAY, e.message()),
+    }
+}
+
+#[cfg(test)]
+mod queue_tests {
+    use super::*;
+
+    async fn queued() -> (Shared, WorkspaceId) {
+        let db = blazar_db::Db::open_in_memory().await.unwrap();
+        let st = crate::state::AppState::with_services(
+            db,
+            "local".into(),
+            None,
+            crate::mesh::MeshCtx::new(None, std::env::temp_dir().join("blazar-queue-tests")),
+            crate::services::Services::Isolated,
+        );
+        let ws = WorkspaceId::new();
+        sqlx::query("INSERT INTO nodes (id, name, transport, created_at) VALUES ('node', 'local', 'local', '0')")
+            .execute(st.db.pool()).await.unwrap();
+        sqlx::query("INSERT INTO workspaces (id, node_id, name, path, created_at) VALUES (?1, 'node', 'repo', '/home/me/repo', '0')")
+            .bind(ws.to_string()).execute(st.db.pool()).await.unwrap();
+        sqlx::query("INSERT INTO queued_messages (id, workspace_id, request, created_at) VALUES ('queued', ?1, ?2, '0')")
+            .bind(ws.to_string()).bind(json!({"text": "original"}).to_string())
+            .execute(st.db.pool()).await.unwrap();
+        (st, ws)
+    }
+
+    async fn edit_queued(st: &Shared) {
+        sqlx::query("UPDATE queued_messages SET request = ?1, held = NULL WHERE id = 'queued'")
+            .bind(json!({"text": "edited while sending"}).to_string())
+            .execute(st.db.pool())
+            .await
+            .unwrap();
+    }
+
+    async fn queue_contents(st: &Shared) -> Vec<(String, Option<String>)> {
+        sqlx::query_as("SELECT request, held FROM queued_messages")
+            .fetch_all(st.db.pool())
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn concurrent_appends_preserve_both_messages() {
+        let (st, ws) = queued().await;
+        let sid = SessionId::new();
+        st.running.write().await.insert(
+            sid,
+            crate::state::RunningSession {
+                workspace_id: ws,
+                task: tokio::spawn(std::future::pending()),
+                killer: None,
+                live: None,
+            },
+        );
+        let append = |text: &str| {
+            put(
+                State(st.clone()),
+                Path(ws.to_string()),
+                Json(QueueBody {
+                    thread_id: None,
+                    request: json!({"text": text, "images": [{"media_type": "image/png", "data": "YQ=="}]}),
+                    append: true,
+                }),
+            )
+        };
+        let (first, second) = tokio::join!(append("first addition"), append("second addition"));
+        st.running.write().await.remove(&sid).unwrap().task.abort();
+        assert_eq!(first.status(), StatusCode::OK);
+        assert_eq!(second.status(), StatusCode::OK);
+        let rows = queue_contents(&st).await;
+        assert_eq!(rows.len(), 1);
+        let request: Value = serde_json::from_str(&rows[0].0).unwrap();
+        let parts: Vec<_> = request["text"].as_str().unwrap().split("\n\n").collect();
+        assert_eq!(parts.len(), 3, "{request}");
+        assert!(parts.contains(&"original"));
+        assert!(parts.contains(&"first addition"));
+        assert!(parts.contains(&"second addition"));
+        assert_eq!(request["images"].as_array().unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn oversized_append_preserves_the_previous_message() {
+        let (st, ws) = queued().await;
+        let before = queue_contents(&st).await;
+        let response = put(
+            State(st.clone()),
+            Path(ws.to_string()),
+            Json(QueueBody {
+                thread_id: None,
+                request: json!({"text": "a".repeat(MAX_QUEUED_BYTES)}),
+                append: true,
+            }),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+        assert_eq!(queue_contents(&st).await, before);
+    }
+
+    #[tokio::test]
+    async fn successful_dispatch_preserves_a_concurrent_edit() {
+        let (st, ws) = queued().await;
+        let result = dispatch_using(&st, ws, "queued", |req| {
+            assert_eq!(req.text, "original");
+            async {
+                edit_queued(&st).await;
+                Ok(Json(json!({"session_id": "sent", "thread_id": "thread"})))
+            }
+        })
+        .await;
+        assert!(result.is_ok());
+        assert_eq!(
+            queue_contents(&st).await,
+            [(json!({"text": "edited while sending"}).to_string(), None)]
+        );
+        dispatch_using(&st, ws, "queued", |req| async move {
+            assert_eq!(req.text, "edited while sending");
+            Ok(Json(json!({"session_id": "next"})))
+        })
+        .await
+        .unwrap();
+        assert!(queue_contents(&st).await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn failed_dispatch_does_not_hold_a_concurrent_edit() {
+        let (st, ws) = queued().await;
+        let result = dispatch_using(&st, ws, "queued", |req| {
+            assert_eq!(req.text, "original");
+            async {
+                edit_queued(&st).await;
+                Err(anyhow::anyhow!("launch failed").into())
+            }
+        })
+        .await;
+        assert!(result.is_err());
+        assert_eq!(
+            queue_contents(&st).await,
+            [(json!({"text": "edited while sending"}).to_string(), None)]
+        );
+    }
+
+    #[tokio::test]
+    async fn unchanged_dispatch_is_removed_on_success_and_held_on_failure() {
+        let (st, ws) = queued().await;
+        assert!(
+            dispatch_using(&st, ws, "queued", |_| async {
+                Err(anyhow::anyhow!("launch failed").into())
+            })
+            .await
+            .is_err()
+        );
+        assert!(
+            queue_contents(&st).await[0]
+                .1
+                .as_deref()
+                .unwrap()
+                .contains("launch failed")
+        );
+        dispatch_using(&st, ws, "queued", |_| async {
+            Ok(Json(json!({"session_id": "sent"})))
+        })
+        .await
+        .unwrap();
+        assert!(queue_contents(&st).await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn rejected_admission_keeps_the_queued_message() {
+        let (st, ws) = queued().await;
+        let before = queue_contents(&st).await;
+        assert!(
+            dispatch_using(&st, ws, "queued", |_| async {
+                Ok(Json(json!({"admitted": false, "reason": "busy"})))
+            })
+            .await
+            .is_err()
+        );
+        assert_eq!(queue_contents(&st).await, before);
     }
 }
