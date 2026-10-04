@@ -1040,3 +1040,6 @@ mod tests {
         );
     }
 }
+
+#[cfg(all(test, unix))]
+mod shell_quoting_tests;
