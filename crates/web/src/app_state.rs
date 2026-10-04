@@ -1,6 +1,6 @@
-//! 全局共用的数据：工作区 / 机器快照、侧栏上的各种计数、「看过了没」，以及状态变化时的提醒。
-
 use std::collections::HashMap;
+
+mod notification_policy;
 
 use blazar_core_types::api::{ServerEvent, StateSnapshot, WorkspaceView};
 use leptos::prelude::*;
@@ -23,12 +23,9 @@ pub struct AppData {
     pub agents_n: RwSignal<usize>,
     pub skills_n: RwSignal<usize>,
     pub runtimes_n: RwSignal<usize>,
-    /// 工作区 id → 上次看它的时间（RFC3339）
     pub seen: RwSignal<HashMap<String, String>>,
-    /// 正在看的工作区
     pub current_ws: RwSignal<Option<String>>,
     pub new_ws: RwSignal<bool>,
-    /// 新建工作区时预先选好的机器
     pub new_ws_node: RwSignal<Option<String>>,
     pub palette: RwSignal<bool>,
     pub side_collapsed: RwSignal<bool>,
@@ -46,7 +43,6 @@ impl AppData {
             .with(|s| s.as_ref().map(|s| s.workspaces.clone()).unwrap_or_default())
     }
 
-    /// 跑完 / 出错 / 等审批之后还没打开看过。
     pub fn unseen(self, w: &WorkspaceView) -> bool {
         if !matches!(
             w.activity.as_str(),
@@ -68,7 +64,6 @@ impl AppData {
         }
     }
 
-    /// 列表里显示的状态：看过的「已完成 / 出错」就当空闲。
     pub fn shown_activity(self, w: &WorkspaceView) -> String {
         if self.unseen(w) || !matches!(w.activity.as_str(), "completed" | "errored") {
             w.activity.clone()
@@ -147,7 +142,76 @@ impl AppData {
     }
 }
 
-/// 建全局数据、放进上下文、接上实时事件。只在根组件里调一次。
+async fn notify_changes(app: AppData, fresh: Vec<WorkspaceView>) {
+    let Ok(prefs) = api::get::<Value>("/api/settings").await else {
+        return;
+    };
+    let muted: Vec<String> = prefs["inbox"]["muted"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|kind| kind.as_str().map(str::to_owned))
+        .collect();
+    let approvals = if fresh.iter().any(|w| w.activity == "awaiting_approval") {
+        api::get::<Vec<Value>>("/api/approvals")
+            .await
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    let visible = document().visibility_state() == web_sys::VisibilityState::Visible;
+    let current_ws = app.current_ws.get_untracked();
+    let current = app.state.get_untracked().unwrap_or_default();
+    let allowed: Vec<(WorkspaceView, &'static str)> = fresh
+        .into_iter()
+        .filter(|w| {
+            !(visible && current_ws.as_deref() == Some(w.id.as_str()))
+                && current.workspaces.iter().any(|now| {
+                    now.id == w.id && now.session_id == w.session_id && now.activity == w.activity
+                })
+        })
+        .filter_map(|w| {
+            let tools = approvals
+                .iter()
+                .filter(|a| a["workspace_id"].as_str() == Some(w.id.as_str()))
+                .filter_map(|a| a["request"]["tool_name"].as_str());
+            notification_policy::workspace_alert_kind(&w.activity, tools, &muted)
+                .map(|kind| (w, kind))
+        })
+        .collect();
+    if !allowed.is_empty() {
+        alerts::play(
+            if allowed.iter().any(|(_, kind)| *kind != "run_done") {
+                "attention"
+            } else {
+                "done"
+            },
+            false,
+        );
+    }
+    if !alerts::notify_on() || !alerts::notify_granted() {
+        return;
+    }
+    for (w, kind) in allowed {
+        let what = match kind {
+            "run_done" => "跑完了",
+            "run_failed" => "出错了",
+            "question" => "在等你回答",
+            _ => "在等你裁决",
+        };
+        let id = w.id.clone();
+        alerts::notify(
+            &format!("{} {what}", w.name),
+            &format!("{} · {}", w.node, w.path),
+            &format!("blazar-{}", w.id),
+            w.activity == "awaiting_approval",
+            move || {
+                let _ = window().location().set_href(&format!("/w/{id}"));
+            },
+        );
+    }
+}
+
 pub fn provide(bus: Bus) -> AppData {
     let app = AppData {
         state: RwSignal::new(None),
@@ -206,7 +270,6 @@ pub fn provide(bus: Bus) -> AppData {
         _ => {}
     });
 
-    // 状态变化：标签页标题带上「新结果」的数量；跑完 / 出错 / 等审批时响一声、弹通知。
     let last: StoredValue<Option<HashMap<String, String>>> = StoredValue::new(None);
     Effect::new(move |_| {
         let ws = app.workspaces();
@@ -223,7 +286,7 @@ pub fn provide(bus: Bus) -> AppData {
         let prev = last.get_value();
         last.set_value(Some(now));
         let Some(prev) = prev else { return };
-        let fresh: Vec<&WorkspaceView> = ws
+        let fresh: Vec<WorkspaceView> = ws
             .iter()
             .filter(|w| {
                 prev.get(&w.id) != Some(&w.activity)
@@ -232,45 +295,10 @@ pub fn provide(bus: Bus) -> AppData {
                         "completed" | "errored" | "awaiting_approval"
                     )
             })
+            .cloned()
             .collect();
-        let visible = document().visibility_state() == web_sys::VisibilityState::Visible;
-        let cur = app.current_ws.get_untracked();
-        let audible: Vec<&&WorkspaceView> = fresh
-            .iter()
-            .filter(|w| !(visible && cur.as_deref() == Some(w.id.as_str())))
-            .collect();
-        if !audible.is_empty() {
-            alerts::play(
-                if audible.iter().any(|w| w.activity != "completed") {
-                    "attention"
-                } else {
-                    "done"
-                },
-                false,
-            );
-        }
-        if !alerts::notify_on() || !alerts::notify_granted() {
-            return;
-        }
-        for w in fresh {
-            if visible && cur.as_deref() == Some(w.id.as_str()) {
-                continue;
-            }
-            let what = match w.activity.as_str() {
-                "completed" => "跑完了",
-                "errored" => "出错了",
-                _ => "在等你裁决",
-            };
-            let id = w.id.clone();
-            alerts::notify(
-                &format!("{} {what}", w.name),
-                &format!("{} · {}", w.node, w.path),
-                &format!("blazar-{}", w.id),
-                w.activity == "awaiting_approval",
-                move || {
-                    let _ = window().location().set_href(&format!("/w/{id}"));
-                },
-            );
+        if !fresh.is_empty() {
+            spawn_local(notify_changes(app, fresh));
         }
     });
     app
