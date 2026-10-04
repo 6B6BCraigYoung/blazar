@@ -645,11 +645,13 @@ pub fn Composer(chat: Chat, tick: RwSignal<u32>, tree_files: Signal<Vec<String>>
                 </div>
             })}
             <QueueBand chat/>
-            {move || chat.deliveries.with(|d| d.failed()).into_iter().map(|(id, request)| {
+            {move || {
+                let thread = chat.view.get();
+                chat.deliveries.with(|d| d.failed()).into_iter().filter(|(_, request)| request["resume_session"].as_str() == thread.as_deref()).map(|(id, request)| {
                 let text = request["text"].as_str().unwrap_or_default().to_owned();
                 let images = request["images"].as_array().map_or(0, Vec::len);
                 view! { <div class="cb-band queue"><div class="cq-h"><b>"发送失败"</b><span class="grow"></span><button class="linkbtn" on:click=move |_| chat.retry_failed(id)>"重试"</button></div><div class="cq-t">{text}{(images > 0).then(|| format!(" · {images} 张附件"))}</div></div> }
-            }).collect_view()}
+            }).collect_view()}}
             {move || chat.editing_queue.get().map(|queued| view! { <QueueEditor chat queued/> })}
             <Dock chat/>
             <div class="cc-box" on:dragover=move |e: ev::DragEvent| {

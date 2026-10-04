@@ -22,6 +22,10 @@ mod delivery;
 pub use delivery::{Deliveries, edit_request};
 use delivery::{steer_request, take_composer};
 
+#[path = "send_context.rs"]
+mod send_context;
+use send_context::SendContext;
+
 pub const CONTINUE_TEXT: &str = "（已换账号接着做）请从刚才中断的地方继续，把没做完的工作完成。";
 pub const ACC_RUNTIMES: [&str; 2] = ["claude", "codex"];
 
@@ -262,6 +266,7 @@ pub struct Chat {
 
     pub tabs: RwSignal<Vec<Option<String>>>,
     pub view: RwSignal<Option<String>>,
+    view_revision: StoredValue<u64>,
     pub threads: RwSignal<Vec<Thread>>,
     pub rows: RwSignal<Vec<Row>>,
     seen: StoredValue<HashSet<String>>,
@@ -328,6 +333,7 @@ impl Chat {
             show_diff,
             tabs: RwSignal::new(Vec::new()),
             view: RwSignal::new(None),
+            view_revision: StoredValue::new(0),
             threads: RwSignal::new(Vec::new()),
             rows: RwSignal::new(Vec::new()),
             seen: StoredValue::new(HashSet::new()),
@@ -724,6 +730,7 @@ impl Chat {
     }
 
     pub fn activate(self, id: Option<String>) {
+        self.view_revision.update_value(|r| *r = r.wrapping_add(1));
         self.tabs.update(|t| {
             if !t.contains(&id) {
                 t.push(id.clone());
@@ -939,6 +946,45 @@ impl Chat {
             }
         })
         .forget();
+    }
+
+    fn send_context(self, thread: Option<String>) -> SendContext {
+        SendContext {
+            workspace: self.ws_id(),
+            thread,
+            revision: self.view_revision.get_value(),
+        }
+    }
+
+    fn context_is_current(self, context: &SendContext) -> bool {
+        self.view.try_get_untracked().is_some_and(|thread| {
+            context.matches(
+                &self.ws_id(),
+                thread.as_deref(),
+                self.view_revision.try_get_value().unwrap_or_default(),
+            )
+        })
+    }
+
+    fn note_sent_in(
+        self,
+        context: &SendContext,
+        session_id: Option<String>,
+        thread_id: Option<String>,
+    ) {
+        if self.context_is_current(context) {
+            self.note_sent(session_id, thread_id);
+        } else if self.alive() {
+            if let Some(thread) = thread_id {
+                self.tabs.update(|tabs| {
+                    if !tabs.contains(&Some(thread.clone())) {
+                        tabs.push(Some(thread));
+                    }
+                });
+                self.save_tabs();
+            }
+            self.refresh_threads_soon();
+        }
     }
 
     pub fn note_sent(self, session_id: Option<String>, thread_id: Option<String>) {
@@ -1168,17 +1214,20 @@ impl Chat {
         self.orphans.set_value(HashMap::new());
         self.show_aux.run(());
         self.busy.update(|n| *n += 1);
-        let ws = self.ws_id();
+        let context = self.send_context(body["resume_session"].as_str().map(str::to_owned));
+        let ws = context.workspace.clone();
         self.spawn(async move {
-            let r = api::send::<Value>("POST", &format!("/api/workspaces/{ws}/prompt"), &body).await;
+            let r =
+                api::send::<Value>("POST", &format!("/api/workspaces/{ws}/prompt"), &body).await;
             let _ = self.busy.try_update(|n| *n = n.saturating_sub(1));
             match r {
                 Ok(r) if r["admitted"] == json!(false) => {
                     let q = api::send::<Vec<Queued>>(
                         "PUT",
                         &format!("/api/workspaces/{ws}/queue"),
-                        &json!({ "thread_id": self.view.get_untracked(), "request": body, "append": true }),
-                    ).await;
+                        &context.queue_request(&body),
+                    )
+                    .await;
                     self.drop_pending(pid);
                     self.deliveries.update(|d| d.finish(pid, q.is_ok()));
                     match q {
@@ -1195,15 +1244,28 @@ impl Chat {
                     let sid = r["session_id"].as_str().map(str::to_owned);
                     let tid = r["thread_id"].as_str().map(str::to_owned);
                     if sid.is_some() {
-                        self.note_sent(sid, tid);
+                        self.note_sent_in(&context, sid, tid);
                     }
-                    self.fresh.set(false);
+                    if self.context_is_current(&context) {
+                        self.fresh.set(false);
+                    }
                     if started == Some(false) {
                         self.drop_pending(pid);
                         let why = r["activity"]["reason"].as_str().unwrap_or("").to_owned();
-                        toast(if why.is_empty() { "The agent did not start".to_owned() } else { why.clone() });
-                        let class = r["activity"]["failure_class"].as_str().map(|c| format!(" ({c})")).unwrap_or_default();
-                        self.local_errors.update(|e| e.push(format!("The agent did not start: {why}{class}")));
+                        toast(if why.is_empty() {
+                            "The agent did not start".to_owned()
+                        } else {
+                            why.clone()
+                        });
+                        let class = r["activity"]["failure_class"]
+                            .as_str()
+                            .map(|c| format!(" ({c})"))
+                            .unwrap_or_default();
+                        if self.context_is_current(&context) {
+                            self.local_errors.update(|e| {
+                                e.push(format!("The agent did not start: {why}{class}"))
+                            });
+                        }
                     }
                 }
                 Err(e) => {
@@ -1306,6 +1368,7 @@ impl Chat {
     }
 
     pub fn allow_always(self, id: String, request: Value) {
+        let ws = self.ws_id();
         self.spawn(async move {
             let (tool, pattern) = chat_model::always_rule(&request);
             let what = if pattern.is_empty() {
@@ -1325,7 +1388,7 @@ impl Chat {
             match api::send::<Value>(
                 "POST",
                 "/api/approval-rules",
-                &json!({ "tool": tool, "pattern": pattern, "workspace_id": self.ws_id() }),
+                &json!({ "tool": tool, "pattern": pattern, "workspace_id": ws }),
             )
             .await
             {
@@ -1344,7 +1407,9 @@ impl Chat {
             }
             return;
         }
-        let ws = self.ws_id();
+        let context = self.send_context(q.thread_id.clone());
+        let ws = context.workspace.clone();
+        let steer_session = self.transcript.with_untracked(|t| t.last_session.clone());
         let base = format!("/api/workspaces/{ws}/queue/{}", q.id);
         self.spawn(async move {
             let r: Result<(), api::ApiError> = async {
@@ -1355,10 +1420,10 @@ impl Chat {
                     }
                     "send" => {
                         let r = api::send::<Value>("POST", &format!("{base}/send"), &json!({})).await?;
-                        self.note_sent(r["session_id"].as_str().map(str::to_owned), r["thread_id"].as_str().map(str::to_owned));
+                        self.note_sent_in(&context, r["session_id"].as_str().map(str::to_owned), r["thread_id"].as_str().map(str::to_owned));
                     }
                     _ => {
-                        let Some(sid) = self.transcript.with_untracked(|t| t.last_session.clone()) else {
+                        let Some(sid) = steer_session else {
                             toast("No running session to steer");
                             return Ok(());
                         };
@@ -1367,6 +1432,10 @@ impl Chat {
                             return Ok(());
                         };
                         if dialog::ask("发送插话？", "附件和文件上下文会一并发送；模型、账号和权限沿用当前轮次，原排队消息的启动设置不会应用。", vec![Choice::plain("取消"), Choice::plain("发送插话")]).await != Some(1) {
+                            return Ok(());
+                        }
+                        if !self.context_is_current(&context) {
+                            toast("对话已切换，消息仍保留在原队列中");
                             return Ok(());
                         }
                         let i = api::send::<Value>("POST", &format!("/api/sessions/{sid}/input"), &steer_request(request)).await?;
@@ -1393,6 +1462,10 @@ impl Chat {
             toast("The agent is still running. Interrupt it first.");
             return;
         }
+        let context = self.send_context(self.view.get_untracked());
+        let ws = context.workspace.clone();
+        let mut options = self.send_options();
+        options.insert("wait_secs".into(), json!(20));
         self.spawn(async move {
             let head = if text.is_none() {
                 "Retry this turn"
@@ -1417,9 +1490,10 @@ impl Chat {
             {
                 return;
             }
-            let mut options = self.send_options();
-            options.insert("wait_secs".into(), json!(20));
-            let ws = self.ws_id();
+            if !self.context_is_current(&context) {
+                toast("对话已切换，未重新发送");
+                return;
+            }
             match api::send::<Value>(
                 "POST",
                 &format!("/api/workspaces/{ws}/retry"),
@@ -1432,7 +1506,8 @@ impl Chat {
                 }
                 Ok(r) => {
                     if r["session_id"].is_string() {
-                        self.note_sent(
+                        self.note_sent_in(
+                            &context,
                             r["session_id"].as_str().map(str::to_owned),
                             r["thread_id"].as_str().map(str::to_owned),
                         );
@@ -1449,7 +1524,9 @@ impl Chat {
                 }
                 Err(e) => {
                     toast(format!("Retry failed: {e}"));
-                    self.load_history();
+                    if self.context_is_current(&context) {
+                        self.load_history();
+                    }
                 }
             }
         });
@@ -1502,7 +1579,8 @@ impl Chat {
         body.insert("resume_session".into(), json!(self.view.get_untracked()));
         body.insert("account".into(), json!(pick));
         body.insert("wait_secs".into(), json!(20));
-        let ws = self.ws_id();
+        let context = self.send_context(self.view.get_untracked());
+        let ws = context.workspace.clone();
         let label = untrack(move || self.account(&pick))
             .map(|a| a.label)
             .unwrap_or_default();
@@ -1521,7 +1599,8 @@ impl Chat {
                         .to_owned(),
                 ),
                 Ok(r) => {
-                    self.note_sent(
+                    self.note_sent_in(
+                        &context,
                         r["session_id"].as_str().map(str::to_owned),
                         r["thread_id"].as_str().map(str::to_owned),
                     );
