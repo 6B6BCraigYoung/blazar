@@ -30,10 +30,15 @@ The *Apps* section identifies integrated products with their own icons
 (`crates/hub/static/vendor/brands/`). These marks belong to their owners: Feishu / Lark to
 ByteDance / Lark Technologies, GitHub and its logo to GitHub, Inc., Obsidian to Dynalist Inc.
 They are used only to indicate that Blazar can connect to those products and do not imply
-endorsement or affiliation. The GitHub mark comes from [Octicons](https://github.com/primer/octicons)
-(MIT; trademark use governed by [GitHub Logos and Usage](https://github.com/logos)). The Feishu
-and Obsidian icons are the application icons. Redistributors who prefer not to carry these marks
-can delete the directory and replace `APP_LOGO` in `crates/hub/static/js/office.js` with text.
+endorsement or affiliation. The GitHub mark (`brands/github.svg`) is the unmodified
+[`mark-github-16.svg` from Octicons](https://github.com/primer/octicons/blob/923a31b34542702800cb90a0fd390e2e60dd92ac/icons/mark-github-16.svg),
+pinned to commit `923a31b34542702800cb90a0fd390e2e60dd92ac`. It is licensed under MIT;
+the complete upstream notice is distributed as `brands/github-LICENSE.txt`.
+Trademark use is governed by [GitHub Logos and Usage](https://github.com/logos).
+The Feishu and Obsidian icons are the application icons. Redistributors who prefer not to carry
+these marks can remove the `AppLogo` rendering in `crates/web/src/pages/apps.rs` and the
+`.apps-github-logo` mask, then omit the image files under `crates/hub/static/vendor/brands/`.
+The product names and connection actions remain available as text.
 
 ## Called, not distributed
 
