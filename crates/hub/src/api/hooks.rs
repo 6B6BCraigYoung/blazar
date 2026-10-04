@@ -26,6 +26,23 @@ pub(crate) const fn tru() -> bool {
     true
 }
 
+impl HookInput {
+    fn validate(&self) -> Result<(blazar_hooks::HookEvent, blazar_hooks::HookTarget, u64), String> {
+        let event = serde_json::from_value(serde_json::Value::String(self.event.clone()))
+            .map_err(|_| "钩子事件不合法".to_owned())?;
+        let target = serde_json::from_value(serde_json::Value::String(self.target.clone()))
+            .map_err(|_| "钩子目标只能是 hub 或 node".to_owned())?;
+        let timeout = u64::try_from(self.timeout_secs)
+            .ok()
+            .filter(|t| (1..=3600).contains(t))
+            .ok_or_else(|| "钩子超时须为 1–3600 秒".to_owned())?;
+        if self.command.trim().is_empty() {
+            return Err("请填写钩子命令".into());
+        }
+        Ok((event, target, timeout))
+    }
+}
+
 pub async fn list_hooks(State(st): State<Shared>) -> ApiResult<Json<Vec<serde_json::Value>>> {
     let rows = sqlx::query(
         "SELECT id, event, command, target, matcher, blocking, timeout_secs, enabled
@@ -51,12 +68,16 @@ pub async fn list_hooks(State(st): State<Shared>) -> ApiResult<Json<Vec<serde_js
     ))
 }
 
-pub async fn create_hook(
-    State(st): State<Shared>,
-    Json(h): Json<HookInput>,
-) -> ApiResult<Json<serde_json::Value>> {
+pub async fn create_hook(State(st): State<Shared>, Json(h): Json<HookInput>) -> Response {
+    if let Err(error) = h.validate() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": error })),
+        )
+            .into_response();
+    }
     let id = uuid::Uuid::now_v7().to_string();
-    sqlx::query(
+    let result = sqlx::query(
         "INSERT INTO hooks (id, event, command, target, matcher, blocking, timeout_secs,
                             enabled, created_at)
          VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
@@ -71,8 +92,11 @@ pub async fn create_hook(
     .bind(i64::from(h.enabled))
     .bind(Utc::now().to_rfc3339())
     .execute(st.db.pool())
-    .await?;
-    Ok(Json(serde_json::json!({ "id": id })))
+    .await;
+    match result {
+        Ok(_) => Json(serde_json::json!({ "id": id })).into_response(),
+        Err(error) => ApiError::from(error).into_response(),
+    }
 }
 
 pub async fn delete_hook(
@@ -95,7 +119,7 @@ pub(crate) async fn load_hooks(
         .trim_matches('"')
         .to_owned();
     let rows = sqlx::query(
-        "SELECT command, target, matcher, blocking, timeout_secs
+        "SELECT id, command, target, matcher, blocking, timeout_secs
          FROM hooks WHERE enabled = 1 AND event = ?1 ORDER BY created_at",
     )
     .bind(&name)
@@ -104,18 +128,33 @@ pub(crate) async fn load_hooks(
     .unwrap_or_default();
 
     rows.into_iter()
-        .map(|r| blazar_hooks::Hook {
-            event,
-            command: r.try_get("command").unwrap_or_default(),
-            target: if r.try_get::<String, _>("target").unwrap_or_default() == "node" {
-                blazar_hooks::HookTarget::Node
-            } else {
-                blazar_hooks::HookTarget::Hub
-            },
-            matcher: r.try_get("matcher").unwrap_or(None),
-            blocking: r.try_get::<i64, _>("blocking").unwrap_or(0) != 0,
-            timeout_secs: r.try_get::<i64, _>("timeout_secs").unwrap_or(30) as u64,
-            enabled: true,
+        .filter_map(|r| {
+            let input = HookInput {
+                event: name.clone(),
+                command: r.try_get("command").unwrap_or_default(),
+                target: r.try_get("target").unwrap_or_default(),
+                matcher: r.try_get("matcher").unwrap_or(None),
+                blocking: r.try_get::<i64, _>("blocking").unwrap_or(0) != 0,
+                timeout_secs: r.try_get("timeout_secs").unwrap_or(0),
+                enabled: true,
+            };
+            let (event, target, timeout_secs) = match input.validate() {
+                Ok(valid) => valid,
+                Err(error) => {
+                    let id: String = r.try_get("id").unwrap_or_default();
+                    tracing::warn!(target: "blazar::hooks", "跳过配置无效的钩子 {id}: {error}");
+                    return None;
+                }
+            };
+            Some(blazar_hooks::Hook {
+                event,
+                command: input.command,
+                target,
+                matcher: input.matcher,
+                blocking: input.blocking,
+                timeout_secs,
+                enabled: true,
+            })
         })
         .collect()
 }
@@ -322,4 +361,108 @@ pub async fn node_agents(
     .await;
 
     Ok(Json(found))
+}
+
+#[cfg(test)]
+mod validation_tests {
+    use super::*;
+    use axum::body::Body;
+    use axum::http::Request;
+    use tower::ServiceExt;
+
+    async fn state() -> Shared {
+        let db = blazar_db::Db::open_in_memory().await.unwrap();
+        AppState::new(
+            db,
+            "local".into(),
+            None,
+            crate::mesh::MeshCtx::new(None, std::env::temp_dir().join("blazar-hook-tests")),
+        )
+    }
+
+    #[tokio::test]
+    async fn invalid_hook_configuration_is_rejected_before_persistence() {
+        let st = state().await;
+        let app = axum::Router::new()
+            .route("/api/hooks", axum::routing::post(create_hook))
+            .with_state(st.clone());
+        for (field, value) in [
+            ("timeout_secs", serde_json::json!(-1)),
+            ("timeout_secs", serde_json::json!(0)),
+            ("timeout_secs", serde_json::json!(3601)),
+            ("event", serde_json::json!("turn_strat")),
+            ("target", serde_json::json!("remote")),
+            ("command", serde_json::json!("   ")),
+        ] {
+            let mut request = serde_json::json!({
+                "event": "turn_start", "command": "true", "target": "hub", "timeout_secs": 30,
+            });
+            request[field] = value;
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::post("/api/hooks")
+                        .header("Content-Type", "application/json")
+                        .body(Body::from(request.to_string()))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{request}");
+        }
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM hooks")
+            .fetch_one(st.db.pool())
+            .await
+            .unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[tokio::test]
+    async fn invalid_legacy_hooks_are_not_executed() {
+        let st = state().await;
+        for (id, timeout, target) in [("bad-timeout", -1, "hub"), ("bad-target", 30, "remote")] {
+            sqlx::query("INSERT INTO hooks (id, event, command, timeout_secs, target, created_at) VALUES (?1, 'turn_start', 'true', ?2, ?3, '0')")
+                .bind(id)
+                .bind(timeout)
+                .bind(target)
+                .execute(st.db.pool())
+                .await
+                .unwrap();
+        }
+        assert!(
+            load_hooks(&st, blazar_hooks::HookEvent::TurnStart)
+                .await
+                .is_empty()
+        );
+    }
+
+    #[tokio::test]
+    async fn valid_hook_timeout_boundaries_are_preserved() {
+        let st = state().await;
+        for timeout_secs in [1, 3600] {
+            let response = create_hook(
+                State(st.clone()),
+                Json(HookInput {
+                    event: "turn_start".into(),
+                    command: "true".into(),
+                    target: "node".into(),
+                    matcher: Some("Bash".into()),
+                    blocking: true,
+                    timeout_secs,
+                    enabled: true,
+                }),
+            )
+            .await;
+            assert_eq!(response.status(), StatusCode::OK);
+        }
+        let hooks = load_hooks(&st, blazar_hooks::HookEvent::TurnStart).await;
+        assert_eq!(hooks.len(), 2);
+        assert_eq!(hooks[0].timeout_secs, 1);
+        assert_eq!(hooks[1].timeout_secs, 3600);
+        assert!(
+            hooks
+                .iter()
+                .all(|h| h.target == blazar_hooks::HookTarget::Node && h.blocking)
+        );
+    }
 }
