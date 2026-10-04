@@ -428,7 +428,7 @@ impl Chat {
         let rt = a.strip_prefix("r:").unwrap_or("");
         self.agents
             .with(|l| l.iter().find(|x| x.id == rt).map(|x| x.label.clone()))
-            .unwrap_or_else(|| "Select agent".into())
+            .unwrap_or_else(|| "选择智能体".into())
     }
 
     pub fn modes(self) -> &'static [Mode] {
@@ -675,12 +675,12 @@ impl Chat {
 
     pub fn thread_title(self, id: Option<&str>) -> String {
         match id {
-            None => "New chat".to_owned(),
+            None => "新对话".to_owned(),
             Some(id) => self
                 .threads
                 .with(|t| t.iter().find(|x| x.id == id).and_then(|x| x.title.clone()))
                 .filter(|t| !t.is_empty())
-                .unwrap_or_else(|| "Conversation".to_owned()),
+                .unwrap_or_else(|| "对话".to_owned()),
         }
     }
 
@@ -797,8 +797,8 @@ impl Chat {
                         }
                     });
                 }
-                Ok(r) => toast(r["reason"].as_str().unwrap_or("Rename failed").to_owned()),
-                Err(e) => toast(format!("Rename failed: {e}")),
+                Ok(r) => toast(r["reason"].as_str().unwrap_or("重命名失败").to_owned()),
+                Err(e) => toast(format!("重命名失败：{e}")),
             }
         });
     }
@@ -1290,7 +1290,7 @@ impl Chat {
                         self.drop_pending(pid);
                         let why = r["activity"]["reason"].as_str().unwrap_or("").to_owned();
                         toast(if why.is_empty() {
-                            "The agent did not start".to_owned()
+                            "智能体未启动".to_owned()
                         } else {
                             why.clone()
                         });
@@ -1299,9 +1299,8 @@ impl Chat {
                             .map(|c| format!(" ({c})"))
                             .unwrap_or_default();
                         if self.context_is_current(&context) {
-                            self.local_errors.update(|e| {
-                                e.push(format!("The agent did not start: {why}{class}"))
-                            });
+                            self.local_errors
+                                .update(|e| e.push(format!("智能体未启动：{why}{class}")));
                         }
                     }
                 }
@@ -1318,7 +1317,7 @@ impl Chat {
 
     pub fn stop(self) {
         let Some(sid) = self.transcript.with_untracked(|t| t.last_session.clone()) else {
-            toast("Nothing is running in this conversation");
+            toast("当前对话没有正在运行的任务");
             return;
         };
         self.spawn(async move {
@@ -1329,14 +1328,9 @@ impl Chat {
             )
             .await
             {
-                Ok(r) if r["interrupted"].as_bool() == Some(true) => toast("Interrupted"),
-                Ok(r) => toast(
-                    r["reason"]
-                        .as_str()
-                        .unwrap_or("Couldn't interrupt")
-                        .to_owned(),
-                ),
-                Err(e) => toast(format!("Interrupt failed: {e}")),
+                Ok(r) if r["interrupted"].as_bool() == Some(true) => toast("已停止"),
+                Ok(r) => toast(r["reason"].as_str().unwrap_or("未能停止").to_owned()),
+                Err(e) => toast(format!("停止失败：{e}")),
             }
         });
     }
@@ -1351,13 +1345,13 @@ impl Chat {
         self.spawn(async move {
             match api::send::<Value>("POST", &format!("/api/sessions/{sid}/control"), &body).await {
                 Ok(r) if r["accepted"].as_bool() == Some(true) => {
-                    toast(format!("Changed {what} for the current turn"))
+                    toast(format!("已为当前轮次调整 {what}"))
                 }
                 Ok(r) => toast(format!(
-                    "The {what} change applies from the next turn ({})",
+                    "{what} 将从下一轮生效（{}）",
                     r["reason"].as_str().unwrap_or("")
                 )),
-                Err(_) => toast(format!("The {what} change applies from the next turn")),
+                Err(_) => toast(format!("{what} 将从下一轮生效")),
             }
         });
     }
@@ -1421,9 +1415,11 @@ impl Chat {
                 format!("{tool} {pattern}…")
             };
             let ok = dialog::ask(
-                "Don't ask again",
-                &format!("Always allow \"{what}\" in this workspace without asking?\n\nYou can turn this off in Settings → Auto-approval."),
-                vec![Choice::plain("Cancel"), Choice::plain("Always allow")],
+                "不再询问",
+                &format!(
+                    "在当前工作区始终允许 \"{what}\"，不再询问？\n\n可在「设置 → 自动审批」中关闭。"
+                ),
+                vec![Choice::plain("取消"), Choice::plain("始终允许")],
             )
             .await;
             if ok != Some(1) {
@@ -1460,7 +1456,7 @@ impl Chat {
                 match act {
                     "drop" => {
                         api::send::<Value>("DELETE", &base, &json!({})).await?;
-                        toast("Removed");
+                        toast("已移除");
                     }
                     "send" => {
                         let r = api::send::<Value>("POST", &format!("{base}/send"), &json!({})).await?;
@@ -1468,7 +1464,7 @@ impl Chat {
                     }
                     _ => {
                         let Some(sid) = steer_session else {
-                            toast("No running session to steer");
+                            toast("当前没有可补充消息的运行中会话");
                             return Ok(());
                         };
                         let Some(request) = q.request.as_ref() else {
@@ -1484,11 +1480,11 @@ impl Chat {
                         }
                         let i = api::send::<Value>("POST", &format!("/api/sessions/{sid}/input"), &steer_request(request)).await?;
                         if i["accepted"].as_bool() != Some(true) {
-                            toast(i["reason"].as_str().unwrap_or("This runtime can't take messages mid-turn. It sends when the turn ends.").to_owned());
+                            toast(i["reason"].as_str().unwrap_or("当前运行时不支持中途补充，将在本轮结束后发送。").to_owned());
                             return Ok(());
                         }
                         api::send::<Value>("DELETE", &base, &json!({"expected": request})).await?;
-                        toast("Sent into the current turn");
+                        toast("已补充到当前轮次");
                     }
                 }
                 Ok(())
@@ -1503,7 +1499,7 @@ impl Chat {
 
     pub fn retry(self, sid: String, text: Option<String>, later: usize) {
         if self.running.get_untracked() {
-            toast("The agent is still running. Interrupt it first.");
+            toast("请先停止当前运行，再重试。");
             return;
         }
         let context = self.send_context(self.view.get_untracked());
@@ -1512,22 +1508,22 @@ impl Chat {
         options.insert("wait_secs".into(), json!(20));
         self.spawn(async move {
             let head = if text.is_none() {
-                "Retry this turn"
+                "重试这一轮"
             } else {
-                "Retry with the edited message"
+                "修改消息后重试"
             };
             let tail = if later > 0 {
-                format!(" and the {later} turn{} after it", if later == 1 { "" } else { "s" })
+                format!("及之后的 {later} 轮对话")
             } else {
                 String::new()
             };
             let body = format!(
-                "· Files go back to how they were before this message (the current state is saved first)\n· This message{tail} are marked as rewound and leave the context\n· Folders outside git have no checkpoints; only the conversation restarts"
+                "· 将文件还原到这条消息之前，先备份当前状态\n· 这条消息{tail}将移出上下文\n· 非 Git 目录没有检查点，仅重新开始对话"
             );
             if dialog::ask(
                 &format!("{head}？"),
                 &body,
-                vec![Choice::plain("Cancel"), Choice::danger("Retry")],
+                vec![Choice::plain("取消"), Choice::danger("重试")],
             )
             .await
                 != Some(1)
@@ -1546,7 +1542,7 @@ impl Chat {
             .await
             {
                 Ok(r) if r["admitted"] == json!(false) => {
-                    toast(r["reason"].as_str().unwrap_or("The workspace is busy").to_owned())
+                    toast(r["reason"].as_str().unwrap_or("工作区正在处理其他操作").to_owned())
                 }
                 Ok(r) => {
                     if r["session_id"].is_string() {
@@ -1561,13 +1557,13 @@ impl Chat {
                         self.git.changed.update(|n| *n += 1);
                     }
                     toast(if restored {
-                        "Files restored. Continuing from here."
+                        "文件已还原，从这里继续。"
                     } else {
-                        "Continuing from here (no checkpoint, files unchanged)"
+                        "从这里继续；没有检查点，文件未变。"
                     });
                 }
                 Err(e) => {
-                    toast(format!("Retry failed: {e}"));
+                    toast(format!("重试失败：{e}"));
                     if self.context_is_current(&context) {
                         self.load_history();
                     }
@@ -1579,7 +1575,13 @@ impl Chat {
     pub fn rewind(self, cp: String, undo: bool) {
         self.spawn(async move {
             if !undo
-                && dialog::ask("Rewind", "Restore files to before this message?\nThe conversation stays; the current state is saved first so you can undo.", vec![Choice::plain("Cancel"), Choice::plain("Rewind")]).await != Some(1)
+                && dialog::ask(
+                    "还原文件",
+                    "将文件还原到这条消息之前？\n对话记录保留；先备份当前状态，可撤销还原。",
+                    vec![Choice::plain("取消"), Choice::plain("还原文件")],
+                )
+                .await
+                    != Some(1)
             {
                 return;
             }
@@ -1593,13 +1595,13 @@ impl Chat {
                 Ok(r) => {
                     self.git.changed.update(|n| *n += 1);
                     if undo {
-                        toast("Rewind undone");
+                        toast("已撤销还原");
                     } else if let Some(u) = r["undo"].as_str() {
                         let u = u.to_owned();
                         if dialog::ask(
-                            "Rewound",
-                            "Files are back to before this message. Undo?",
-                            vec![Choice::plain("Keep"), Choice::plain("Undo")],
+                            "已还原",
+                            "文件已回到这条消息之前。要撤销还原吗？",
+                            vec![Choice::plain("保留"), Choice::plain("撤销")],
                         )
                         .await
                             == Some(1)
@@ -1607,10 +1609,10 @@ impl Chat {
                             self.rewind(u, true);
                         }
                     } else {
-                        toast("Rewound");
+                        toast("已还原");
                     }
                 }
-                Err(e) => toast(format!("Rewind failed: {e}")),
+                Err(e) => toast(format!("还原失败：{e}")),
             }
         });
     }
@@ -1639,7 +1641,7 @@ impl Chat {
                 Ok(r) if r["admitted"] == json!(false) => toast(
                     r["reason"]
                         .as_str()
-                        .unwrap_or("The workspace is busy")
+                        .unwrap_or("工作区正在处理其他操作")
                         .to_owned(),
                 ),
                 Ok(r) => {
@@ -1648,9 +1650,9 @@ impl Chat {
                         r["session_id"].as_str().map(str::to_owned),
                         r["thread_id"].as_str().map(str::to_owned),
                     );
-                    toast(format!("Continuing with {label}"));
+                    toast(format!("使用 {label} 继续"));
                 }
-                Err(e) => toast(format!("Send failed: {e}")),
+                Err(e) => toast(format!("发送失败：{e}")),
             }
         });
     }
