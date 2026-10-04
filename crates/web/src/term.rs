@@ -1,5 +1,3 @@
-//! xterm.js 终端的绑定，实现在 js/term.js。
-
 use js_sys::Function;
 use wasm_bindgen::prelude::*;
 use web_sys::HtmlElement;
@@ -17,16 +15,16 @@ extern "C" {
     pub fn dispose(this: &Term);
 }
 
-/// 连着的终端；回调要跟它活得一样久。
 pub struct Open {
     pub term: Term,
     _on_state: Closure<dyn Fn(String)>,
 }
 
-/// `on_state` 收到 "open" / "closed"。
 pub fn open(host: &HtmlElement, url: &str, on_state: impl Fn(String) + 'static) -> Open {
     let cb = Closure::<dyn Fn(String)>::new(on_state);
-    let term = open_term(host, url, cb.as_ref().unchecked_ref());
+    let path = url.find("/api/").map_or(url, |start| &url[start..]);
+    let socket_url = crate::api::websocket_url(path);
+    let term = open_term(host, &socket_url, cb.as_ref().unchecked_ref());
     Open {
         term,
         _on_state: cb,

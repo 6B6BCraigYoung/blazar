@@ -27,6 +27,19 @@ pub async fn session() -> Result<(), ApiError> {
     Ok(())
 }
 
+pub fn websocket_url(path: &str) -> String {
+    let location = leptos::prelude::window().location();
+    let scheme = if location.protocol().as_deref() == Ok("https:") {
+        "wss"
+    } else {
+        "ws"
+    };
+    format!(
+        "{scheme}://{}/ws{path}",
+        location.host().unwrap_or_default()
+    )
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ApiError(pub String);
 

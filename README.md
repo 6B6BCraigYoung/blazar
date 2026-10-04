@@ -321,14 +321,14 @@ embeds it and serves it at `/`. Monaco, xterm.js and fonts are vendored in
 ## Contributing
 
 ```bash
-cargo run -p blazar-hub -- --bind 127.0.0.1:7777      # http://127.0.0.1:7777
+BLAZAR_DEV_ORIGIN=http://127.0.0.1:8080 cargo run -p blazar-hub -- --bind 127.0.0.1:7777
 cargo test --workspace
 cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings
 ```
 
 Rust 1.90 is pinned in `rust-toolchain.toml`. With the hub running, use
 `cd crates/web && trunk serve` in another terminal and open `http://127.0.0.1:8080/`.
-API requests and vendored assets are proxied to the hub. For a release, run `trunk build --release`
+HTTP API requests and WebSockets use separate proxies. Browser sessions use an HttpOnly cookie; API and WebSocket requests require a session. The development origin is accepted only through loopback connections. Keep the hub bound to loopback unless remote access is required. For a release, run `trunk build --release`
 before rebuilding the hub so it embeds the latest UI. Check the frontend with
 `cargo clippy -p blazar-web --target wasm32-unknown-unknown -- -D warnings`.
 

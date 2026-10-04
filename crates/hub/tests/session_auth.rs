@@ -119,6 +119,7 @@ async fn credentials_do_not_override_cross_site_checks() {
     for path in [
         "/api/snippets",
         "/api/ws",
+        "/ws/api/ws",
         "/api/auth/session",
     ] {
         let response = app
@@ -221,13 +222,136 @@ async fn embedded_http_and_websocket_share_the_browser_session() {
         .unwrap();
     assert_eq!(allowed.status(), StatusCode::OK);
     let mut socket = tokio::net::TcpStream::connect(address).await.unwrap();
-    socket.write_all(format!("GET /api/ws HTTP/1.1\r\nHost: {address}\r\nOrigin: {origin}\r\nCookie: {cookie}\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n").as_bytes()).await.unwrap();
+    socket.write_all(format!("GET /ws/api/ws HTTP/1.1\r\nHost: {address}\r\nOrigin: {origin}\r\nCookie: {cookie}\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n").as_bytes()).await.unwrap();
     let mut bytes = [0; 4096];
     let read = tokio::time::timeout(std::time::Duration::from_secs(5), socket.read(&mut bytes))
         .await
         .unwrap()
         .unwrap();
     assert!(bytes[..read].starts_with(b"HTTP/1.1 101 "));
+    server.abort();
+}
+
+#[tokio::test]
+#[ignore = "run this test binary directly after cargo test --no-run; requires installed Trunk"]
+async fn trunk_development_proxy_preserves_http_and_authenticated_websocket() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let reserved = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let front = reserved.local_addr().unwrap();
+    let origin = format!("http://{front}");
+    let (app, _, dir, state) = fixture(Some(&origin)).await;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let back = listener.local_addr().unwrap();
+    let server = tokio::spawn(blazar_hub::serve(listener, app));
+    let web = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../web")
+        .canonicalize()
+        .unwrap();
+    let config = std::fs::read_to_string(web.join("Trunk.toml"))
+        .unwrap()
+        .replace("127.0.0.1:7777", &back.to_string())
+        .replace("port = 8080", &format!("port = {}", front.port()))
+        .replace(
+            "target = \"index.html\"",
+            &format!("target = {:?}", web.join("index.html")),
+        )
+        .replace(
+            "dist = \"dist\"",
+            &format!("dist = {:?}", dir.path().join("dist")),
+        );
+    let config_path = dir.path().join("Trunk.toml");
+    std::fs::write(&config_path, config).unwrap();
+    drop(reserved);
+    let log = std::fs::File::create(dir.path().join("trunk.log")).unwrap();
+    let mut trunk = tokio::process::Command::new("trunk")
+        .env_remove("NO_COLOR")
+        .args([
+            "serve",
+            "--offline",
+            "--skip-version-check",
+            "--release",
+            "--no-autoreload",
+            "--no-error-reporting",
+            "--config",
+        ])
+        .arg(&config_path)
+        .current_dir(&web)
+        .kill_on_drop(true)
+        .stdout(log.try_clone().unwrap())
+        .stderr(log)
+        .spawn()
+        .unwrap();
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(300);
+    loop {
+        if let Ok(response) = client.get(format!("{origin}/api/snippets")).send().await
+            && response.status() == StatusCode::UNAUTHORIZED
+        {
+            break;
+        }
+        assert!(
+            trunk.try_wait().unwrap().is_none(),
+            "Trunk exited: {}",
+            std::fs::read_to_string(dir.path().join("trunk.log")).unwrap()
+        );
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "Trunk did not start: {}",
+            std::fs::read_to_string(dir.path().join("trunk.log")).unwrap()
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    }
+    let bootstrap = client
+        .post(format!("{origin}/api/auth/session"))
+        .header("Origin", &origin)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(bootstrap.status(), StatusCode::NO_CONTENT);
+    let cookie = bootstrap.headers()["set-cookie"]
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap();
+    let allowed = client
+        .get(format!("{origin}/api/snippets"))
+        .header("Cookie", cookie)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(allowed.status(), StatusCode::OK);
+    let mut socket = tokio::net::TcpStream::connect(front).await.unwrap();
+    socket.write_all(format!("GET /ws/api/ws HTTP/1.1\r\nHost: {front}\r\nOrigin: {origin}\r\nCookie: {cookie}\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n").as_bytes()).await.unwrap();
+    let mut bytes = [0; 4096];
+    let mut received = Vec::new();
+    let until = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        state.emit(blazar_hub::state::ServerEvent::NodesChanged);
+        if let Ok(Ok(n)) = tokio::time::timeout(
+            std::time::Duration::from_millis(100),
+            socket.read(&mut bytes),
+        )
+        .await
+        {
+            assert_ne!(
+                n,
+                0,
+                "WebSocket closed before the backend event: {}",
+                std::fs::read_to_string(dir.path().join("trunk.log")).unwrap()
+            );
+            received.extend_from_slice(&bytes[..n]);
+            if String::from_utf8_lossy(&received).contains("nodes_changed") {
+                break;
+            }
+        }
+        assert!(
+            tokio::time::Instant::now() < until,
+            "backend event did not reach the proxy client"
+        );
+    }
+    assert!(received.starts_with(b"HTTP/1.1 101 "));
+    trunk.kill().await.unwrap();
     server.abort();
 }
 

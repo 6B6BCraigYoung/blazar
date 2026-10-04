@@ -405,6 +405,17 @@ pub fn build_router(st: Arc<AppState>) -> Router {
         .route("/api/search", get(api::search))
         .route("/api/workspaces/{id}/terminal/ws", get(api::terminal_ws))
         .route("/api/ws", get(api::ws_handler))
+        .nest(
+            "/ws",
+            Router::new()
+                .route("/api/ws", get(api::ws_handler))
+                .route("/api/workspaces/{id}/terminal/ws", get(api::terminal_ws))
+                .route("/api/accounts/{id}/login/ws", get(accounts::login_ws))
+                .route(
+                    "/api/nodes/{name}/login/{runtime}/ws",
+                    get(accounts::node_login_ws),
+                ),
+        )
         .fallback(web)
         .layer(axum::middleware::from_fn_with_state(
             st.clone(),

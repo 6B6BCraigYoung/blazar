@@ -64,13 +64,7 @@ impl Bus {
 }
 
 fn ws_url() -> String {
-    let loc = window().location();
-    let scheme = if loc.protocol().as_deref() == Ok("https:") {
-        "wss"
-    } else {
-        "ws"
-    };
-    format!("{scheme}://{}/api/ws", loc.host().unwrap_or_default())
+    crate::api::websocket_url("/api/ws")
 }
 
 pub fn provide() -> Bus {

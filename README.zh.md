@@ -281,12 +281,12 @@ crates/
 ## 参与贡献
 
 ```bash
-cargo run -p blazar-hub -- --bind 127.0.0.1:7777      # http://127.0.0.1:7777
+BLAZAR_DEV_ORIGIN=http://127.0.0.1:8080 cargo run -p blazar-hub -- --bind 127.0.0.1:7777
 cargo test --workspace
 cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings
 ```
 
-Rust 1.90 钉在 `rust-toolchain.toml`。启动 hub 后，在另一个终端运行 `cd crates/web && trunk serve`，访问 `http://127.0.0.1:8080/`；API 与内置资源会代理到 hub。发布前先运行 `trunk build --release`，再构建 hub，把最新网页嵌入二进制。前端检查：`cargo clippy -p blazar-web --target wasm32-unknown-unknown -- -D warnings`。
+Rust 1.90 钉在 `rust-toolchain.toml`。启动 hub 后，在另一个终端运行 `cd crates/web && trunk serve`，访问 `http://127.0.0.1:8080/`；HTTP API 与 WebSocket 分别代理到 hub。浏览器用 HttpOnly cookie 建立会话，API 与 WebSocket 均需鉴权；开发源只接受经回环连接访问。无远端访问需求时保持回环绑定。发布前先运行 `trunk build --release`，再构建 hub，把最新网页嵌入二进制。前端检查：`cargo clippy -p blazar-web --target wasm32-unknown-unknown -- -D warnings`。
 
 规矩：
 

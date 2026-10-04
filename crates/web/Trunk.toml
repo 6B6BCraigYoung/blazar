@@ -1,5 +1,3 @@
-# 开发：先起 hub（默认 127.0.0.1:7777），再在这里 `trunk serve`，打开 http://127.0.0.1:8080/
-# 发布：`trunk build --release`，产物在 dist/，hub 编译时把它嵌进二进制、挂在 / 下。
 [build]
 target = "index.html"
 dist = "dist"
@@ -12,6 +10,10 @@ port = 8080
 
 [[proxy]]
 backend = "http://127.0.0.1:7777/api/"
+
+[[proxy]]
+backend = "ws://127.0.0.1:7777/"
+rewrite = "/ws/"
 ws = true
 
 [[proxy]]
