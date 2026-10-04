@@ -1,6 +1,3 @@
-//! 底部面板的「预览」：起这个工作区的 dev server，把页面嵌进来看（远端工作区 hub 会自动起 ssh 隧道）。
-//! 还有「脚本…」：Setup / Cleanup / Dev server / 拷贝文件 的配置和最近的运行记录。
-
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use serde::{Deserialize, Serialize};
@@ -11,6 +8,9 @@ use crate::components::toast::toast;
 use crate::fmt;
 use crate::realtime::use_bus;
 use crate::storage;
+
+mod script_draft;
+use script_draft::{ScriptDraft, Scripts};
 
 #[derive(Debug, Clone, PartialEq, Default, Deserialize)]
 #[serde(default)]
@@ -46,15 +46,6 @@ const DEVICES: [(&str, &str, &str, &str); 3] = [
     ("mobile", "手机", "390px", "844px"),
     ("fluid", "自适应", "70%", "100%"),
 ];
-
-#[derive(Debug, Clone, PartialEq, Default, Deserialize)]
-#[serde(default)]
-struct Scripts {
-    setup: String,
-    cleanup: String,
-    dev: String,
-    copy_files: String,
-}
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 struct ScriptRun {
@@ -98,7 +89,6 @@ pub fn PreviewBar(
             let _ = dev.try_set(Some(d));
         });
     };
-    // 切到预览页签、脚本有变化（hub 推 scripts_changed）时重拉。
     let sub = bus.subscribe(move |ev| {
         if let blazar_core_types::api::ServerEvent::ScriptsChanged { workspace_id } = ev
             && workspace_id.to_string() == ws.get_value()
@@ -133,7 +123,6 @@ pub fn PreviewBar(
                         url_override.set(String::new());
                     }
                     if need_poll {
-                        // 地址要等 dev server 打出日志才认得出：隔一会儿再拉几次。
                         for _ in 0..8 {
                             gloo_timers::future::TimeoutFuture::new(1200).await;
                             let Ok(d) = api::get::<Dev>(&format!("/api/workspaces/{id}/dev")).await
@@ -237,7 +226,8 @@ fn ScriptsDialog(
     isolated: Signal<bool>,
     on_close: impl Fn() + Copy + Send + Sync + 'static,
 ) -> impl IntoView {
-    let cfg = RwSignal::new(Scripts::default());
+    let cfg = RwSignal::new(ScriptDraft::default());
+    let busy = RwSignal::new(false);
     let runs = RwSignal::new(Vec::<ScriptRun>::new());
     let ws = StoredValue::new(ws);
     let load_runs = move || {
@@ -250,22 +240,29 @@ fn ScriptsDialog(
             }
         });
     };
-    {
+    let load_config = move || {
         let id = ws.get_value();
+        cfg.set(ScriptDraft::default());
         spawn_local(async move {
-            if let Ok(c) = api::get::<Scripts>(&format!("/api/workspaces/{id}/scripts")).await {
-                let _ = cfg.try_set(c);
-            }
+            let result = api::get::<Scripts>(&format!("/api/workspaces/{id}/scripts"))
+                .await
+                .map_err(|error| error.to_string());
+            let _ = cfg.try_set(ScriptDraft::loaded(result));
         });
-        load_runs();
-    }
+    };
+    load_config();
+    load_runs();
     let save = move || {
         let id = ws.get_value();
-        let c = cfg.get_untracked();
+        let c = cfg
+            .with_untracked(ScriptDraft::for_save)
+            .map_err(api::ApiError);
         async move {
+            let c = c?;
             api::send::<Value>("PUT", &format!("/api/workspaces/{id}/scripts"), &json!({ "setup": c.setup, "cleanup": c.cleanup, "dev": c.dev, "copy_files": c.copy_files })).await
         }
     };
+    let blocked = move || busy.get() || !cfg.with(ScriptDraft::ready);
     let field = move |label: &'static str,
                       ph: &'static str,
                       rows: &'static str,
@@ -273,17 +270,23 @@ fn ScriptsDialog(
                       set: fn(&mut Scripts, String)| {
         view! {
             <label class="field">{label}
-                <textarea class="mono" rows=rows placeholder=ph prop:value=move || cfg.with(get) on:input=move |e| { let v = event_target_value(&e); cfg.update(|c| set(c, v)); }></textarea>
+                <textarea class="mono" rows=rows placeholder=ph disabled=blocked prop:value=move || cfg.with(|draft| draft.value().map(get).unwrap_or_default()) on:input=move |e| { let v = event_target_value(&e); cfg.update(|draft| draft.edit(|c| set(c, v))); }></textarea>
             </label>
         }
     };
     let run = move |kind: &'static str| {
+        if busy.get_untracked() || !cfg.with_untracked(ScriptDraft::ready) {
+            return;
+        }
+        busy.set(true);
+        let id = ws.get_value();
+        let saved = save();
         spawn_local(async move {
-            if let Err(e) = save().await {
+            if let Err(e) = saved.await {
                 toast(e.to_string());
+                let _ = busy.try_set(false);
                 return;
             }
-            let id = ws.get_value();
             match api::send::<Value>(
                 "POST",
                 &format!("/api/workspaces/{id}/scripts/{kind}/run"),
@@ -293,10 +296,16 @@ fn ScriptsDialog(
             {
                 Ok(_) => {
                     toast("开始跑了，结果会出现在下面");
-                    load_runs();
+                    if let Ok(result) =
+                        api::get::<Vec<ScriptRun>>(&format!("/api/workspaces/{id}/script-runs"))
+                            .await
+                    {
+                        let _ = runs.try_set(result);
+                    }
                 }
                 Err(e) => toast(e.to_string()),
             }
+            let _ = busy.try_set(false);
         });
     };
     view! {
@@ -304,15 +313,27 @@ fn ScriptsDialog(
             <div class="dlg wide" on:click=|e| e.stop_propagation()>
                 <h3>"脚本"</h3>
                 <div class="dlg-body small">"都在工作区所在的机器上、工作区目录里执行，和在终端里手敲一样。同一个源仓库新建的隔离工作区会沿用这份配置。"</div>
+                {move || cfg.with(|draft| {
+                    if let Some(error) = &draft.error {
+                        view! {
+                            <p class="err-line" role="alert">{format!("脚本设置加载失败：{error}")}</p>
+                            <button class="btn" disabled=move || busy.get() on:click=move |_| load_config()>"重试"</button>
+                        }.into_any()
+                    } else if !draft.ready() {
+                        view! { <p class="muted">"加载脚本设置…"</p> }.into_any()
+                    } else {
+                        ().into_any()
+                    }
+                })}
                 {field("Setup —— 隔离工作区建好后、agent 开工前跑一次（装依赖、生成代码…）", "npm ci", "3", |c| c.setup.clone(), |c, v| c.setup = v)}
                 {field("Cleanup —— 每轮正常结束且有改动时跑（格式化、lint --fix…）", "npm run format", "3", |c| c.cleanup.clone(), |c, v| c.cleanup = v)}
                 {field("Dev server —— 预览面板用它起服务", "npm run dev", "2", |c| c.dev.clone(), |c, v| c.dev = v)}
                 {field("拷贝文件 —— 建隔离工作区时从源仓库带进来的、被 git 忽略的文件，一行一个（支持 glob）", ".env\nconfig/*.local.json", "3", |c| c.copy_files.clone(), |c, v| c.copy_files = v)}
                 <div class="row-actions">
                     <span class="muted small">"保存并测试："</span>
-                    <button class="btn small" on:click=move |_| run("setup")>"Setup"</button>
-                    <button class="btn small" on:click=move |_| run("cleanup")>"Cleanup"</button>
-                    <button class="btn small" disabled=move || !isolated.get() title=move || if isolated.get() { "" } else { "只有隔离工作区才有源仓库可拷" } on:click=move |_| run("copy")>"拷贝文件"</button>
+                    <button class="btn small" disabled=blocked on:click=move |_| run("setup")>"Setup"</button>
+                    <button class="btn small" disabled=blocked on:click=move |_| run("cleanup")>"Cleanup"</button>
+                    <button class="btn small" disabled=move || blocked() || !isolated.get() title=move || if isolated.get() { "" } else { "只有隔离工作区才有源仓库可拷" } on:click=move |_| run("copy")>"拷贝文件"</button>
                 </div>
                 <h5 class="sub-h">"最近的运行"</h5>
                 <div class="sc-runs">
@@ -337,9 +358,18 @@ fn ScriptsDialog(
                 </div>
                 <div class="dlg-foot">
                     <button class="btn" on:click=move |_| on_close()>"关闭"</button>
-                    <button class="btn primary" on:click=move |_| spawn_local(async move {
-                        match save().await { Ok(_) => { toast("已保存"); on_close(); } Err(e) => toast(e.to_string()) }
-                    })>"保存"</button>
+                    <button class="btn primary" disabled=blocked on:click=move |_| {
+                        if busy.get_untracked() || !cfg.with_untracked(ScriptDraft::ready) { return; }
+                        busy.set(true);
+                        let saved = save();
+                        spawn_local(async move {
+                            match saved.await {
+                                Ok(_) => { toast("已保存"); if !busy.is_disposed() { on_close(); } }
+                                Err(e) => toast(e.to_string()),
+                            }
+                            let _ = busy.try_set(false);
+                        });
+                    }>"保存"</button>
                 </div>
             </div>
         </div>
