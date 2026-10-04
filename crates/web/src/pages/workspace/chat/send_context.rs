@@ -1,4 +1,10 @@
 use serde_json::{Value, json};
+use std::collections::HashMap;
+
+pub fn clear_view_pending<T, U>(pending: &mut Vec<T>, orphans: &mut HashMap<String, U>) {
+    pending.clear();
+    orphans.clear();
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SendContext {
@@ -51,5 +57,14 @@ mod tests {
             captured.queue_request(&json!({"text":"hello"}))["thread_id"],
             Value::Null
         );
+    }
+
+    #[test]
+    fn switching_conversations_removes_stale_optimistic_messages() {
+        let mut pending = vec!["message from thread-a"];
+        let mut orphans = HashMap::from([("session-a".into(), vec!["live reply"])]);
+        clear_view_pending(&mut pending, &mut orphans);
+        assert!(pending.is_empty());
+        assert!(orphans.is_empty());
     }
 }

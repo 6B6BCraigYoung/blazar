@@ -24,7 +24,7 @@ use delivery::{steer_request, take_composer};
 
 #[path = "send_context.rs"]
 mod send_context;
-use send_context::SendContext;
+use send_context::{SendContext, clear_view_pending};
 
 #[path = "history.rs"]
 mod history;
@@ -743,6 +743,7 @@ impl Chat {
 
     pub fn activate(self, id: Option<String>) {
         self.view_revision.update_value(|r| *r = r.wrapping_add(1));
+        clear_view_pending(&mut self.pending.write(), &mut self.orphans.write_value());
         self.tabs.update(|t| {
             if !t.contains(&id) {
                 t.push(id.clone());
@@ -806,6 +807,7 @@ impl Chat {
         let view = self.view.get_untracked();
         let (changed, request) = self.history_requests.write_value().begin(view.clone());
         if changed {
+            clear_view_pending(&mut self.pending.write(), &mut self.orphans.write_value());
             self.sessions.set_value(view.iter().cloned().collect());
             self.seen.set_value(HashSet::new());
             self.rows.set(Vec::new());
