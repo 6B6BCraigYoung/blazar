@@ -33,41 +33,16 @@ pub async fn request(hub: &str, method: &str, path: &str, body: Option<Value>) -
     stream.write_all(req.as_bytes()).await?;
     let mut raw = Vec::new();
     stream.read_to_end(&mut raw).await?;
-    let text = String::from_utf8_lossy(&raw);
-    let (head, rest) = text
-        .split_once("\r\n\r\n")
-        .context("hub 返回的不是合法 HTTP 响应")?;
-    let status = head
-        .split_whitespace()
-        .nth(1)
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0);
-    let body = decode(head, rest);
-    Ok(Reply {
-        status,
-        body: serde_json::from_str(&body).unwrap_or(Value::String(body)),
-    })
+    parse_response(&raw)
 }
 
-fn decode(head: &str, rest: &str) -> String {
-    if !head
-        .to_ascii_lowercase()
-        .contains("transfer-encoding: chunked")
-    {
-        return rest.to_owned();
-    }
-    let (mut out, mut s) = (String::new(), rest);
-    while let Some((size, tail)) = s.split_once("\r\n") {
-        let Ok(n) = usize::from_str_radix(size.trim().split(';').next().unwrap_or("0"), 16) else {
-            break;
-        };
-        if n == 0 || tail.len() < n {
-            break;
-        }
-        out.push_str(&tail[..n]);
-        s = tail[n..].trim_start_matches("\r\n");
-    }
-    out
+fn parse_response(raw: &[u8]) -> Result<Reply> {
+    let response = blazar_core_types::http::decode_response(raw)?;
+    let body = String::from_utf8(response.body).context("hub 返回的 HTTP 正文不是合法 UTF-8")?;
+    Ok(Reply {
+        status: response.status,
+        body: serde_json::from_str(&body).unwrap_or(Value::String(body)),
+    })
 }
 
 fn enc(v: &str) -> String {
@@ -318,12 +293,28 @@ mod tests {
 
     #[test]
     fn chunked_bodies_are_reassembled() {
-        let head = "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked";
         assert_eq!(
-            decode(head, "5\r\nhello\r\n6\r\n world\r\n0\r\n\r\n"),
-            "hello world"
+            parse_response(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n6\r\n world\r\n0\r\n\r\n").unwrap().body,
+            json!("hello world")
         );
-        assert_eq!(decode("HTTP/1.1 200 OK", "plain"), "plain");
+        assert_eq!(
+            parse_response(b"HTTP/1.1 200 OK\r\n\r\nplain")
+                .unwrap()
+                .body,
+            json!("plain")
+        );
+    }
+
+    #[test]
+    fn chunked_response_preserves_split_utf8() {
+        let raw = b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n1\r\n\xe4\r\n2\r\n\xb8\xad\r\n0\r\n\r\n";
+        assert_eq!(parse_response(raw).unwrap().body, json!("中"));
+    }
+
+    #[test]
+    fn truncated_chunked_response_is_an_error() {
+        let raw = b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhi";
+        assert!(parse_response(raw).is_err());
     }
 
     #[test]
