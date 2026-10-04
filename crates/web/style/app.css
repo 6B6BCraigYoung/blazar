@@ -473,3 +473,24 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
   .runtimes-page .acc-row.head { display: flex; justify-content: flex-end; }
   .runtimes-page .acc-row.head > span:not(:last-child) { display: none; }
 }
+
+.nodes-page .nodes-intro { margin: 0 0 var(--space-section); }
+.nodes-page .node-card { cursor: default; min-width: 0; }
+.nodes-page .node-name { color: var(--fg); font-weight: var(--font-weight-semibold); flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.nodes-page .node-card .act { opacity: 1; flex-wrap: wrap; margin-top: auto; padding-top: var(--space-sm); }
+.nodes-page .nodes-details, .nodes-dialog .nodes-details { margin: var(--space-sm) 0; min-width: 0; }
+.nodes-page .nodes-details > summary, .nodes-dialog .nodes-details > summary, .nodes-page .nodes-maintenance > summary { cursor: pointer; color: var(--fg-2); font-size: var(--font-size-label); width: fit-content; }
+.nodes-page .nodes-details[open] > summary, .nodes-dialog .nodes-details[open] > summary { margin-bottom: var(--space-control); }
+.nodes-page .nodes-details p, .nodes-dialog .nodes-details p { margin: var(--space-sm) 0; }
+.nodes-page .nodes-details .kv .v, .nodes-dialog .nodes-details .kv .v { overflow: visible; text-overflow: clip; overflow-wrap: anywhere; white-space: pre-wrap; }
+.nodes-page .nodes-details .mono, .nodes-dialog .nodes-details .mono { overflow-wrap: anywhere; white-space: pre-wrap; }
+.nodes-page .nodes-section-heading { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-control); margin: var(--space-2xl) 0 var(--space-control); }
+.nodes-page .nodes-section-heading h2 { margin: 0; font-size: var(--font-size-section-title); font-weight: var(--font-weight-semibold); }
+.nodes-page .nodes-form, .nodes-dialog .nodes-form { border: 0; padding: 0; margin: 0; min-width: 0; }
+.nodes-page .nodes-table { max-width: 100%; overflow-x: auto; }
+.nodes-page .nodes-table .tb { min-width: 420px; }
+.nodes-page .nodes-maintenance > summary { color: var(--fg); font-weight: var(--font-weight-medium); font-size: var(--font-size-card-title); }
+.nodes-page .nodes-maintenance[open] > summary { margin-bottom: var(--space-lg); }
+.nodes-dialog .ssh-row { white-space: normal; align-items: flex-start; }
+.nodes-dialog .ssh-row .mono.muted { overflow-wrap: anywhere; }
+.nodes-page .nodes-table td > .dot { display: inline-block; }
