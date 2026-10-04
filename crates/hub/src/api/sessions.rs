@@ -154,6 +154,27 @@ pub async fn prompt(
     Path(id): Path<String>,
     Json(req): Json<PromptRequest>,
 ) -> ApiResult<Json<serde_json::Value>> {
+    let transports = st.clone();
+    prompt_using(st, id, req, move |node| transports.transport(node)).await
+}
+
+async fn prompt_using(
+    st: Shared,
+    id: String,
+    req: PromptRequest,
+    transport_for: impl Fn(&str) -> Arc<dyn blazar_transport::NodeTransport> + Send + Sync + 'static,
+) -> ApiResult<Json<serde_json::Value>> {
+    tokio::spawn(prompt_inner(st, id, req, transport_for))
+        .await
+        .map_err(ApiError::from)?
+}
+
+async fn prompt_inner(
+    st: Shared,
+    id: String,
+    req: PromptRequest,
+    transport_for: impl Fn(&str) -> Arc<dyn blazar_transport::NodeTransport> + Send + Sync,
+) -> ApiResult<Json<serde_json::Value>> {
     for key in req.env.keys() {
         blazar_transport::validate_env_key(key)
             .map_err(|error| ApiError::bad_request(error.to_string()))?;
@@ -368,290 +389,350 @@ pub async fn prompt(
     .execute(st.db.pool())
     .await?;
 
-    crate::tasks::on_run_started(&st, &thread_id).await;
+    let mut attempted: Option<crate::run::Ctx> = None;
+    let result: ApiResult<Json<serde_json::Value>> = async {
+        let hook_ctx = blazar_hooks::HookContext {
+            workspace: id.clone(),
+            node: node.clone(),
+            cwd: path.clone(),
+            session_id: session_id.to_string(),
+            tool_name: None,
+            extra: Default::default(),
+        };
+        if let Some(reason) = fire_hooks(
+            &st,
+            blazar_hooks::HookEvent::TurnStart,
+            hook_ctx.clone(),
+            Some(transport_for(&node)),
+        )
+        .await
+        {
+            fail_start(&st, session_id, workspace_id, &reason).await?;
+            return Ok(Json(serde_json::json!({
+                "session_id": session_id.to_string(),
+                "blocked_by_hook": reason,
+            })));
+        }
 
-    let hook_ctx = blazar_hooks::HookContext {
-        workspace: id.clone(),
-        node: node.clone(),
-        cwd: path.clone(),
-        session_id: session_id.to_string(),
-        tool_name: None,
-        extra: Default::default(),
-    };
-    if let Some(reason) = fire_hooks(
-        &st,
-        blazar_hooks::HookEvent::TurnStart,
-        hook_ctx.clone(),
-        Some(st.transport(&node)),
-    )
-    .await
-    {
-        let entry = NormalizedEntry {
+        let cfg = effective_agent_config(&st, &run_node, agent_id).await;
+
+        let cwd = if local_brain {
+            brain_dir(&st, &id)?
+        } else {
+            path.clone()
+        };
+        let handover = match prior.as_ref().filter(|_| switched) {
+            Some(p) => {
+                crate::chat::preface(
+                    &st,
+                    &p.0,
+                    &now,
+                    "此前由另一个 AI 助手完成，工作区里的文件就是它改过之后的样子。",
+                )
+                .await
+            }
+            None => String::new(),
+        };
+        let mut spec = SessionSpec::new(
+            &cwd,
+            format!(
+                "{handover}{}",
+                with_editor_context(&req.text, req.context_file.as_deref())
+            ),
+        );
+
+        let mut env: std::collections::BTreeMap<String, String> = if local_brain {
+            Default::default()
+        } else {
+            task_env_of(&st, &id)
+                .await
+                .ok()
+                .flatten()
+                .map(|te| te.env_vars())
+                .unwrap_or_default()
+        };
+        env.extend(req.env);
+        spec.env = env;
+        spec.disallowed_tools = req.disallowed_tools;
+        spec.permission_mode = req.permission_mode;
+
+        spec.model = req.model.filter(|m| {
+            !m.is_empty()
+                && m.len() <= 80
+                && m.chars()
+                    .all(|c| c.is_ascii_alphanumeric() || "-_.:[]/".contains(c))
+        });
+        spec.effort = req
+            .effort
+            .filter(|e| blazar_runtime::cli_runtime::EFFORTS.contains(&e.as_str()));
+        spec.images = req.images.clone();
+        spec.output_style = req
+            .output_style
+            .clone()
+            .filter(|s| blazar_runtime::valid_style(s.trim()));
+        spec.fast_mode = req.fast_mode;
+        spec.thinking = req.thinking;
+        spec.resume_at = resume_at;
+
+        if let Some(m) = crate::office::mcp_spec(&st).await {
+            spec.mcp_servers.push(m);
+        }
+
+        if let Some(p) = &profile {
+            let caps = crate::library::for_agent(&st, &p.id).await;
+            apply_profile(&mut spec, p, caps);
+        }
+        if let Some(c) = &cfg {
+            apply_runtime_config(&mut spec, c);
+        }
+        if let Some((k, v)) = account.as_ref().and_then(|a| a.env.clone()) {
+            spec.env.entry(k).or_insert(v);
+        }
+        if let Some((k, p)) = account.as_ref().and_then(|a| a.token_file.clone())
+            && !spec.env.contains_key(&k)
+        {
+            spec.env_files.insert(k, p);
+        }
+        if run_node != "local" {
+            for (k, v) in crate::proxy::node_net_env(&st, &run_node).await {
+                spec.env.entry(k).or_insert(v);
+            }
+        }
+        if let Some((base, secret)) = proxy_env {
+            spec.env.insert("ANTHROPIC_BASE_URL".into(), base);
+            spec.env.insert("CLAUDE_CODE_OAUTH_TOKEN".into(), secret);
+            crate::proxy::bypass_loopback(&mut spec.env);
+            spec.env.remove("ANTHROPIC_API_KEY");
+            spec.env.remove("ANTHROPIC_AUTH_TOKEN");
+        }
+        if local_brain {
+            let exe = std::env::current_exe()
+                .map_err(|e| ApiError(anyhow::anyhow!("找不到本程序路径，无法挂远端工具: {e}")))?;
+            spec.remote_hands = Some(blazar_runtime::RemoteHands {
+                node: node.clone(),
+                root: path.clone(),
+                command: exe.display().to_string(),
+                args: vec![
+                    blazar_mcp::remote::SUBCOMMAND.to_owned(),
+                    "--node".into(),
+                    node.clone(),
+                    "--root".into(),
+                    path.clone(),
+                ],
+            });
+        }
+
+        let mut runtime = CliRuntime::by_id(transport_for(&run_node), agent_id)
+            .ok_or_else(|| ApiError(anyhow::anyhow!("未知 agent: {agent_id}")))?;
+
+        if let Some(p) = cfg.as_ref().and_then(|c| c.program_path.clone()) {
+            runtime = runtime.with_program(p);
+        } else if agent_id == "dsh"
+            && run_node == "local"
+            && let Some(js) = dsh_entry()
+        {
+            runtime = runtime.with_program(js);
+        }
+
+        let interactive = runtime.interactive();
+        let resume_pid = resume_id.clone().map(ProviderSessionId);
+        let new_pid = resume_pid
+            .is_none()
+            .then(crate::run::new_provider_session_id);
+        let plan = runtime.detached_plan(
+            &spec,
+            resume_pid.as_ref(),
+            new_pid.as_ref().map(|p| p.0.as_str()),
+        );
+
+        if st.services == crate::services::Services::Interactive
+            && let Some(snap) = crate::checkpoint::snapshot(&st, &node, &path).await
+        {
+            crate::checkpoint::record(&st, &id, snap, Some(&session_id.to_string()), Some(1), "").await;
+        }
+        let transport = transport_for(&run_node);
+        let root = resolve_run_root(transport.clone(), &run_node).await?;
+        let run = blazar_transport::detached::DetachedRun::attach(
+            transport.clone(), root.join(session_id.to_string()).display().to_string(), session_id.to_string(),
+        );
+        sqlx::query(
+            "UPDATE sessions SET run_dir = ?1, node = ?2, interactive = ?3,
+                    provider_session_id = COALESCE(?4, provider_session_id)
+             WHERE id = ?5",
+        )
+        .bind(&run.dir)
+        .bind(&run_node)
+        .bind(i64::from(interactive))
+        .bind(new_pid.as_ref().map(|p| p.0.clone()))
+        .bind(session_id.to_string())
+        .execute(st.db.pool())
+        .await?;
+
+        let user_entry = NormalizedEntry {
             seq: 1,
             ts: Utc::now(),
             parent_tool_use_id: None,
-            kind: blazar_core_types::EntryKind::Finished(blazar_core_types::Outcome::Failed {
-                message: reason.clone(),
-            }),
+            kind: blazar_core_types::EntryKind::UserMessage {
+                text: with_image_note(&req.text, req.images.len()),
+            },
         };
-        st.db.append_event(session_id, workspace_id, &entry).await?;
+        st.db
+            .append_event(session_id, workspace_id, &user_entry)
+            .await?;
         st.emit(ServerEvent::Entry {
             workspace_id,
             session_id,
-            entry: Box::new(entry),
+            entry: Box::new(user_entry),
         });
-        st.emit(ServerEvent::WorkspacesChanged);
-        return Ok(Json(serde_json::json!({
+
+        let live = Arc::new(crate::run::Live {
+            run,
+            interactive,
+            state: tokio::sync::Mutex::new(crate::run::LiveState {
+                next_seq: 2,
+
+                pending_user: u32::from(interactive && !is_slash_command(&req.text)),
+                user_no: 1,
+                eof_sent: false,
+                interrupt_requested: false,
+                bg: std::collections::HashSet::new(),
+                idle: false,
+            }),
+        });
+
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel::<Result<(), String>>();
+        let ctx = crate::run::Ctx {
+            st: st.clone(),
+            sid: session_id,
+            ws: workspace_id,
+            node: run_node.clone(),
+            live: live.clone(),
+            runtime: Arc::new(runtime),
+            hook: hook_ctx,
+        };
+        attempted = Some(ctx.clone());
+        blazar_transport::detached::DetachedRun::launch_in(
+            transport,
+            &root,
+            &session_id.to_string(),
+            &plan.spec,
+            plan.first_input.as_deref(),
+            plan.mode,
+        )
+        .await
+        .map_err(|e| ApiError(anyhow::anyhow!("在 {run_node} 上启动 agent 失败: {e}")))?;
+        crate::tasks::on_run_started(&st, &thread_id).await;
+        crate::run::register(ctx, 0, Some(started_tx)).await;
+        attempted = None;
+
+        let activity = if req.wait_secs > 0 {
+            match tokio::time::timeout(std::time::Duration::from_secs(req.wait_secs), started_rx).await
+            {
+                Ok(Ok(Ok(()))) => serde_json::json!({ "started": true }),
+                Ok(Ok(Err(msg))) => serde_json::json!({
+                    "started": false, "failed": true, "reason": msg,
+                    "failure_class": blazar_core_types::FailureClass::classify(&msg),
+                }),
+
+                Ok(Err(_)) => serde_json::json!({
+                    "started": false, "stalled": true, "reason": "会话在产出任何事件前就结束了",
+                }),
+                Err(_) => serde_json::json!({
+                    "started": false, "stalled": true,
+                    "reason": format!("{} 秒内未观察到 agent 活动（检查 CLI 是否安装、凭据与网络出口）",
+                                      req.wait_secs),
+                }),
+            }
+        } else {
+            serde_json::json!({ "started": null })
+        };
+
+        Ok(Json(serde_json::json!({
             "session_id": session_id.to_string(),
-            "blocked_by_hook": reason,
-        })));
+            "thread_id": thread_id,
+            "resumed": resume_id.is_some(),
+            "node": node,
+
+            "brain": if local_brain { "local" } else { "node" },
+            "account": account.as_ref().map(|a| a.id.clone()),
+            "run_node": run_node,
+            "activity": activity,
+
+            "interactive": interactive,
+        })))
     }
-
-    let cfg = effective_agent_config(&st, &run_node, agent_id).await;
-
-    let cwd = if local_brain {
-        brain_dir(&st, &id)?
-    } else {
-        path.clone()
-    };
-    let handover = match prior.as_ref().filter(|_| switched) {
-        Some(p) => {
-            crate::chat::preface(
-                &st,
-                &p.0,
-                &now,
-                "此前由另一个 AI 助手完成，工作区里的文件就是它改过之后的样子。",
-            )
-            .await
+    .await;
+    if let Err(error) = result {
+        if let Some(ctx) = attempted
+            && let Err(cleanup) = ctx.live.run.hard_kill().await
+        {
+            crate::run::register(ctx, 0, None).await;
+            return Err(ApiError(anyhow::anyhow!(
+                "{}；停止启动中的进程失败: {cleanup}。已保留运行记录并继续检查，请勿重复启动",
+                error.message(),
+            )));
         }
-        None => String::new(),
-    };
-    let mut spec = SessionSpec::new(
-        &cwd,
-        format!(
-            "{handover}{}",
-            with_editor_context(&req.text, req.context_file.as_deref())
-        ),
-    );
-
-    let mut env: std::collections::BTreeMap<String, String> = if local_brain {
-        Default::default()
-    } else {
-        task_env_of(&st, &id)
-            .await
-            .ok()
-            .flatten()
-            .map(|te| te.env_vars())
-            .unwrap_or_default()
-    };
-    env.extend(req.env);
-    spec.env = env;
-    spec.disallowed_tools = req.disallowed_tools;
-    spec.permission_mode = req.permission_mode;
-
-    spec.model = req.model.filter(|m| {
-        !m.is_empty()
-            && m.len() <= 80
-            && m.chars()
-                .all(|c| c.is_ascii_alphanumeric() || "-_.:[]/".contains(c))
-    });
-    spec.effort = req
-        .effort
-        .filter(|e| blazar_runtime::cli_runtime::EFFORTS.contains(&e.as_str()));
-    spec.images = req.images.clone();
-    spec.output_style = req
-        .output_style
-        .clone()
-        .filter(|s| blazar_runtime::valid_style(s.trim()));
-    spec.fast_mode = req.fast_mode;
-    spec.thinking = req.thinking;
-    spec.resume_at = resume_at;
-
-    if let Some(m) = crate::office::mcp_spec(&st).await {
-        spec.mcp_servers.push(m);
-    }
-
-    if let Some(p) = &profile {
-        let caps = crate::library::for_agent(&st, &p.id).await;
-        apply_profile(&mut spec, p, caps);
-    }
-    if let Some(c) = &cfg {
-        apply_runtime_config(&mut spec, c);
-    }
-    if let Some((k, v)) = account.as_ref().and_then(|a| a.env.clone()) {
-        spec.env.entry(k).or_insert(v);
-    }
-    if let Some((k, p)) = account.as_ref().and_then(|a| a.token_file.clone())
-        && !spec.env.contains_key(&k)
-    {
-        spec.env_files.insert(k, p);
-    }
-    if run_node != "local" {
-        for (k, v) in crate::proxy::node_net_env(&st, &run_node).await {
-            spec.env.entry(k).or_insert(v);
+        if let Err(compensation) = fail_start(&st, session_id, workspace_id, &error.message()).await
+        {
+            return Err(ApiError(anyhow::anyhow!(
+                "{}；保存启动失败状态时出错: {}",
+                error.message(),
+                compensation.message()
+            )));
         }
+        return Err(error);
     }
-    if let Some((base, secret)) = proxy_env {
-        spec.env.insert("ANTHROPIC_BASE_URL".into(), base);
-        spec.env.insert("CLAUDE_CODE_OAUTH_TOKEN".into(), secret);
-        crate::proxy::bypass_loopback(&mut spec.env);
-        spec.env.remove("ANTHROPIC_API_KEY");
-        spec.env.remove("ANTHROPIC_AUTH_TOKEN");
-    }
-    if local_brain {
-        let exe = std::env::current_exe()
-            .map_err(|e| ApiError(anyhow::anyhow!("找不到本程序路径，无法挂远端工具: {e}")))?;
-        spec.remote_hands = Some(blazar_runtime::RemoteHands {
-            node: node.clone(),
-            root: path.clone(),
-            command: exe.display().to_string(),
-            args: vec![
-                blazar_mcp::remote::SUBCOMMAND.to_owned(),
-                "--node".into(),
-                node.clone(),
-                "--root".into(),
-                path.clone(),
-            ],
-        });
-    }
+    result
+}
 
-    let mut runtime = CliRuntime::by_id(st.transport(&run_node), agent_id)
-        .ok_or_else(|| ApiError(anyhow::anyhow!("未知 agent: {agent_id}")))?;
+async fn resolve_run_root(
+    transport: Arc<dyn blazar_transport::NodeTransport>,
+    node: &str,
+) -> ApiResult<std::path::PathBuf> {
+    let output = transport
+        .exec(
+            blazar_transport::ExecSpec::new("bash")
+                .arg("-lc")
+                .arg("printf '__BLAZAR_RUNS_ROOT__ %s\\n' \"$HOME/.blazar/runs\""),
+        )
+        .await?
+        .ok()?;
+    let root = output
+        .lines()
+        .find_map(|line| line.strip_prefix("__BLAZAR_RUNS_ROOT__ "))
+        .map(std::path::PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .ok_or_else(|| ApiError(anyhow::anyhow!("无法确定 {node} 的运行目录")))?;
+    Ok(root)
+}
 
-    if let Some(p) = cfg.as_ref().and_then(|c| c.program_path.clone()) {
-        runtime = runtime.with_program(p);
-    } else if agent_id == "dsh"
-        && run_node == "local"
-        && let Some(js) = dsh_entry()
-    {
-        runtime = runtime.with_program(js);
-    }
-
-    let interactive = runtime.interactive();
-    let resume_pid = resume_id.clone().map(ProviderSessionId);
-    let new_pid = resume_pid
-        .is_none()
-        .then(crate::run::new_provider_session_id);
-    let plan = runtime.detached_plan(
-        &spec,
-        resume_pid.as_ref(),
-        new_pid.as_ref().map(|p| p.0.as_str()),
-    );
-
-    if let Some(snap) = crate::checkpoint::snapshot(&st, &node, &path).await {
-        crate::checkpoint::record(&st, &id, snap, Some(&session_id.to_string()), Some(1), "").await;
-    }
-    let transport = st.transport(&run_node);
-    let run = blazar_transport::detached::DetachedRun::launch(
-        transport,
-        &session_id.to_string(),
-        &plan.spec,
-        plan.first_input.as_deref(),
-        plan.mode,
-    )
-    .await
-    .map_err(|e| ApiError(anyhow::anyhow!("在 {run_node} 上启动 agent 失败: {e}")))?;
-    sqlx::query(
-        "UPDATE sessions SET run_dir = ?1, node = ?2, interactive = ?3,
-                provider_session_id = COALESCE(?4, provider_session_id)
-         WHERE id = ?5",
-    )
-    .bind(&run.dir)
-    .bind(&run_node)
-    .bind(i64::from(interactive))
-    .bind(new_pid.as_ref().map(|p| p.0.clone()))
-    .bind(session_id.to_string())
-    .execute(st.db.pool())
-    .await?;
-
-    let user_entry = NormalizedEntry {
-        seq: 1,
+async fn fail_start(st: &Shared, sid: SessionId, ws: WorkspaceId, message: &str) -> ApiResult<()> {
+    let mut tx = st.db.pool().begin_with("BEGIN IMMEDIATE").await?;
+    sqlx::query("UPDATE sessions SET status = 'failed' WHERE id = ?1")
+        .bind(sid.to_string())
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("UPDATE workspaces SET activity = 'idle' WHERE id = ?1")
+        .bind(ws.to_string())
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    let entry = NormalizedEntry {
+        seq: st.db.max_seq(sid).await? + 1,
         ts: Utc::now(),
         parent_tool_use_id: None,
-        kind: blazar_core_types::EntryKind::UserMessage {
-            text: with_image_note(&req.text, req.images.len()),
-        },
-    };
-    st.db
-        .append_event(session_id, workspace_id, &user_entry)
-        .await?;
-    st.emit(ServerEvent::Entry {
-        workspace_id,
-        session_id,
-        entry: Box::new(user_entry),
-    });
-
-    let live = Arc::new(crate::run::Live {
-        run,
-        interactive,
-        state: tokio::sync::Mutex::new(crate::run::LiveState {
-            next_seq: 2,
-
-            pending_user: u32::from(interactive && !is_slash_command(&req.text)),
-            user_no: 1,
-            eof_sent: false,
-            interrupt_requested: false,
-            bg: std::collections::HashSet::new(),
-            idle: false,
+        kind: blazar_core_types::EntryKind::Finished(blazar_core_types::Outcome::Failed {
+            message: message.to_owned(),
         }),
+    };
+    st.db.append_event(sid, ws, &entry).await?;
+    st.emit(ServerEvent::Entry {
+        workspace_id: ws,
+        session_id: sid,
+        entry: Box::new(entry),
     });
-
-    let (started_tx, started_rx) = tokio::sync::oneshot::channel::<Result<(), String>>();
-    let ctx = crate::run::Ctx {
-        st: st.clone(),
-        sid: session_id,
-        ws: workspace_id,
-        node: run_node.clone(),
-        live: live.clone(),
-        runtime: Arc::new(runtime),
-        hook: hook_ctx,
-    };
-    let task = tokio::spawn(crate::run::supervise(ctx, 0, Some(started_tx)));
-    st.running.write().await.insert(
-        session_id,
-        RunningSession {
-            workspace_id,
-            task,
-            killer: None,
-            live: Some(live),
-        },
-    );
-
-    let activity = if req.wait_secs > 0 {
-        match tokio::time::timeout(std::time::Duration::from_secs(req.wait_secs), started_rx).await
-        {
-            Ok(Ok(Ok(()))) => serde_json::json!({ "started": true }),
-            Ok(Ok(Err(msg))) => serde_json::json!({
-                "started": false, "failed": true, "reason": msg,
-                "failure_class": blazar_core_types::FailureClass::classify(&msg),
-            }),
-
-            Ok(Err(_)) => serde_json::json!({
-                "started": false, "stalled": true, "reason": "会话在产出任何事件前就结束了",
-            }),
-            Err(_) => serde_json::json!({
-                "started": false, "stalled": true,
-                "reason": format!("{} 秒内未观察到 agent 活动（检查 CLI 是否安装、凭据与网络出口）",
-                                  req.wait_secs),
-            }),
-        }
-    } else {
-        serde_json::json!({ "started": null })
-    };
-
-    Ok(Json(serde_json::json!({
-        "session_id": session_id.to_string(),
-        "thread_id": thread_id,
-        "resumed": resume_id.is_some(),
-        "node": node,
-
-        "brain": if local_brain { "local" } else { "node" },
-        "account": account.as_ref().map(|a| a.id.clone()),
-        "run_node": run_node,
-        "activity": activity,
-
-        "interactive": interactive,
-    })))
+    st.emit(ServerEvent::WorkspacesChanged);
+    Ok(())
 }
 
 pub(crate) fn brain_dir(st: &Shared, workspace: &str) -> ApiResult<String> {
@@ -851,3 +932,7 @@ mod configuration_tests {
         assert_eq!(spec.env["SHARED"], "request");
     }
 }
+
+#[cfg(test)]
+#[path = "sessions_start_tests.rs"]
+mod startup_tests;

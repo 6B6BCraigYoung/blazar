@@ -334,3 +334,18 @@ async fn failed_offset_commit_rolls_back_receipt_and_background_state() {
     assert_eq!(ctx.st.db.max_seq(ctx.sid).await.unwrap(), 0);
     assert_eq!(session_state(&ctx).await.1, 0);
 }
+
+#[tokio::test]
+async fn fast_completion_cannot_leave_a_stale_registered_run() {
+    let (_dir, ctx, transport) = fixture(format!("{FINISHED}\n")).await;
+    register(ctx.clone(), 0, None).await;
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while !transport.removed.load(Ordering::SeqCst) {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(session_state(&ctx).await.0, "done");
+    assert!(!ctx.st.running.read().await.contains_key(&ctx.sid));
+}

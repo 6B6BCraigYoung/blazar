@@ -12,7 +12,7 @@ use futures::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 
-use crate::state::{AppState, RunningSession, ServerEvent};
+use crate::state::{AppState, ServerEvent};
 
 pub type Shared = Arc<AppState>;
 

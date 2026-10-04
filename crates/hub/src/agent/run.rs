@@ -316,6 +316,28 @@ async fn process_line(ctx: &Ctx, line: &str, at: u64, p: &mut Progress) -> Line 
     Line::Done
 }
 
+pub async fn register(
+    ctx: Ctx,
+    offset: u64,
+    started: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
+) {
+    let st = ctx.st.clone();
+    let sid = ctx.sid;
+    let ws = ctx.ws;
+    let live = ctx.live.clone();
+    let mut running = st.running.write().await;
+    let task = tokio::spawn(supervise(ctx, offset, started));
+    running.insert(
+        sid,
+        RunningSession {
+            workspace_id: ws,
+            task,
+            killer: None,
+            live: Some(live),
+        },
+    );
+}
+
 pub async fn supervise(
     ctx: Ctx,
     mut offset: u64,
@@ -888,16 +910,7 @@ pub async fn reattach_all(st: Shared) {
             runtime: Arc::new(runtime),
             hook,
         };
-        let task = tokio::spawn(supervise(ctx, u64::try_from(off).unwrap_or(0), None));
-        st.running.write().await.insert(
-            sid,
-            RunningSession {
-                workspace_id: ws,
-                task,
-                killer: None,
-                live: Some(live.clone()),
-            },
-        );
+        register(ctx, u64::try_from(off).unwrap_or(0), None).await;
 
         if let Ok(list) = st.db.undelivered_approvals(sid).await {
             for a in list {

@@ -87,20 +87,33 @@ impl AppState {
     }
 
     pub async fn admit(self: &Arc<Self>, workspace: WorkspaceId) -> Result<AdmitGuard, String> {
-        if let Some((sid, _)) = self
-            .running
-            .read()
-            .await
-            .iter()
-            .find(|(_, r)| r.workspace_id == workspace)
-        {
+        let running = self.running.read().await;
+        if let Some((sid, _)) = running.iter().find(|(_, r)| r.workspace_id == workspace) {
             return Err(format!("该工作区已有会话 {sid} 在运行"));
         }
-        {
-            let mut pending = self.pending.lock().map_err(|_| "准入表已损坏".to_owned())?;
-            if !pending.insert(workspace) {
-                return Err("该工作区正有一个会话在启动".to_owned());
-            }
+        let guard = self.quiesce(workspace)?;
+        drop(running);
+        let persisted: Option<Option<String>> = sqlx::query_scalar(
+            "SELECT (SELECT id FROM sessions WHERE workspace_id = w.id AND status = 'running' LIMIT 1)
+             FROM workspaces w WHERE w.id = ?1",
+        )
+        .bind(workspace.to_string())
+        .fetch_optional(self.db.pool())
+        .await
+        .map_err(|e| format!("无法确认工作区的运行状态，请恢复数据库后重试: {e}"))?;
+        let Some(persisted) = persisted else {
+            return Err("工作区已不存在".to_owned());
+        };
+        if let Some(sid) = persisted {
+            return Err(format!("该工作区已有会话 {sid} 在运行或等待重新连接"));
+        }
+        Ok(guard)
+    }
+
+    pub fn quiesce(&self, workspace: WorkspaceId) -> Result<AdmitGuard, String> {
+        let mut pending = self.pending.lock().map_err(|_| "准入表已损坏".to_owned())?;
+        if !pending.insert(workspace) {
+            return Err("该工作区正有会话启动或其他操作正在进行".to_owned());
         }
         Ok(AdmitGuard {
             pending: self.pending.clone(),
