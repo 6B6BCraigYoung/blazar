@@ -1,5 +1,3 @@
-// 界面（crates/web）由 Trunk 单独构建到 crates/web/dist，hub 用 include_dir 把它嵌进来。
-// 没构建过时放一个占位页，保证 hub 照样能编；内容一变就重新嵌。
 fn main() {
     let dist = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../web/dist");
     let index = dist.join("index.html");
