@@ -20,7 +20,6 @@ pub type Result<T> = std::result::Result<T, VfsError>;
 
 pub const MAX_TREE_ENTRIES: usize = 20_000;
 
-/// 资源管理器一次列一层目录，单层最多这么多项
 pub const MAX_DIR_ITEMS: usize = 5_000;
 
 const EXIT_NO_DIR: i32 = 3;
@@ -28,10 +27,73 @@ const EXIT_NO_DIR: i32 = 3;
 const EXIT_NO_GIT: i32 = 5;
 
 const EXIT_SSH: i32 = 255;
+const EXIT_PATH_ESCAPE: i32 = 9;
+
+pub fn safe_relative_path(rel: &str) -> Result<String> {
+    let normalized = rel.replace('\\', "/");
+    if normalized.starts_with('/')
+        || normalized.contains('\0')
+        || (normalized.as_bytes().get(1) == Some(&b':')
+            && normalized.as_bytes()[0].is_ascii_alphabetic())
+        || normalized.split('/').any(|part| part == "..")
+    {
+        return Err(VfsError::PathEscape(rel.to_owned()));
+    }
+    let parts: Vec<_> = normalized
+        .split('/')
+        .filter(|part| !part.is_empty() && *part != ".")
+        .collect();
+    if parts.is_empty() {
+        return Err(VfsError::PathEscape(rel.to_owned()));
+    }
+    Ok(parts.join("/"))
+}
+
+pub fn confined_local_path(root: &Path, rel: &str) -> Result<std::path::PathBuf> {
+    let rel = safe_relative_path(rel)?;
+    let mut path = root
+        .canonicalize()
+        .map_err(blazar_transport::TransportError::from)?;
+    for component in rel.split('/') {
+        path.push(component);
+        match std::fs::symlink_metadata(&path) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                return Err(VfsError::PathEscape(rel));
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(blazar_transport::TransportError::from(error).into()),
+        }
+    }
+    Ok(path)
+}
+
+fn guarded_path(root: &str, rel: &str) -> String {
+    format!(
+        r#"cd -P -- {root} 2>/dev/null || exit 3
+F={rel}
+guard_path() {{
+  local rest="$1" current=. component
+  while [ -n "$rest" ]; do
+    component=${{rest%%/*}}
+    current="$current/$component"
+    [ ! -L "$current" ] || exit 9
+    case "$rest" in */*) rest=${{rest#*/}};; *) break;; esac
+  done
+}}
+guard_path "$F"
+"#,
+        root = shell_quote(root),
+        rel = shell_quote(&format!("./{rel}"))
+    )
+}
 
 fn check(out: &blazar_transport::ExecOutput, what: &str) -> Result<()> {
     if out.code == 0 {
         return Ok(());
+    }
+    if out.code == EXIT_PATH_ESCAPE {
+        return Err(VfsError::PathEscape(what.to_owned()));
     }
     let stderr = out.stderr.trim();
     let detail = match out.code {
@@ -49,8 +111,6 @@ fn check(out: &blazar_transport::ExecOutput, what: &str) -> Result<()> {
 
 const TEMP_INDEX: &str = r#"__IDX=$(mktemp 2>/dev/null || echo "/tmp/blazar-idx-$$")
 trap 'rm -f "$__IDX"' EXIT
-# 还没提交过的仓库里 index 文件根本不存在。这时不能留一个空文件 ——
-# git 会以 "index file smaller than expected" 拒收；删掉它，git 会当作空 index
 cp "$(git rev-parse --git-path index)" "$__IDX" 2>/dev/null || rm -f "$__IDX"
 export GIT_INDEX_FILE="$__IDX"
 git add -N . >/dev/null 2>&1"#;
@@ -119,15 +179,21 @@ impl Vfs {
     }
 
     fn safe_rel(&self, rel: &str) -> Result<String> {
-        let p = Path::new(rel);
-        if p.is_absolute()
-            || rel.is_empty()
-            || p.components()
-                .any(|c| matches!(c, std::path::Component::ParentDir))
-        {
-            return Err(VfsError::PathEscape(rel.to_owned()));
-        }
-        Ok(rel.replace('\\', "/"))
+        safe_relative_path(rel)
+    }
+
+    pub async fn validate_path(&self, rel: &str) -> Result<()> {
+        let rel = if rel.is_empty() || rel == "." {
+            ".".to_owned()
+        } else {
+            self.safe_rel(rel)?
+        };
+        let script = format!("{}\nexit 0", guarded_path(&self.root, &rel));
+        let out = self
+            .transport
+            .exec(ExecSpec::new("bash").arg("-lc").arg(script))
+            .await?;
+        check(&out, &rel)
     }
 
     pub async fn tree(&self, base: Option<&str>) -> Result<Vec<TreeEntry>> {
@@ -144,18 +210,11 @@ if git rev-parse --git-dir >/dev/null 2>&1; then
   echo "__TRACKED__"
   git ls-files -z | tr '\0' '\n'
   echo "__STATUS__"
-  # -uall 让未跟踪目录展开到文件，否则只显示目录名。
-  # core.quotepath=false 不能省：默认 git 会把非 ASCII 路径转义成
-  # "\346\226\207..." 这种八进制串，而上面的 `ls-files -z` 不转义，
-  # 两份路径对不上 —— 结果是中文文件的改动标记挂到一个幽灵路径上，
-  # 真文件反而显示"没改过"。中文文件名在这里是常态不是边角情况。
   git -c core.quotepath=false status --porcelain -uall {base}
-  # 改动量：同一次往返里顺手算掉，列表页就不必为每个工作区再跑一趟远程
   echo "__STAT__"
   (
     {temp_index}
     B=HEAD; git rev-parse --verify --quiet HEAD >/dev/null || B=$(git hash-object -t tree /dev/null)
-    # 二进制文件在 numstat 里是 "-"，awk 把它当 0，正好
     git diff --numstat "$B" 2>/dev/null | awk '{{a+=$1; d+=$2; f++}} END {{print a+0, d+0, f+0}}'
   )
 else
@@ -178,56 +237,47 @@ fi"#,
         Ok((parse_tree(&out.stdout), parse_stat(&out.stdout)))
     }
 
-    /// 列工作区里一层目录（`rel` 为空是根目录）：照磁盘来，隐藏文件和被 git 忽略的也列，
-    /// 忽略的打上标记；`.git` 不列。
     pub async fn list_dir(&self, rel: &str) -> Result<DirItems> {
-        let dir = if rel.trim_matches('/').is_empty() {
+        let dir = if rel.is_empty() || rel == "." {
             ".".to_owned()
         } else {
-            self.safe_rel(rel.trim_matches('/'))?
+            self.safe_rel(rel)?
         };
         let script = format!(
-            r#"cd {root} 2>/dev/null || exit 3
-cd -- {dir} 2>/dev/null || exit 3
+            r#"{guard}
+cd -P -- "$F" 2>/dev/null || exit 3
 names() {{ for f in * .[!.]* ..?*; do
   {{ [ -e "$f" ] || [ -L "$f" ]; }} || continue
   [ "$f" = .git ] && continue
   printf '%s\n' "$f"
 done; }}
 names | head -n {cap1} | while IFS= read -r f; do
-  if [ -d "$f" ]; then printf 'D\t%s\n' "$f"; else printf 'F\t%s\n' "$f"; fi
+  if [ ! -L "$f" ] && [ -d "$f" ]; then printf 'D\t%s\n' "$f"; else printf 'F\t%s\n' "$f"; fi
 done
 if git rev-parse --git-dir >/dev/null 2>&1; then
   echo "__IGNORED__"
   names | head -n {cap1} | git check-ignore --stdin 2>/dev/null
 fi
 exit 0"#,
-            root = shell_quote(&self.root),
-            dir = shell_quote(&dir),
+            guard = guarded_path(&self.root, &dir),
             cap1 = MAX_DIR_ITEMS + 1,
         );
         let out = self
             .transport
             .exec(ExecSpec::new("bash").arg("-lc").arg(script))
             .await?;
-        check(&out, &self.root)?;
+        check(&out, &dir)?;
         Ok(parse_dir_items(&out.stdout))
     }
 
     pub async fn read(&self, rel: &str) -> Result<FileContent> {
         let rel = self.safe_rel(rel)?;
         let script = format!(
-            r#"cd {root} 2>/dev/null || exit 3
-F={file}
+            r#"{guard}
 [ -f "$F" ] || exit 4
 SZ=$(wc -c < "$F" | tr -d ' ')
 echo "SIZE|$SZ"
-# GNU 与 BSD 的 stat 参数不一样
 echo "MTIME|$(stat -c %Y "$F" 2>/dev/null || stat -f %m "$F" 2>/dev/null)"
-# 前 8KB 里出现 NUL 就当二进制 —— 比调 file(1) 可靠且到处都有。
-# LC_ALL=C 不能省：BSD tr 在 UTF-8 locale 下，遇到被 head -c 从中间
-# 切断的多字节字符会以 "Illegal byte sequence" 中止并少吐几个字节，
-# 于是每一个中文文件都会被算成"含 NUL"，全部当二进制拒之门外。
 HEAD_BYTES=$(head -c 8192 "$F" | wc -c | tr -d ' ')
 NUL_STRIPPED=$(head -c 8192 "$F" | LC_ALL=C tr -d '\000' | wc -c | tr -d ' ')
 if [ "$NUL_STRIPPED" -ne "$HEAD_BYTES" ]; then
@@ -238,8 +288,7 @@ else
   echo "BODY|"
   cat -- "$F"
 fi"#,
-            root = shell_quote(&self.root),
-            file = shell_quote(&rel),
+            guard = guarded_path(&self.root, &rel),
             max = MAX_READ_BYTES,
         );
 
@@ -261,13 +310,11 @@ fi"#,
     pub async fn read_base64(&self, rel: &str, max: u64) -> Result<String> {
         let rel = self.safe_rel(rel)?;
         let script = format!(
-            r#"cd {root} 2>/dev/null || exit 3
-F={file}
+            r#"{guard}
 [ -f "$F" ] || exit 4
 [ "$(wc -c < "$F" | tr -d ' ')" -le {max} ] || exit 8
 base64 < "$F" | tr -d '\n'"#,
-            root = shell_quote(&self.root),
-            file = shell_quote(&rel),
+            guard = guarded_path(&self.root, &rel),
         );
         let out = self
             .transport
@@ -296,7 +343,7 @@ base64 < "$F" | tr -d '\n'"#,
     ) -> Result<Written> {
         let rel = self.safe_rel(rel)?;
 
-        if rel == ".git" || rel.starts_with(".git/") || rel.contains("/.git/") {
+        if rel.split('/').any(|component| component == ".git") {
             return Err(VfsError::PathEscape(rel));
         }
         if content.len() as u64 > MAX_READ_BYTES {
@@ -307,8 +354,7 @@ base64 < "$F" | tr -d '\n'"#,
             .into());
         }
         let script = format!(
-            r#"cd {root} 2>/dev/null || exit 3
-F={file}
+            r#"{guard}
 mt() {{ stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null; }}
 [ -d "$F" ] && exit 4
 E={expect}
@@ -316,10 +362,10 @@ if [ -n "$E" ] && [ -e "$F" ] && [ "$(mt "$F")" != "$E" ]; then
   echo "CONFLICT|$(mt "$F")|$(wc -c < "$F" | tr -d ' ')"; exit 0
 fi
 mkdir -p "$(dirname "$F")" || exit 6
+guard_path "$F"
 cat > "$F" || exit 6
 echo "SAVED|$(mt "$F")|$(wc -c < "$F" | tr -d ' ')""#,
-            root = shell_quote(&self.root),
-            file = shell_quote(&rel),
+            guard = guarded_path(&self.root, &rel),
             expect = shell_quote(&expect_mtime.map(|m| m.to_string()).unwrap_or_default()),
         );
         let out = self
@@ -357,21 +403,17 @@ echo "SAVED|$(mt "$F")|$(wc -c < "$F" | tr -d ' ')""#,
         }
         let script = format!(
             r#"cd {root} 2>/dev/null || exit 3
-# 远端也要有超时：中心侧断开连接并不会杀掉已经跑起来的 grep，
-# 否则一次误搜就会在目标机器上留下一个扫全盘的孤儿进程。
 T="timeout -k 2 {secs}"; command -v timeout >/dev/null 2>&1 || T=""
 if git rev-parse --git-dir >/dev/null 2>&1; then
-  # 只扫受跟踪文件：在 home 这类巨大目录里，这是唯一能秒回的方式
   $T git --no-pager grep -n -I --no-color -e {q} -- . 2>/dev/null | head -n {limit}
 elif command -v rg >/dev/null 2>&1; then
   $T rg --line-number --no-heading --color never --max-count 50 --max-filesize 2M \
      --glob '!.git' --glob '!node_modules' --glob '!target' --glob '!.venv' \
      -e {q} . 2>/dev/null | head -n {limit}
 else
-  $T grep -rn --binary-files=without-match \
-       --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=target \
-       --exclude-dir=.venv --exclude-dir=.cache \
-       -e {q} . 2>/dev/null | head -n {limit}
+  $T find . -type d \
+       \( -name .git -o -name node_modules -o -name target -o -name .venv -o -name .cache \) -prune -o \
+       -type f -exec grep -nH --binary-files=without-match -e {q} -- {{}} + 2>/dev/null | head -n {limit}
 fi"#,
             root = shell_quote(&self.root),
             q = shell_quote(query),
@@ -398,14 +440,12 @@ HERE=$(pwd -P)
 echo "PATH|$HERE"
 if [ "$HERE" != "/" ]; then echo "PARENT|$(dirname "$HERE")"; fi
 if [ -d "$HERE/.git" ] || [ -f "$HERE/.git" ]; then echo "SELFREPO|1"; fi
-# -maxdepth 1 只看一层；隐藏目录跳过，但 .config 这类用户想进的可以手输路径
 for d in */ ; do
   [ -d "$d" ] || continue
   n=${{d%/}}
   case "$n" in .*) continue;; esac
   repo=0
   if [ -d "$HERE/$n/.git" ] || [ -f "$HERE/$n/.git" ]; then repo=1; fi
-  # 子目录计数只数一层且不深入，避免在巨大目录上卡住
   cnt=$(find "$HERE/$n" -maxdepth 1 -mindepth 1 -type d ! -name '.*' 2>/dev/null | head -200 | wc -l | tr -d ' ')
   echo "DIR|$n|$HERE/$n|$repo|$cnt"
 done"#,
@@ -428,13 +468,9 @@ done"#,
         let script = format!(
             r#"cd {root} 2>/dev/null || exit 3
 git rev-parse --git-dir >/dev/null 2>&1 || exit 5
-# `add -N` 把未跟踪文件纳入 diff，否则新建的文件完全不出现 —— 但在临时 index 上做
 {temp_index}
 B={base}
 {merge_base}
-# 还没有任何提交时 HEAD 不存在，`git diff HEAD` 会以 128 退出，
-# 整页 diff 变成一条 git 的用法提示。退到 git 的空树对象上，
-# 让"全部是新增"照常显示出来 —— 新建的仓库正是最常看 diff 的时候。
 git rev-parse --verify --quiet "$B^{{commit}}" >/dev/null 2>&1 \
   || B=$(git hash-object -t tree /dev/null)
 git --no-pager -c core.quotepath=false diff {ws} "$B""#,
@@ -723,6 +759,171 @@ fn parse_search(raw: &str) -> Vec<SearchHit> {
 mod tests {
     use super::*;
 
+    struct TestLocal;
+
+    fn isolated(mut spec: ExecSpec) -> ExecSpec {
+        if spec.program == "bash" && spec.args.first().is_some_and(|arg| arg == "-lc") {
+            spec.args[0] = "-c".into();
+        }
+        spec.env("BASH_ENV", "/dev/null")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_SYSTEM", "/dev/null")
+    }
+
+    #[async_trait::async_trait]
+    impl NodeTransport for TestLocal {
+        fn kind(&self) -> blazar_transport::TransportKind {
+            blazar_transport::TransportKind::Local
+        }
+        fn target(&self) -> &str {
+            "local"
+        }
+        async fn exec(
+            &self,
+            spec: ExecSpec,
+        ) -> blazar_transport::Result<blazar_transport::ExecOutput> {
+            blazar_transport::LocalTransport.exec(isolated(spec)).await
+        }
+        async fn spawn_lines(
+            &self,
+            spec: ExecSpec,
+        ) -> blazar_transport::Result<blazar_transport::LineStream> {
+            blazar_transport::LocalTransport
+                .spawn_lines(isolated(spec))
+                .await
+        }
+    }
+
+    #[test]
+    fn containment_normalizes_separators_before_validation() {
+        let v = vfs();
+        for rel in [
+            r"..\outside",
+            r"src\..\outside",
+            r"\absolute",
+            r"C:\outside",
+            "C:outside",
+            r"\\host\share",
+        ] {
+            assert!(
+                matches!(v.safe_rel(rel), Err(VfsError::PathEscape(_))),
+                "{rel:?}"
+            );
+        }
+        assert_eq!(v.safe_rel(r"src\file.txt").unwrap(), "src/file.txt");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn containment_rejects_symbolic_links_in_every_file_operation() {
+        use std::os::unix::fs::symlink;
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("note.txt"), "outside-fixture").unwrap();
+        symlink(outside.path(), root.path().join("linked-dir")).unwrap();
+        symlink(
+            outside.path().join("note.txt"),
+            root.path().join("linked-file"),
+        )
+        .unwrap();
+        let v = Vfs::new(Arc::new(TestLocal), root.path().to_string_lossy());
+        for path in ["linked-file", "linked-dir/note.txt"] {
+            assert!(matches!(
+                v.validate_path(path).await,
+                Err(VfsError::PathEscape(_))
+            ));
+            assert!(
+                matches!(v.read(path).await, Err(VfsError::PathEscape(_))),
+                "{path}"
+            );
+            assert!(
+                matches!(
+                    v.read_base64(path, 1024).await,
+                    Err(VfsError::PathEscape(_))
+                ),
+                "{path}"
+            );
+            assert!(
+                matches!(
+                    v.write(path, "replacement", None).await,
+                    Err(VfsError::PathEscape(_))
+                ),
+                "{path}"
+            );
+        }
+        assert!(v.validate_path("new/file.txt").await.is_ok());
+        assert!(v.validate_path("").await.is_ok());
+        assert!(matches!(
+            v.list_dir("linked-dir").await,
+            Err(VfsError::PathEscape(_))
+        ));
+        assert!(matches!(
+            v.write("linked-dir/new.txt", "new", None).await,
+            Err(VfsError::PathEscape(_))
+        ));
+        assert_eq!(
+            std::fs::read_to_string(outside.path().join("note.txt")).unwrap(),
+            "outside-fixture"
+        );
+        assert!(!outside.path().join("new.txt").exists());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn containment_accepts_an_explicit_link_root_but_rejects_internal_links() {
+        let fixture = tempfile::tempdir().unwrap();
+        let root = fixture.path().join("root");
+        std::fs::create_dir(&root).unwrap();
+        let alias = fixture.path().join("alias");
+        std::os::unix::fs::symlink(&root, &alias).unwrap();
+        let v = Vfs::new(Arc::new(TestLocal), alias.to_string_lossy());
+        assert!(
+            v.write("folder/file.txt", "fixture", None)
+                .await
+                .unwrap()
+                .saved
+        );
+        assert_eq!(v.read(r"folder\file.txt").await.unwrap().content, "fixture");
+        assert_eq!(v.list_dir("folder").await.unwrap().items.len(), 1);
+        std::os::unix::fs::symlink(root.join("folder"), root.join("internal-link")).unwrap();
+        assert!(matches!(
+            v.read("internal-link/file.txt").await,
+            Err(VfsError::PathEscape(_))
+        ));
+        assert!(v.list_dir("/folder").await.is_err());
+        assert!(v.write("./.git/config", "fixture", None).await.is_err());
+        assert!(v.write("folder/.git", "fixture", None).await.is_err());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn containment_tree_and_search_do_not_follow_links() {
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("note.txt"), "outside-only-marker").unwrap();
+        std::os::unix::fs::symlink(outside.path(), root.path().join("linked-dir")).unwrap();
+        std::os::unix::fs::symlink(
+            outside.path().join("note.txt"),
+            root.path().join("linked-file"),
+        )
+        .unwrap();
+        let v = Vfs::new(Arc::new(TestLocal), root.path().to_string_lossy());
+        assert!(
+            v.search("outside-only-marker", 10)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert!(v.tree(None).await.unwrap().is_empty());
+        sh(root.path(), "git init -q && git add linked-file linked-dir");
+        assert!(
+            v.search("outside-only-marker", 10)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+    }
+
     #[test]
     fn tree_marks_changes_and_derives_dirs() {
         let raw = "__TRACKED__\nsrc/main.rs\nsrc/lib.rs\nREADME.md\n\
@@ -774,7 +975,7 @@ mod tests {
     }
 
     fn vfs() -> Vfs {
-        Vfs::new(Arc::new(blazar_transport::LocalTransport), "/tmp/ws")
+        Vfs::new(Arc::new(TestLocal), "/tmp/ws")
     }
 
     fn out(code: i32, stderr: &str) -> blazar_transport::ExecOutput {
@@ -899,17 +1100,36 @@ mod tests {
         assert!(v.safe_rel("src/../../../etc/passwd").is_err());
     }
 
-    fn scratch(name: &str) -> std::path::PathBuf {
-        let d = std::env::temp_dir().join(format!("blazar-vfs-test-{name}"));
-        let _ = std::fs::remove_dir_all(&d);
-        std::fs::create_dir_all(&d).unwrap();
-        d
+    struct Scratch(tempfile::TempDir);
+
+    impl AsRef<Path> for Scratch {
+        fn as_ref(&self) -> &Path {
+            self.0.path()
+        }
+    }
+
+    impl std::ops::Deref for Scratch {
+        type Target = Path;
+        fn deref(&self) -> &Self::Target {
+            self.0.path()
+        }
+    }
+
+    fn scratch(name: &str) -> Scratch {
+        Scratch(
+            tempfile::Builder::new()
+                .prefix(&format!("blazar-vfs-{name}-"))
+                .tempdir()
+                .unwrap(),
+        )
     }
     #[tokio::test]
     async fn list_dir_shows_everything_on_disk_and_flags_ignored() {
         let dir = scratch("list-dir");
         let run = |args: &[&str]| {
             std::process::Command::new("git")
+                .env("GIT_CONFIG_GLOBAL", "/dev/null")
+                .env("GIT_CONFIG_SYSTEM", "/dev/null")
                 .args(args)
                 .current_dir(&dir)
                 .output()
@@ -922,10 +1142,7 @@ mod tests {
         std::fs::write(dir.join("src/a b.rs"), "").unwrap();
         std::fs::write(dir.join("run.log"), "").unwrap();
         std::fs::write(dir.join(".env"), "").unwrap();
-        let vfs = Vfs::new(
-            Arc::new(blazar_transport::LocalTransport),
-            dir.display().to_string(),
-        );
+        let vfs = Vfs::new(Arc::new(TestLocal), dir.display().to_string());
 
         let root = vfs.list_dir("").await.unwrap();
         let mut got: Vec<_> = root
@@ -954,10 +1171,7 @@ mod tests {
     #[tokio::test]
     async fn write_round_trips_and_detects_conflicts() {
         let dir = scratch("write-roundtrip");
-        let vfs = Vfs::new(
-            Arc::new(blazar_transport::LocalTransport),
-            dir.display().to_string(),
-        );
+        let vfs = Vfs::new(Arc::new(TestLocal), dir.display().to_string());
 
         let body = "第一行 'quoted' $(not run)\nline2\n";
         let w = vfs.write("docs/说明.md", body, None).await.unwrap();
@@ -999,10 +1213,7 @@ mod tests {
         let f = dir.join("run.sh");
         std::fs::write(&f, "#!/bin/sh\n").unwrap();
         std::fs::set_permissions(&f, std::fs::Permissions::from_mode(0o755)).unwrap();
-        let vfs = Vfs::new(
-            Arc::new(blazar_transport::LocalTransport),
-            dir.display().to_string(),
-        );
+        let vfs = Vfs::new(Arc::new(TestLocal), dir.display().to_string());
         vfs.write("run.sh", "#!/bin/sh\necho hi\n", None)
             .await
             .unwrap();
@@ -1014,7 +1225,10 @@ mod tests {
 
     fn sh(dir: &std::path::Path, cmd: &str) {
         let st = std::process::Command::new("bash")
-            .arg("-lc")
+            .env("BASH_ENV", "/dev/null")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_SYSTEM", "/dev/null")
+            .arg("-c")
             .arg(cmd)
             .current_dir(dir)
             .status()
@@ -1050,10 +1264,7 @@ mod tests {
         sh(&d, "git add -A && git commit -qm init");
         std::fs::write(d.join("文档/说明.md"), "changed\n").unwrap();
 
-        let v = Vfs::new(
-            Arc::new(blazar_transport::LocalTransport),
-            d.to_str().unwrap(),
-        );
+        let v = Vfs::new(Arc::new(TestLocal), d.to_str().unwrap());
         let tree = v.tree(None).await.unwrap();
         let find = |p: &str| tree.iter().find(|e| e.path == p);
 
@@ -1080,10 +1291,7 @@ mod tests {
         std::fs::write(d.join("zh.md"), &text).unwrap();
         std::fs::write(d.join("bin.dat"), [0u8, 1, 2, 3, 0, 5]).unwrap();
 
-        let v = Vfs::new(
-            Arc::new(blazar_transport::LocalTransport),
-            d.to_str().unwrap(),
-        );
+        let v = Vfs::new(Arc::new(TestLocal), d.to_str().unwrap());
         let f = v.read("zh.md").await.unwrap();
         assert!(!f.binary, "中文纯文本不能被判成二进制");
         assert!(f.content.contains("中文测试内容"), "内容要真的读回来");
@@ -1101,10 +1309,7 @@ mod tests {
         );
         std::fs::write(d.join("a.txt"), "hello\n").unwrap();
 
-        let v = Vfs::new(
-            Arc::new(blazar_transport::LocalTransport),
-            d.to_str().unwrap(),
-        );
+        let v = Vfs::new(Arc::new(TestLocal), d.to_str().unwrap());
         let out = v
             .diff("HEAD")
             .await
@@ -1117,10 +1322,7 @@ mod tests {
     async fn diff_on_a_plain_directory_says_so() {
         let d = scratch("nogit");
         std::fs::write(d.join("a.txt"), "x").unwrap();
-        let v = Vfs::new(
-            Arc::new(blazar_transport::LocalTransport),
-            d.to_str().unwrap(),
-        );
+        let v = Vfs::new(Arc::new(TestLocal), d.to_str().unwrap());
         let err = v.diff("HEAD").await.unwrap_err();
         assert!(
             matches!(err, VfsError::NotARepo(_)),
@@ -1140,6 +1342,8 @@ mod tests {
         let status = |d: &std::path::Path| {
             String::from_utf8(
                 std::process::Command::new("git")
+                    .env("GIT_CONFIG_GLOBAL", "/dev/null")
+                    .env("GIT_CONFIG_SYSTEM", "/dev/null")
                     .args(["status", "--porcelain"])
                     .current_dir(d)
                     .output()
@@ -1150,10 +1354,7 @@ mod tests {
         };
         let before = status(&d);
 
-        let v = Vfs::new(
-            Arc::new(blazar_transport::LocalTransport),
-            d.to_str().unwrap(),
-        );
+        let v = Vfs::new(Arc::new(TestLocal), d.to_str().unwrap());
         let diff = v.diff("HEAD").await.unwrap();
         let _ = v.tree_with_stat(None).await.unwrap();
 
@@ -1179,10 +1380,7 @@ mod tests {
         std::fs::write(d.join("f.txt"), "a\nB\nc\nd\n").unwrap();
         std::fs::write(d.join("new.txt"), "x\ny\n").unwrap();
 
-        let v = Vfs::new(
-            Arc::new(blazar_transport::LocalTransport),
-            d.to_str().unwrap(),
-        );
+        let v = Vfs::new(Arc::new(TestLocal), d.to_str().unwrap());
         let (_, stat) = v.tree_with_stat(None).await.unwrap();
         let stat = stat.expect("git 仓库要有改动量");
         assert_eq!(stat.files, 2, "{stat:?}");

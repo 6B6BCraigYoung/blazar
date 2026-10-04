@@ -558,9 +558,11 @@ dependencies = [
 name = "blazar-vfs"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "blazar-core-types",
  "blazar-transport",
  "serde",
+ "tempfile",
  "thiserror 2.0.20",
  "tokio",
 ]

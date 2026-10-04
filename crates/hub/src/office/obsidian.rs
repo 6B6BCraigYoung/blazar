@@ -83,7 +83,13 @@ fn count(p: &FsPath) -> (usize, usize) {
             if name.to_string_lossy().starts_with('.') {
                 continue;
             }
-            if path.is_dir() {
+            let Ok(kind) = e.file_type() else {
+                continue;
+            };
+            if kind.is_symlink() {
+                continue;
+            }
+            if kind.is_dir() {
                 stack.push(path);
             } else {
                 files += 1;
@@ -225,6 +231,37 @@ struct Written {
     rel: String,
 }
 
+fn write_note_file(
+    vault: &FsPath,
+    rel: &str,
+    content: &str,
+    overwrite: bool,
+) -> std::io::Result<()> {
+    let resolve = || {
+        blazar_vfs::confined_local_path(vault, rel).map_err(|error| {
+            let kind = if matches!(error, blazar_vfs::VfsError::PathEscape(_)) {
+                std::io::ErrorKind::InvalidInput
+            } else {
+                std::io::ErrorKind::Other
+            };
+            std::io::Error::new(kind, error.to_string())
+        })
+    };
+    let target = resolve()?;
+    let dir = target
+        .parent()
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, "路径不在库内"))?;
+    std::fs::create_dir_all(dir)?;
+    let target = resolve()?;
+    if !overwrite && target.exists() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            "已经有同名笔记",
+        ));
+    }
+    std::fs::write(target, content)
+}
+
 async fn write_note(st: &Shared, b: &NoteBody) -> Result<Written, Response> {
     let p = prefs(st).await;
     let vault = b
@@ -264,27 +301,12 @@ async fn write_note(st: &Shared, b: &NoteBody) -> Result<Written, Response> {
     } else {
         format!("{folder}/{file}")
     };
-    let dir = if folder.is_empty() {
-        vault_path.clone()
-    } else {
-        vault_path.join(&folder)
-    };
-    let target = dir.join(rel.rsplit('/').next().unwrap_or(&rel));
-
-    if !target.starts_with(&vault_path) {
-        return Err(fail(StatusCode::BAD_REQUEST, "路径不在库内"));
-    }
     let content = b.content.clone();
     let overwrite = b.overwrite;
+    let write_vault = vault_path.clone();
+    let write_rel = rel.clone();
     let res = tokio::task::spawn_blocking(move || -> std::io::Result<()> {
-        std::fs::create_dir_all(&dir)?;
-        if !overwrite && target.exists() {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::AlreadyExists,
-                "已经有同名笔记",
-            ));
-        }
-        std::fs::write(&target, content)
+        write_note_file(&write_vault, &write_rel, &content, overwrite)
     })
     .await;
     match res {
@@ -296,6 +318,9 @@ async fn write_note(st: &Shared, b: &NoteBody) -> Result<Written, Response> {
             StatusCode::CONFLICT,
             "已经有同名笔记；换个标题，或者选择覆盖",
         )),
+        Ok(Err(e)) if e.kind() == std::io::ErrorKind::InvalidInput => {
+            Err(fail(StatusCode::BAD_REQUEST, e.to_string()))
+        }
         Ok(Err(e)) => Err(fail(
             StatusCode::INTERNAL_SERVER_ERROR,
             format!("写不进去：{e}"),
@@ -412,6 +437,44 @@ pub async fn task_note(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn containment_rejects_links_when_writing_or_counting_notes() {
+        use std::os::unix::fs::symlink;
+        let vault = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("note.md"), "outside-fixture").unwrap();
+        symlink(outside.path(), vault.path().join("linked-dir")).unwrap();
+        symlink(
+            outside.path().join("note.md"),
+            vault.path().join("linked-note.md"),
+        )
+        .unwrap();
+        assert!(write_note_file(vault.path(), "linked-dir/note.md", "replacement", true).is_err());
+        assert!(write_note_file(vault.path(), "linked-note.md", "replacement", true).is_err());
+        assert_eq!(count(vault.path()), (0, 0));
+        assert_eq!(
+            std::fs::read_to_string(outside.path().join("note.md")).unwrap(),
+            "outside-fixture"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn containment_accepts_an_explicit_symbolic_link_vault_root() {
+        let fixture = tempfile::tempdir().unwrap();
+        let root = fixture.path().join("vault");
+        std::fs::create_dir(&root).unwrap();
+        let alias = fixture.path().join("alias");
+        std::os::unix::fs::symlink(&root, &alias).unwrap();
+        write_note_file(&alias, "folder/note.md", "fixture", false).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(root.join("folder/note.md")).unwrap(),
+            "fixture"
+        );
+        assert_eq!(count(&alias), (1, 1));
+    }
 
     #[test]
     fn note_file_names_are_safe_and_readable() {
