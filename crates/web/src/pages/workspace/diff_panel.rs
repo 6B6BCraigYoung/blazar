@@ -1,5 +1,3 @@
-//! 底部面板的「差异」：未提交的改动，或整条分支相对目标分支的改动。可以对某一行写审阅意见，随下一条消息发给 agent。
-
 use std::collections::HashSet;
 
 use leptos::prelude::*;
@@ -14,15 +12,15 @@ use crate::storage;
 use super::files::Files;
 use super::git_panel::Git;
 
+mod latest;
+
 const PREFS_KEY: &str = "blazar.diffprefs";
 const BIG: u32 = 800;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Prefs {
-    /// "head"：未提交的改动；"target"：整条分支相对目标分支
     pub base: String,
-    /// "unified" / "split"
     pub view: String,
     pub w: bool,
     pub wrap: bool,
@@ -41,7 +39,6 @@ impl Default for Prefs {
     }
 }
 
-/// 一条审阅意见。存在本地（沿用已有的键），随下一条消息发出。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Comment {
     pub id: String,
@@ -97,9 +94,9 @@ impl DiffState {
     }
 }
 
-/// 拉 diff：进来一次，之后工作区一有变化、或者换了「和谁比」「忽略空白」就重拉。
 pub fn keep_loaded(ws: String, d: DiffState, git: Git) {
     let bus = use_bus();
+    let latest = std::rc::Rc::new(latest::Latest::default());
     Effect::new(move |_| {
         bus.workspaces.track();
         d.reload.track();
@@ -116,6 +113,8 @@ pub fn keep_loaded(ws: String, d: DiffState, git: Git) {
             String::new()
         };
         let ws = ws.clone();
+        let request = latest.begin();
+        let latest = latest.clone();
         spawn_local(async move {
             let mut q = Vec::new();
             if !base.is_empty() {
@@ -126,6 +125,9 @@ pub fn keep_loaded(ws: String, d: DiffState, git: Git) {
             }
             let r =
                 api::get::<DiffResp>(&format!("/api/workspaces/{ws}/diff?{}", q.join("&"))).await;
+            if !latest.accepts(request) {
+                return;
+            }
             match r {
                 Ok(r) => {
                     let _ = d.files.try_set(diff::parse(&r.diff));
@@ -135,6 +137,7 @@ pub fn keep_loaded(ws: String, d: DiffState, git: Git) {
                 Err(e) => {
                     let _ = d.files.try_set(Vec::new());
                     let _ = d.note.try_set(e.to_string());
+                    let _ = d.truncated.try_set(false);
                 }
             }
             let _ = d.base.try_set(base);
@@ -150,7 +153,6 @@ pub fn DiffBar(
     panel_max: RwSignal<bool>,
     draft: RwSignal<Option<String>>,
 ) -> impl IntoView {
-    // 开一个新对话，写好审阅请求（不直接发：先选好 agent）。
     let review = move |_| {
         let n = d.files.with_untracked(Vec::len);
         let base = d.base.get_untracked();
@@ -230,7 +232,6 @@ fn line_code(l: &Line) -> String {
     }
 }
 
-/// 写 / 改意见的框。`at` 是 (文件, 边, 行号, 那一行的代码)；`editing` 是正在改的意见 id。
 #[derive(Clone, PartialEq)]
 struct Editing {
     file: String,
@@ -522,7 +523,6 @@ fn half(
     .into_any()
 }
 
-/// 某一行下面挂的意见，加上（如果正在这一行写）编辑框。
 fn comments_at(
     path: &str,
     side: &'static str,
