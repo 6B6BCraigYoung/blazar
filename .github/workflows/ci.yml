@@ -5,6 +5,9 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -18,6 +21,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -48,3 +53,80 @@ jobs:
         run: node --test crates/web/tests/navigation.mjs
       - name: Web UI (wasm)
         run: cargo clippy -p blazar-web --target wasm32-unknown-unknown -- -D warnings
+
+  dependencies:
+    name: advisories · licenses · sources
+    runs-on: ubuntu-latest
+    env:
+      CARGO_HOME: ${{ runner.temp }}/blazar-dependency-cargo
+      CARGO_TARGET_DIR: ${{ runner.temp }}/blazar-dependency-target
+      BLAZAR_AUDIT_TOOLS: ${{ runner.temp }}/blazar-audit-tools
+      BLAZAR_AUDIT_REPORT: ${{ runner.temp }}/blazar-audit-report
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.90"
+      - name: Verify dependency environment isolation
+        run: |
+          python3 -B -m unittest discover -s .github/scripts -p "test_dependency_environment.py" -v
+          python3 -B -m unittest discover -s .github/scripts -p "test_evaluate_audit.py" -v
+      - name: Prepare isolated tool workspace
+        shell: bash
+        run: |
+          mkdir -p "$CARGO_HOME" "$CARGO_TARGET_DIR" "$BLAZAR_AUDIT_TOOLS" "$BLAZAR_AUDIT_REPORT"
+          python3 -c 'import pathlib; p=pathlib.Path.cwd(); names=["deny.exceptions.toml",".deny.exceptions.toml",".cargo/deny.exceptions.toml"]; found=[str(q/n) for q in [p,*p.parents] for n in names if (q/n).exists() or (q/n).is_symlink()]; assert not found, "Implicit deny exceptions: " + str(found)'
+      - name: Install fixed auditing tools from source
+        id: install
+        working-directory: ${{ runner.temp }}
+        shell: bash
+        run: |
+          python3 -B "$GITHUB_WORKSPACE/.github/scripts/dependency_environment.py" -- cargo +1.90 install cargo-audit --version =0.22.2 --locked --registry crates-io --root "$BLAZAR_AUDIT_TOOLS" --target-dir "$CARGO_TARGET_DIR/install-audit"
+          python3 -B "$GITHUB_WORKSPACE/.github/scripts/dependency_environment.py" -- cargo +1.90 install cargo-deny --version =0.20.2 --locked --registry crates-io --root "$BLAZAR_AUDIT_TOOLS" --target-dir "$CARGO_TARGET_DIR/install-deny"
+          python3 -B "$GITHUB_WORKSPACE/.github/scripts/dependency_environment.py" -- "$BLAZAR_AUDIT_TOOLS/bin/cargo-audit" --version
+          python3 -B "$GITHUB_WORKSPACE/.github/scripts/dependency_environment.py" -- "$BLAZAR_AUDIT_TOOLS/bin/cargo-deny" --version
+      - name: Check strict license, duplicate and source policy
+        if: always() && steps.install.outcome == 'success'
+        working-directory: ${{ runner.temp }}
+        shell: bash
+        run: |
+          set +e
+          python3 -B "$GITHUB_WORKSPACE/.github/scripts/dependency_environment.py" -- "$BLAZAR_AUDIT_TOOLS/bin/cargo-deny" --manifest-path "$GITHUB_WORKSPACE/Cargo.toml" --config "$GITHUB_WORKSPACE/.github/deny.toml" --locked --workspace --all-features --color never --format human check licenses bans sources > "$BLAZAR_AUDIT_REPORT/deny-human.stdout" 2> "$BLAZAR_AUDIT_REPORT/deny-human.stderr"
+          human_status=$?
+          python3 -B "$GITHUB_WORKSPACE/.github/scripts/dependency_environment.py" -- "$BLAZAR_AUDIT_TOOLS/bin/cargo-deny" --manifest-path "$GITHUB_WORKSPACE/Cargo.toml" --config "$GITHUB_WORKSPACE/.github/deny.toml" --locked --workspace --all-features --color never --format json check licenses bans sources > "$BLAZAR_AUDIT_REPORT/deny-json.stdout" 2> "$BLAZAR_AUDIT_REPORT/deny-json.stderr"
+          json_status=$?
+          python3 -c 'import json,sys; print(json.dumps({"deny_human":int(sys.argv[1]),"deny_json":int(sys.argv[2])}))' "$human_status" "$json_status" > "$BLAZAR_AUDIT_REPORT/deny-status.json"
+          cat "$BLAZAR_AUDIT_REPORT/deny-human.stderr"
+          test "$human_status" -eq 0 && test "$json_status" -eq 0
+      - name: Check RustSec and exact conditional RSA policy
+        if: always() && steps.install.outcome == 'success'
+        working-directory: ${{ runner.temp }}
+        shell: bash
+        run: |
+          python3 -c 'import hashlib,pathlib,sys; print(hashlib.sha256(pathlib.Path(sys.argv[1]).read_bytes()).hexdigest())' "$GITHUB_WORKSPACE/Cargo.lock" > "$BLAZAR_AUDIT_REPORT/lock-before.sha256"
+          set +e
+          python3 -B "$GITHUB_WORKSPACE/.github/scripts/dependency_environment.py" -- "$BLAZAR_AUDIT_TOOLS/bin/cargo-audit" audit --file "$GITHUB_WORKSPACE/Cargo.lock" --db "$BLAZAR_AUDIT_TOOLS/advisory-db" --url https://github.com/RustSec/advisory-db.git --deny yanked --color never --json > "$BLAZAR_AUDIT_REPORT/audit-json.stdout" 2> "$BLAZAR_AUDIT_REPORT/audit-json.stderr"
+          audit_status=$?
+          python3 -B "$GITHUB_WORKSPACE/.github/scripts/dependency_environment.py" -- "$BLAZAR_AUDIT_TOOLS/bin/cargo-audit" audit --file "$GITHUB_WORKSPACE/Cargo.lock" --db "$BLAZAR_AUDIT_TOOLS/advisory-db" --url https://github.com/RustSec/advisory-db.git --deny yanked --color never --format terminal > "$BLAZAR_AUDIT_REPORT/audit-terminal.stdout" 2> "$BLAZAR_AUDIT_REPORT/audit-terminal.stderr"
+          terminal_status=$?
+          python3 -B "$GITHUB_WORKSPACE/.github/scripts/dependency_environment.py" -- cargo +1.90 tree --manifest-path "$GITHUB_WORKSPACE/Cargo.toml" --locked --workspace --all-features --target all --edges normal,build,dev --invert rsa --prefix none --format '{p}' > "$BLAZAR_AUDIT_REPORT/rsa-tree.stdout" 2> "$BLAZAR_AUDIT_REPORT/rsa-tree.stderr"
+          tree_status=$?
+          python3 -c 'import json,sys; print(json.dumps({"audit":int(sys.argv[1]),"rsa_tree":int(sys.argv[2]),"audit_terminal":int(sys.argv[3])}))' "$audit_status" "$tree_status" "$terminal_status" > "$BLAZAR_AUDIT_REPORT/audit-status.json"
+          cat "$BLAZAR_AUDIT_REPORT/audit-json.stdout"
+          cat "$BLAZAR_AUDIT_REPORT/audit-json.stderr"
+          cat "$BLAZAR_AUDIT_REPORT/rsa-tree.stderr"
+          cat "$BLAZAR_AUDIT_REPORT/audit-terminal.stdout"
+          cat "$BLAZAR_AUDIT_REPORT/audit-terminal.stderr"
+          python3 -B "$GITHUB_WORKSPACE/.github/scripts/evaluate_audit.py" --audit-json "$BLAZAR_AUDIT_REPORT/audit-json.stdout" --audit-exit "$audit_status" --audit-stderr "$BLAZAR_AUDIT_REPORT/audit-json.stderr" --human-stdout "$BLAZAR_AUDIT_REPORT/audit-terminal.stdout" --human-stderr "$BLAZAR_AUDIT_REPORT/audit-terminal.stderr" --human-exit "$terminal_status" --db-path "$BLAZAR_AUDIT_TOOLS/advisory-db" --tree-stdout "$BLAZAR_AUDIT_REPORT/rsa-tree.stdout" --tree-exit "$tree_status" --lock-before-file "$BLAZAR_AUDIT_REPORT/lock-before.sha256" --lockfile "$GITHUB_WORKSPACE/Cargo.lock" --decision "$BLAZAR_AUDIT_REPORT/audit-decision.json"
+          policy_status=$?
+          cat "$BLAZAR_AUDIT_REPORT/audit-decision.json"
+          exit "$policy_status"
+      - name: Retain complete dependency diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-audit
+          path: ${{ runner.temp }}/blazar-audit-report
+          if-no-files-found: warn
