@@ -773,6 +773,10 @@ pub async fn mcp_spec(st: &Shared) -> Option<blazar_runtime::McpServerSpec> {
             "--hub".into(),
             HUB_URL.get()?.clone(),
         ],
+        env: std::collections::BTreeMap::from([(
+            "BLAZAR_HUB_SESSION".into(),
+            st.auth.get()?.path.display().to_string(),
+        )]),
         ..Default::default()
     })
 }
@@ -840,13 +844,15 @@ pub async fn serve_mcp(argv: &[String]) -> anyhow::Result<()> {
 
 async fn post_json(hub: &str, path: &str, body: &Value) -> anyhow::Result<(u16, Value)> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    let host = hub
+    let endpoint = blazar_core_types::connection::resolve(hub)?;
+    let host = endpoint
+        .url
         .trim_end_matches('/')
         .strip_prefix("http://")
         .ok_or_else(|| anyhow::anyhow!("hub 地址要以 http:// 开头"))?;
     let mut s = tokio::net::TcpStream::connect(host).await?;
     let payload = body.to_string();
-    s.write_all(format!("POST {path} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{payload}", payload.len()).as_bytes()).await?;
+    s.write_all(format!("POST {path} HTTP/1.1\r\nHost: {host}\r\nAuthorization: Bearer {}\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{payload}", endpoint.token, payload.len()).as_bytes()).await?;
     let mut raw = Vec::new();
     s.read_to_end(&mut raw).await?;
     parse_http_response(&raw)

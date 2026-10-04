@@ -32,6 +32,7 @@ impl Drop for AdmitGuard {
 }
 
 pub struct AppState {
+    pub auth: std::sync::OnceLock<crate::auth::Session>,
     pub services: crate::services::Services,
     pub db: Db,
     pub bus: broadcast::Sender<ServerEvent>,
@@ -72,6 +73,7 @@ impl AppState {
     ) -> Arc<Self> {
         let (bus, _) = broadcast::channel(4096);
         Arc::new(Self {
+            auth: std::sync::OnceLock::new(),
             services,
             db,
             bus,

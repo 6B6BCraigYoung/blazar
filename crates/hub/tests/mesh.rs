@@ -1,12 +1,14 @@
 #![cfg(unix)]
 
+mod common;
+
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
 use axum::body::Body;
 use axum::extract::ConnectInfo;
 use axum::http::{Request, StatusCode, header};
-use blazar_hub::{HubConfig, build_router, build_state_with_services, services::Services};
+use blazar_hub::{HubConfig, build_state_with_services, services::Services};
 use blazar_netmesh::Invite;
 use http_body_util::BodyExt;
 use tower::ServiceExt;
@@ -81,7 +83,7 @@ impl Harness {
             .await
             .unwrap();
         let h = Self {
-            app: build_router(st),
+            app: common::authenticated_router(st),
             dir,
         };
         let cli = fake_cli(h.dir.path());

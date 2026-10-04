@@ -1,4 +1,6 @@
 pub mod api;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod connection;
 pub mod http;
 pub mod sanitize;
 

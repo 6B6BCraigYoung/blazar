@@ -1,9 +1,11 @@
+mod common;
+
 use std::net::SocketAddr;
 
 use axum::body::Body;
 use axum::extract::ConnectInfo;
 use axum::http::{Request, StatusCode, header};
-use blazar_hub::{HubConfig, build_router, build_state_with_services, services::Services};
+use blazar_hub::{HubConfig, build_state_with_services, services::Services};
 use http_body_util::BodyExt;
 use tower::ServiceExt;
 
@@ -19,7 +21,7 @@ async fn app() -> (axum::Router, tempfile::TempDir) {
     let st = build_state_with_services(&cfg, Services::Isolated)
         .await
         .unwrap();
-    (build_router(st), dir)
+    (common::authenticated_router(st), dir)
 }
 
 fn get(path: &str, if_none_match: Option<&str>) -> Request<Body> {

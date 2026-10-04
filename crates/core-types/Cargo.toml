@@ -11,7 +11,9 @@ serde.workspace = true
 serde_json.workspace = true
 uuid.workspace = true
 
-# 前端（Leptos，编到 wasm）也用这些类型：uuid 在浏览器里用 Web Crypto 取随机数。
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+directories = "5"
+
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 uuid = { workspace = true, features = ["js"] }
 

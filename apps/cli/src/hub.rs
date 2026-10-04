@@ -8,18 +8,25 @@ pub struct Reply {
 
 pub async fn request(hub: &str, method: &str, path: &str, body: Option<Value>) -> Result<Reply> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    let addr = hub
+    let endpoint = blazar_core_types::connection::resolve(hub)?;
+    let addr = endpoint
+        .url
         .trim_end_matches('/')
         .strip_prefix("http://")
         .context("hub 地址必须以 http:// 开头")?;
     let host_port = addr.split('/').next().unwrap_or(addr);
     let mut stream = tokio::net::TcpStream::connect(host_port)
         .await
-        .with_context(|| format!("连不上 hub {host_port} —— Blazar 在跑吗？（桌面端默认 127.0.0.1:61528，可用 --hub 或 BLAZAR_HUB 指定）"))?;
+        .with_context(|| {
+            format!("连不上 hub {host_port}；启动 Blazar，或用 --hub / BLAZAR_HUB 指定地址")
+        })?;
     let payload = body.map(|b| b.to_string()).unwrap_or_default();
     let mut req = format!(
         "{method} {path} HTTP/1.1\r\nHost: {host_port}\r\nConnection: close\r\nAccept: application/json\r\n"
     );
+    if !endpoint.token.is_empty() {
+        req.push_str(&format!("Authorization: Bearer {}\r\n", endpoint.token));
+    }
     if !payload.is_empty() {
         req.push_str(&format!(
             "Content-Type: application/json\r\nContent-Length: {}\r\n",

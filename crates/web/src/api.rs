@@ -1,10 +1,31 @@
-//! hub 的 HTTP 接口。请求都发同源的 `/api/...`：发布时页面就是 hub 给的，开发时 `trunk serve` 把 `/api` 代理到 hub。
-
 use gloo_net::http::{Request, Response};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 
 pub use blazar_core_types::api::WorkspaceView;
+
+thread_local! {
+    static SESSION_READY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+pub fn reset_session() {
+    SESSION_READY.with(|ready| ready.set(false));
+}
+
+pub async fn session() -> Result<(), ApiError> {
+    if SESSION_READY.with(std::cell::Cell::get) {
+        return Ok(());
+    }
+    let response = Request::post("/api/auth/session")
+        .send()
+        .await
+        .map_err(|e| ApiError(format!("连接 Blazar 失败：{e}")))?;
+    if !response.ok() {
+        return Err(ApiError("无法建立本机会话，请重新打开 Blazar".into()));
+    }
+    SESSION_READY.with(|ready| ready.set(true));
+    Ok(())
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ApiError(pub String);
@@ -18,7 +39,9 @@ impl std::fmt::Display for ApiError {
 async fn read<T: DeserializeOwned>(resp: Result<Response, gloo_net::Error>) -> Result<T, ApiError> {
     let resp = resp.map_err(|e| ApiError(format!("连不上 hub：{e}")))?;
     if !resp.ok() {
-        // hub 出错时回 {"error": "..."}，拿不到就报状态码。
+        if resp.status() == 401 {
+            reset_session();
+        }
         let msg = resp
             .json::<serde_json::Value>()
             .await
@@ -37,6 +60,7 @@ async fn read<T: DeserializeOwned>(resp: Result<Response, gloo_net::Error>) -> R
 }
 
 pub async fn get<T: DeserializeOwned>(path: &str) -> Result<T, ApiError> {
+    session().await?;
     read(Request::get(path).send().await).await
 }
 
@@ -45,6 +69,7 @@ pub async fn send<T: DeserializeOwned>(
     path: &str,
     body: &serde_json::Value,
 ) -> Result<T, ApiError> {
+    session().await?;
     let b = match method {
         "PUT" => Request::put(path),
         "DELETE" => Request::delete(path),
@@ -115,7 +140,6 @@ pub struct Account {
     pub last_used_at: Option<String>,
     #[serde(default)]
     pub config_dir: Option<String>,
-    /// 这个账号被拒过的模型（订阅不含），7 天后自动重试
     #[serde(default)]
     pub model_blocks: Vec<ModelBlock>,
 }
@@ -143,7 +167,6 @@ pub struct Accounts {
 }
 
 impl Accounts {
-    /// 这个运行时现在用的账号：没选过（""）就是自带的那个 `<provider>-default`；旧版的「自动」不算任何一个。
     pub fn active(&self, provider: &str) -> Option<String> {
         match self.modes.get(provider).map(String::as_str).unwrap_or("") {
             "" => Some(format!("{provider}-default")),
@@ -174,7 +197,6 @@ pub async fn refresh_quota(id: &str) -> Result<serde_json::Value, ApiError> {
 
 pub use blazar_core_types::api::{ChangeKind, DiffStat, DirItems, FileContent, TreeEntry, Written};
 
-/// 和 hub 的 `blazar_vfs::MAX_DIR_ITEMS` 一致
 pub const MAX_DIR_ITEMS: usize = 5_000;
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -205,7 +227,6 @@ pub async fn read_file(ws: &str, path: &str) -> Result<FileContent, ApiError> {
     get(&format!("/api/workspaces/{ws}/file?path={}", enc(path))).await
 }
 
-/// `expect_mtime` 为 None 表示强制覆盖。
 pub async fn write_file(
     ws: &str,
     path: &str,
@@ -220,7 +241,6 @@ pub async fn write_file(
     .await
 }
 
-/// 记下这个工作区在编辑器里开着哪个文件（agent 能看到，下次进来也从这里接着看）。
 pub async fn put_editor_context(ws: &str, path: &str) {
     let _ = send::<serde_json::Value>(
         "PUT",
@@ -267,7 +287,6 @@ pub struct WebLinks {
     pub new_pr: Option<String>,
 }
 
-/// `GET /api/workspaces/{id}/git`。不是 git 仓库时只有 `repo = false` 和 `reason`。
 #[derive(Debug, Clone, PartialEq, Default, Deserialize)]
 #[serde(default)]
 pub struct GitStatus {
@@ -294,19 +313,16 @@ pub struct GitStatus {
     pub conflicts: Vec<String>,
     pub files: Vec<GitFile>,
     pub commits: Vec<GitCommit>,
-    /// 这个工作区里正在跑的会话数。
     pub running: i64,
     pub pr: Option<PrRef>,
 }
 
 impl GitStatus {
-    /// 有可比的目标分支（选了、存在、且不是当前分支本身）。
     pub fn has_target(&self) -> bool {
         self.target_ok && !self.same
     }
 }
 
-/// `POST /api/workspaces/{id}/git/{op}` 的结果。
 #[derive(Debug, Clone, PartialEq, Default, Deserialize)]
 #[serde(default)]
 pub struct GitOpResult {

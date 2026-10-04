@@ -106,7 +106,8 @@ async fn call_tool(hub: &str, params: Option<&Value>) -> Result<Value> {
 async fn request(hub: &str, method: &str, path: &str, body: Option<Value>) -> Result<String> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-    let base = hub.trim_end_matches('/');
+    let endpoint = blazar_core_types::connection::resolve(hub)?;
+    let base = endpoint.url.trim_end_matches('/');
     let addr = base
         .strip_prefix("http://")
         .context("hub 地址必须以 http:// 开头（MCP 只连本机或内网）")?;
@@ -120,6 +121,9 @@ async fn request(hub: &str, method: &str, path: &str, body: Option<Value>) -> Re
     let mut req = format!(
         "{method} {path} HTTP/1.1\r\nHost: {host_port}\r\nConnection: close\r\nAccept: application/json\r\n"
     );
+    if !endpoint.token.is_empty() {
+        req.push_str(&format!("Authorization: Bearer {}\r\n", endpoint.token));
+    }
     if !payload.is_empty() {
         req.push_str(&format!(
             "Content-Type: application/json\r\nContent-Length: {}\r\n",

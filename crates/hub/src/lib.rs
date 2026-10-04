@@ -10,6 +10,7 @@ pub use blazar_db::ensure_private_dir;
 
 mod agent;
 pub mod api;
+pub mod auth;
 pub mod git;
 pub mod mesh;
 pub mod office;
@@ -83,6 +84,8 @@ pub async fn build_state_with_services(
         mesh_ctx,
         services,
     );
+    let auth = auth::Session::new(&cfg.db_path, std::env::var("BLAZAR_DEV_ORIGIN").ok())?;
+    let _ = st.auth.set(auth);
 
     services.spawn(run::reattach_all(st.clone()));
     services.spawn(proxy::restore(st.clone()));
@@ -403,60 +406,12 @@ pub fn build_router(st: Arc<AppState>) -> Router {
         .route("/api/workspaces/{id}/terminal/ws", get(api::terminal_ws))
         .route("/api/ws", get(api::ws_handler))
         .fallback(web)
-        .layer(axum::middleware::from_fn(same_origin_only))
+        .layer(axum::middleware::from_fn_with_state(
+            st.clone(),
+            auth::guard,
+        ))
         .layer(axum::extract::DefaultBodyLimit::max(64 * 1024 * 1024))
         .with_state(st)
-}
-
-async fn same_origin_only(
-    req: axum::extract::Request,
-    next: axum::middleware::Next,
-) -> axum::response::Response {
-    use axum::http::{StatusCode, header};
-    use axum::response::IntoResponse;
-
-    let host = req
-        .headers()
-        .get(header::HOST)
-        .and_then(|h| h.to_str().ok())
-        .map(str::to_owned);
-    if let Some(host) = &host
-        && !host_allowed(host)
-    {
-        return (
-            StatusCode::MISDIRECTED_REQUEST,
-            format!("不接受经 {host} 访问；如需经域名访问，设置 BLAZAR_ALLOWED_HOSTS"),
-        )
-            .into_response();
-    }
-    if let Some(origin) = req.headers().get(header::ORIGIN) {
-        let same = origin
-            .to_str()
-            .ok()
-            .and_then(|o| o.split_once("://"))
-            .zip(host.as_deref())
-            .is_some_and(|((_, o), h)| o.eq_ignore_ascii_case(h));
-        if !same {
-            return (StatusCode::FORBIDDEN, "拒绝跨站请求").into_response();
-        }
-    }
-    next.run(req).await
-}
-
-fn host_allowed(host: &str) -> bool {
-    let name = if let Some(rest) = host.strip_prefix('[') {
-        rest.split(']').next().unwrap_or_default()
-    } else {
-        host.rsplit_once(':').map_or(host, |(h, _)| h)
-    };
-    if name.eq_ignore_ascii_case("localhost") || name.parse::<std::net::IpAddr>().is_ok() {
-        return true;
-    }
-    std::env::var("BLAZAR_ALLOWED_HOSTS").is_ok_and(|list| {
-        list.split(',')
-            .map(str::trim)
-            .any(|h| !h.is_empty() && h.eq_ignore_ascii_case(name))
-    })
 }
 
 pub async fn bind(cfg: &HubConfig) -> Result<(SocketAddr, tokio::net::TcpListener)> {
@@ -481,6 +436,9 @@ pub async fn serve(listener: tokio::net::TcpListener, router: Router) -> Result<
 pub async fn spawn(cfg: HubConfig) -> Result<(SocketAddr, Arc<AppState>)> {
     let st = build_state(&cfg).await?;
     let (addr, listener) = bind(&cfg).await?;
+    if let Some(auth) = st.auth.get() {
+        auth.publish(addr)?;
+    }
     let router = build_router(st.clone());
     tokio::spawn(async move {
         if let Err(err) = serve(listener, router).await {

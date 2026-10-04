@@ -58,6 +58,9 @@ async fn main() -> Result<()> {
 
     let st = blazar_hub::build_state(&cfg).await?;
     let (addr, listener) = blazar_hub::bind(&cfg).await?;
+    if let Some(auth) = st.auth.get() {
+        auth.publish(addr)?;
+    }
     println!("Blazar hub 已启动  →  http://{addr}");
     println!("mesh 发现经由: {}", cfg.mesh_via);
     blazar_hub::serve(listener, blazar_hub::build_router(st)).await
