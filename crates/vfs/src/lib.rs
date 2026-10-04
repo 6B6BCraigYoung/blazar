@@ -629,7 +629,7 @@ fn shell_quote(s: &str) -> String {
 }
 
 fn parse_tree(raw: &str) -> Vec<TreeEntry> {
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, BTreeSet};
 
     let mut files: BTreeMap<String, Option<ChangeKind>> = BTreeMap::new();
     let mut section = "";
@@ -674,7 +674,7 @@ fn parse_tree(raw: &str) -> Vec<TreeEntry> {
         }
     }
 
-    let mut dirs: BTreeMap<String, ()> = BTreeMap::new();
+    let mut dirs = BTreeSet::new();
     for path in files.keys() {
         let mut acc = String::new();
         let parts: Vec<_> = path.split('/').collect();
@@ -683,12 +683,12 @@ fn parse_tree(raw: &str) -> Vec<TreeEntry> {
                 acc.push('/');
             }
             acc.push_str(part);
-            dirs.insert(acc.clone(), ());
+            dirs.insert(acc.clone());
         }
     }
 
     let mut out: Vec<TreeEntry> = dirs
-        .into_keys()
+        .into_iter()
         .map(|path| TreeEntry {
             path,
             is_dir: true,
