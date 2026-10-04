@@ -245,11 +245,12 @@ pub async fn write_file(
     path: &str,
     content: &str,
     expect_mtime: Option<u64>,
+    expect_version: Option<&str>,
 ) -> Result<Written, ApiError> {
     send(
         "PUT",
         &format!("/api/workspaces/{ws}/file"),
-        &serde_json::json!({ "path": path, "content": content, "expect_mtime": expect_mtime }),
+        &serde_json::json!({ "path": path, "content": content, "expect_mtime": expect_mtime, "expect_version": expect_version }),
     )
     .await
 }

@@ -161,7 +161,6 @@ pub struct DirQuery {
     pub path: String,
 }
 
-/// 资源管理器展开目录时按需列一层，照磁盘来（含被忽略的文件）。
 pub async fn workspace_ls(
     State(st): State<Shared>,
     Path(id): Path<String>,
@@ -234,6 +233,9 @@ pub struct WriteFile {
 
     #[serde(default)]
     pub expect_mtime: Option<u64>,
+
+    #[serde(default)]
+    pub expect_version: Option<String>,
 }
 
 pub async fn workspace_file_write(
@@ -243,7 +245,12 @@ pub async fn workspace_file_write(
 ) -> ApiResult<Json<blazar_vfs::Written>> {
     let (node, path) = locate(&st, &id).await?;
     let w = vfs_for(&st, &node, &path)
-        .write(&b.path, &b.content, b.expect_mtime)
+        .write_checked(
+            &b.path,
+            &b.content,
+            b.expect_mtime,
+            b.expect_version.as_deref(),
+        )
         .await?;
     if w.saved {
         st.emit(ServerEvent::WorkspacesChanged);
@@ -302,5 +309,27 @@ pub async fn workspace_diff(
             "reason": format!("{path} 不是 git 仓库，没有可比较的基线"),
         }))),
         Err(e) => Err(e.into()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn file_write_requests_keep_legacy_mtime_and_accept_content_versions() {
+        let legacy: WriteFile = serde_json::from_value(serde_json::json!({
+            "path": "note.txt", "content": "note", "expect_mtime": 12
+        }))
+        .unwrap();
+        assert_eq!(legacy.expect_mtime, Some(12));
+        assert_eq!(legacy.expect_version, None);
+        let version = "a".repeat(64);
+        let current: WriteFile = serde_json::from_value(serde_json::json!({
+            "path": "note.txt", "content": "note", "expect_version": version
+        }))
+        .unwrap();
+        assert_eq!(current.expect_mtime, None);
+        assert_eq!(current.expect_version.as_deref(), Some(version.as_str()));
     }
 }

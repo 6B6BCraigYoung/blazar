@@ -1,5 +1,3 @@
-//! hub 的 HTTP / WebSocket 接口上传来传去的数据。服务端序列化、前端（Leptos，wasm）反序列化，两边用同一份定义。
-
 use serde::{Deserialize, Serialize};
 
 use crate::{NormalizedEntry, SessionId, WorkspaceId};
@@ -11,7 +9,6 @@ pub struct DiffStat {
     pub files: u64,
 }
 
-/// 工作区文件树里的一项（相对工作区根目录）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TreeEntry {
     pub path: String,
@@ -21,7 +18,6 @@ pub struct TreeEntry {
     pub change: Option<ChangeKind>,
 }
 
-/// 资源管理器里某个目录的一层内容（照磁盘列，含被 git 忽略的）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DirItem {
     pub name: String,
@@ -30,7 +26,6 @@ pub struct DirItem {
     pub ignored: bool,
 }
 
-/// 一层目录内容；条目太多时只给前 [`DirItems::items`] 那么多。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DirItems {
     pub items: Vec<DirItem>,
@@ -59,15 +54,20 @@ pub struct FileContent {
 
     #[serde(default)]
     pub mtime: u64,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
 }
 
-/// 写文件的结果。`saved == false` 表示文件在读之后被别人改过（mtime 对不上），没写。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Written {
     pub saved: bool,
 
     pub mtime: u64,
     pub size: u64,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -79,7 +79,6 @@ pub struct NodeView {
     pub latency_ms: Option<f64>,
     pub cost: Option<String>,
     pub workspace_count: i64,
-    /// "easytier"（组网发现的）、"ssh"（从 ~/.ssh/config 加的），旧数据可能为空
     #[serde(default)]
     pub network: Option<String>,
 }
@@ -106,7 +105,6 @@ pub struct StateSnapshot {
     pub workspaces: Vec<WorkspaceView>,
 }
 
-/// hub 经 `/api/ws` 推给每个界面的事件。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ServerEvent {
@@ -152,6 +150,25 @@ pub enum ServerEvent {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn file_versions_preserve_legacy_response_compatibility() {
+        let file: FileContent = serde_json::from_value(serde_json::json!({
+            "path": "note.txt", "content": "note", "size": 4,
+            "too_large": false, "binary": false, "mtime": 12
+        }))
+        .unwrap();
+        assert_eq!(file.version, None);
+        let mut written: Written = serde_json::from_value(serde_json::json!({
+            "saved": true, "mtime": 12, "size": 4
+        }))
+        .unwrap();
+        assert_eq!(written.version, None);
+        written.version = Some("a".repeat(64));
+        let value = serde_json::to_value(&written).unwrap();
+        assert_eq!(value["mtime"], 12);
+        assert_eq!(serde_json::from_value::<Written>(value).unwrap(), written);
+    }
 
     #[test]
     fn server_events_round_trip_with_the_kind_tag() {

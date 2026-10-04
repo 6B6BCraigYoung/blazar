@@ -1,3 +1,4 @@
+use std::io::Write;
 use std::path::{Path as FsPath, PathBuf};
 
 use axum::Json;
@@ -231,11 +232,30 @@ struct Written {
     rel: String,
 }
 
+struct PendingNote(PathBuf);
+
+impl Drop for PendingNote {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
 fn write_note_file(
     vault: &FsPath,
     rel: &str,
     content: &str,
     overwrite: bool,
+) -> std::io::Result<()> {
+    write_note_file_with(vault, rel, overwrite, |file| {
+        file.write_all(content.as_bytes())
+    })
+}
+
+fn write_note_file_with(
+    vault: &FsPath,
+    rel: &str,
+    overwrite: bool,
+    write: impl FnOnce(&mut std::fs::File) -> std::io::Result<()>,
 ) -> std::io::Result<()> {
     let resolve = || {
         blazar_vfs::confined_local_path(vault, rel).map_err(|error| {
@@ -252,14 +272,67 @@ fn write_note_file(
         .parent()
         .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, "路径不在库内"))?;
     std::fs::create_dir_all(dir)?;
-    let target = resolve()?;
-    if !overwrite && target.exists() {
+    if resolve()? != target {
         return Err(std::io::Error::new(
-            std::io::ErrorKind::AlreadyExists,
-            "已经有同名笔记",
+            std::io::ErrorKind::InvalidInput,
+            "笔记路径已经变化",
         ));
     }
-    std::fs::write(target, content)
+    let permissions = match std::fs::symlink_metadata(&target) {
+        Ok(_) if !overwrite => {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::AlreadyExists,
+                "已经有同名笔记",
+            ));
+        }
+        Ok(metadata) if metadata.is_file() => {
+            let permissions = metadata.permissions();
+            if permissions.readonly() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "笔记是只读文件，无法覆盖",
+                ));
+            }
+            Some(permissions)
+        }
+        Ok(_) => {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "笔记路径不是普通文件",
+            ));
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(error),
+    };
+    let pending;
+    {
+        let path = dir.join(format!(".blazar-note-{}.tmp", uuid::Uuid::now_v7()));
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let mut file = options.open(&path)?;
+        pending = PendingNote(path);
+        write(&mut file)?;
+        if let Some(permissions) = permissions {
+            file.set_permissions(permissions)?;
+        }
+        file.sync_all()?;
+    }
+    if resolve()? != target {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "笔记路径已经变化",
+        ));
+    }
+    if overwrite {
+        std::fs::rename(&pending.0, target)
+    } else {
+        std::fs::hard_link(&pending.0, target)
+    }
 }
 
 async fn write_note(st: &Shared, b: &NoteBody) -> Result<Written, Response> {
@@ -437,6 +510,129 @@ pub async fn task_note(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn atomic_note_failed_write_preserves_original() {
+        let vault = tempfile::tempdir().unwrap();
+        let target = vault.path().join("note.md");
+        std::fs::write(&target, "original-fixture").unwrap();
+        let error = write_note_file_with(vault.path(), "note.md", true, |file| {
+            file.write_all(b"partial")?;
+            Err(std::io::Error::other("injected write failure"))
+        })
+        .unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::Other);
+        assert_eq!(
+            std::fs::read_to_string(&target).unwrap(),
+            "original-fixture"
+        );
+        assert_eq!(std::fs::read_dir(vault.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn atomic_note_creation_does_not_replace_a_competing_note() {
+        let vault = tempfile::tempdir().unwrap();
+        let target = vault.path().join("note.md");
+        let result = write_note_file_with(vault.path(), "note.md", false, |file| {
+            std::fs::write(&target, "competing-fixture")?;
+            file.write_all(b"replacement")
+        });
+        assert_eq!(
+            result.unwrap_err().kind(),
+            std::io::ErrorKind::AlreadyExists
+        );
+        assert_eq!(
+            std::fs::read_to_string(&target).unwrap(),
+            "competing-fixture"
+        );
+        assert_eq!(std::fs::read_dir(vault.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn atomic_note_replacement_is_published_after_the_complete_write() {
+        let vault = tempfile::tempdir().unwrap();
+        let target = vault.path().join("note.md");
+        std::fs::write(&target, "original-fixture").unwrap();
+        write_note_file_with(vault.path(), "note.md", true, |file| {
+            file.write_all(b"replacement")?;
+            assert_eq!(std::fs::read_to_string(&target)?, "original-fixture");
+            file.write_all(b"-fixture")
+        })
+        .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&target).unwrap(),
+            "replacement-fixture"
+        );
+        assert_eq!(std::fs::read_dir(vault.path()).unwrap().count(), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn atomic_note_permissions_are_private_or_preserved() {
+        use std::os::unix::fs::PermissionsExt;
+        let vault = tempfile::tempdir().unwrap();
+        let target = vault.path().join("note.md");
+        write_note_file(vault.path(), "note.md", "new-fixture", false).unwrap();
+        assert_eq!(
+            std::fs::metadata(&target).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o755)).unwrap();
+        write_note_file(vault.path(), "note.md", "replacement-fixture", true).unwrap();
+        assert_eq!(
+            std::fs::metadata(&target).unwrap().permissions().mode() & 0o777,
+            0o755
+        );
+        assert_eq!(
+            std::fs::read_to_string(&target).unwrap(),
+            "replacement-fixture"
+        );
+        assert_eq!(std::fs::read_dir(vault.path()).unwrap().count(), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn atomic_note_does_not_replace_a_read_only_note() {
+        use std::os::unix::fs::PermissionsExt;
+        let vault = tempfile::tempdir().unwrap();
+        let target = vault.path().join("note.md");
+        std::fs::write(&target, "original-fixture").unwrap();
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o444)).unwrap();
+        let error =
+            write_note_file(vault.path(), "note.md", "replacement-fixture", true).unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
+        assert_eq!(
+            std::fs::read_to_string(&target).unwrap(),
+            "original-fixture"
+        );
+        assert_eq!(
+            std::fs::metadata(&target).unwrap().permissions().mode() & 0o777,
+            0o444
+        );
+        assert_eq!(std::fs::read_dir(vault.path()).unwrap().count(), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn atomic_note_rechecks_containment_before_publication() {
+        let vault = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let target = vault.path().join("note.md");
+        let outside_note = outside.path().join("note.md");
+        std::fs::write(&outside_note, "outside-fixture").unwrap();
+        let error = write_note_file_with(vault.path(), "note.md", true, |file| {
+            file.write_all(b"replacement-fixture")?;
+            std::os::unix::fs::symlink(&outside_note, &target)
+        })
+        .unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
+        assert_eq!(
+            std::fs::read_to_string(&outside_note).unwrap(),
+            "outside-fixture"
+        );
+        assert!(std::fs::symlink_metadata(&target).unwrap().is_symlink());
+        assert_eq!(std::fs::read_dir(vault.path()).unwrap().count(), 1);
+    }
 
     #[cfg(unix)]
     #[test]

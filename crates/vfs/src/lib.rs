@@ -29,6 +29,26 @@ const EXIT_NO_GIT: i32 = 5;
 const EXIT_SSH: i32 = 255;
 const EXIT_PATH_ESCAPE: i32 = 9;
 
+const CONTENT_DIGEST: &str = r#"digest() {
+  local value
+  if command -v sha256sum >/dev/null 2>&1; then
+    value=$(sha256sum) || return 1
+    value=${value%% *}
+  elif command -v shasum >/dev/null 2>&1; then
+    value=$(shasum -a 256) || return 1
+    value=${value%% *}
+  elif command -v openssl >/dev/null 2>&1; then
+    value=$(openssl dgst -sha256) || return 1
+    value=${value##* }
+  else
+    printf '%s\n' '无法校验文件版本：需要 sha256sum、shasum 或 openssl' >&2
+    return 1
+  fi
+  [ "${#value}" -eq 64 ] || return 1
+  case "$value" in *[!0-9a-f]*) return 1;; esac
+  printf '%s' "$value"
+}"#;
+
 pub fn safe_relative_path(rel: &str) -> Result<String> {
     let normalized = rel.replace('\\', "/");
     if normalized.starts_with('/')
@@ -274,22 +294,40 @@ exit 0"#,
         let rel = self.safe_rel(rel)?;
         let script = format!(
             r#"{guard}
+{digest}
 [ -f "$F" ] || exit 4
 SZ=$(wc -c < "$F" | tr -d ' ')
 echo "SIZE|$SZ"
 echo "MTIME|$(stat -c %Y "$F" 2>/dev/null || stat -f %m "$F" 2>/dev/null)"
-HEAD_BYTES=$(head -c 8192 "$F" | wc -c | tr -d ' ')
-NUL_STRIPPED=$(head -c 8192 "$F" | LC_ALL=C tr -d '\000' | wc -c | tr -d ' ')
-if [ "$NUL_STRIPPED" -ne "$HEAD_BYTES" ]; then
-  echo "BINARY|1"
-elif [ "$SZ" -gt {max} ]; then
+if [ "$SZ" -gt {max} ]; then
   echo "TOOLARGE|1"
 else
-  echo "BODY|"
-  cat -- "$F"
+  umask 077
+  TMP=$(mktemp) || exit 6
+  trap 'rm -f -- "$TMP"' EXIT
+  trap 'exit 129' HUP
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  head -c {cap} "$F" > "$TMP" || exit 6
+  SZ=$(wc -c < "$TMP" | tr -d ' ')
+  echo "SIZE|$SZ"
+  HEAD_BYTES=$(head -c 8192 "$TMP" | wc -c | tr -d ' ')
+  NUL_STRIPPED=$(head -c 8192 "$TMP" | LC_ALL=C tr -d '\000' | wc -c | tr -d ' ')
+  if [ "$NUL_STRIPPED" -ne "$HEAD_BYTES" ]; then
+    echo "BINARY|1"
+  elif [ "$SZ" -gt {max} ]; then
+    echo "TOOLARGE|1"
+  else
+    VERSION=$(digest < "$TMP") || exit 6
+    echo "VERSION|$VERSION"
+    echo "BODY|"
+    cat -- "$TMP" || exit 6
+  fi
 fi"#,
             guard = guarded_path(&self.root, &rel),
+            digest = CONTENT_DIGEST,
             max = MAX_READ_BYTES,
+            cap = MAX_READ_BYTES + 1,
         );
 
         let out = self
@@ -341,6 +379,16 @@ base64 < "$F" | tr -d '\n'"#,
         content: &str,
         expect_mtime: Option<u64>,
     ) -> Result<Written> {
+        self.write_checked(rel, content, expect_mtime, None).await
+    }
+
+    pub async fn write_checked(
+        &self,
+        rel: &str,
+        content: &str,
+        expect_mtime: Option<u64>,
+        expect_version: Option<&str>,
+    ) -> Result<Written> {
         let rel = self.safe_rel(rel)?;
 
         if rel.split('/').any(|component| component == ".git") {
@@ -355,18 +403,74 @@ base64 < "$F" | tr -d '\n'"#,
         }
         let script = format!(
             r#"{guard}
+{digest}
 mt() {{ stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null; }}
-[ -d "$F" ] && exit 4
 E={expect}
-if [ -n "$E" ] && [ -e "$F" ] && [ "$(mt "$F")" != "$E" ]; then
-  echo "CONFLICT|$(mt "$F")|$(wc -c < "$F" | tr -d ' ')"; exit 0
-fi
-mkdir -p "$(dirname "$F")" || exit 6
+EV={expect_version}
+HAS_EV={has_version}
+DIR=${{F%/*}}
+umask 077
+mkdir -p -- "$DIR" || exit 6
 guard_path "$F"
-cat > "$F" || exit 6
-echo "SAVED|$(mt "$F")|$(wc -c < "$F" | tr -d ' ')""#,
+KEY=$(printf '%s' "${{F##*/}}" | digest) || exit 6
+LOCK="$DIR/.blazar-write-$KEY.lock"
+if ! mkdir -- "$LOCK" 2>/dev/null; then
+  printf '文件正在保存，或上次保存被中断。请稍后重试；确认没有保存进程后可移除锁目录：%s\n' "$LOCK" >&2
+  exit 10
+fi
+TMP=
+cleanup() {{
+  [ -z "$TMP" ] || rm -f -- "$TMP"
+  rm -f -- "$LOCK/owner"
+  rmdir -- "$LOCK" 2>/dev/null
+}}
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+printf '%s\n' "$$" > "$LOCK/owner" || exit 6
+current() {{
+  MT=0
+  SZ=0
+  VERSION=
+  MODE=
+  if [ -e "$F" ]; then
+    [ -f "$F" ] || exit 4
+    MT=$(mt "$F") || exit 6
+    SZ=$(wc -c < "$F" | tr -d ' ') || exit 6
+    VERSION=$(digest < "$F") || exit 6
+    MODE=$(stat -c %a "$F" 2>/dev/null || stat -f %Lp "$F" 2>/dev/null) || exit 6
+  fi
+}}
+matches_expected() {{
+  if [ "$HAS_EV" = 1 ]; then
+    [ "$VERSION" = "$EV" ]
+  elif [ -n "$E" ]; then
+    [ -e "$F" ] && [ "$MT" = "$E" ]
+  else
+    return 0
+  fi
+}}
+conflict() {{ printf 'CONFLICT|%s|%s|%s\n' "$MT" "$SZ" "$VERSION"; exit 0; }}
+guard_path "$F"
+current
+matches_expected || conflict
+[ ! -e "$F" ] || [ -w "$F" ] || exit 6
+TMP=$(mktemp "$DIR/.blazar-write.XXXXXXXX") || exit 6
+cat > "$TMP" || exit 6
+NEW_VERSION=$(digest < "$TMP") || exit 6
+guard_path "$F"
+current
+matches_expected || conflict
+[ -z "$MODE" ] || chmod "$MODE" "$TMP" || exit 6
+mv -f -- "$TMP" "$F" || exit 6
+TMP=
+printf 'SAVED|%s|%s|%s\n' "$(mt "$F")" "$(wc -c < "$F" | tr -d ' ')" "$NEW_VERSION""#,
             guard = guarded_path(&self.root, &rel),
+            digest = CONTENT_DIGEST,
             expect = shell_quote(&expect_mtime.map(|m| m.to_string()).unwrap_or_default()),
+            expect_version = shell_quote(expect_version.unwrap_or_default()),
+            has_version = u8::from(expect_version.is_some()),
         );
         let out = self
             .transport
@@ -380,7 +484,7 @@ echo "SAVED|$(mt "$F")|$(wc -c < "$F" | tr -d ' ')""#,
         if out.code == 4 {
             return Err(blazar_transport::TransportError::Command {
                 code: 4,
-                stderr: format!("{rel} 是一个目录"),
+                stderr: format!("{rel} 不是可保存的普通文件"),
             }
             .into());
         }
@@ -394,6 +498,7 @@ echo "SAVED|$(mt "$F")|$(wc -c < "$F" | tr -d ' ')""#,
             saved: kind == "SAVED",
             mtime,
             size,
+            version: p.next().filter(|v| !v.is_empty()).map(str::to_owned),
         })
     }
 
@@ -660,6 +765,7 @@ pub fn parse_stat(raw: &str) -> Option<DiffStat> {
 fn parse_file(path: &str, raw: &str) -> FileContent {
     let mut size = 0u64;
     let mut mtime = 0u64;
+    let mut version = None;
     let mut binary = false;
     let mut too_large = false;
     let mut content = String::new();
@@ -671,6 +777,7 @@ fn parse_file(path: &str, raw: &str) -> FileContent {
         match line.split_once('|') {
             Some(("SIZE", v)) => size = v.trim().parse().unwrap_or(0),
             Some(("MTIME", v)) => mtime = v.trim().parse().unwrap_or(0),
+            Some(("VERSION", v)) => version = Some(v.to_owned()),
             Some(("BINARY", _)) => binary = true,
             Some(("TOOLARGE", _)) => too_large = true,
             _ => {}
@@ -683,6 +790,7 @@ fn parse_file(path: &str, raw: &str) -> FileContent {
         too_large,
         binary,
         mtime,
+        version,
     }
 }
 
@@ -792,6 +900,190 @@ mod tests {
                 .spawn_lines(isolated(spec))
                 .await
         }
+    }
+
+    struct PartialWrite;
+
+    #[async_trait::async_trait]
+    impl NodeTransport for PartialWrite {
+        fn kind(&self) -> blazar_transport::TransportKind {
+            blazar_transport::TransportKind::Local
+        }
+        fn target(&self) -> &str {
+            "local"
+        }
+        async fn exec(
+            &self,
+            mut spec: ExecSpec,
+        ) -> blazar_transport::Result<blazar_transport::ExecOutput> {
+            if spec.stdin.is_some() {
+                spec.args[1] = format!("cat() {{ printf partial; return 1; }}\n{}", spec.args[1]);
+            }
+            TestLocal.exec(spec).await
+        }
+        async fn spawn_lines(
+            &self,
+            spec: ExecSpec,
+        ) -> blazar_transport::Result<blazar_transport::LineStream> {
+            TestLocal.spawn_lines(spec).await
+        }
+    }
+
+    #[tokio::test]
+    async fn atomic_write_failure_keeps_original_and_cleans_staging() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("note.txt"), "original").unwrap();
+        let v = Vfs::new(Arc::new(PartialWrite), root.path().to_string_lossy());
+        assert!(v.write("note.txt", "replacement", None).await.is_err());
+        assert_eq!(
+            std::fs::read_to_string(root.path().join("note.txt")).unwrap(),
+            "original"
+        );
+        assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 1);
+    }
+
+    #[tokio::test]
+    async fn atomic_write_rejects_a_stale_content_version() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("note.txt"), "original").unwrap();
+        let v = Vfs::new(Arc::new(TestLocal), root.path().to_string_lossy());
+        let written = v
+            .write_checked("note.txt", "replacement", None, Some(&"0".repeat(64)))
+            .await
+            .unwrap();
+        assert!(!written.saved);
+        assert_eq!(
+            std::fs::read_to_string(root.path().join("note.txt")).unwrap(),
+            "original"
+        );
+    }
+
+    #[tokio::test]
+    async fn atomic_write_detects_changed_content_with_the_same_mtime() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("note.txt"), "original").unwrap();
+        sh(root.path(), "touch -t 202001010000 note.txt");
+        let v = Vfs::new(Arc::new(TestLocal), root.path().to_string_lossy());
+        let original = v.read("note.txt").await.unwrap();
+        assert_eq!(original.version.as_ref().unwrap().len(), 64);
+        let first = v
+            .write_checked(
+                "note.txt",
+                "first",
+                Some(u64::MAX),
+                original.version.as_deref(),
+            )
+            .await
+            .unwrap();
+        assert!(first.saved);
+        assert_ne!(first.version, original.version);
+        assert_eq!(v.read("note.txt").await.unwrap().version, first.version);
+        sh(root.path(), "touch -t 202001010000 note.txt");
+        assert_eq!(v.read("note.txt").await.unwrap().mtime, original.mtime);
+        assert!(
+            !v.write_checked(
+                "note.txt",
+                "second",
+                Some(original.mtime),
+                original.version.as_deref()
+            )
+            .await
+            .unwrap()
+            .saved
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.path().join("note.txt")).unwrap(),
+            "first"
+        );
+        std::fs::remove_file(root.path().join("note.txt")).unwrap();
+        assert!(
+            !v.write_checked("note.txt", "second", None, first.version.as_deref())
+                .await
+                .unwrap()
+                .saved
+        );
+        assert!(!root.path().join("note.txt").exists());
+        assert!(
+            !v.write("note.txt", "legacy", Some(original.mtime))
+                .await
+                .unwrap()
+                .saved
+        );
+    }
+
+    #[tokio::test]
+    async fn atomic_write_allows_only_one_concurrent_content_version() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("note.txt"), "original").unwrap();
+        let v = Vfs::new(Arc::new(TestLocal), root.path().to_string_lossy());
+        let original = v.read("note.txt").await.unwrap();
+        let (first, second) = tokio::join!(
+            v.write_checked("note.txt", "first", None, original.version.as_deref()),
+            v.write_checked("note.txt", "second", None, original.version.as_deref())
+        );
+        let mut saved = 0;
+        for result in [first, second] {
+            match result {
+                Ok(written) => saved += usize::from(written.saved),
+                Err(VfsError::Transport(blazar_transport::TransportError::Command {
+                    code: 10,
+                    ..
+                })) => {}
+                other => panic!("unexpected save result: {other:?}"),
+            }
+        }
+        assert_eq!(saved, 1);
+        assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 1);
+    }
+
+    #[tokio::test]
+    async fn atomic_write_reports_an_existing_lock_without_removing_it() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("note.txt"), "original").unwrap();
+        let lock = root.path().join(
+            ".blazar-write-59700155e034d16d95b0e6916ee23373f40422648201778db4b19ad28398ca6f.lock",
+        );
+        std::fs::create_dir(&lock).unwrap();
+        std::fs::write(lock.join("owner"), "fixture-owner").unwrap();
+        let v = Vfs::new(Arc::new(TestLocal), root.path().to_string_lossy());
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(3),
+            v.write("note.txt", "replacement", None),
+        )
+        .await
+        .unwrap();
+        assert!(matches!(
+            result,
+            Err(VfsError::Transport(
+                blazar_transport::TransportError::Command { code: 10, .. }
+            ))
+        ));
+        assert_eq!(
+            std::fs::read_to_string(lock.join("owner")).unwrap(),
+            "fixture-owner"
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.path().join("note.txt")).unwrap(),
+            "original"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn atomic_write_creates_private_files() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = tempfile::tempdir().unwrap();
+        let v = Vfs::new(Arc::new(TestLocal), root.path().to_string_lossy());
+        assert!(v.write("new.txt", "new", None).await.unwrap().saved);
+        assert_eq!(
+            std::fs::metadata(root.path().join("new.txt"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+        assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 1);
     }
 
     #[test]

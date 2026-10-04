@@ -1,5 +1,3 @@
-//! 编辑器里开着的文件：标签页、未保存标记、保存（带冲突检测）、agent 改过文件后自动重载。
-
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
@@ -10,9 +8,12 @@ use crate::api;
 use crate::components::dialog::{self, Choice};
 use crate::monaco::{self, Mounted};
 
-#[derive(Clone, Copy, Default)]
+mod version;
+
+#[derive(Clone, Default)]
 struct Meta {
     mtime: u64,
+    version: Option<String>,
     readonly: bool,
 }
 
@@ -22,12 +23,10 @@ pub struct Files {
     pub open_tabs: RwSignal<Vec<String>>,
     pub current: RwSignal<Option<String>>,
     pub dirty: RwSignal<HashSet<String>>,
-    /// 当前文件内容每变一次加一（Markdown 预览靠它刷新）。
     pub rev: RwSignal<u32>,
     pub error: RwSignal<Option<String>>,
     meta: StoredValue<HashMap<String, Meta>>,
     editor: StoredValue<Option<Rc<Mounted>>, LocalStorage>,
-    /// 编辑器还没加载好时先读到的内容，等它好了再放进去。
     pending: StoredValue<HashMap<String, (String, bool, u32)>>,
 }
 
@@ -85,7 +84,6 @@ impl Files {
         self.with_editor(|e| e.value(path)).unwrap_or_default()
     }
 
-    /// 编辑器宿主节点挂上之后调用一次。
     pub fn mount(self, host: web_sys::HtmlElement) {
         spawn_local(async move {
             let on_save = move |p: String| self.save(p, false);
@@ -110,7 +108,6 @@ impl Files {
             match monaco::mount(&host, on_save, on_dirty).await {
                 Ok(m) => {
                     if self.editor.try_set_value(Some(Rc::new(m))).is_some() {
-                        // 页面已经离开了。
                         return;
                     }
                     if let Some(cur) = self.current.get_untracked()
@@ -132,7 +129,6 @@ impl Files {
         }
     }
 
-    /// 打开（或切到）文件；`line > 0` 时跳到那一行。
     pub fn open(self, path: String, line: u32) {
         self.open_tabs.update(|t| {
             if !t.contains(&path) {
@@ -161,6 +157,7 @@ impl Files {
                                 path.clone(),
                                 Meta {
                                     mtime: r.mtime,
+                                    version: r.version,
                                     readonly: ro,
                                 },
                             )
@@ -169,7 +166,6 @@ impl Files {
                     {
                         return;
                     }
-                    // 读的过程中标签可能已经被关了。
                     if !self.open_tabs.with_untracked(|t| t.contains(&path)) {
                         return;
                     }
@@ -193,7 +189,6 @@ impl Files {
         });
     }
 
-    /// 关标签；有没保存的改动先问。
     pub fn close(self, path: String) {
         spawn_local(async move {
             if self.dirty.with_untracked(|d| d.contains(&path)) {
@@ -257,17 +252,26 @@ impl Files {
         }
         let content = self.value(&path);
         let ws = self.ws();
-        let mtime = self.meta.with_value(|m| m.get(&path).map(|x| x.mtime));
+        let known = self.meta.with_value(|m| m.get(&path).cloned());
         spawn_local(async move {
-            let expect = if force { None } else { mtime };
-            match api::write_file(&ws, &path, &content, expect).await {
+            let expect = if force {
+                None
+            } else {
+                known.as_ref().map(|m| m.mtime)
+            };
+            let expect_version = if force {
+                None
+            } else {
+                known.as_ref().and_then(|m| m.version.as_deref())
+            };
+            match api::write_file(&ws, &path, &content, expect, expect_version).await {
                 Ok(w) if w.saved => {
                     self.meta.update_value(|m| {
                         if let Some(x) = m.get_mut(&path) {
                             x.mtime = w.mtime;
+                            x.version = w.version;
                         }
                     });
-                    // 保存过程中又改了的话，仍然算未保存。
                     if self.value(&path) == content {
                         self.with_editor(|e| e.mark_saved(&path));
                     }
@@ -300,18 +304,28 @@ impl Files {
         });
     }
 
-    /// 从磁盘重新读。有未保存改动且不是 `discard` 时不动。
     pub fn reload(self, path: String, discard: bool) {
         if !discard && self.dirty.with_untracked(|d| d.contains(&path)) {
             return;
         }
         let ws = self.ws();
-        let known = self.meta.with_value(|m| m.get(&path).copied());
+        let known = self.meta.with_value(|m| m.get(&path).cloned());
         spawn_local(async move {
             let Ok(r) = api::read_file(&ws, &path).await else {
                 return;
             };
-            if r.binary || r.too_large || (!discard && known.is_some_and(|k| k.mtime == r.mtime)) {
+            if r.binary
+                || r.too_large
+                || (!discard
+                    && known.is_some_and(|k| {
+                        version::unchanged(
+                            k.mtime,
+                            k.version.as_deref(),
+                            r.mtime,
+                            r.version.as_deref(),
+                        )
+                    }))
+            {
                 return;
             }
             if !discard && self.dirty.try_with_untracked(|d| d.contains(&path)) != Some(false) {
@@ -321,6 +335,7 @@ impl Files {
             self.meta.update_value(|m| {
                 if let Some(x) = m.get_mut(&path) {
                     x.mtime = r.mtime;
+                    x.version = r.version;
                 }
             });
             self.rev.update(|n| *n = n.wrapping_add(1));
