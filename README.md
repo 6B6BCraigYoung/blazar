@@ -98,7 +98,7 @@ files anywhere.
 ### Download
 
 Every tagged version is built by GitHub Actions and published on the
-[Releases](https://github.com/6B6BCraigYoung/blazar/releases) page: macOS (`.dmg`, Apple Silicon
+[Releases](../../releases) page: macOS (`.dmg`, Apple Silicon
 and Intel), Linux (`.deb`, `.AppImage`), Windows (`.msi`, experimental and untested), plus a
 tarball with the `blazar` CLI, `blazar-hub` and `blazar-mcp` binaries. Or build from source below.
 
@@ -108,12 +108,6 @@ Applications, eject the disk image, then clear the quarantine flag once:
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/Blazar.app
-```
-
-Downloads made with `curl` are not quarantined, so this also works without the extra step:
-
-```bash
-curl -L -o Blazar.dmg https://github.com/6B6BCraigYoung/blazar/releases/latest/download/Blazar_0.1.0_aarch64.dmg
 ```
 
 ### Build from source

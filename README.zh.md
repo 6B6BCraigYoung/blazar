@@ -91,7 +91,7 @@ Blazar 把这一切放进一个窗口。一个**工作区**就是你机群里任
 
 ### 下载
 
-每个打了标签的版本都由 GitHub Actions 构建并发布在 [Releases](https://github.com/6B6BCraigYoung/blazar/releases)
+每个打了标签的版本都由 GitHub Actions 构建并发布在 [Releases](../../releases)
 页面：macOS（`.dmg`，Apple Silicon 和 Intel）、Linux（`.deb`、`.AppImage`）、Windows（`.msi`，实验性、未经测试），
 另有一个包含 `blazar` 命令行、`blazar-hub` 和 `blazar-mcp` 的压缩包。也可以按下面从源码构建。
 
@@ -100,12 +100,6 @@ macOS 的包没有经过苹果公证，用浏览器下载的会被打上隔离�
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/Blazar.app
-```
-
-用 `curl` 下载的文件不带隔离标记，这样下载就不需要上面那步：
-
-```bash
-curl -L -o Blazar.dmg https://github.com/6B6BCraigYoung/blazar/releases/latest/download/Blazar_0.1.0_aarch64.dmg
 ```
 
 ### 从源码构建

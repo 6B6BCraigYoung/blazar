@@ -60,7 +60,6 @@ pub struct ExecSpec {
     pub cwd: Option<PathBuf>,
     pub env: BTreeMap<String, String>,
 
-    // 值从执行机器上的文件里读的环境变量：机密只落在那个文件里，不进命令行、也不进生成的脚本。
     pub env_files: BTreeMap<String, PathBuf>,
 
     pub stdin: Option<Vec<u8>>,
@@ -632,12 +631,6 @@ impl SshTransport {
     }
 }
 
-/// 给 Blazar 自己开的 SSH 隧道用：把这台机器在 ~/.ssh/config 里解析出来的全部设置
-/// （`ssh -G`）原样带上，只去掉里面写的端口转发，换成 `-F /dev/null -o …` 参数。
-/// 否则用户为交互登录配的 RemoteForward 会跟着一起开 —— 端口已被用户自己的会话占着时，
-/// 配了 ExitOnForwardFailure 的隧道整个起不来；没被占时又会把用户的端口抢走。
-/// 解析失败就返回空，调用方照常用 ~/.ssh/config。
-/// 注意 ssh 对同一个选项取第一次出现的值：调用方自己的 `-o` 要放在这些参数前面。
 pub async fn ssh_opts_without_forwards(host: &str) -> Vec<String> {
     let Ok(out) = Command::new("ssh")
         .args(["-G", "--", host])
@@ -723,8 +716,8 @@ mod tests {
     fn health_parses_gpus_and_egress() {
         let raw = "os=Ubuntu 22.04\narch=x86_64\ncpus=128\nmem_gb=503\n\
                    disk_free_gb=675\nload1=1.5\n\
-                   gpu=NVIDIA GeForce RTX 5090|32607\n\
-                   gpu=NVIDIA GeForce RTX 5090|32607\n\
+                   gpu=Example GPU|32607\n\
+                   gpu=Example GPU|32607\n\
                    egress_openai=000\negress_anthropic=403\negress_github=200\n";
         let h = parse_health(raw);
         assert_eq!(h.cpus, 128);

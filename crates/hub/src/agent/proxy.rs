@@ -16,8 +16,6 @@ use tokio::sync::{Mutex, OnceCell};
 
 use crate::api::Shared;
 
-// 远端机器上的 Claude Code 把请求发到这里（经 SSH 反向隧道），这里把账号暗号换成本机保存的长期 token 再转发。
-// 凭据始终只在本机：远端进程手里只有暗号，暗号只在隧道存在时、且只在那台机器的本地回环上有用。
 const UPSTREAM: &str = "https://api.anthropic.com";
 const MAX_BODY: usize = 64 * 1024 * 1024;
 
@@ -58,9 +56,6 @@ pub fn parse_net_env(env_dump: &str) -> NetEnv {
     out
 }
 
-/// agent 经隧道连 Blazar 的凭据代理，地址是远端的 127.0.0.1：要把它排除在出网代理之外，
-/// 否则没配 no_proxy 的机器会把这个本机地址也交给代理（比如经 SSH 转回你电脑的 Clash），请求永远到不了隧道。
-/// 原有的 NO_PROXY / no_proxy 保留，只补上缺的。
 pub fn bypass_loopback(env: &mut std::collections::BTreeMap<String, String>) {
     let mut list: Vec<String> = ["NO_PROXY", "no_proxy"]
         .iter()
@@ -81,8 +76,6 @@ pub fn bypass_loopback(env: &mut std::collections::BTreeMap<String, String>) {
     env.insert("no_proxy".into(), v);
 }
 
-// 远端机器的出网代理通常写在 ~/.bashrc 里，而 .bashrc 对非交互 shell 一开头就 return，后台启动的 agent 拿不到。
-// 这里按交互式 shell 读一次那台机器的代理变量，远端运行和登录时原样带上，跟你 SSH 上去手动敲命令的网络环境一致。
 pub async fn node_net_env(st: &Shared, node: &str) -> NetEnv {
     if let Some((at, env)) = st.proxy.net_env.lock().await.get(node)
         && at.elapsed() < NET_ENV_TTL
@@ -206,7 +199,6 @@ async fn token_for(st: &Shared, key: &[u8], presented: &str) -> Option<String> {
         .map(|t| t.trim().to_owned())
 }
 
-// 代理的处理函数又要等代理初始化完，装箱打断 async 的递归类型。
 fn proxy_boxed(st: &Shared) -> futures::future::BoxFuture<'_, Result<Arc<Proxy>, String>> {
     Box::pin(proxy(st))
 }
@@ -293,7 +285,6 @@ fn port_key(node: &str) -> String {
 
 async fn open_tunnel(node: &str, remote: u16, local: u16) -> Result<tokio::process::Child, String> {
     use std::process::Stdio;
-    // 用户 ~/.ssh/config 里给交互登录配的端口转发不能跟着开（见 ssh_opts_without_forwards）
     let resolved = blazar_transport::ssh_opts_without_forwards(node).await;
     let mut child = tokio::process::Command::new("ssh")
         .args([
@@ -335,7 +326,6 @@ async fn open_tunnel(node: &str, remote: u16, local: u16) -> Result<tokio::proce
     Ok(child)
 }
 
-// 在远端真去敲一下隧道：代理对没带暗号的请求回 401，拿到它就说明一路是通的。
 async fn tunnel_works(st: &Shared, node: &str, port: u16) -> bool {
     let probe = format!(
         "curl -s -o /dev/null -m 8 -w '%{{http_code}}' http://127.0.0.1:{port}/v1/blazar-ping || echo nocurl"
@@ -353,7 +343,6 @@ async fn tunnel_works(st: &Shared, node: &str, port: u16) -> bool {
     }
 }
 
-// 保证到这台机器的反向隧道在，返回远端那头的端口。端口按机器记住，隧道断了重建时尽量还用原来的，正在跑的会话不受影响。
 pub async fn ensure_tunnel(st: &Shared, node: &str) -> Result<u16, String> {
     let local = proxy(st).await?.port;
     let mut tunnels = st.proxy.tunnels.lock().await;
@@ -395,7 +384,6 @@ pub async fn ensure_tunnel(st: &Shared, node: &str) -> Result<u16, String> {
     Err(format!("到 {node} 的 SSH 隧道建不起来：{last}"))
 }
 
-// 看门狗里重建隧道会再次走到 watch，装箱打断 async 的递归类型。
 fn ensure_boxed<'a>(
     st: &'a Shared,
     node: &'a str,
@@ -403,7 +391,6 @@ fn ensure_boxed<'a>(
     Box::pin(ensure_tunnel(st, node))
 }
 
-// 隧道断了（网络抖动、机器重启）而那台机器上还有用代理账号的会话在跑，就自动重建。
 async fn watch(st: &Shared, node: &str) {
     if !st.proxy.watched.lock().await.insert(node.to_owned()) {
         return;
@@ -439,7 +426,6 @@ async fn needs_tunnel(st: &Shared, node: &str) -> bool {
         > 0
 }
 
-// Blazar 重启后，给还在远端跑、用着代理账号的会话把隧道接回来。
 pub async fn restore(st: Shared) {
     let nodes: Vec<String> = sqlx::query_scalar(
         "SELECT DISTINCT s.node FROM sessions s JOIN accounts a ON a.id = s.account_id
@@ -484,7 +470,7 @@ mod tests {
 
     #[test]
     fn only_proxy_variables_are_taken_from_the_remote_shell() {
-        let dump = "PATH=/usr/bin\nhttps_proxy=http://10.126.126.198:7897\nHTTPS_PROXY=http://10.126.126.198:7897\n\
+        let dump = "PATH=/usr/bin\nhttps_proxy=http://10.99.0.20:7897\nHTTPS_PROXY=http://10.99.0.20:7897\n\
                     no_proxy=localhost,127.0.0.1,10.0.0.0/8\nALL_PROXY=\nSECRET=x\nnot a var\n";
         let env = parse_net_env(dump);
         let keys: Vec<&str> = env.iter().map(|(k, _)| k.as_str()).collect();

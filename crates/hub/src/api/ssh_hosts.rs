@@ -1,18 +1,13 @@
-//! 只连 SSH、不在组网里的机器：从 ~/.ssh/config 里挑着加，加进来就和组网机器一样用
-//! （新建工作区、对齐 Claude Code / Codex 版本……），只是不进组网。
-
 use std::path::{Path as FsPath, PathBuf};
 
 use super::*;
 
-/// ~/.ssh/config 里的一个 Host（通配的不算）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct SshHost {
     pub alias: String,
     pub hostname: Option<String>,
     pub user: Option<String>,
     pub port: Option<String>,
-    /// 写在哪个文件里（Include 进来的会是别的文件）
     pub file: String,
 }
 
@@ -26,7 +21,6 @@ fn config_path() -> PathBuf {
     std::env::var_os("BLAZAR_SSH_CONFIG").map_or_else(|| ssh_dir().join("config"), PathBuf::from)
 }
 
-/// `*` / `?` 通配，只用在 Include 的文件名上。
 fn glob_match(pat: &str, s: &str) -> bool {
     fn go(p: &[char], s: &[char]) -> bool {
         match (p.first(), s.first()) {
@@ -49,7 +43,6 @@ fn expand_include(pat: &str, base: &FsPath) -> Vec<PathBuf> {
             .map_or_else(std::env::temp_dir, |b| b.home_dir().to_path_buf())
             .join(rest),
         None if FsPath::new(pat).is_absolute() => PathBuf::from(pat),
-        // 相对路径照 ssh 的规矩，相对 ~/.ssh（测试里是主配置所在目录）
         None => base.join(pat),
     };
     let name = p
@@ -77,7 +70,6 @@ fn parse_file(path: &FsPath, base: &FsPath, depth: u8, out: &mut Vec<SshHost>) {
         return;
     };
     let file = path.display().to_string();
-    // 当前块里的 Host（在 Match 块里就是空的）
     let mut cur: Vec<usize> = Vec::new();
     for line in text.lines() {
         let line = line.trim();
@@ -125,7 +117,6 @@ fn parse_file(path: &FsPath, base: &FsPath, depth: u8, out: &mut Vec<SshHost>) {
                         "user" => &mut h.user,
                         _ => &mut h.port,
                     };
-                    // ssh 取第一次出现的值
                     if slot.is_none() {
                         *slot = Some(val.trim_matches('"').to_owned());
                     }
@@ -147,13 +138,10 @@ pub fn parse_config(path: &FsPath) -> Vec<SshHost> {
 pub struct SshHostRow {
     #[serde(flatten)]
     pub host: SshHost,
-    /// 已经加进 Blazar 了（不管是组网发现的还是这里加的）
     pub added: bool,
-    /// 这台其实在组网里（名字或地址和组网机器对得上），不用单独加
     pub in_mesh: bool,
 }
 
-/// 列出 ~/.ssh/config 里能加的机器，给「从 SSH 配置添加」挑。
 pub async fn list_ssh_hosts(State(st): State<Shared>) -> ApiResult<Json<Vec<SshHostRow>>> {
     let hosts = parse_config(&config_path());
     let nodes: Vec<(String, Option<String>, Option<String>)> =
@@ -183,7 +171,6 @@ pub struct AddSshHosts {
     pub names: Vec<String>,
 }
 
-/// 把挑中的 Host 加成机器（network = 'ssh'，不进组网），随后探一下连不连得上。
 pub async fn add_ssh_hosts(
     State(st): State<Shared>,
     Json(body): Json<AddSshHosts>,
@@ -215,7 +202,6 @@ pub async fn add_ssh_hosts(
     Ok(Json(serde_json::json!({ "added": added })))
 }
 
-/// 去掉一台只连 SSH 的机器；组网里的、还有工作区的不让删。
 pub async fn remove_ssh_node(
     State(st): State<Shared>,
     Path(name): Path<String>,
@@ -246,7 +232,6 @@ pub async fn remove_ssh_node(
     }
 }
 
-/// 只连 SSH 的机器没有组网的心跳：挨个 ssh 一下，连得上就算在线。
 pub async fn probe_ssh_nodes(st: &Shared) {
     let Ok(names) = sqlx::query_scalar::<_, String>("SELECT name FROM nodes WHERE network = 'ssh'")
         .fetch_all(st.db.pool())
@@ -313,7 +298,7 @@ mod tests {
             "Include config.d/*\n\
              Host *\n  ServerAliveInterval 30\n\
              # 注释\n\
-             Host gpu-a gpu-b\n  HostName 10.0.0.5\n  User craig\n  Port 2222\n\
+             Host gpu-a gpu-b\n  HostName 10.0.0.5\n  User me\n  Port 2222\n\
              Host old\n  Hostname=old.example.com\n\
              Match host foo\n  User nobody\n\
              Host !bad db-*\n  User x\n",
@@ -329,7 +314,7 @@ mod tests {
         assert_eq!(names, ["lab", "gpu-a", "gpu-b", "old"]);
         let b = &hosts[2];
         assert_eq!(b.hostname.as_deref(), Some("10.0.0.5"));
-        assert_eq!(b.user.as_deref(), Some("craig"));
+        assert_eq!(b.user.as_deref(), Some("me"));
         assert_eq!(b.port.as_deref(), Some("2222"));
         assert_eq!(hosts[3].hostname.as_deref(), Some("old.example.com"));
         assert_eq!(
