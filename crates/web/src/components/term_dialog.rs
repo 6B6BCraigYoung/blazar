@@ -6,6 +6,8 @@ use wasm_bindgen::JsCast;
 
 use crate::term;
 
+use super::modal::Modal;
+
 #[derive(Clone)]
 pub struct TermLogin {
     pub title: String,
@@ -33,12 +35,12 @@ pub fn TermDialogHost() -> impl IntoView {
     let open = OPEN.get().expect("term_dialog::provide 还没调用");
     move || {
         open.get()
-            .map(|t| view! { <Dialog t on_close=move || open.set(None)/> })
+            .map(|t| view! { <Dialog t on_close=Callback::new(move |_| open.set(None))/> })
     }
 }
 
 #[component]
-fn Dialog(t: TermLogin, on_close: impl Fn() + Copy + 'static) -> impl IntoView {
+fn Dialog(t: TermLogin, on_close: Callback<()>) -> impl IntoView {
     let host = NodeRef::<html::Div>::new();
     let live = StoredValue::new_local(None::<Rc<term::Open>>);
     let state = RwSignal::new("登录中…");
@@ -66,20 +68,18 @@ fn Dialog(t: TermLogin, on_close: impl Fn() + Copy + 'static) -> impl IntoView {
     let after = t.after;
     let finish = move || {
         live.set_value(None);
-        on_close();
+        on_close.run(());
         after.run(());
     };
     view! {
-        <div class="dlg-mask">
-            <div class="dlg wide">
+        <Modal label=t.title.clone() class="dlg wide" close_on_backdrop=false on_close=Callback::new(move |_| finish())>
                 <h3>{t.title.clone()}</h3>
                 <div class="muted small">{t.hint.clone()}</div>
                 <div class="login-term" node_ref=host></div>
                 <div class="dlg-foot">
                     <span class="muted small grow">{move || state.get()}</span>
-                    <button class="btn primary" on:click=move |_| finish()>"完成"</button>
+                    <button type="button" class="btn primary" on:click=move |_| finish()>"完成"</button>
                 </div>
-            </div>
-        </div>
+        </Modal>
     }
 }

@@ -1,5 +1,3 @@
-//! 侧栏：页面导航、实时计数和提醒入口。
-
 use leptos::prelude::*;
 use leptos_router::components::A;
 
@@ -31,7 +29,6 @@ const I_GEAR: &str = r#"<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M
 const I_SEARCH: &str = r#"<circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/>"#;
 const I_BELL: &str = r#"<path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>"#;
 
-/// 新界面里的页面。
 fn nav(
     href: &'static str,
     ic: &'static str,
@@ -111,15 +108,14 @@ pub fn Sidebar() -> impl IntoView {
         alerts::notify_on() || alerts::sound_prefs().on
     };
 
-    // 和桌面应用图标同一个标：深色底、浅色弧、青色两条腿
     const LOGO: &str = r##"<svg viewBox="100 100 824 824" aria-hidden="true"><rect x="100" y="100" width="824" height="824" rx="185" fill="#0b0f19"/><g fill="none" stroke-linecap="round" transform="translate(0 24)"><path d="M365 616 A208 208 0 1 1 659 616" stroke="#e5e7f0" stroke-width="46"/><path d="M471 478 L449 690 M553 478 L575 690" stroke="#5ee6f0" stroke-width="54"/></g></svg>"##;
     view! {
-        <nav class="side">
-            <div class="brand"><span class="logo" inner_html=LOGO></span>"Blazar"<span class="grow"></span><button class="linkbtn" aria-label="收起侧栏" title="收起侧栏" on:click=move |_| app.side_collapsed.set(true)>"«"</button></div>
-            <button class="nav search" on:click=move |_| app.palette.set(true)>
+        <nav class="side" aria-label="主导航">
+            <div class="brand"><span class="logo" inner_html=LOGO></span>"Blazar"<span class="grow"></span><button type="button" class="linkbtn" aria-label="收起侧栏" title="收起侧栏" on:click=move |_| app.side_collapsed.set(true)>"«"</button></div>
+            <button type="button" class="nav search" aria-haspopup="dialog" aria-expanded=move || app.palette.get().to_string() on:click=move |_| app.palette.set(true)>
                 <span class="ic" inner_html=icon(I_SEARCH)></span><span class="nm muted">"搜索…"</span><span class="n">"⌘K"</span>
             </button>
-            <button class="btn primary new-ws" on:click=move |_| app.new_ws.set(true)>"＋ 新建工作区"</button>
+            <button type="button" class="btn primary new-ws" aria-haspopup="dialog" aria-expanded=move || app.new_ws.get().to_string() on:click=move |_| app.new_ws.set(true)>"＋ 新建工作区"</button>
             <div class="grp">
                 <span>"工作"</span>
                 {nav("/inbox", I_INBOX, "收件箱", Signal::derive(move || { let u = app.inbox_unread.get(); if u > 0 { u.to_string() } else { String::new() } }), false)}
@@ -165,11 +161,11 @@ pub fn Sidebar() -> impl IntoView {
                 {nav("/settings", I_GEAR, "设置", none, false)}
                 <div class="status">
                     {status}
-                    <button class="linkbtn" on:click=move |_| app.alerts_open.set(true)>
+                    <button type="button" class="linkbtn" aria-haspopup="dialog" aria-expanded=move || app.alerts_open.get().to_string() on:click=move |_| app.alerts_open.set(true)>
                         <span class="ic-inline" inner_html=icon(I_BELL)></span>{move || if alerts_on() { " 提醒已开" } else { " 开启提醒" }}
                     </button>
                 </div>
-                <span class="conn" data-up=move || bus.connected.get().to_string()>
+                <span class="conn" role="status" data-up=move || bus.connected.get().to_string()>
                     {move || if bus.connected.get() { "已连接" } else { "正在重连 hub…" }}
                 </span>
             </div>

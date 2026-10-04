@@ -1,11 +1,11 @@
-//! ⌘K：搜工作区、机器、页面和常用命令。
-
 use leptos::ev;
-use leptos::html;
 use leptos::prelude::*;
 use leptos_router::hooks::use_navigate;
 
 use crate::app_state::use_app;
+
+use super::modal::Modal;
+use super::status::EmptyState;
 
 #[derive(Clone)]
 struct Hit {
@@ -19,7 +19,6 @@ pub fn Palette() -> impl IntoView {
     let app = use_app();
     let q = RwSignal::new(String::new());
     let sel = RwSignal::new(0usize);
-    let input = NodeRef::<html::Input>::new();
     let navigate = use_navigate();
 
     let global_navigate = navigate.clone();
@@ -55,11 +54,6 @@ pub fn Palette() -> impl IntoView {
         if app.palette.get() {
             q.set(String::new());
             sel.set(0);
-            request_animation_frame(move || {
-                if let Some(i) = input.try_get_untracked().flatten() {
-                    let _ = i.focus();
-                }
-            });
         }
     });
 
@@ -122,9 +116,8 @@ pub fn Palette() -> impl IntoView {
     });
     view! {
         <Show when=move || app.palette.get()>
-            <div class="dlg-mask top" on:click=move |_| app.palette.set(false)>
-                <div class="palette" on:click=|e| e.stop_propagation()>
-                    <input node_ref=input placeholder="搜索工作区、机器、页面…" prop:value=move || q.get()
+            <Modal label="搜索" class="palette" mask_class="dlg-mask top" on_close=Callback::new(move |_| app.palette.set(false))>
+                    <input data-modal-initial-focus="" aria-label="搜索工作区、机器和页面" placeholder="搜索工作区、机器、页面…" prop:value=move || q.get()
                         on:input=move |e| { q.set(event_target_value(&e)); sel.set(0); }
                         on:keydown=move |e| {
                             let n = hits().len().max(1);
@@ -132,7 +125,6 @@ pub fn Palette() -> impl IntoView {
                                 "ArrowDown" => { e.prevent_default(); sel.update(|s| *s = (*s + 1) % n); }
                                 "ArrowUp" => { e.prevent_default(); sel.update(|s| *s = (*s + n - 1) % n); }
                                 "Enter" if !e.is_composing() => { e.prevent_default(); if let Some(h) = hits().get(sel.get_untracked()) { go.with_value(|g| g(h)); } }
-                                "Escape" => app.palette.set(false),
                                 _ => {}
                             }
                         }/>
@@ -140,25 +132,23 @@ pub fn Palette() -> impl IntoView {
                         {move || {
                             let list = hits();
                             if list.is_empty() {
-                                return view! { <div class="empty">"无匹配"</div> }.into_any();
+                                return view! { <EmptyState title="无匹配"/> }.into_any();
                             }
                             list.into_iter().enumerate().map(|(i, h)| {
                                 let h2 = h.clone();
                                 view! {
-                                    <div class="palrow" data-sel=move || (sel.get() == i).to_string() on:click=move |_| go.with_value(|g| g(&h2))>
+                                    <button type="button" class="palrow" data-sel=move || (sel.get() == i).to_string() on:click=move |_| go.with_value(|g| g(&h2))>
                                         <span class="t">{h.title.clone()}</span><span class="k">{h.kind.clone()}</span>
-                                    </div>
+                                    </button>
                                 }
                             }).collect_view().into_any()
                         }}
                     </div>
-                </div>
-            </div>
+            </Modal>
         </Show>
     }
 }
 
-/// 提醒方式：系统通知、提示音。
 #[component]
 pub fn AlertsDialog() -> impl IntoView {
     use crate::alerts::{self, SoundPrefs};
@@ -190,32 +180,30 @@ pub fn AlertsDialog() -> impl IntoView {
     };
     view! {
         <Show when=move || app.alerts_open.get()>
-            <div class="dlg-mask" on:click=move |_| app.alerts_open.set(false)>
-                <div class="dlg" on:click=|e| e.stop_propagation()>
+            <Modal label="提醒方式" on_close=Callback::new(move |_| app.alerts_open.set(false))>
                     <h3>"提醒方式"</h3>
                     <label class="chk block"><input type="checkbox" prop:checked=move || sys.get() on:change=toggle_sys/>
-                        <span><b>"系统通知"</b><span class="muted small">" 跑完、出错、等你裁决时弹一条（窗口在后台也能看到）"</span></span></label>
+                        <span><b>"系统通知"</b><span class="muted small">" 完成或需要处理时通知你"</span></span></label>
                     <label class="chk block"><input type="checkbox" prop:checked=move || prefs.get().on
                         on:change=move |_| { let mut p = prefs.get_untracked(); p.on = !p.on; let on = p.on; save(p); if on { alerts::play("done", true); } }/>
-                        <span><b>"提示音"</b><span class="muted small">" 跑完一种声音，需要你处理另一种"</span></span></label>
+                        <span><b>"提示音"</b><span class="muted small">" 区分完成和待处理"</span></span></label>
                     <div class="row-actions">
                         <span class="muted small">"音色"</span>
                         <span class="seg">
                             {[("soft", "柔和"), ("bright", "清脆"), ("wood", "木质")].into_iter().map(|(k, l)| view! {
-                                <button data-on=move || (prefs.get().tone == k).to_string() on:click=move |_| { let mut p = prefs.get_untracked(); p.tone = k.into(); save(p); alerts::play("done", true); }>{l}</button>
+                                <button type="button" data-on=move || (prefs.get().tone == k).to_string() on:click=move |_| { let mut p = prefs.get_untracked(); p.tone = k.into(); save(p); alerts::play("done", true); }>{l}</button>
                             }).collect_view()}
                         </span>
                         <span class="muted small">"音量"</span>
-                        <input type="range" min="0.05" max="1" step="0.05" prop:value=move || prefs.get().volume.to_string()
+                        <input aria-label="提示音音量" type="range" min="0.05" max="1" step="0.05" prop:value=move || prefs.get().volume.to_string()
                             on:change=move |e| { let mut p = prefs.get_untracked(); p.volume = event_target_value(&e).parse().unwrap_or(0.5); save(p); alerts::play("done", true); }/>
                     </div>
                     <div class="row-actions">
-                        <button class="btn small" on:click=move |_| alerts::play("done", true)>"试听：跑完了"</button>
-                        <button class="btn small" on:click=move |_| alerts::play("attention", true)>"试听：需要处理"</button>
+                        <button type="button" class="btn small" on:click=move |_| alerts::play("done", true)>"试听完成提示"</button>
+                        <button type="button" class="btn small" on:click=move |_| alerts::play("attention", true)>"试听待处理提示"</button>
                     </div>
-                    <div class="dlg-foot"><button class="btn primary" on:click=move |_| app.alerts_open.set(false)>"好"</button></div>
-                </div>
-            </div>
+                    <div class="dlg-foot"><button type="button" class="btn primary" on:click=move |_| app.alerts_open.set(false)>"完成"</button></div>
+            </Modal>
         </Show>
     }
 }

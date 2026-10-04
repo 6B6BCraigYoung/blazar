@@ -1,5 +1,3 @@
-//! 新建工作区：选机器、翻目录（git 仓库标绿）；是仓库的话可以「隔离开工」——独立 worktree + 分支。
-
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_router::hooks::use_navigate;
@@ -10,6 +8,12 @@ use crate::api;
 use crate::app_state::use_app;
 use crate::components::toast::toast;
 use crate::fmt;
+
+use super::menu::menu_keydown;
+use super::modal::Modal;
+use super::status::{EmptyState, InlineError, LoadingState};
+use leptos::html;
+use wasm_bindgen::JsCast;
 
 #[derive(Debug, Clone, PartialEq, Default, Deserialize)]
 #[serde(default)]
@@ -115,13 +119,11 @@ fn Dialog() -> impl IntoView {
             let _ = branches.try_set(Some(r));
         });
     };
-    // 连点几下时，早发出去的请求可能后回来：只认最新的那次。
     let seq = StoredValue::new(0u32);
     let browse = move || {
         if busy.get_untracked() {
             return;
         }
-        // 换目录或机器时同时作废旧分支请求，避免把上一个仓库的分支带过去。
         bseq.update_value(|n| *n = n.wrapping_add(1));
         branches.set(None);
         pick.set(String::new());
@@ -208,71 +210,72 @@ fn Dialog() -> impl IntoView {
         });
     };
     let create2 = create.clone();
+    let directories = NodeRef::<html::Div>::new();
+    let branch_list = NodeRef::<html::Div>::new();
 
     view! {
-        <div class="dlg-mask" on:click=move |_| close()>
-            <div class="dlg wide" role="dialog" aria-modal="true" aria-label="新建工作区" on:click=|e| e.stop_propagation()>
+        <Modal label="新建工作区" class="dlg wide" on_close=Callback::new(move |_| close())>
                 <h3>"新建工作区"</h3>
                 <label class="field">"机器"
                     <select prop:value=move ||node.get() disabled=move || busy.get() on:change=move |e| { node.set(event_target_value(&e)); path.set(String::new()); typed.set(String::new()); browse(); }>
                         {nodes.into_iter().map(|n| { let selected = n.clone(); view! { <option value=n.clone() selected=move ||node.get()==selected>{n.clone()}</option> } }).collect_view()}
                     </select>
                 </label>
-                <div class="field">"目录 —— 点进去翻，绿色的是 git 仓库"
+                <div class="field">"目录"
                     <div class="browse-bar">
-                        <button class="btn small" title="上一级" disabled=move || listing.with(|l| !matches!(l, Some(Ok(l)) if l.parent.is_some()))
+                        <button type="button" class="btn small" aria-label="上一级目录" title="上一级" disabled=move || listing.with(|l| !matches!(l, Some(Ok(l)) if l.parent.is_some()))
                             on:click=move |_| { if let Some(Some(Ok(l))) = listing.try_get_untracked() && let Some(p) = l.parent { path.set(p); browse(); } }>"↑"</button>
-                        <input class="mono" placeholder="~" prop:value=move || typed.get() on:input=move |e| typed.set(event_target_value(&e))
+                        <input class="mono" aria-label="目录路径" placeholder="~" prop:value=move || typed.get() on:input=move |e| typed.set(event_target_value(&e))
                             on:keydown=move |e| if e.key() == "Enter" && !e.is_composing() { path.set(typed.get_untracked().trim().to_owned()); browse(); }/>
-                        <button class="btn small" on:click=move |_| { path.set(typed.get_untracked().trim().to_owned()); browse(); }>"前往"</button>
+                        <button type="button" class="btn small" on:click=move |_| { path.set(typed.get_untracked().trim().to_owned()); browse(); }>"前往"</button>
                     </div>
-                    <div class="browser">
+                    <div class="browser" node_ref=directories role="group" aria-label="子目录" data-keyboard-list="" on:keydown=move |event| { if let Some(root) = directories.get_untracked() { menu_keydown(&event, root.unchecked_ref(), Callback::new(move |_| close())); } }>
                         {move || match listing.get() {
-                            None => view! { <div class="empty">"读取中…"</div> }.into_any(),
-                            Some(Err(e)) => view! { <div class="empty">{e}</div> }.into_any(),
-                            Some(Ok(l)) if l.entries.is_empty() => view! { <div class="empty">"这个目录下没有子目录"</div> }.into_any(),
+                            None => view! { <LoadingState text="读取中…"/> }.into_any(),
+                            Some(Err(e)) => view! { <InlineError message=e class="empty" retry=Callback::new(move |_| browse())/> }.into_any(),
+                            Some(Ok(l)) if l.entries.is_empty() => view! { <EmptyState title="这个目录下没有子目录"/> }.into_any(),
                             Some(Ok(l)) => l.entries.into_iter().map(|e| {
                                 let p = e.path.clone();
                                 view! {
-                                    <div class="brow" class:repo=e.is_repo title=e.path.clone() on:click=move |_| { path.set(p.clone()); browse(); }>
-                                        <span class="mk">{if e.is_repo { "◆" } else { "▸" }}</span>
+                                    <button type="button" class="brow" class:repo=e.is_repo title=e.path.clone() on:click=move |_| { path.set(p.clone()); browse(); }>
+                                        <span class="mk" title=if e.is_repo { "Git 仓库" } else { "目录" }>{if e.is_repo { "◆" } else { "▸" }}</span>
                                         <span class="nm">{e.name.clone()}</span>
                                         {e.children.map(|c| view! { <span class="muted small">{c}</span> })}
-                                    </div>
+                                    </button>
                                 }
                             }).collect_view().into_any(),
                         }}
                     </div>
                 </div>
                 <Show when=is_repo>
-                    <label class="chk block">
+                    <label class="chk block" title="启用后会从 origin 获取最新分支，并在独立目录创建工作区。">
                         <input type="checkbox" prop:checked=move || iso.get() on:change=move |_| { iso.update(|i| *i = !*i); if iso.get_untracked() && branches.with_untracked(Option::is_none) { load_branches(); } }/>
-                        <span><b>"隔离开工"</b><span class="muted small">" —— 独立 worktree + 分支，不动这个仓库本身。多个 agent 同时干活、或者要接着某个分支往下做时用"</span></span>
+                        <span><b>"独立分支"</b><span class="muted small">" 在独立目录中工作，保留当前工作区。"</span></span>
                     </label>
                     <Show when=move || iso.get()>
-                        <div class="field">"从哪开工 —— 按最近提交排序，含只在 origin 上的分支"
-                            <input placeholder="筛选分支…" prop:value=move || bq.get() on:input=move |e| bq.set(event_target_value(&e))/>
-                            <div class="browser short">
-                                <div class="brow br" data-sel=move || pick.get().is_empty().to_string() on:click=move |_| pick.set(String::new())>
-                                    <span class="nm">"＋ 从当前 HEAD 起一个新分支"</span><span class="muted small">"分支名取自下面填的名称"</span>
-                                </div>
+                        <div class="field" title="按最近提交排序；读取时会从 origin 获取最新分支。">"起始分支"
+                            <input aria-label="筛选分支" placeholder="筛选分支…" prop:value=move || bq.get() on:input=move |e| bq.set(event_target_value(&e))/>
+                            <div class="browser short" node_ref=branch_list role="group" aria-label="可选分支" data-keyboard-list="" on:keydown=move |event| { if let Some(root) = branch_list.get_untracked() { menu_keydown(&event, root.unchecked_ref(), Callback::new(move |_| close())); } }>
+                                <button type="button" class="brow br" aria-pressed=move || pick.get().is_empty().to_string() data-sel=move || pick.get().is_empty().to_string() on:click=move |_| pick.set(String::new())>
+                                    <span class="nm">"＋ 从当前版本创建"</span><span class="muted small">"使用下方名称命名分支"</span>
+                                </button>
                                 {move || match branches.get() {
-                                    None => view! { <div class="empty">"读取分支…（会先 fetch 一次 origin）"</div> }.into_any(),
-                                    Some(Err(e)) => view! { <div class="empty">{e}<button class="btn small" on:click=move |_|load_branches()>"重试读取分支"</button></div> }.into_any(),
+                                    None => view! { <LoadingState text="读取分支…"/> }.into_any(),
+                                    Some(Err(e)) => view! { <InlineError message=e class="empty" retry=Callback::new(move |_| load_branches())/> }.into_any(),
                                     Some(Ok(list)) => {
                                         let k = bq.get().to_lowercase();
                                         list.into_iter().filter(|b| k.is_empty() || format!("{} {} {}", b.name, b.author, b.subject).to_lowercase().contains(&k)).take(200).map(|b| {
                                             let nm = b.name.clone();
                                             let cur = b.current;
                                             view! {
-                                                <div class="brow br" data-sel=move || (pick.get() == nm).to_string() data-dis=cur.to_string()
+                                                <button type="button" class="brow br" aria-pressed={ let selected = nm.clone(); move || (pick.get() == selected).to_string() } data-sel=move || (pick.get() == nm).to_string() data-dis=cur.to_string()
                                                     on:click={ let n = b.name.clone(); move |_| if cur { toast("主仓正 checkout 着这个分支，不能再挂到别的工作树上") } else { pick.set(n.clone()) } }>
                                                     <span class="nm mono">{b.name.clone()}
                                                         {b.remote_only.then(|| view! { <span class="gchip">"仅远端"</span> })}
                                                         {cur.then(|| view! { <span class="gchip warn">"主仓在用"</span> })}
                                                     </span>
                                                     <span class="muted small">{format!("{} · {} · {}", b.author, fmt::ago(&b.last_commit_at), b.subject)}</span>
-                                                </div>
+                                                </button>
                                             }
                                         }).collect_view().into_any()
                                     }
@@ -282,17 +285,16 @@ fn Dialog() -> impl IntoView {
                     </Show>
                 </Show>
                 <label class="field">"名称（留空取目录名）"<input prop:value=move || name.get() on:input=move |e| name.set(event_target_value(&e))/></label>
-                <label class="field">"项目 —— 同名项目下的多个工作区即「多机副本」，侧栏会归到一组"
-                    <input placeholder="可留空" prop:value=move || project.get() on:input=move |e| project.set(event_target_value(&e))
+                <label class="field">"项目"
+                    <input placeholder="可留空；同名项目归为一组" prop:value=move || project.get() on:input=move |e| project.set(event_target_value(&e))
                         on:keydown=move |e| if e.key() == "Enter" && !e.is_composing() { create2() }/>
                 </label>
                 <div class="dlg-foot">
-                    <button class="btn" disabled=move || busy.get() on:click=move |_| close()>"取消"</button>
-                    <button class="btn primary" disabled=move || busy.get() || !matches!(listing.get(), Some(Ok(_))) on:click=move |_| create()>
-                        {move || if busy.get() { "创建中…" } else if iso.get() { "建隔离工作区" } else if is_repo() { "选此仓库并创建" } else { "选此目录并创建" }}
+                    <button type="button" class="btn" disabled=move || busy.get() on:click=move |_| close()>"取消"</button>
+                    <button type="button" class="btn primary" disabled=move || busy.get() || !matches!(listing.get(), Some(Ok(_))) on:click=move |_| create()>
+                        {move || if busy.get() { "创建中…" } else if iso.get() { "创建独立工作区" } else { "创建工作区" }}
                     </button>
                 </div>
-            </div>
-        </div>
+        </Modal>
     }
 }
