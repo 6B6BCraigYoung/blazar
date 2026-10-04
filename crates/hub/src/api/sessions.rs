@@ -63,7 +63,6 @@ pub struct PromptRequest {
     pub exclude_accounts: Vec<String>,
 }
 
-// 自动选号的会话把原始请求存下来，第一轮因为账号的原因失败时换号重发要用；太大的（多图）不存。
 const MAX_STORED_REQUEST: usize = 2 * 1024 * 1024;
 
 pub(crate) fn with_editor_context(text: &str, file: Option<&str>) -> String {
@@ -100,6 +99,54 @@ pub(crate) fn check_images(images: &[blazar_runtime::ImageInput]) -> Result<(), 
         }
     }
     Ok(())
+}
+
+fn apply_profile(spec: &mut SessionSpec, p: &crate::agents::Agent, caps: crate::library::Caps) {
+    for (k, v) in &p.env {
+        spec.env.entry(k.clone()).or_insert_with(|| v.clone());
+    }
+    if spec.model.is_none() {
+        spec.model = p.model.clone();
+    }
+    if spec.permission_mode.is_none() {
+        spec.permission_mode = p.permission_mode.clone();
+    }
+    if spec.effort.is_none() {
+        spec.effort = p.thinking_level.clone();
+    }
+    spec.instructions = Some(p.instructions.clone()).filter(|s| !s.trim().is_empty());
+
+    spec.extra_args.extend(p.custom_args.iter().cloned());
+
+    for (k, v) in caps.env {
+        spec.env.entry(k).or_insert(v);
+    }
+    spec.mcp_servers.extend(caps.mcp);
+    if p.runtime == "claude" {
+        spec.add_dirs.extend(caps.skill_root);
+    } else {
+        let brief = crate::library::skills_briefing(&caps.skills);
+        if !brief.is_empty() {
+            spec.instructions = Some(match spec.instructions.take() {
+                Some(i) => format!("{i}\n\n{brief}"),
+                None => brief,
+            });
+        }
+    }
+}
+
+fn apply_runtime_config(spec: &mut SessionSpec, c: &AgentConfigView) {
+    for (k, v) in &c.custom_env {
+        spec.env.entry(k.clone()).or_insert_with(|| v.clone());
+    }
+    if spec.model.is_none() {
+        spec.model = c.model.clone();
+    }
+    if spec.permission_mode.is_none() {
+        spec.permission_mode = c.permission_mode.clone();
+    }
+
+    spec.extra_args.splice(0..0, c.custom_args.iter().cloned());
 }
 
 pub async fn prompt(
@@ -175,7 +222,6 @@ pub async fn prompt(
         String,
         String,
     );
-    // 只续接 CLI 真正起来过的那一轮：启动就失败的（比如远端 CLI 不认参数）预先记下的会话 id 在 CLI 那边并不存在。
     let prior: Option<Prior> = if req.resume {
         sqlx::query_as(
             "SELECT COALESCE(thread_id, id) AS thread, provider_session_id, last_uuid, account_id, runtime_kind,
@@ -218,8 +264,6 @@ pub async fn prompt(
         .unwrap_or_else(|| "claude".into());
     let agent_id = agent_id.as_str();
 
-    // 没法原生续接时，把此前的对话整理成前情提要带过去，消息仍然留在同一个对话里。
-    // 会话记录只在跑它的那台机器、那个 CLI 里：换了运行时或换了机器（包括从本机大脑换到远端）都没法原生续接。
     let switched = prior
         .as_ref()
         .is_some_and(|p| p.4 != agent_id || p.5 != run_node);
@@ -260,7 +304,6 @@ pub async fn prompt(
     )
     .await
     .map_err(|e| ApiError(anyhow::anyhow!(e)))?;
-    // 远端用代理账号：先把隧道建好，建不起来就别往下走、别留下一个永远「运行中」的会话。
     let proxy_env = match account.as_ref().filter(|a| a.proxy) {
         Some(a) => {
             let port = crate::proxy::ensure_tunnel(&st, &run_node)
@@ -281,7 +324,6 @@ pub async fn prompt(
 
     let session_id = SessionId::new();
 
-    // 指明了对话、但里面没有能续接的一轮（比如唯一的一轮启动就失败了）：新消息仍然留在这个对话里，只是 CLI 重开会话。
     let named_thread: Option<String> = match req.resume_session.as_deref().filter(|s| !s.is_empty())
     {
         Some(t) if req.resume => {
@@ -426,52 +468,11 @@ pub async fn prompt(
     }
 
     if let Some(p) = &profile {
-        for (k, v) in &p.env {
-            spec.env.entry(k.clone()).or_insert_with(|| v.clone());
-        }
-        if spec.model.is_none() {
-            spec.model = p.model.clone();
-        }
-        if spec.permission_mode.is_none() {
-            spec.permission_mode = p.permission_mode.clone();
-        }
-        if spec.effort.is_none() {
-            spec.effort = p.thinking_level.clone();
-        }
-        spec.instructions = Some(p.instructions.clone()).filter(|s| !s.trim().is_empty());
-
-        spec.extra_args.extend(p.custom_args.iter().cloned());
-
         let caps = crate::library::for_agent(&st, &p.id).await;
-        for (k, v) in caps.env {
-            spec.env.entry(k).or_insert(v);
-        }
-        spec.mcp_servers = caps.mcp;
-        if agent_id == "claude" {
-            spec.add_dirs.extend(caps.skill_root);
-        } else {
-            let brief = crate::library::skills_briefing(&caps.skills);
-            if !brief.is_empty() {
-                spec.instructions = Some(match spec.instructions.take() {
-                    Some(i) => format!("{i}\n\n{brief}"),
-                    None => brief,
-                });
-            }
-        }
+        apply_profile(&mut spec, p, caps);
     }
-
     if let Some(c) = &cfg {
-        for (k, v) in &c.custom_env {
-            spec.env.entry(k.clone()).or_insert_with(|| v.clone());
-        }
-        if spec.model.is_none() {
-            spec.model = c.model.clone();
-        }
-        if spec.permission_mode.is_none() {
-            spec.permission_mode = c.permission_mode.clone();
-        }
-
-        spec.extra_args = c.custom_args.clone();
+        apply_runtime_config(&mut spec, c);
     }
     if let Some((k, v)) = account.as_ref().and_then(|a| a.env.clone()) {
         spec.env.entry(k).or_insert(v);
@@ -716,4 +717,103 @@ pub async fn workspace_history(
             })
             .collect(),
     ))
+}
+
+#[cfg(test)]
+mod configuration_tests {
+    use super::*;
+
+    fn profile() -> crate::agents::Agent {
+        serde_json::from_value(serde_json::json!({
+            "name": "Demo", "runtime": "claude", "custom_args": ["--profile-option", "profile"],
+            "model": "profile-model", "env": {"SHARED": "profile"}
+        }))
+        .unwrap()
+    }
+
+    fn capabilities() -> crate::library::Caps {
+        crate::library::Caps {
+            mcp: vec![blazar_runtime::McpServerSpec {
+                name: "docs".into(),
+                command: "fake-docs".into(),
+                ..Default::default()
+            }],
+            env: Default::default(),
+            skill_root: None,
+            skills: Vec::new(),
+        }
+    }
+
+    fn runtime_config() -> AgentConfigView {
+        AgentConfigView {
+            id: "runtime".into(),
+            node: None,
+            agent_id: "claude".into(),
+            display_name: None,
+            program_path: None,
+            model: Some("runtime-model".into()),
+            permission_mode: None,
+            custom_args: vec!["--runtime-option".into(), "runtime".into()],
+            custom_env: [("SHARED".into(), "runtime".into())].into(),
+            max_concurrent: 2,
+            enabled: true,
+        }
+    }
+
+    #[test]
+    fn profile_keeps_built_in_office_mcp() {
+        let mut spec = SessionSpec::new("/home/me/repo", "hello");
+        spec.mcp_servers.push(blazar_runtime::McpServerSpec {
+            name: "office".into(),
+            command: "fake-office".into(),
+            ..Default::default()
+        });
+        apply_profile(&mut spec, &profile(), capabilities());
+        assert_eq!(
+            spec.mcp_servers
+                .iter()
+                .map(|m| m.name.as_str())
+                .collect::<Vec<_>>(),
+            ["office", "docs"]
+        );
+    }
+
+    #[test]
+    fn empty_profile_capabilities_keep_built_in_office_mcp() {
+        let mut spec = SessionSpec::new("/home/me/repo", "hello");
+        spec.mcp_servers.push(blazar_runtime::McpServerSpec {
+            name: "blazar-office".into(),
+            command: "fake-office".into(),
+            ..Default::default()
+        });
+        let mut caps = capabilities();
+        caps.mcp.clear();
+        apply_profile(&mut spec, &profile(), caps);
+        assert_eq!(spec.mcp_servers.len(), 1);
+        assert_eq!(spec.mcp_servers[0].name, "blazar-office");
+    }
+
+    #[test]
+    fn empty_runtime_args_keep_profile_args() {
+        let mut spec = SessionSpec::new("/home/me/repo", "hello");
+        apply_profile(&mut spec, &profile(), capabilities());
+        let mut config = runtime_config();
+        config.custom_args.clear();
+        apply_runtime_config(&mut spec, &config);
+        assert_eq!(spec.extra_args, ["--profile-option", "profile"]);
+    }
+
+    #[test]
+    fn runtime_defaults_preserve_profile_args_and_request_precedence() {
+        let mut spec = SessionSpec::new("/home/me/repo", "hello");
+        spec.env.insert("SHARED".into(), "request".into());
+        apply_profile(&mut spec, &profile(), capabilities());
+        apply_runtime_config(&mut spec, &runtime_config());
+        assert_eq!(
+            spec.extra_args,
+            ["--runtime-option", "runtime", "--profile-option", "profile"]
+        );
+        assert_eq!(spec.model.as_deref(), Some("profile-model"));
+        assert_eq!(spec.env["SHARED"], "request");
+    }
 }
