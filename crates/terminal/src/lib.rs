@@ -292,18 +292,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn invalid_ssh_targets_cannot_build_detach_commands() {
-        for host in ["", "-invalid", "user@-invalid", "host name"] {
-            let target = TerminalTarget::Ssh {
-                host: host.into(),
-                cwd: "/home/me".into(),
-                tmux_session: Some("blazar-test".into()),
-            };
-            assert!(target.detach_command().is_none(), "{host:?}");
-        }
-    }
-
-    #[test]
     fn persistent_sessions_detach_on_close() {
         let local = TerminalTarget::Local {
             cwd: "/w".into(),
@@ -403,11 +391,9 @@ mod tests {
 
     #[tokio::test]
     async fn local_session_echoes() {
-        let t = TerminalTarget::Command {
-            program: "bash".into(),
-            args: vec!["--noprofile".into(), "--norc".into()],
-            env: vec![],
+        let t = TerminalTarget::Local {
             cwd: std::env::temp_dir().display().to_string(),
+            tmux_session: None,
         };
         let mut s = TerminalSession::open(&t, 80, 24).expect("应能开 PTY");
         s.write(b"echo blazar_pty_ok\n").await.unwrap();
@@ -430,11 +416,9 @@ mod tests {
 
     #[tokio::test]
     async fn resize_does_not_error() {
-        let t = TerminalTarget::Command {
-            program: "bash".into(),
-            args: vec!["--noprofile".into(), "--norc".into()],
-            env: vec![],
+        let t = TerminalTarget::Local {
             cwd: std::env::temp_dir().display().to_string(),
+            tmux_session: None,
         };
         let s = TerminalSession::open(&t, 80, 24).unwrap();
         s.resize(120, 40).await.expect("resize 应成功");

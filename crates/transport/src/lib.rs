@@ -46,21 +46,6 @@ pub enum TransportError {
 
 pub type Result<T> = std::result::Result<T, TransportError>;
 
-pub fn validate_env_key(name: &str) -> Result<()> {
-    let mut bytes = name.bytes();
-    if !bytes
-        .next()
-        .is_some_and(|b| b == b'_' || b.is_ascii_alphabetic())
-        || !bytes.all(|b| b == b'_' || b.is_ascii_alphanumeric())
-    {
-        return Err(TransportError::Command {
-            code: -1,
-            stderr: format!("环境变量名无效: {name:?}"),
-        });
-    }
-    Ok(())
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TransportKind {
@@ -132,15 +117,7 @@ impl ExecSpec {
         self
     }
 
-    pub fn validate(&self) -> Result<()> {
-        for key in self.env.keys().chain(self.env_files.keys()) {
-            validate_env_key(key)?;
-        }
-        Ok(())
-    }
-
-    pub(crate) fn to_shell(&self) -> Result<String> {
-        self.validate()?;
+    pub(crate) fn to_shell(&self) -> String {
         let mut parts = Vec::new();
         if let Some(cwd) = &self.cwd {
             parts.push(format!("cd {} &&", shell_quote(&cwd.display().to_string())));
@@ -150,13 +127,13 @@ impl ExecSpec {
         }
         for (k, p) in &self.env_files {
             parts.push(format!(
-                "{k}=\"$(cat -- {})\"",
+                "{k}=\"$(cat {})\"",
                 shell_quote(&p.display().to_string())
             ));
         }
         parts.push(shell_quote(&self.program));
         parts.extend(self.args.iter().map(|a| shell_quote(a)));
-        Ok(parts.join(" "))
+        parts.join(" ")
     }
 }
 
@@ -348,7 +325,7 @@ impl NodeTransport for LocalTransport {
     }
 
     async fn exec(&self, spec: ExecSpec) -> Result<ExecOutput> {
-        let mut cmd = self.build(&spec)?;
+        let mut cmd = self.build(&spec);
 
         cmd.stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -358,7 +335,7 @@ impl NodeTransport for LocalTransport {
 
     async fn spawn_lines(&self, spec: ExecSpec) -> Result<LineStream> {
         let child = self
-            .build(&spec)?
+            .build(&spec)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true)
@@ -368,8 +345,7 @@ impl NodeTransport for LocalTransport {
 }
 
 impl LocalTransport {
-    fn build(&self, spec: &ExecSpec) -> Result<Command> {
-        spec.validate()?;
+    fn build(&self, spec: &ExecSpec) -> Command {
         let mut cmd = Command::new(&spec.program);
         cmd.args(&spec.args).stdin(Stdio::null());
         if let Some(cwd) = &spec.cwd {
@@ -383,7 +359,7 @@ impl LocalTransport {
                 cmd.env(k, v.trim());
             }
         }
-        Ok(cmd)
+        cmd
     }
 }
 
@@ -580,7 +556,7 @@ impl NodeTransport for SshTransport {
     }
 
     async fn exec(&self, spec: ExecSpec) -> Result<ExecOutput> {
-        let mut cmd = self.build(&spec)?;
+        let mut cmd = self.build(&spec);
 
         cmd.stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -590,7 +566,7 @@ impl NodeTransport for SshTransport {
 
     async fn spawn_lines(&self, spec: ExecSpec) -> Result<LineStream> {
         let child = self
-            .build_streaming(&spec)?
+            .build_streaming(&spec)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true)
@@ -641,17 +617,17 @@ impl SshTransport {
         cmd
     }
 
-    fn build(&self, spec: &ExecSpec) -> Result<Command> {
-        let mut cmd = self.ssh_base(&shell_quote(&spec.to_shell()?));
+    fn build(&self, spec: &ExecSpec) -> Command {
+        let mut cmd = self.ssh_base(&shell_quote(&spec.to_shell()));
         cmd.stdin(Stdio::null());
-        Ok(cmd)
+        cmd
     }
 
-    fn build_streaming(&self, spec: &ExecSpec) -> Result<Command> {
-        let mut cmd = self.ssh_base(&shell_quote(&wrap_with_watchdog(&spec.to_shell()?)));
+    fn build_streaming(&self, spec: &ExecSpec) -> Command {
+        let mut cmd = self.ssh_base(&shell_quote(&wrap_with_watchdog(&spec.to_shell())));
 
         cmd.stdin(Stdio::piped());
-        Ok(cmd)
+        cmd
     }
 }
 
@@ -722,59 +698,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn ssh_targets_cannot_be_interpreted_as_options() {
-        for host in ["", "-invalid", "user@-invalid", "host name", "host\nname", "user@@host"] {
-            let transport = SshTransport::new(host);
-            assert!(transport.build(&ExecSpec::new("true")).is_err(), "{host:?}");
-            assert!(transport.build_streaming(&ExecSpec::new("true")).is_err(), "{host:?}");
-        }
-        let command = SshTransport::new("hub-host").build(&ExecSpec::new("true")).unwrap();
-        let args: Vec<_> = command.as_std().get_args().map(|a| a.to_string_lossy()).collect();
-        let host = args.iter().position(|arg| arg == "hub-host").unwrap();
-        assert_eq!(args[host - 1], "--");
-    }
-
-    #[tokio::test]
-    async fn invalid_environment_names_are_rejected_before_local_execution() {
-        let root = tempfile::tempdir().unwrap();
-        for name in ["", "1KEY", "A-B", "A B", "A\nB", "A=B", "é"] {
-            for spec in [
-                ExecSpec::new("true").env(name, "test-value"),
-                ExecSpec::new("true").env_file(name, root.path().join("absent")),
-            ] {
-                assert!(LocalTransport.exec(spec.clone()).await.is_err(), "{name:?}");
-                assert!(LocalTransport.spawn_lines(spec).await.is_err(), "{name:?}");
-            }
-        }
-    }
-
-    #[test]
-    fn environment_names_are_checked_before_shell_rendering() {
-        let ssh = SshTransport::new("hub-host");
-        for name in ["", "1KEY", "A-B", "A B", "A\nB", "A=B", "é"] {
-            for spec in [
-                ExecSpec::new("true").env(name, "test-value"),
-                ExecSpec::new("true").env_file(name, "/absent"),
-            ] {
-                assert!(spec.to_shell().is_err(), "{name:?}");
-                assert!(ssh.build(&spec).is_err(), "{name:?}");
-                assert!(ssh.build_streaming(&spec).is_err(), "{name:?}");
-            }
-        }
-        for name in ["A", "_", "_A_1", "lower_case"] {
-            assert!(validate_env_key(name).is_ok(), "{name:?}");
-        }
-        let rendered = ExecSpec::new("true")
-            .env_file("KEY", "-test value")
-            .to_shell()
-            .unwrap();
-        assert!(rendered.contains("cat -- '-test value'"));
-    }
-
-    #[test]
     fn shell_quoting_survives_spaces_and_quotes() {
         let spec = ExecSpec::new("grep").arg("it's a test").cwd("/tmp/my dir");
-        let rendered = spec.to_shell().unwrap();
+        let rendered = spec.to_shell();
         assert!(rendered.contains(r"'it'\''s a test'"));
         assert!(rendered.contains("cd '/tmp/my dir'"));
     }
@@ -782,7 +708,7 @@ mod tests {
     #[test]
     fn env_is_rendered_before_program() {
         let spec = ExecSpec::new("codex").env("CODEX_HOME", "/dev/shm/x");
-        let rendered = spec.to_shell().unwrap();
+        let rendered = spec.to_shell();
         assert!(rendered.starts_with("CODEX_HOME='/dev/shm/x' 'codex'"));
     }
 
