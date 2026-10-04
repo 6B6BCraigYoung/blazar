@@ -9,8 +9,6 @@ use serde_json::json;
 
 use crate::api::Shared;
 
-// 远端机器上的 Claude Code / Codex 跟本机对齐版本：Blazar 拼的命令行参数是照本机 CLI 来的，远端太旧会不认。
-
 #[must_use]
 pub fn parse_version(s: &str) -> Option<(u64, u64, u64)> {
     let tok = s.split_whitespace().find(|t| {
@@ -29,6 +27,44 @@ fn fmt_version(v: (u64, u64, u64)) -> String {
     format!("{}.{}.{}", v.0, v.1, v.2)
 }
 
+fn sha256_digest(raw: &str) -> Option<&str> {
+    let digest = raw.trim();
+    (digest.len() == 64 && digest.bytes().all(|b| b.is_ascii_hexdigit())).then_some(digest)
+}
+
+fn npm_dist(meta: &serde_json::Value) -> Result<(&str, &str), String> {
+    use base64::Engine;
+
+    let url = meta["dist"]["tarball"]
+        .as_str()
+        .ok_or("npm 发布信息里没有下载地址")?;
+    let sri = meta["dist"]["integrity"]
+        .as_str()
+        .and_then(|s| s.strip_prefix("sha512-"))
+        .ok_or("npm 发布信息里没有 sha512")?;
+    let parsed = reqwest::Url::parse(url).map_err(|_| "npm 下载地址无效")?;
+    if parsed.scheme() != "https"
+        || parsed.host_str() != Some("registry.npmjs.org")
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+        || parsed.port_or_known_default() != Some(443)
+        || parsed.fragment().is_some()
+    {
+        return Err("npm 下载地址必须来自官方 HTTPS 仓库".into());
+    }
+    let digest = base64::engine::general_purpose::STANDARD
+        .decode(sri)
+        .map_err(|_| "npm sha512 格式无效")?;
+    if digest.len() != 64 {
+        return Err("npm sha512 长度无效".into());
+    }
+    Ok((url, sri))
+}
+
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', r"'\''"))
+}
+
 async fn local_version(runtime: &str) -> Option<(u64, u64, u64)> {
     let script = format!("{}\n{runtime} --version", blazar_transport::PATH_PRELUDE);
     let out = LocalTransport
@@ -42,7 +78,7 @@ async fn exports(st: &Shared, node: &str) -> String {
     crate::proxy::node_net_env(st, node)
         .await
         .iter()
-        .map(|(k, v)| format!("export {k}='{}'\n", v.replace('\'', "")))
+        .map(|(k, v)| format!("export {k}={}\n", shell_quote(v)))
         .collect()
 }
 
@@ -98,7 +134,6 @@ async fn scp3(src: &str, src_path: &str, dst: &str, dst_path: &str) -> Result<()
     }
 }
 
-// Claude Code 原生安装就是 ~/.local/share/claude/versions/<版本> 一个文件，~/.local/bin/claude 指向它。
 async fn update_claude(st: &Shared, node: &str, want: (u64, u64, u64)) -> Result<String, String> {
     let v = fmt_version(want);
     let script = format!(
@@ -110,7 +145,6 @@ async fn update_claude(st: &Shared, node: &str, want: (u64, u64, u64)) -> Result
     if remote_version(st, node, "claude").await == Some(want) {
         return Ok(format!("已用官方安装器更新到 {v}"));
     }
-    // 官方下载经代理容易被掐断：从已经是这个版本的另一台机器经本机中转拷过来，按 sha256 校验后再切换。
     let file = format!(".local/share/claude/versions/{v}");
     for src in other_nodes(st, node).await {
         if remote_version(st, &src, "claude").await != Some(want) {
@@ -120,10 +154,9 @@ async fn update_claude(st: &Shared, node: &str, want: (u64, u64, u64)) -> Result
         else {
             continue;
         };
-        let sum = sum.trim().to_owned();
-        if sum.len() != 64 {
+        let Some(sum) = sha256_digest(&sum) else {
             continue;
-        }
+        };
         let _ = run(
             st,
             node,
@@ -136,8 +169,9 @@ async fn update_claude(st: &Shared, node: &str, want: (u64, u64, u64)) -> Result
             continue;
         }
         let install = format!(
-            "f=~/{file}.part; [ \"$(sha256sum $f | cut -d' ' -f1)\" = '{sum}' ] || {{ rm -f $f; echo BAD; exit 1; }}; \
-             chmod +x $f && mv $f ~/{file} && ln -sfn ~/{file} ~/.local/bin/claude"
+            "f=~/{file}.part; [ \"$(sha256sum $f | cut -d' ' -f1)\" = {sum} ] || {{ rm -f $f; echo BAD; exit 1; }}; \
+             chmod +x $f && mv $f ~/{file} && ln -sfn ~/{file} ~/.local/bin/claude",
+            sum = shell_quote(sum),
         );
         if run(st, node, &install, 60)
             .await
@@ -155,21 +189,21 @@ async fn update_claude(st: &Shared, node: &str, want: (u64, u64, u64)) -> Result
     ))
 }
 
-// Codex 官方的 standalone 布局：~/.codex/packages/standalone/releases/<版本>-<平台>，current 指向在用的那个。
 fn codex_install_script(v: &str, sri_b64: &str, source: &str) -> String {
     format!(
         r#"set -e
 T=x86_64-unknown-linux-musl
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 {source}
-[ "$(openssl dgst -sha512 -binary "$TMP/pkg.tgz" | base64 -w0)" = '{sri_b64}' ] || {{ echo 校验失败; exit 1; }}
+[ "$(openssl dgst -sha512 -binary "$TMP/pkg.tgz" | base64 -w0)" = {sri_b64} ] || {{ echo 校验失败; exit 1; }}
 tar xzf "$TMP/pkg.tgz" -C "$TMP"
 R=$HOME/.codex/packages/standalone/releases/{v}-$T
 rm -rf "$R"; mkdir -p "$(dirname "$R")" "$HOME/.local/bin"
 cp -a "$TMP/package/vendor/$T" "$R"
 ln -sfn "$R" "$HOME/.codex/packages/standalone/current"
 for b in codex codex-code-mode-host; do ln -sfn "$HOME/.codex/packages/standalone/current/bin/$b" "$HOME/.local/bin/$b"; done
-"#
+"#,
+        sri_b64 = shell_quote(sri_b64),
     )
 }
 
@@ -187,14 +221,11 @@ async fn update_codex(st: &Shared, node: &str, want: (u64, u64, u64)) -> Result<
         .map_err(|e| format!("起不了 curl：{e}"))?;
     let meta: serde_json::Value = serde_json::from_slice(&meta.stdout)
         .map_err(|_| "从 npm 拿不到 Codex 的发布信息".to_owned())?;
-    let url = meta["dist"]["tarball"]
-        .as_str()
-        .ok_or("npm 发布信息里没有下载地址")?;
-    let sri = meta["dist"]["integrity"]
-        .as_str()
-        .and_then(|s| s.strip_prefix("sha512-"))
-        .ok_or("npm 发布信息里没有 sha512")?;
-    let remote_fetch = format!("curl -fsSL --retry 3 -o \"$TMP/pkg.tgz\" '{url}'");
+    let (url, sri) = npm_dist(&meta)?;
+    let remote_fetch = format!(
+        "curl -fsSL --retry 3 -o \"$TMP/pkg.tgz\" -- {}",
+        shell_quote(url)
+    );
     let script = format!(
         "{}{}",
         exports(st, node).await,
@@ -204,11 +235,11 @@ async fn update_codex(st: &Shared, node: &str, want: (u64, u64, u64)) -> Result<
     if remote_version(st, node, "codex").await == Some(want) {
         return Ok(format!("已从 npm 官方仓库更新到 {v}（sha512 校验通过）"));
     }
-    // 远端下载失败：本机下载后传过去。
     let tmp = std::env::temp_dir().join(format!("blazar-codex-{v}.tgz"));
     let dl = tokio::process::Command::new("curl")
         .args(["-fsSL", "--retry", "3", "-o"])
         .arg(&tmp)
+        .arg("--")
         .arg(url)
         .status()
         .await;
@@ -290,6 +321,41 @@ pub async fn update(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn remote_checksum_requires_hexadecimal_digits() {
+        let valid = "0123456789abcdef".repeat(4);
+        assert_eq!(sha256_digest(&format!("{valid}\n")), Some(valid.as_str()));
+        assert!(sha256_digest(&"g".repeat(64)).is_none());
+        assert!(sha256_digest(&"0".repeat(63)).is_none());
+    }
+
+    #[test]
+    fn npm_dist_rejects_untrusted_downloads_and_malformed_digests() {
+        use base64::Engine;
+        let integrity = format!(
+            "sha512-{}",
+            base64::engine::general_purpose::STANDARD.encode([0_u8; 64])
+        );
+        let official = "https://registry.npmjs.org/@openai/codex/-/codex-1.2.3-linux-x64.tgz";
+        assert!(npm_dist(&json!({"dist": {"tarball": official, "integrity": integrity}})).is_ok());
+        for url in [
+            "http://registry.npmjs.org/package.tgz",
+            "https://example.com/package.tgz",
+            "https://registry.npmjs.org@example.com/package.tgz",
+            "--help",
+        ] {
+            assert!(
+                npm_dist(&json!({"dist": {"tarball": url, "integrity": integrity}})).is_err(),
+                "{url}"
+            );
+        }
+        for digest in ["sha512-short", "sha512-", "sha256-aabb"] {
+            assert!(
+                npm_dist(&json!({"dist": {"tarball": official, "integrity": digest}})).is_err()
+            );
+        }
+    }
 
     #[test]
     fn versions_parse_and_compare() {
