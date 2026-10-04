@@ -2,7 +2,7 @@ use leptos::ev;
 use leptos::html;
 use leptos::prelude::*;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{Value, json};
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
 
@@ -610,6 +610,7 @@ pub fn Composer(chat: Chat, tick: RwSignal<u32>, tree_files: Signal<Vec<String>>
     };
 
     let review_n = move || chat.diff.comments.with(Vec::len);
+    let failed_edit = RwSignal::new(None::<(u32, Value)>);
 
     view! {
         <div class="composer">
@@ -650,9 +651,14 @@ pub fn Composer(chat: Chat, tick: RwSignal<u32>, tree_files: Signal<Vec<String>>
                 chat.deliveries.with(|d| d.failed()).into_iter().filter(|(_, request)| request["resume_session"].as_str() == thread.as_deref()).map(|(id, request)| {
                 let text = request["text"].as_str().unwrap_or_default().to_owned();
                 let images = request["images"].as_array().map_or(0, Vec::len);
-                view! { <div class="cb-band queue"><div class="cq-h"><b>"发送失败"</b><span class="grow"></span><button class="linkbtn" on:click=move |_| chat.retry_failed(id)>"重试"</button></div><div class="cq-t">{text}{(images > 0).then(|| format!(" · {images} 张附件"))}</div></div> }
+                view! { <div class="cb-band queue"><div class="cq-h"><b>"发送失败"</b><span class="grow"></span><button class="linkbtn" on:click=move |_| chat.retry_failed(id)>"重试"</button><button class="linkbtn" on:click=move |_| failed_edit.set(Some((id, request.clone())))>"编辑"</button><button class="linkbtn" on:click=move |_| chat.spawn(async move {
+                    if dialog::ask("丢弃消息？", "这条消息尚未发送，丢弃后无法恢复。", vec![Choice::plain("取消"), Choice::danger("丢弃")]).await == Some(1) {
+                        let _ = chat.deliveries.try_update(|deliveries| deliveries.take_failed(id));
+                    }
+                })>"丢弃"</button></div><div class="cq-t">{text}{(images > 0).then(|| format!(" · {images} 张附件"))}</div></div> }
             }).collect_view()}}
             {move || chat.editing_queue.get().map(|queued| view! { <QueueEditor chat queued/> })}
+            {move || failed_edit.get().map(|(id, request)| view! { <FailedEditor chat id request on_close=Callback::new(move |_| failed_edit.set(None))/> })}
             <Dock chat/>
             <div class="cc-box" on:dragover=move |e: ev::DragEvent| {
                     if e.data_transfer().is_some_and(|d| (0..d.items().length()).any(|i| d.items().get(i).is_some_and(|x| x.type_().starts_with("image/")))) { e.prevent_default(); }
@@ -1358,6 +1364,43 @@ fn QueueEditor(chat: Chat, queued: Queued) -> impl IntoView {
                 <p class="muted">"附件、文件上下文和原发送设置会保留。"</p>
                 <Show when=move || !error.get().is_empty()><div class="err" role="alert">{move || error.get()}</div></Show>
                 <div class="dlg-foot"><button class="btn" disabled=move || busy.get() on:click=move |_| close()>"取消"</button><button class="btn primary" disabled=move || busy.get() on:click=save>{move || if busy.get() { "保存中…" } else { "保存" }}</button></div>
+            </div>
+        </div>
+    }
+}
+
+#[component]
+fn FailedEditor(chat: Chat, id: u32, request: Value, on_close: Callback<()>) -> impl IntoView {
+    let text = RwSignal::new(request["text"].as_str().unwrap_or_default().to_owned());
+    let images = RwSignal::new(request["images"].as_array().cloned().unwrap_or_default());
+    let original = StoredValue::new(request);
+    let error = RwSignal::new(String::new());
+    let save = move |_| {
+        let text = text.get_untracked();
+        let images = images.get_untracked();
+        if text.trim().is_empty() && images.is_empty() {
+            error.set("请输入消息或保留附件".into());
+            return;
+        }
+        let mut request = edit_request(&original.get_value(), text);
+        request["images"] = json!(images);
+        if chat.deliveries.write().edit_failed(id, request) {
+            on_close.run(());
+        } else {
+            error.set("消息已重试或丢弃，无法保存这次编辑".into());
+        }
+    };
+    view! {
+        <div class="dlg-mask" on:click=move |_| on_close.run(()) on:keydown=move |e| if e.key() == "Escape" { e.stop_propagation(); on_close.run(()); }>
+            <div class="dlg" role="dialog" aria-modal="true" aria-label="编辑未发送的消息" on:click=|e| e.stop_propagation()>
+                <h3>"编辑未发送的消息"</h3>
+                <textarea autofocus prop:value=move || text.get() on:input=move |e| text.set(event_target_value(&e))></textarea>
+                {move || images.get().iter().enumerate().map(|(index, _)| view! {
+                    <div class="row"><span>{format!("附件 {}", index + 1)}</span><button class="linkbtn" on:click=move |_| images.update(|images| { if index < images.len() { images.remove(index); } })>"移除"</button></div>
+                }).collect_view()}
+                <p class="muted">"文件上下文和原发送设置会保留。保存后可重试。"</p>
+                <Show when=move || !error.get().is_empty()><div class="err" role="alert">{move || error.get()}</div></Show>
+                <div class="dlg-foot"><button class="btn" on:click=move |_| on_close.run(())>"取消"</button><button class="btn primary" on:click=save>"保存"</button></div>
             </div>
         </div>
     }

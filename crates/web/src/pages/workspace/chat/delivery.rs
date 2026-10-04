@@ -39,6 +39,14 @@ impl Deliveries {
     pub fn take_failed(&mut self, id: u32) -> Option<Value> {
         self.failed.remove(&id)
     }
+
+    pub fn edit_failed(&mut self, id: u32, request: Value) -> bool {
+        let Some(failed) = self.failed.get_mut(&id) else {
+            return false;
+        };
+        *failed = request;
+        true
+    }
 }
 
 pub fn edit_request(request: &Value, text: String) -> Value {
@@ -108,5 +116,20 @@ mod tests {
         assert_eq!(input["thinking"], false);
         assert_eq!(input["text"], "first");
         assert!(input.get("model").is_none());
+    }
+
+    #[test]
+    fn failed_messages_can_be_edited_without_restoring_already_retried_requests() {
+        let mut deliveries = Deliveries::default();
+        let id = deliveries.begin(request());
+        deliveries.finish(id, false);
+        let mut edited = edit_request(&request(), "corrected".into());
+        edited["images"] = json!([]);
+        assert!(deliveries.edit_failed(id, edited.clone()));
+        assert_eq!(deliveries.take_failed(id), Some(edited.clone()));
+        assert_eq!(edited["context_file"], "src/main.rs");
+        assert_eq!(edited["model"], "demo-model");
+        assert!(!deliveries.edit_failed(id, request()));
+        assert!(deliveries.failed().is_empty());
     }
 }
