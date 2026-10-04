@@ -292,6 +292,18 @@ mod tests {
     use super::*;
 
     #[test]
+    fn invalid_ssh_targets_cannot_build_detach_commands() {
+        for host in ["", "-invalid", "user@-invalid", "host name"] {
+            let target = TerminalTarget::Ssh {
+                host: host.into(),
+                cwd: "/home/me".into(),
+                tmux_session: Some("blazar-test".into()),
+            };
+            assert!(target.detach_command().is_none(), "{host:?}");
+        }
+    }
+
+    #[test]
     fn persistent_sessions_detach_on_close() {
         let local = TerminalTarget::Local {
             cwd: "/w".into(),
