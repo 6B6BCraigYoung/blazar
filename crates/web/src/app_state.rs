@@ -17,6 +17,7 @@ const SEEN_KEY: &str = "blazar.seen.v1";
 #[derive(Clone, Copy)]
 pub struct AppData {
     pub state: RwSignal<Option<StateSnapshot>>,
+    pub state_error: RwSignal<Option<String>>,
     pub inbox_unread: RwSignal<u64>,
     pub tasks_open: RwSignal<usize>,
     pub autopilots_active: RwSignal<usize>,
@@ -81,9 +82,16 @@ impl AppData {
     }
 
     pub fn load_state(self) {
+        let _ = self.state_error.try_set(None);
         spawn_local(async move {
-            if let Ok(s) = api::get::<StateSnapshot>("/api/state").await {
-                let _ = self.state.try_set(Some(s));
+            match api::get::<StateSnapshot>("/api/state").await {
+                Ok(s) => {
+                    let _ = self.state.try_set(Some(s));
+                    let _ = self.state_error.try_set(None);
+                }
+                Err(error) => {
+                    let _ = self.state_error.try_set(Some(error.to_string()));
+                }
             }
         });
     }
@@ -215,6 +223,7 @@ async fn notify_changes(app: AppData, fresh: Vec<WorkspaceView>) {
 pub fn provide(bus: Bus) -> AppData {
     let app = AppData {
         state: RwSignal::new(None),
+        state_error: RwSignal::new(None),
         inbox_unread: RwSignal::new(0),
         tasks_open: RwSignal::new(0),
         autopilots_active: RwSignal::new(0),

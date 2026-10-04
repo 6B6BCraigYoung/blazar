@@ -435,3 +435,12 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 .ssh-row .mono.muted { overflow: hidden; text-overflow: ellipsis; }
 .ssh-row[data-off="true"] { cursor: default; opacity: .55; }
 .ssh-row .grow { flex: 1; }
+
+.workspaces-page .ws-card { cursor: default; }
+.workspaces-page .page-head { flex-wrap: wrap; }
+.workspaces-page .page-filter { max-width: 100%; }
+.ws-card-main { display: flex; flex-direction: column; gap: var(--space-control); flex: 1; min-width: 0; color: inherit; }
+.ws-card .meta { flex-wrap: wrap; }
+.ws-card .meta > span { max-width: 100%; overflow-wrap: anywhere; }
+.ws-card .act { opacity: 1; }
+.ws-card .act a.btn { display: inline-flex; align-items: center; }

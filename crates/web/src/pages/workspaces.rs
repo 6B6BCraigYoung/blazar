@@ -7,6 +7,8 @@ use crate::api::{self, WorkspaceView};
 use crate::app_state::use_app;
 use crate::chat_model;
 use crate::components::dialog::{self, Choice};
+use crate::components::modal::Modal;
+use crate::components::status::{EmptyState, InlineError, LoadingState};
 use crate::components::toast::toast;
 use crate::fmt;
 
@@ -91,23 +93,36 @@ fn List(kind: Kind) -> impl IntoView {
             .collect::<Vec<_>>()
     };
     view! {
-        <div class="page">
+        <div class="page workspaces-page">
             <div class="page-head">
                 <h1>{title}</h1>
                 <span class="gchip">{move || list().len()}</span>
                 <span class="grow"></span>
-                <input class="page-filter" placeholder="筛选…" prop:value=move || q.get() on:input=move |e| q.set(event_target_value(&e))/>
-                <button class="btn primary" on:click=move |_| app.new_ws.set(true)>"新建"</button>
+                <input class="page-filter" aria-label="筛选工作区" placeholder="搜索工作区…" prop:value=move || q.get() on:input=move |e| q.set(event_target_value(&e))/>
+                <button type="button" class="btn primary" on:click=move |_| app.new_ws.set(true)>"新建工作区"</button>
             </div>
+            {move || app.state_error.get().map(|message| view! {
+                <InlineError message retry=Callback::new(move |_| app.load_state())/>
+            })}
             {(kind == Kind::Waiting).then(|| view! { <PendingApprovals/> })}
             {move || {
                 let r = rows();
                 if app.state.with(Option::is_none) {
-                    return view! { <div class="empty">"加载中…"</div> }.into_any();
+                    return if app.state_error.with(Option::is_some) {
+                        ().into_any()
+                    } else {
+                        view! { <LoadingState text="加载工作区…"/> }.into_any()
+                    };
                 }
                 if r.is_empty() {
-                    let msg = if list().is_empty() { "还没有工作区 —— 点右上角「新建」" } else { "无匹配" };
-                    return view! { <div class="empty">{msg}</div> }.into_any();
+                    let (title, detail) = if !q.get().trim().is_empty() {
+                        ("没有匹配的工作区", "试试其他名称或路径。")
+                    } else if kind == Kind::All || kind == Kind::Project {
+                        ("打开第一个工作区", "选择一个代码目录，开始工作。")
+                    } else {
+                        ("还没有工作区", "点右上角新建工作区。")
+                    };
+                    return view! { <EmptyState title detail/> }.into_any();
                 }
                 view! { <div class="ws-list">{r.into_iter().map(|w| card(w, insp)).collect_view()}</div> }.into_any()
             }}
@@ -126,28 +141,30 @@ pub fn diff_badge(w: &WorkspaceView) -> AnyView {
 
 fn card(w: WorkspaceView, insp: RwSignal<Option<String>>) -> impl IntoView {
     let app = use_app();
-    let navigate = use_navigate();
     let shown = app.shown_activity(&w);
     let unseen = app.unseen(&w);
+    let href = format!("/w/{}", w.id);
     let id = w.id.clone();
-    let id2 = w.id.clone();
+    let location = format!("{}:{}", w.node, w.path);
+    let details_label = format!("查看 {} 的详情", w.name);
     view! {
-        <div class="ws-card" on:click=move |_| navigate(&format!("/w/{id}"), Default::default())>
-            <div class="top">
-                <b class:strong=unseen title=w.name.clone()>{w.name.clone()}</b>
-                <span class="state-pill" data-act=shown.clone()>{activity_label(&shown).to_owned()}</span>
-            </div>
-            <div class="path" title=w.path.clone()>{format!("{}:{}", w.node, w.path)}</div>
-            <div class="meta">
-                {w.project.clone().map(|p| view! { <span title="项目">{p}</span> })}
-                {diff_badge(&w)}
-                <span class="muted">{w.last_active_at.as_deref().map(fmt::ago).unwrap_or_default()}</span>
-            </div>
+        <article class="ws-card">
+            <a class="ws-card-main" href=href.clone() title=location>
+                <div class="top">
+                    <b class:strong=unseen>{w.name.clone()}</b>
+                    <span class="state-pill" data-act=shown.clone()>{activity_label(&shown).to_owned()}</span>
+                </div>
+                <div class="meta">
+                    {w.project.clone().map(|p| view! { <span title="项目">{p}</span> })}
+                    {diff_badge(&w)}
+                    <span class="muted">{w.last_active_at.as_deref().map(fmt::ago).unwrap_or_default()}</span>
+                </div>
+            </a>
             <div class="act">
-                <button class="btn small" on:click=move |e| { e.stop_propagation(); insp.set(Some(id2.clone())); }>"属性"</button>
-                <button class="btn small primary">"打开"</button>
+                <button type="button" class="btn small ghost" aria-label=details_label on:click=move |_| insp.set(Some(id.clone()))>"详情"</button>
+                <a class="btn small" href=href>"打开"</a>
             </div>
-        </div>
+        </article>
     }
 }
 
@@ -380,11 +397,12 @@ pub fn Inspector(id: String, on_close: impl Fn() + Copy + Send + Sync + 'static)
     });
     let act = move |d: Value, a: &'static str| act.with_value(|f| f(d, a));
     view! {
-        <div class="dlg-mask" on:click=move |_| close()>
-            <div class="dlg wide" on:click=|e| e.stop_propagation()>
+        <Modal label="工作区详情" class="dlg wide" on_close=Callback::new(move |_| close())>
                 {move || match detail.get() {
-                    None => view! { <div class="empty">"读取中…"</div> }.into_any(),
-                    Some(Err(e)) => view! { <div class="err-line">{e.to_string()}</div> }.into_any(),
+                    None => view! { <LoadingState text="读取详情…"/> }.into_any(),
+                    Some(Err(e)) => view! { <InlineError message=e.to_string() retry=Callback::new(move |_| rev.update(|n| *n += 1))/>
+                        <div class="dlg-foot"><button type="button" class="btn" on:click=move |_| close()>"关闭"</button></div>
+                    }.into_any(),
                     Some(Ok(d)) => {
                         let s = |k: &str| d[k].as_str().unwrap_or("").to_owned();
                         let isolated = d["isolated"].as_bool().unwrap_or(false);
@@ -395,7 +413,7 @@ pub fn Inspector(id: String, on_close: impl Fn() + Copy + Send + Sync + 'static)
                         view! {
                             <h3>{s("name")}</h3>
                             <div class="insp">
-                                <h4>"属性"</h4>
+                                <h4>"工作区信息"</h4>
                                 {kv("机器", s("node"), false)}
                                 {kv("路径", s("path"), true)}
                                 {kv("项目", d["project"].as_str().unwrap_or("—").to_owned(), false)}
@@ -441,7 +459,6 @@ pub fn Inspector(id: String, on_close: impl Fn() + Copy + Send + Sync + 'static)
                         }.into_any()
                     }
                 }}
-            </div>
-        </div>
+        </Modal>
     }
 }
