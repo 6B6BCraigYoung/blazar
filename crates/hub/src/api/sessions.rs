@@ -477,6 +477,11 @@ async fn prompt_inner(
         if let Some(m) = crate::office::mcp_spec(&st).await {
             spec.mcp_servers.push(m);
         }
+        if run_node == "local"
+            && let Some(m) = crate::fleet::mcp_spec(&st).await
+        {
+            spec.mcp_servers.push(m);
+        }
 
         if let Some(p) = &profile {
             let caps = crate::library::for_agent(&st, &p.id).await;

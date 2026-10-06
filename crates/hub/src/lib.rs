@@ -10,6 +10,7 @@ pub use blazar_db::ensure_private_dir;
 mod agent;
 pub mod api;
 pub mod auth;
+pub mod fleet;
 pub mod git;
 pub mod mesh;
 pub mod office;

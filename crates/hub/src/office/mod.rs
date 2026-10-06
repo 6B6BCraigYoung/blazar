@@ -63,6 +63,9 @@ pub async fn prefs(st: &Shared) -> Value {
         "inbox": {
             "muted": saved["inbox"]["muted"].as_array().cloned().unwrap_or_default(),
         },
+        "fleet": {
+            "enabled": saved["fleet"]["enabled"].as_bool().unwrap_or(false),
+        },
     })
 }
 
@@ -95,6 +98,9 @@ pub async fn put_prefs(State(st): State<Shared>, Json(b): Json<Value>) -> Respon
         if let Some(v) = b["git"][k].as_bool() {
             cur["git"][k] = json!(v);
         }
+    }
+    if let Some(v) = b["fleet"]["enabled"].as_bool() {
+        cur["fleet"]["enabled"] = json!(v);
     }
     if let Some(m) = b["inbox"]["muted"].as_array() {
         let kinds: Vec<&str> = m
@@ -871,6 +877,36 @@ fn parse_http_response(raw: &[u8]) -> anyhow::Result<(u16, Value)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn fleet_switch_round_trips_through_prefs() {
+        let db = blazar_db::Db::open_in_memory().await.unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let st = crate::state::AppState::with_services(
+            db,
+            "local".into(),
+            None,
+            crate::mesh::MeshCtx::new(None, root.path().to_path_buf()),
+            crate::services::Services::Isolated,
+        );
+        assert!(!crate::fleet::enabled(&st).await);
+        assert!(crate::fleet::mcp_spec(&st).await.is_none());
+        let saved = put_prefs(
+            State(st.clone()),
+            Json(json!({ "fleet": { "enabled": true } })),
+        )
+        .await;
+        assert_eq!(saved.status(), StatusCode::OK);
+        assert!(crate::fleet::enabled(&st).await);
+        assert_eq!(prefs(&st).await["git"]["branch_prefix"], "blazar/");
+        let off = put_prefs(
+            State(st.clone()),
+            Json(json!({ "fleet": { "enabled": false } })),
+        )
+        .await;
+        assert_eq!(off.status(), StatusCode::OK);
+        assert!(!crate::fleet::enabled(&st).await);
+    }
 
     #[test]
     fn office_chunked_response_preserves_split_utf8() {

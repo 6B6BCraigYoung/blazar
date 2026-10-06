@@ -76,7 +76,7 @@ pub fn SettingsPage() -> impl IntoView {
                 <a href=format!("/settings?s={id}") aria-current=move || (section() == id).then_some("page")>{label}</a>
             }).collect_view()}</nav>
             <div class="settings-body">{move || { refresh.get(); match section().as_str() {
-                "chat" => view! { <ChatSettings/> }.into_any(),
+                "chat" => view! { <ChatSettings/><FleetSettings/> }.into_any(),
                 "notify" => view! { <NotifySettings/> }.into_any(),
                 "shortcuts" => view! { <ShortcutSettings/> }.into_any(),
                 "rules" => view! { <RuleSettings/> }.into_any(),
@@ -130,6 +130,27 @@ fn ChatSettings() -> impl IntoView {
             <div class="settings-row"><label for="settings-diff">"差异默认视图"</label><select id="settings-diff" class="settings-input" prop:value=text(&diff,"view") on:change=move |e| set_diff("view",json!(event_target_value(&e)))><option value="unified" selected=text(&diff,"view")=="unified">"统一"</option><option value="split" selected=text(&diff,"view")=="split">"并排"</option></select></div>
             <div class="settings-row"><label for="settings-whitespace">"差异里忽略空白"</label><input id="settings-whitespace" type="checkbox" prop:checked=flag(&diff,"w") on:change=move |e| set_diff("w",json!(event_target_checked(&e)))/></div>
         </section>
+    }
+}
+
+#[component]
+fn FleetSettings() -> impl IntoView {
+    let data = LocalResource::new(|| api::get::<Value>("/api/settings"));
+    let busy = RwSignal::new(false);
+    move || {
+        match data.get() {
+        None => view! { <LoadingState text="正在加载设置…"/> }.into_any(),
+        Some(Err(e)) => view! { <InlineError message=format!("无法加载设置：{e}") retry=Callback::new(move |_| data.refetch())/> }.into_any(),
+        Some(Ok(p)) => {
+            let on = RwSignal::new(flag(&p["fleet"], "enabled"));
+            view! {
+                <section class="card settings-card"><h3>"多机调度"</h3>
+                    <p class="muted">"打开后，在本机运行的智能体会挂上 Blazar 调度工具：列出机器、建工作区、给任意机器上的智能体发指令、等它跑完、读它的记录和改动、在工作区之间拷文件。大脑跑在远端机器上的会话不挂，因为远端连不回本机。下一轮启动生效。"</p>
+                    <div class="settings-row"><label for="settings-fleet">"给本机运行的智能体挂上调度工具"</label><input id="settings-fleet" type="checkbox" prop:checked=move || on.get() disabled=move || busy.get() on:change=move |e| { let v = event_target_checked(&e); on.set(v); busy.set(true); leptos::task::spawn_local(async move { if !save("PUT", "/api/settings", json!({"fleet": {"enabled": v}})).await { on.set(!v); } busy.set(false); }); }/></div>
+                </section>
+            }.into_any()
+        }
+    }
     }
 }
 

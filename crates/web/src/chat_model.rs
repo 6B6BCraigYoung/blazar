@@ -244,7 +244,9 @@ pub fn fmt_tokens(n: u64) -> String {
 pub const SHELL_TOOLS: [&str; 5] = ["Bash", "Shell", "shell", "exec", "command_execution"];
 
 pub fn tool_name(n: &str) -> String {
-    n.trim_start_matches("mcp__blazar__").to_owned()
+    n.trim_start_matches("mcp__blazar-fleet__")
+        .trim_start_matches("mcp__blazar__")
+        .to_owned()
 }
 
 fn short(s: &str, n: usize) -> String {

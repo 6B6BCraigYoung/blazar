@@ -19,6 +19,16 @@ fn main() {
         std::process::exit(mcp_remote(&argv));
     }
 
+    if argv.get(1).map(String::as_str) == Some(blazar_mcp::fleet::SUBCOMMAND) {
+        let code = match blazar_mcp::fleet::hub_from_args(&argv) {
+            Some(hub) => tokio::runtime::Runtime::new()
+                .map(|rt| rt.block_on(blazar_mcp::fleet::serve(&hub)).is_ok())
+                .map_or(1, |ok| i32::from(!ok)),
+            None => 2,
+        };
+        std::process::exit(code);
+    }
+
     if argv.get(1).map(String::as_str) == Some(blazar_hub::office::MCP_SUBCOMMAND) {
         let code = tokio::runtime::Runtime::new()
             .map(|rt| rt.block_on(blazar_hub::office::serve_mcp(&argv)).is_ok())

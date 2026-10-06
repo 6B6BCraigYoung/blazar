@@ -27,6 +27,12 @@ async fn main() -> Result<()> {
     if argv.get(1).map(String::as_str) == Some(blazar_hub::office::MCP_SUBCOMMAND) {
         return blazar_hub::office::serve_mcp(&argv).await;
     }
+    if argv.get(1).map(String::as_str) == Some(blazar_mcp::fleet::SUBCOMMAND) {
+        let hub = blazar_mcp::fleet::hub_from_args(&argv).ok_or_else(|| {
+            anyhow::anyhow!("用法: {} --hub <url>", blazar_mcp::fleet::SUBCOMMAND)
+        })?;
+        return blazar_mcp::fleet::serve(&hub).await;
+    }
     if argv.get(1).map(String::as_str) == Some(blazar_mcp::remote::SUBCOMMAND) {
         let target = blazar_mcp::remote::target_from_args(&argv).ok_or_else(|| {
             anyhow::anyhow!(
