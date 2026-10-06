@@ -14,6 +14,9 @@ pub enum VfsError {
 
     #[error("不是 git 仓库: {0}")]
     NotARepo(String),
+
+    #[error("{0}")]
+    Folder(String),
 }
 
 pub type Result<T> = std::result::Result<T, VfsError>;
@@ -28,6 +31,9 @@ const EXIT_NO_GIT: i32 = 5;
 
 const EXIT_SSH: i32 = 255;
 const EXIT_PATH_ESCAPE: i32 = 9;
+const EXIT_EXISTS: i32 = 6;
+const EXIT_MKDIR: i32 = 7;
+const MAX_NAME_BYTES: usize = 255;
 
 const CONTENT_DIGEST: &str = r#"digest() {
   local value
@@ -48,6 +54,26 @@ const CONTENT_DIGEST: &str = r#"digest() {
   case "$value" in *[!0-9a-f]*) return 1;; esac
   printf '%s' "$value"
 }"#;
+
+pub fn folder_name(name: &str) -> Result<&str> {
+    let name = name.trim();
+    let bad = if name.is_empty() {
+        "文件夹名不能为空"
+    } else if name == "." || name == ".." {
+        "文件夹名不能是 . 或 .."
+    } else if name.starts_with('.') {
+        "文件夹名不能以 . 开头，列表里看不到"
+    } else if name.contains(['/', '\\', '\0']) {
+        "文件夹名不能包含 / 或 \\"
+    } else if name.chars().any(char::is_control) {
+        "文件夹名不能包含控制字符"
+    } else if name.len() > MAX_NAME_BYTES {
+        "文件夹名太长"
+    } else {
+        return Ok(name);
+    };
+    Err(VfsError::Folder(bad.to_owned()))
+}
 
 pub fn safe_relative_path(rel: &str) -> Result<String> {
     let normalized = rel.replace('\\', "/");
@@ -606,6 +632,47 @@ done"#,
         Ok(parse_listing(&out.stdout))
     }
 
+    pub async fn mkdir(&self, parent: &str, name: &str) -> Result<String> {
+        let name = folder_name(name)?;
+        let script = format!(
+            r#"set -e
+cd {target} 2>/dev/null || exit {no_dir}
+HERE=$(pwd -P)
+[ -e "$HERE/"{name} ] && exit {exists}
+mkdir -- "$HERE/"{name} || exit {failed}
+echo "PATH|$HERE/"{name}"#,
+            target = cd_target(parent),
+            name = shell_quote(name),
+            no_dir = EXIT_NO_DIR,
+            exists = EXIT_EXISTS,
+            failed = EXIT_MKDIR,
+        );
+        let out = self
+            .transport
+            .exec(ExecSpec::new("bash").arg("-lc").arg(script))
+            .await?;
+        match out.code {
+            EXIT_EXISTS => {
+                return Err(VfsError::Folder(format!(
+                    "已经有同名的文件或文件夹：{name}"
+                )));
+            }
+            EXIT_MKDIR => {
+                return Err(VfsError::Folder(format!(
+                    "创建不了文件夹：{}",
+                    out.stderr.trim()
+                )));
+            }
+            _ => check(&out, parent)?,
+        }
+        Ok(out
+            .stdout
+            .lines()
+            .find_map(|line| line.strip_prefix("PATH|"))
+            .unwrap_or_default()
+            .to_owned())
+    }
+
     pub async fn diff(&self, base: &str) -> Result<String> {
         self.diff_opts(base, DiffOpts::default()).await
     }
@@ -1007,6 +1074,28 @@ mod tests {
         let v = Vfs::new(Arc::new(TestLocal), root.path().to_string_lossy());
         let b64 = v.archive_base64("pkg", 1 << 20).await.unwrap();
         assert_eq!(tar_names(&b64), ["src/a.rs"]);
+    }
+
+    #[tokio::test]
+    async fn mkdir_creates_a_visible_folder_and_rejects_bad_names() {
+        let root = tempfile::tempdir().unwrap();
+        let here = root.path().to_string_lossy().into_owned();
+        let v = Vfs::new(Arc::new(TestLocal), "");
+        let created = v.mkdir(&here, " new project ").await.unwrap();
+        assert_eq!(
+            std::path::PathBuf::from(&created),
+            root.path().canonicalize().unwrap().join("new project")
+        );
+        assert!(root.path().join("new project").is_dir());
+        let listed = v.browse(&here).await.unwrap();
+        assert!(listed.entries.iter().any(|e| e.name == "new project"));
+        let again = v.mkdir(&here, "new project").await.unwrap_err();
+        assert!(again.to_string().contains("同名"), "{again}");
+        for bad in ["", ".", "..", ".hidden", "a/b", "a\\b", "tab\there"] {
+            assert!(v.mkdir(&here, bad).await.is_err(), "{bad:?} 应被拒绝");
+        }
+        assert!(v.mkdir(&format!("{here}/missing"), "x").await.is_err());
+        assert!(!root.path().join("missing").exists());
     }
 
     #[tokio::test]

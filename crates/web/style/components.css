@@ -89,6 +89,10 @@
 .brow.br { flex-direction: column; align-items: stretch; gap: var(--space-hairline); padding: var(--space-icon) var(--space-control); font-family: var(--font-sans); }
 .brow.br[data-sel="true"] { background: var(--option-selected-bg); }
 .brow.br[data-dis="true"] { opacity: .5; }
+.brow.newdir { gap: var(--space-sm); padding-right: var(--space-sm); cursor: default; }
+.brow.newdir:hover { background: transparent; }
+.dlg .brow.newdir input { flex: 1; min-width: 0; height: 24px; padding: 0 var(--space-sm); border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--bg-panel); color: var(--fg); font: inherit; outline: none; }
+.dlg .brow.newdir input:focus { border-color: var(--accent); }
 .gchip .x { all: unset; cursor: pointer; margin-left: var(--space-xs); color: var(--fg-4); }
 .gchip .x:hover { color: var(--fg); }
 .menu button.danger { color: var(--err-fg); }

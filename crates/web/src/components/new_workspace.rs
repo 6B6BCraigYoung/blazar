@@ -93,6 +93,12 @@ fn Dialog() -> impl IntoView {
     let name = RwSignal::new(String::new());
     let project = RwSignal::new(String::new());
     let busy = RwSignal::new(false);
+    let creating = RwSignal::new(false);
+    let folder = RwSignal::new(String::new());
+    let folder_busy = RwSignal::new(false);
+    let folder_input = NodeRef::<html::Input>::new();
+    let menu = RwSignal::new(None::<(i32, i32)>);
+    let menu_item = NodeRef::<html::Button>::new();
     let close = move || {
         if !busy.get_untracked() {
             app.new_ws.set(false);
@@ -159,6 +165,79 @@ fn Dialog() -> impl IntoView {
     };
     browse();
     let is_repo = move || listing.with(|l| matches!(l, Some(Ok(l)) if l.is_repo));
+    let listed = move || listing.with(|l| matches!(l, Some(Ok(_))));
+
+    let start_folder = move || {
+        menu.set(None);
+        if busy.get_untracked() || !listed() {
+            return;
+        }
+        folder.set(String::new());
+        creating.set(true);
+        request_animation_frame(move || {
+            if let Some(input) = folder_input.try_get_untracked().flatten() {
+                let _ = input.focus();
+            }
+        });
+    };
+    let make_folder = move || {
+        if folder_busy.get_untracked() {
+            return;
+        }
+        let nm = folder.get_untracked().trim().to_owned();
+        if nm.is_empty() {
+            toast("请输入文件夹名称");
+            return;
+        }
+        folder_busy.set(true);
+        let (n, p) = (node.get_untracked(), path.get_untracked());
+        spawn_local(async move {
+            let r = api::send::<Value>(
+                "POST",
+                &format!("/api/nodes/{}/mkdir", api::enc(&n)),
+                &json!({ "path": p, "name": nm }),
+            )
+            .await;
+            let _ = folder_busy.try_set(false);
+            match r {
+                Ok(v) => {
+                    let _ = creating.try_set(false);
+                    if let Some(created) = v["path"].as_str() {
+                        path.set(created.to_owned());
+                        browse();
+                    }
+                }
+                Err(e) => toast(format!("新建文件夹失败：{e}")),
+            }
+        });
+    };
+    let open_menu = move |e: leptos::ev::MouseEvent| {
+        e.prevent_default();
+        if !listed() {
+            return;
+        }
+        menu.set(Some((e.client_x(), e.client_y())));
+        request_animation_frame(move || {
+            if let Some(item) = menu_item.try_get_untracked().flatten() {
+                let _ = item.focus();
+            }
+        });
+    };
+    let close_menu_down = window_event_listener(leptos::ev::mousedown, move |e| {
+        let inside = e
+            .target()
+            .and_then(|t| t.dyn_into::<web_sys::Element>().ok())
+            .and_then(|el| el.closest(".ctx-menu").ok().flatten())
+            .is_some();
+        if !inside {
+            menu.set(None);
+        }
+    });
+    let close_menu_blur = window_event_listener(leptos::ev::blur, move |_| menu.set(None));
+    on_cleanup(move || {
+        close_menu_down.remove();
+        close_menu_blur.remove();
+    });
 
     let create = move || {
         if busy.get_untracked() {
@@ -229,12 +308,26 @@ fn Dialog() -> impl IntoView {
                         <input class="mono" aria-label="目录路径" placeholder="~" prop:value=move || typed.get() on:input=move |e| typed.set(event_target_value(&e))
                             on:keydown=move |e| if e.key() == "Enter" && !e.is_composing() { path.set(typed.get_untracked().trim().to_owned()); browse(); }/>
                         <button type="button" class="btn small" on:click=move |_| { path.set(typed.get_untracked().trim().to_owned()); browse(); }>"前往"</button>
+                        <button type="button" class="btn small" title="在当前目录下新建文件夹" disabled=move || busy.get() || !listed() on:click=move |_| start_folder()>"新建文件夹"</button>
                     </div>
-                    <div class="browser" node_ref=directories role="group" aria-label="子目录" data-keyboard-list="" on:keydown=move |event| { if let Some(root) = directories.get_untracked() { menu_keydown(&event, root.unchecked_ref(), Callback::new(move |_| close())); } }>
+                    <div class="browser" node_ref=directories role="group" aria-label="子目录" data-keyboard-list="" on:contextmenu=open_menu on:keydown=move |event| { if let Some(root) = directories.get_untracked() { menu_keydown(&event, root.unchecked_ref(), Callback::new(move |_| close())); } }>
+                        {move || creating.get().then(|| view! {
+                            <div class="brow newdir">
+                                <span class="mk" aria-hidden="true">"▸"</span>
+                                <input node_ref=folder_input aria-label="文件夹名称" placeholder="文件夹名称" autocomplete="off" spellcheck="false" prop:value=move || folder.get() on:input=move |e| folder.set(event_target_value(&e))
+                                    on:keydown=move |e| match e.key().as_str() {
+                                        "Enter" if !e.is_composing() => { e.prevent_default(); make_folder() }
+                                        "Escape" => { e.prevent_default(); e.stop_propagation(); creating.set(false) }
+                                        _ => {}
+                                    }/>
+                                <button type="button" class="btn small primary" disabled=move || folder_busy.get() on:click=move |_| make_folder()>{move || if folder_busy.get() { "创建中…" } else { "创建" }}</button>
+                                <button type="button" class="btn small ghost" disabled=move || folder_busy.get() on:click=move |_| creating.set(false)>"取消"</button>
+                            </div>
+                        })}
                         {move || match listing.get() {
                             None => view! { <LoadingState text="读取中…"/> }.into_any(),
                             Some(Err(e)) => view! { <InlineError message=e class="empty" retry=Callback::new(move |_| browse())/> }.into_any(),
-                            Some(Ok(l)) if l.entries.is_empty() => view! { <EmptyState title="这个目录下没有子目录"/> }.into_any(),
+                            Some(Ok(l)) if l.entries.is_empty() => view! { <EmptyState title="这个目录下没有子目录" detail="右键或点「新建文件夹」可以在这里建一个。"/> }.into_any(),
                             Some(Ok(l)) => l.entries.into_iter().map(|e| {
                                 let p = e.path.clone();
                                 view! {
@@ -247,6 +340,17 @@ fn Dialog() -> impl IntoView {
                             }).collect_view().into_any(),
                         }}
                     </div>
+                    {move || menu.get().map(|(x, y)| {
+                        let w = window().inner_width().ok().and_then(|v| v.as_f64()).unwrap_or(0.0) as i32;
+                        let h = window().inner_height().ok().and_then(|v| v.as_f64()).unwrap_or(0.0) as i32;
+                        let (x, y) = (x.min(w - 180).max(0), y.min(h - 44).max(0));
+                        view! {
+                            <div class="ctx-menu" role="menu" style=format!("left:{x}px;top:{y}px")
+                                on:keydown=move |e| if e.key() == "Escape" { e.prevent_default(); e.stop_propagation(); menu.set(None); }>
+                                <button type="button" role="menuitem" class="ctx-item" node_ref=menu_item on:click=move |_| start_folder()>"新建文件夹"</button>
+                            </div>
+                        }
+                    })}
                 </div>
                 <Show when=is_repo>
                     <label class="chk block" title="启用后会从 origin 获取最新分支，并在独立目录创建工作区。">
