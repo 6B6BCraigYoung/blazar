@@ -71,3 +71,14 @@ pub fn action(e: &web_sys::KeyboardEvent) -> Option<&'static str> {
         .find(|(id, default)| saved.get(*id).map(String::as_str).unwrap_or(default) == combo)
         .map(|(id, _)| *id)
 }
+
+pub fn on_menu(f: impl Fn(&str) + 'static) -> leptos::prelude::WindowListenerHandle {
+    leptos::prelude::window_event_listener_untyped("blazar-menu", move |e| {
+        if let Some(id) = js_sys::Reflect::get(&e, &"detail".into())
+            .ok()
+            .and_then(|d| d.as_string())
+        {
+            f(&id);
+        }
+    })
+}

@@ -8,7 +8,10 @@ use anyhow::{Context, Result};
 use blazar_hub::state::AppState;
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
+mod menu;
 mod profile;
+
+static QUITTING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 fn main() {
     let argv: Vec<String> = std::env::args().collect();
@@ -22,18 +25,41 @@ fn main() {
             .map_or(1, |ok| i32::from(!ok));
         std::process::exit(code);
     }
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "blazar=info".into()),
-        )
-        .init();
+    init_logging();
 
     inherit_login_path();
 
     if let Err(err) = run() {
         eprintln!("启动失败: {err:#}");
         std::process::exit(1);
+    }
+}
+
+fn init_logging() {
+    use tracing_subscriber::fmt::writer::MakeWriterExt;
+
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| "blazar=info,blazar_desktop=info".into());
+    let file = profile::data_dir().ok().and_then(|dir| {
+        let logs = dir.join("logs");
+        std::fs::create_dir_all(&logs).ok()?;
+        let path = logs.join("desktop.log");
+        if std::fs::metadata(&path).is_ok_and(|m| m.len() > 4 * 1024 * 1024) {
+            let _ = std::fs::rename(&path, logs.join("desktop.log.1"));
+        }
+        std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .ok()
+    });
+    let builder = tracing_subscriber::fmt().with_env_filter(filter);
+    match file {
+        Some(f) => builder
+            .with_ansi(false)
+            .with_writer(std::io::stderr.and(std::sync::Mutex::new(f)))
+            .init(),
+        None => builder.init(),
     }
 }
 
@@ -81,6 +107,8 @@ fn run() -> Result<()> {
         }
     });
 
+    let rt_handle = rt.handle().clone();
+    let menu_state = state.clone();
     let _guard = rt;
 
     for arg in std::env::args_os().skip(1) {
@@ -104,6 +132,17 @@ fn run() -> Result<()> {
                 .on_new_window(|url, _features| {
                     open_in_browser(&url);
                     tauri::webview::NewWindowResponse::Deny
+                })
+                .on_download(|_, event| {
+                    if let tauri::webview::DownloadEvent::Finished {
+                        path: Some(path),
+                        success: true,
+                        ..
+                    } = event
+                    {
+                        reveal_download(&path);
+                    }
+                    true
                 });
             if let Some(g) = geo {
                 b = b.position(g.x, g.y);
@@ -111,23 +150,38 @@ fn run() -> Result<()> {
             let win = b.build()?;
             let _ = badge_tx.send(win.clone());
             let w2 = win.clone();
-            win.on_window_event(move |e| {
-                if matches!(
-                    e,
-                    tauri::WindowEvent::CloseRequested { .. }
-                        | tauri::WindowEvent::Moved(_)
-                        | tauri::WindowEvent::Resized(_)
-                ) {
+            win.on_window_event(move |e| match e {
+                tauri::WindowEvent::CloseRequested { api, .. } => {
+                    window_geometry::save(&w2);
+                    if !QUITTING.load(std::sync::atomic::Ordering::SeqCst) {
+                        api.prevent_close();
+                        let _ = w2.hide();
+                    }
+                }
+                tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) => {
                     window_geometry::save(&w2);
                 }
+                _ => {}
             });
             app.manage(HubAddr(addr));
+            menu::install(app.handle(), menu_state.clone(), rt_handle.clone())?;
             Ok(())
         })
         .build(tauri::generate_context!())
         .context("Tauri 初始化失败")?;
 
     app.run(move |handle, event| {
+        if let tauri::RunEvent::ExitRequested { .. } = &event {
+            QUITTING.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+        #[cfg(target_os = "macos")]
+        if let tauri::RunEvent::Reopen { .. } = &event
+            && let Some(w) = handle.get_webview_window("main")
+        {
+            let _ = w.unminimize();
+            let _ = w.show();
+            let _ = w.set_focus();
+        }
         #[cfg(target_os = "macos")]
         if let tauri::RunEvent::Opened { urls } = &event {
             let mut got = false;
@@ -164,6 +218,26 @@ fn open_in_browser(url: &tauri::Url) {
     match cmd.arg(url.as_str()).spawn() {
         Ok(_) => tracing::info!(host = url.host_str().unwrap_or(""), "外链交给系统浏览器"),
         Err(e) => tracing::warn!("打不开系统浏览器：{e}"),
+    }
+}
+
+fn reveal_download(path: &Path) {
+    #[cfg(target_os = "macos")]
+    let spawned = std::process::Command::new("open")
+        .arg("-R")
+        .arg(path)
+        .spawn();
+    #[cfg(target_os = "windows")]
+    let spawned = std::process::Command::new("explorer")
+        .arg(format!("/select,{}", path.display()))
+        .spawn();
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    let spawned = std::process::Command::new("xdg-open")
+        .arg(path.parent().unwrap_or(path))
+        .spawn();
+    match spawned {
+        Ok(_) => tracing::info!(path = %path.display(), "下载完成"),
+        Err(e) => tracing::warn!("下载完成但打不开所在文件夹：{e}"),
     }
 }
 

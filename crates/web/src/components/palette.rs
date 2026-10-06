@@ -22,34 +22,58 @@ pub fn Palette() -> impl IntoView {
     let navigate = use_navigate();
 
     let global_navigate = navigate.clone();
-    let keys = window_event_listener(ev::keydown, move |e| match crate::shortcuts::action(&e) {
-        Some("palette") => {
-            e.prevent_default();
+    let go = move |path: &str| {
+        if crate::files_js::confirm_navigation() {
+            global_navigate(path, Default::default());
+        }
+    };
+    let go_action = go.clone();
+    let run = move |action: &str| match action {
+        "palette" => {
             app.palette.update(|p| *p = !*p);
+            true
         }
-        Some("side") => {
-            e.prevent_default();
+        "side" => {
             app.side_collapsed.update(|p| *p = !*p);
+            true
         }
-        Some(action @ ("inbox" | "tasks" | "workspaces")) => {
+        "workspaces" => {
+            go_action("/");
+            true
+        }
+        "inbox" => {
+            go_action("/inbox");
+            true
+        }
+        "tasks" => {
+            go_action("/tasks");
+            true
+        }
+        _ => false,
+    };
+    let run_key = run.clone();
+    let keys = window_event_listener(ev::keydown, move |e| {
+        if let Some(action) = crate::shortcuts::action(&e)
+            && run_key(action)
+        {
             e.prevent_default();
-            if !crate::files_js::confirm_navigation() {
-                return;
-            }
-            global_navigate(
-                if action == "workspaces" {
-                    "/"
-                } else if action == "inbox" {
-                    "/inbox"
-                } else {
-                    "/tasks"
-                },
-                Default::default(),
-            );
         }
-        _ => {}
     });
-    on_cleanup(move || keys.remove());
+    let menu = crate::shortcuts::on_menu(move |id| {
+        if let Some(action) = id.strip_prefix("act:") {
+            run(action);
+        } else if let Some(path) = id.strip_prefix("go:") {
+            go(path);
+        } else if let Some(message) = id.strip_prefix("toast:") {
+            crate::components::toast::toast(message);
+        } else if id == "new-workspace" {
+            app.new_ws.set(true);
+        }
+    });
+    on_cleanup(move || {
+        keys.remove();
+        menu.remove();
+    });
     Effect::new(move |_| {
         if app.palette.get() {
             q.set(String::new());

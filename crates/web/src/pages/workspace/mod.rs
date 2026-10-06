@@ -305,28 +305,41 @@ fn Workspace(id: String) -> impl IntoView {
         app.side_collapsed.track();
         request_animation_frame(measure);
     });
-    let keys = window_event_listener(ev::keydown, move |e| match crate::shortcuts::action(&e) {
-        Some(action @ ("explorer" | "chat" | "panel")) => {
-            e.prevent_default();
+    let run = move |action: &str| match action {
+        "explorer" | "chat" | "panel" => {
             state.toggle(match action {
                 "explorer" => Region::Explorer,
                 "chat" => Region::Aux,
                 _ => Region::Panel,
             });
+            true
         }
-        Some(tab @ ("diff" | "git" | "preview")) => {
-            e.prevent_default();
+        tab @ ("diff" | "git" | "preview") => {
             if state.lay.with_untracked(|l| l.hide_panel) {
                 state.toggle(Region::Panel);
             }
             panel_tab.set(tab.into());
             storage::save("blazar.v2.ws.panel", &tab);
+            true
         }
-        _ => {}
+        _ => false,
+    };
+    let keys = window_event_listener(ev::keydown, move |e| {
+        if let Some(action) = crate::shortcuts::action(&e)
+            && run(action)
+        {
+            e.prevent_default();
+        }
+    });
+    let menu = crate::shortcuts::on_menu(move |id| {
+        if let Some(action) = id.strip_prefix("act:") {
+            run(action);
+        }
     });
     on_cleanup(move || {
         resize.remove();
         keys.remove();
+        menu.remove();
     });
 
     let unload = window_event_listener(ev::beforeunload, move |e| {
@@ -370,9 +383,8 @@ fn Workspace(id: String) -> impl IntoView {
                 <div class="ws-error"><InlineError message=e/><button type="button" class="btn ghost" aria-label="关闭文件错误提示" on:click=move |_| files.error.set(None)>"×"</button></div>
             })}
             <div class="ws-grid" node_ref=grid style=grid_style>
-                <section class="region explorer" data-collapsed=move || lay().hide_ex.to_string()>
+                <section class="region explorer" aria-label="资源管理器" data-collapsed=move || lay().hide_ex.to_string()>
                     <div class="rhead">
-                        <span>"资源管理器"</span>
                         <span class="grow"></span>
                         <span class="count">{tree_count}</span>
                         <button class="laybtn" aria-label="刷新文件树" title="重新扫描" inner_html=ICON_REFRESH
@@ -513,7 +525,8 @@ fn MdView(files: Files, preview: RwSignal<bool>) -> impl IntoView {
     Effect::new(move |_| {
         html.track();
         let Some(root) = el.get() else { return };
-        let Ok(list) = root.query_selector_all("pre code[class^=\"language-\"]") else {
+        let Ok(list) = root.query_selector_all("pre code[class^=\"language-\"]:not([data-hl])")
+        else {
             return;
         };
         for i in 0..list.length() {
@@ -525,6 +538,7 @@ fn MdView(files: Files, preview: RwSignal<bool>) -> impl IntoView {
             };
             let lang = code.class_name().trim_start_matches("language-").to_owned();
             let text = code.text_content().unwrap_or_default();
+            let _ = code.set_attribute("data-hl", "");
             if text.len() > 20_000 {
                 continue;
             }
@@ -560,7 +574,7 @@ fn MdView(files: Files, preview: RwSignal<bool>) -> impl IntoView {
         }
     };
     view! {
-        <div class="mdview" aria-label="Markdown 预览" node_ref=el hidden=move || !show() on:click=click>
+        <div class="mdview" role="region" aria-label="Markdown 预览" tabindex="0" node_ref=el hidden=move || !show() on:click=click>
             <article class="md-body" inner_html=move || html.get()></article>
         </div>
     }
