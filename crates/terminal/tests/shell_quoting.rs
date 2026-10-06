@@ -24,6 +24,7 @@ fn tmux_shell_preserves_workspace_and_session_arguments() {
     let expected: Vec<u8> = [
         "xterm-256color",
         "tmux",
+        "-u",
         "new-session",
         "-A",
         "-s",

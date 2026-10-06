@@ -40,12 +40,16 @@ pub enum TerminalTarget {
 }
 
 fn shell_command(cwd: &str, session: Option<&str>) -> String {
-    let term = format!("export TERM={TERM}; ");
+    let term = format!(
+        "export TERM={TERM}; \
+         [ -n \"$LC_ALL$LC_CTYPE$LANG\" ] || \
+         if [ \"$(uname)\" = Darwin ]; then export LANG=en_US.UTF-8; else export LANG=C.UTF-8; fi; "
+    );
     let login = format!("{term}cd {} 2>/dev/null; exec $SHELL -l", shell_quote(cwd));
     match session {
         Some(name) => format!(
             "{term}if command -v tmux >/dev/null 2>&1; then \
-               exec tmux new-session -A -s {name_q} -c {cwd_q} \\; \
+               exec tmux -u new-session -A -s {name_q} -c {cwd_q} \\; \
                     set-option -t {name_q} status off \\; \
                     set-option -t {name_q} mouse on; \
              else {login}; fi",
@@ -370,6 +374,27 @@ mod tests {
 
         assert!(c.contains("command -v tmux"), "必须探测 tmux 是否存在");
         assert!(c.contains("exec $SHELL -l"), "退化路径仍要是登录 shell");
+    }
+
+    #[test]
+    fn terminals_speak_utf8_even_without_a_locale() {
+        let c = shell_command("/w", Some("blazar-x"));
+        assert!(
+            c.contains("tmux -u "),
+            "tmux 要强制 UTF-8，否则非 ASCII 字符会画成下划线: {c}"
+        );
+        let out = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(format!(
+                "{} echo \"$LANG\"",
+                c.split("if command -v tmux").next().unwrap()
+            ))
+            .env_remove("LANG")
+            .env_remove("LC_ALL")
+            .env_remove("LC_CTYPE")
+            .output()
+            .unwrap();
+        assert!(String::from_utf8_lossy(&out.stdout).contains("UTF-8"));
     }
 
     #[test]
