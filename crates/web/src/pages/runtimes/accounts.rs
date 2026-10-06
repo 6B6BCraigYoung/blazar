@@ -81,17 +81,6 @@ fn quota(a: &Account) -> AnyView {
         };
         return view! { <span class="muted small" title=hint>"暂无数据"</span> }.into_any();
     }
-    let summary = a
-        .windows
-        .first()
-        .map(|w| {
-            format!(
-                "{} · 已用 {:.0}%",
-                fmt::window_label(&w.name),
-                (w.utilization * 100.0).clamp(0.0, 100.0)
-            )
-        })
-        .unwrap_or_default();
     let bars = a
         .windows
         .iter()
@@ -106,7 +95,7 @@ fn quota(a: &Account) -> AnyView {
             };
             view! {
                 <div class="qbar" data-lvl=lvl>
-                    <span class="l">{fmt::window_label(&w.name).to_owned()}</span>
+                    <span class="l">{fmt::window_label(&w.name)}</span>
                     <span class="t"><i style=format!("width:{pct}%")></i></span>
                     <span class="v">{format!("{pct}%")}</span>
                     <span class="r">{fmt::resets(w.resets_at.as_deref())}</span>
@@ -114,7 +103,7 @@ fn quota(a: &Account) -> AnyView {
             }
         })
         .collect_view();
-    view! { <details class="runtime-quota"><summary>{summary}</summary><div class="runtime-quota-bars">{bars}</div></details> }.into_any()
+    view! { <div class="runtime-quota-bars">{bars}</div> }.into_any()
 }
 
 #[component]

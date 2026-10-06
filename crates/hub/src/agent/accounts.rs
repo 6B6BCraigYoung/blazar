@@ -1518,19 +1518,9 @@ async fn refresh_codex_quota(st: &Shared, a: &Account) -> Result<(), String> {
     Ok(())
 }
 
-async fn refresh_claude_quota(st: &Shared, a: &Account) -> Result<(), String> {
+async fn claude_curl(token: &str, args: &[&str]) -> Result<(String, String, String), String> {
     use std::process::Stdio;
     use tokio::io::AsyncWriteExt;
-    let path = a.token_file().ok_or("这个账号没有长期 token")?;
-    let token = tokio::fs::read_to_string(&path)
-        .await
-        .map_err(|e| format!("读不到保存的 token：{e}"))?;
-    let body = json!({
-        "model": QUOTA_MODEL,
-        "max_tokens": 1,
-        "system": "You are Claude Code, Anthropic's official CLI for Claude.",
-        "messages": [{ "role": "user", "content": "hi" }],
-    });
     let mut cmd = tokio::process::Command::new("curl");
     cmd.args([
         "-sS",
@@ -1538,10 +1528,6 @@ async fn refresh_claude_quota(st: &Shared, a: &Account) -> Result<(), String> {
         "=https",
         "--max-time",
         "20",
-        "-D",
-        "-",
-        "-o",
-        "/dev/null",
         "-w",
         "\nblazar-status:%{http_code}\n",
         "-H",
@@ -1549,15 +1535,9 @@ async fn refresh_claude_quota(st: &Shared, a: &Account) -> Result<(), String> {
         "-H",
         "anthropic-beta: oauth-2025-04-20",
         "-H",
-        "anthropic-version: 2023-06-01",
-        "-H",
-        "content-type: application/json",
-        "-H",
         "User-Agent: blazar-accounts",
-        "-d",
-        &body.to_string(),
-        "https://api.anthropic.com/v1/messages",
     ])
+    .args(args)
     .stdin(Stdio::piped())
     .stdout(Stdio::piped())
     .stderr(Stdio::piped())
@@ -1565,7 +1545,7 @@ async fn refresh_claude_quota(st: &Shared, a: &Account) -> Result<(), String> {
     let mut child = cmd.spawn().map_err(|e| format!("起不了 curl：{e}"))?;
     if let Some(mut stdin) = child.stdin.take() {
         let _ = stdin
-            .write_all(format!("Authorization: Bearer {}\n", token.trim()).as_bytes())
+            .write_all(format!("Authorization: Bearer {token}\n").as_bytes())
             .await;
         let _ = stdin.shutdown().await;
     }
@@ -1573,24 +1553,79 @@ async fn refresh_claude_quota(st: &Shared, a: &Account) -> Result<(), String> {
         .await
         .map_err(|_| "查询额度超时".to_owned())?
         .map_err(|e| e.to_string())?;
-    let raw = String::from_utf8_lossy(&out.stdout);
-    let code = raw
+    let raw = String::from_utf8_lossy(&out.stdout).into_owned();
+    let (body, code) = raw
         .rsplit_once("blazar-status:")
-        .map(|x| x.1.trim().to_owned())
-        .unwrap_or_default();
+        .map_or((raw.as_str(), ""), |(b, c)| (b, c.trim()));
+    Ok((
+        code.to_owned(),
+        body.to_owned(),
+        String::from_utf8_lossy(&out.stderr).into_owned(),
+    ))
+}
+
+async fn mark_logged_out(st: &Shared, a: &Account) {
+    let _ = sqlx::query("UPDATE accounts SET status = 'logged_out', checked_at = ?2 WHERE id = ?1")
+        .bind(&a.id)
+        .bind(Utc::now().to_rfc3339())
+        .execute(st.db.pool())
+        .await;
+    st.emit(ServerEvent::AccountsChanged);
+}
+
+async fn refresh_claude_quota(st: &Shared, a: &Account) -> Result<(), String> {
+    let path = a.token_file().ok_or("这个账号没有长期 token")?;
+    let token = tokio::fs::read_to_string(&path)
+        .await
+        .map_err(|e| format!("读不到保存的 token：{e}"))?;
+    let token = token.trim();
+    if let Ok((code, body, _)) =
+        claude_curl(token, &["https://api.anthropic.com/api/oauth/usage"]).await
+    {
+        if code == "401" {
+            mark_logged_out(st, a).await;
+            return Err("token 无效或已被吊销".into());
+        }
+        if code == "200"
+            && let Ok(v) = serde_json::from_str::<Value>(&body)
+        {
+            let q = parse_oauth_usage(&v);
+            if !q.windows.is_empty() {
+                store_quota(st, a, &q).await;
+                return Ok(());
+            }
+        }
+    }
+    let body = json!({
+        "model": QUOTA_MODEL,
+        "max_tokens": 1,
+        "system": "You are Claude Code, Anthropic's official CLI for Claude.",
+        "messages": [{ "role": "user", "content": "hi" }],
+    })
+    .to_string();
+    let (code, raw, err) = claude_curl(
+        token,
+        &[
+            "-D",
+            "-",
+            "-o",
+            "/dev/null",
+            "-H",
+            "anthropic-version: 2023-06-01",
+            "-H",
+            "content-type: application/json",
+            "-d",
+            &body,
+            "https://api.anthropic.com/v1/messages",
+        ],
+    )
+    .await?;
     if code == "401" {
-        let _ =
-            sqlx::query("UPDATE accounts SET status = 'logged_out', checked_at = ?2 WHERE id = ?1")
-                .bind(&a.id)
-                .bind(Utc::now().to_rfc3339())
-                .execute(st.db.pool())
-                .await;
-        st.emit(ServerEvent::AccountsChanged);
+        mark_logged_out(st, a).await;
         return Err("token 无效或已被吊销".into());
     }
     let q = parse_quota_headers(&raw);
     if q.windows.is_empty() {
-        let err = String::from_utf8_lossy(&out.stderr);
         return Err(format!(
             "没拿到额度信息（HTTP {code}）{}",
             err.trim().chars().take(160).collect::<String>()
@@ -1598,6 +1633,31 @@ async fn refresh_claude_quota(st: &Shared, a: &Account) -> Result<(), String> {
     }
     store_quota(st, a, &q).await;
     Ok(())
+}
+
+#[must_use]
+pub fn parse_oauth_usage(v: &Value) -> Quota {
+    let mut windows: Vec<(String, f64, Option<String>)> = v
+        .as_object()
+        .into_iter()
+        .flatten()
+        .filter(|(k, _)| k.starts_with("five_hour") || k.starts_with("seven_day"))
+        .filter_map(|(k, w)| {
+            let util = w.get("utilization")?.as_f64()?;
+            let reset = w
+                .get("resets_at")
+                .and_then(Value::as_str)
+                .and_then(|t| DateTime::parse_from_rfc3339(t).ok())
+                .map(|t| t.with_timezone(&Utc).to_rfc3339());
+            Some((k.clone(), (util / 100.0).clamp(0.0, 1.0), reset))
+        })
+        .collect();
+    windows.sort_by(|a, b| a.0.cmp(&b.0));
+    Quota {
+        rejected: windows.iter().any(|w| w.1 >= 1.0),
+        windows,
+        reset: None,
+    }
 }
 
 #[derive(Deserialize)]
@@ -1636,6 +1696,88 @@ pub async fn set_mode(State(st): State<Shared>, Json(m): Json<Mode>) -> Response
         Some(Ok(())) => Json(json!({ "ok": true, "global": true })).into_response(),
         None => Json(json!({ "ok": true })).into_response(),
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MenuChoice {
+    pub mode: String,
+    pub label: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MenuProvider {
+    pub provider: &'static str,
+    pub current: String,
+    pub choices: Vec<MenuChoice>,
+}
+
+pub async fn menu_state(st: &Shared) -> (bool, Vec<MenuProvider>) {
+    let mut providers = Vec::new();
+    for p in PROVIDERS {
+        let mut choices = vec![MenuChoice {
+            mode: "auto".into(),
+            label: "自动轮换".into(),
+        }];
+        for a in all(st, Some(p)).await.into_iter().filter(|a| !a.disabled) {
+            let label = match a
+                .email
+                .as_deref()
+                .filter(|e| !e.is_empty() && *e != a.label)
+            {
+                Some(email) => format!("{} · {email}", a.label),
+                None => a.label.clone(),
+            };
+            choices.push(MenuChoice {
+                mode: if a.builtin { String::new() } else { a.id },
+                label,
+            });
+        }
+        if !choices.iter().any(|c| c.mode.is_empty()) {
+            choices.insert(
+                1,
+                MenuChoice {
+                    mode: String::new(),
+                    label: "本机登录".into(),
+                },
+            );
+        }
+        providers.push(MenuProvider {
+            provider: p,
+            current: mode_of(st, p).await,
+            choices,
+        });
+    }
+    (global_enabled(st).await, providers)
+}
+
+async fn response_error(r: Response) -> Result<(), String> {
+    if r.status().is_success() {
+        return Ok(());
+    }
+    let body = axum::body::to_bytes(r.into_body(), 64 * 1024)
+        .await
+        .unwrap_or_default();
+    let v: Value = serde_json::from_slice(&body).unwrap_or_default();
+    Err(v["error"].as_str().map_or_else(
+        || String::from_utf8_lossy(&body).into_owned(),
+        str::to_owned,
+    ))
+}
+
+pub async fn choose(st: &Shared, provider: &str, mode: &str) -> Result<(), String> {
+    let r = set_mode(
+        State(st.clone()),
+        Json(Mode {
+            provider: provider.to_owned(),
+            mode: mode.to_owned(),
+        }),
+    )
+    .await;
+    response_error(r).await
+}
+
+pub async fn set_global(st: &Shared, enabled: bool) -> Result<(), String> {
+    response_error(global_put(State(st.clone()), Json(GlobalBody { enabled })).await).await
 }
 
 const GLOBAL_KEY: &str = "accounts.global_sync";
@@ -2113,6 +2255,29 @@ mod tests {
         assert!(!model_only_limit(
             "This request would exceed your account's rate limit. Please try again later."
         ));
+    }
+
+    #[test]
+    fn oauth_usage_keeps_every_weekly_window() {
+        let v = json!({
+            "five_hour": { "utilization": 4.0, "resets_at": "2026-10-04T14:00:00+00:00" },
+            "seven_day": { "utilization": 14.0, "resets_at": "2026-10-09T10:00:00Z" },
+            "seven_day_fable": { "utilization": 37.5, "resets_at": null },
+            "seven_day_opus": null,
+            "extra_usage": { "is_enabled": false, "utilization": 50.0 },
+        });
+        let q = parse_oauth_usage(&v);
+        let got: Vec<(&str, f64)> = q.windows.iter().map(|w| (w.0.as_str(), w.1)).collect();
+        assert_eq!(
+            got,
+            [
+                ("five_hour", 0.04),
+                ("seven_day", 0.14),
+                ("seven_day_fable", 0.375)
+            ]
+        );
+        assert_eq!(q.windows[1].2.as_deref(), Some("2026-10-09T10:00:00+00:00"));
+        assert!(!q.rejected);
     }
 
     #[test]

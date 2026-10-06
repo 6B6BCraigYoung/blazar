@@ -39,7 +39,7 @@ pub(super) fn RuntimeCard(
         <section class="card" aria-label=rt.label.clone()>
             <div class="card-head">
                 <span inner_html=rt_logo::mark(&id)></span>
-                <b title=title.clone()>{rt.label.clone()}</b>
+                <b title=title>{rt.label.clone()}</b>
                 {move || if multi {
                     match active() {
                         Some(a) => { let usable = a.usable(); view! { <span class=if usable { "state ok" } else { "state bad" } title=a.label>{if usable { "可用" } else { "需登录" }}</span> }.into_any() },
@@ -56,7 +56,6 @@ pub(super) fn RuntimeCard(
                 <a class="btn ghost" href=format!("/runtimes/{id}")>"设置"</a>
             </div>
             {multi.then(|| view! { <AccountsSection provider=id.clone() accounts/> })}
-            <details class="runtime-details runtime-card-details"><summary>"运行时详情"</summary><p class="muted small">{title}</p></details>
         </section>
     }
 }
