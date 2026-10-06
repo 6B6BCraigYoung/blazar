@@ -20,7 +20,10 @@ pub struct Bus {
     pub accounts: RwSignal<u32>,
     pub workspaces: RwSignal<u32>,
     pub nodes: RwSignal<u32>,
+    workspaces_bump_pending: StoredValue<bool>,
 }
+
+const WORKSPACES_BUMP_DELAY_MS: u32 = 400;
 
 fn bump(s: RwSignal<u32>) {
     s.update(|n| *n = n.wrapping_add(1));
@@ -53,11 +56,23 @@ impl Bus {
             }
             ServerEvent::AccountsChanged => bump(self.accounts),
             ServerEvent::WorkspacesChanged | ServerEvent::SessionTitled { .. } => {
-                bump(self.workspaces);
+                self.bump_workspaces_soon();
             }
             ServerEvent::NodesChanged => bump(self.nodes),
             _ => {}
         }
+    }
+
+    fn bump_workspaces_soon(self) {
+        if self.workspaces_bump_pending.get_value() {
+            return;
+        }
+        self.workspaces_bump_pending.set_value(true);
+        gloo_timers::callback::Timeout::new(WORKSPACES_BUMP_DELAY_MS, move || {
+            let _ = self.workspaces_bump_pending.try_set_value(false);
+            let _ = self.workspaces.try_update(|n| *n = n.wrapping_add(1));
+        })
+        .forget();
     }
 
     fn bump_all(self) {
@@ -80,6 +95,7 @@ pub fn provide() -> Bus {
         accounts: RwSignal::new(0),
         workspaces: RwSignal::new(0),
         nodes: RwSignal::new(0),
+        workspaces_bump_pending: StoredValue::new(false),
     };
     provide_context(bus);
     spawn_local(run(bus));

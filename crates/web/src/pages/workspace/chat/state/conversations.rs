@@ -209,6 +209,7 @@ impl Chat {
                 Ok(list) => {
                     let history: Vec<Row> =
                         list.into_iter().filter_map(Row::from_history).collect();
+                    self.flush_rows();
                     let rows = self.rows.with_untracked(|current| {
                         merge_history(history, current, &baseline, |row| {
                             (row.session_id.clone(), row.seq)
@@ -277,6 +278,9 @@ impl Chat {
                     self.git.reload.update(|n| *n = n.wrapping_add(1));
                     self.spawn(async move { self.load_threads().await });
                 }
+                if matches!(entry.kind, blazar_core_types::EntryKind::ToolResult { .. }) {
+                    self.fs_changed_soon();
+                }
                 let row = Row::from_live(sid.clone(), (**entry).clone());
                 if self.sessions.with_value(|s| s.contains(&sid)) {
                     self.push_row(row);
@@ -328,6 +332,20 @@ impl Chat {
             ServerEvent::AccountsChanged => self.load_accounts(),
             _ => {}
         }
+    }
+
+    fn fs_changed_soon(self) {
+        if self.fs_refresh_pending.get_value() {
+            return;
+        }
+        self.fs_refresh_pending.set_value(true);
+        gloo_timers::callback::Timeout::new(3000, move || {
+            let _ = self.fs_refresh_pending.try_set_value(false);
+            if self.alive() {
+                self.git.changed.update(|n| *n = n.wrapping_add(1));
+            }
+        })
+        .forget();
     }
 
     pub(super) fn refresh_threads_soon(self) {

@@ -194,6 +194,7 @@ pub struct Pending {
 #[derive(Debug, Clone, Default)]
 pub struct Transcript {
     pub items: Vec<Item>,
+    index: HashMap<String, usize>,
     pub pending: Vec<Pending>,
     pub todos: Option<Vec<Todo>>,
     pub usage: Option<TokenUsage>,
@@ -204,6 +205,21 @@ pub struct Transcript {
     pub last_session: Option<String>,
 
     pub turn_tokens: u64,
+}
+
+impl Transcript {
+    pub fn item(&self, key: &str) -> Option<&Item> {
+        self.index.get(key).and_then(|i| self.items.get(*i))
+    }
+
+    fn reindex(&mut self) {
+        self.index = self
+            .items
+            .iter()
+            .enumerate()
+            .map(|(i, it)| (it.key.clone(), i))
+            .collect();
+    }
 }
 
 fn est_tokens(s: &str) -> u64 {
@@ -1116,6 +1132,12 @@ fn sig_step(st: &Step, h: &mut impl Hasher) {
     }
 }
 
+pub fn step_sig(st: &Step) -> u64 {
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    sig_step(st, &mut h);
+    h.finish()
+}
+
 fn sig_body(b: &Body) -> u64 {
     let mut h = std::collections::hash_map::DefaultHasher::new();
     match b {
@@ -1230,6 +1252,7 @@ pub fn build(rows: &[Row], root: &str, running: bool) -> Transcript {
         f.summary = format!("{} · {} tokens", f.summary, fmt_tokens(b.out.turn_tokens));
         *sig ^= b.out.turn_tokens.wrapping_mul(0x9e37_79b9_7f4a_7c15);
     }
+    b.out.reindex();
     b.out
 }
 

@@ -102,7 +102,25 @@ impl Chat {
             self.take_pending(text);
             self.load_checkpoints();
         }
-        self.rows.update(|r| r.push(row));
+        self.row_buffer.update_value(|b| b.push(row));
+        if self.flush_scheduled.get_value() {
+            return;
+        }
+        self.flush_scheduled.set_value(true);
+        request_animation_frame(move || {
+            let _ = self.flush_scheduled.try_set_value(false);
+            self.flush_rows();
+        });
+    }
+
+    pub(super) fn flush_rows(self) {
+        let Some(buffered) = self.row_buffer.try_update_value(std::mem::take) else {
+            return;
+        };
+        if buffered.is_empty() {
+            return;
+        }
+        let _ = self.rows.try_update(|r| r.extend(buffered));
     }
 
     pub(super) fn adopt(self, sid: &str) {

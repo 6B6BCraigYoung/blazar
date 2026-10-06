@@ -219,7 +219,16 @@ export async function createEditor(host, onSave, onDirty) {
 }
 
 
+const colorized = new Map();
+const COLORIZE_CACHE = 400;
+
 export async function colorize(text, lang) {
+  const key = lang + '\0' + text;
+  const hit = colorized.get(key);
+  if (hit !== undefined) return hit;
   const m = await load();
-  return m.editor.colorize(text, lang, { tabSize: 2 });
+  const html = await m.editor.colorize(text, lang, { tabSize: 2 });
+  if (colorized.size >= COLORIZE_CACHE) colorized.delete(colorized.keys().next().value);
+  colorized.set(key, html);
+  return html;
 }

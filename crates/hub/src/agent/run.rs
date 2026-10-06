@@ -285,6 +285,9 @@ async fn process_line(ctx: &Ctx, line: &str, at: u64, p: &mut Progress) -> Line 
     let finished = entries
         .iter()
         .any(|e| matches!(e.kind, EntryKind::Finished(_)));
+    let activity_changed = entries
+        .iter()
+        .any(|e| blazar_core_types::ActivityState::from_entry(&e.kind).is_some());
     for e in entries {
         ctx.st.emit(ServerEvent::Entry {
             workspace_id: ctx.ws,
@@ -292,7 +295,9 @@ async fn process_line(ctx: &Ctx, line: &str, at: u64, p: &mut Progress) -> Line 
             entry: Box::new(e),
         });
     }
-    ctx.st.emit(ServerEvent::WorkspacesChanged);
+    if activity_changed {
+        ctx.st.emit(ServerEvent::WorkspacesChanged);
+    }
 
     if finished {
         if ctx.live.interactive {
