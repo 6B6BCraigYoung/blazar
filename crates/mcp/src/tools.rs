@@ -153,6 +153,34 @@ pub const TOOLS: &[Tool] = &[
         },
     },
     Tool {
+        name: "copy_files",
+        description: "把一个工作区里的文件或文件夹拷到另一个工作区，两个工作区可以在不同机器上，数据经本机中转。文件夹按 git 规则跳过被忽略的内容；单次合计不超过 32MB。",
+        schema: || {
+            obj(
+                json!({
+                    "from_workspace_id": s("string", "来源工作区 id"),
+                    "paths": { "type": "array", "items": { "type": "string" },
+                        "description": "来源工作区里的相对路径，文件或文件夹都行" },
+                    "to_workspace_id": s("string", "目标工作区 id"),
+                    "dest": s("string", "目标工作区里的相对目录，留空放到根目录；每一项都会放进这个目录下同名的位置"),
+                }),
+                &["from_workspace_id", "paths", "to_workspace_id"],
+            )
+        },
+        build: |v| {
+            let body = json!({
+                "to": arg(v, "to_workspace_id")?,
+                "paths": v.get("paths").cloned().unwrap_or(json!([])),
+                "dest": v.get("dest").and_then(Value::as_str).unwrap_or(""),
+            });
+            Ok((
+                "POST",
+                format!("/api/workspaces/{}/copy", enc(arg(v, "from_workspace_id")?)),
+                Some(body),
+            ))
+        },
+    },
+    Tool {
         name: "send_prompt",
         description: "在某个工作区里让 agent 干活。会话在后台跑，此调用立即返回。",
         schema: || {

@@ -115,6 +115,79 @@ pub(crate) fn vfs_for(st: &AppState, node: &str, path: &str) -> Vfs {
     Vfs::new(st.transport(node), path)
 }
 
+#[derive(Debug, Deserialize)]
+pub struct CopyBody {
+    pub to: String,
+    #[serde(default)]
+    pub paths: Vec<String>,
+    #[serde(default)]
+    pub dest: String,
+}
+
+const MAX_COPY_BYTES: u64 = 32 * 1024 * 1024;
+const MAX_COPY_ITEMS: usize = 64;
+
+fn not_a_folder(error: &blazar_vfs::VfsError) -> bool {
+    matches!(
+        error,
+        blazar_vfs::VfsError::Transport(blazar_transport::TransportError::Command { code: 4, .. })
+    )
+}
+
+pub async fn workspace_copy(
+    State(st): State<Shared>,
+    Path(id): Path<String>,
+    Json(body): Json<CopyBody>,
+) -> ApiResult<Json<serde_json::Value>> {
+    if body.paths.is_empty() {
+        return Err(ApiError::bad_request("至少要给一个路径"));
+    }
+    if body.paths.len() > MAX_COPY_ITEMS {
+        return Err(ApiError::bad_request(format!(
+            "一次最多拷 {MAX_COPY_ITEMS} 项"
+        )));
+    }
+    let dest = body.dest.trim().trim_matches('/').to_owned();
+    if !dest.is_empty() {
+        blazar_vfs::safe_relative_path(&dest).map_err(|e| ApiError::bad_request(e.to_string()))?;
+    }
+    let (from_node, from_path) = locate(&st, &id).await?;
+    let (to_node, to_path) = locate(&st, &body.to).await?;
+    let from = vfs_for(&st, &from_node, &from_path);
+    let to = vfs_for(&st, &to_node, &to_path);
+    let mut budget = MAX_COPY_BYTES;
+    let mut copied = Vec::new();
+    for raw in &body.paths {
+        let rel = blazar_vfs::safe_relative_path(raw)
+            .map_err(|e| ApiError::bad_request(e.to_string()))?;
+        let name = rel.rsplit('/').next().unwrap_or(&rel).to_owned();
+        let target = if dest.is_empty() {
+            name
+        } else {
+            format!("{dest}/{name}")
+        };
+        let (payload, kind) = match from.archive_base64(&rel, budget).await {
+            Ok(archive) => (archive, "dir"),
+            Err(error) if not_a_folder(&error) => (from.read_base64(&rel, budget).await?, "file"),
+            Err(error) => return Err(error.into()),
+        };
+        budget = budget.saturating_sub(payload.len() as u64 * 3 / 4);
+        if kind == "dir" {
+            to.extract_base64(&target, &payload).await?;
+        } else {
+            to.write_base64(&target, &payload).await?;
+        }
+        copied.push(serde_json::json!({ "path": target, "kind": kind }));
+    }
+    st.emit(ServerEvent::WorkspacesChanged);
+    Ok(Json(serde_json::json!({
+        "to": body.to,
+        "node": to_node,
+        "copied": copied,
+        "remaining_bytes": budget,
+    })))
+}
+
 pub async fn workspace_tree(
     State(st): State<Shared>,
     Path(id): Path<String>,
@@ -424,6 +497,90 @@ pub async fn workspace_diff(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    async fn local_state(root: &std::path::Path) -> Shared {
+        let db = blazar_db::Db::open_in_memory().await.unwrap();
+        AppState::with_services(
+            db,
+            "local".into(),
+            None,
+            crate::mesh::MeshCtx::new(None, root.to_path_buf()),
+            crate::services::Services::Isolated,
+        )
+    }
+
+    async fn local_workspace(st: &Shared, path: &std::path::Path) -> String {
+        let created = create_workspace(
+            State(st.clone()),
+            Json(CreateWorkspace {
+                node: "local".into(),
+                path: path.to_string_lossy().into_owned(),
+                name: None,
+                project: None,
+            }),
+        )
+        .await
+        .map_err(|e| e.message())
+        .unwrap();
+        created.0["id"].as_str().unwrap().to_owned()
+    }
+
+    #[tokio::test]
+    async fn copy_moves_files_and_folders_between_workspaces() {
+        let root = tempfile::tempdir().unwrap();
+        let st = local_state(root.path()).await;
+        let a = tempfile::tempdir().unwrap();
+        let b = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(a.path().join("pkg/src")).unwrap();
+        std::fs::write(a.path().join("pkg/src/lib.rs"), "pub fn x() {}").unwrap();
+        std::fs::write(a.path().join("notes.md"), "# notes").unwrap();
+        let from = local_workspace(&st, a.path()).await;
+        let to = local_workspace(&st, b.path()).await;
+        let out = workspace_copy(
+            State(st.clone()),
+            Path(from.clone()),
+            Json(CopyBody {
+                to: to.clone(),
+                paths: vec!["pkg".into(), "notes.md".into()],
+                dest: "incoming".into(),
+            }),
+        )
+        .await
+        .map_err(|e| e.message())
+        .unwrap()
+        .0;
+        assert_eq!(out["copied"].as_array().unwrap().len(), 2);
+        assert_eq!(out["copied"][0]["kind"], "dir");
+        assert_eq!(out["copied"][1]["kind"], "file");
+        assert_eq!(
+            std::fs::read_to_string(b.path().join("incoming/pkg/src/lib.rs")).unwrap(),
+            "pub fn x() {}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(b.path().join("incoming/notes.md")).unwrap(),
+            "# notes"
+        );
+        for (paths, dest) in [
+            (vec!["../secret".to_owned()], String::new()),
+            (vec!["notes.md".to_owned()], "../out".to_owned()),
+            (Vec::new(), String::new()),
+            (vec!["missing.txt".to_owned()], String::new()),
+        ] {
+            let bad = workspace_copy(
+                State(st.clone()),
+                Path(from.clone()),
+                Json(CopyBody {
+                    to: to.clone(),
+                    paths,
+                    dest,
+                }),
+            )
+            .await;
+            assert!(bad.is_err());
+        }
+        assert!(!b.path().join("secret").exists());
+        assert!(!root.path().join("out").exists());
+    }
 
     #[test]
     fn download_names_survive_quotes_and_unicode() {

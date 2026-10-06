@@ -632,6 +632,78 @@ done"#,
         Ok(parse_listing(&out.stdout))
     }
 
+    pub async fn write_base64(&self, rel: &str, b64: &str) -> Result<()> {
+        let rel = self.safe_rel(rel)?;
+        let script = format!(
+            r#"{guard}
+DIR=${{F%/*}}
+mkdir -p -- "$DIR" || exit 6
+guard_path "$F"
+[ ! -e "$F" ] || [ -f "$F" ] || exit 4
+TMP=$(mktemp "$DIR/.blazar-copy.XXXXXXXX") || exit 6
+trap 'rm -f -- "$TMP"' EXIT
+base64 -d > "$TMP" || exit 6
+mv -f -- "$TMP" "$F" || exit 6
+trap - EXIT"#,
+            guard = guarded_path(&self.root, &rel),
+        );
+        let out = self
+            .transport
+            .exec(
+                ExecSpec::new("bash")
+                    .arg("-lc")
+                    .arg(script)
+                    .stdin(b64.as_bytes().to_vec()),
+            )
+            .await?;
+        if out.code == 4 {
+            return Err(blazar_transport::TransportError::Command {
+                code: 4,
+                stderr: format!("{rel} 已经存在且不是普通文件"),
+            }
+            .into());
+        }
+        check(&out, &rel)?;
+        Ok(())
+    }
+
+    pub async fn extract_base64(&self, rel: &str, b64: &str) -> Result<()> {
+        let rel = if rel.is_empty() || rel == "." {
+            ".".to_owned()
+        } else {
+            self.safe_rel(rel)?
+        };
+        let script = format!(
+            r#"{guard}
+mkdir -p -- "$F" || exit 6
+guard_path "$F"
+[ -d "$F" ] || exit 4
+T=$(mktemp) || exit 6
+trap 'rm -f -- "$T"' EXIT
+base64 -d > "$T" || exit 6
+tar -tzf "$T" | grep -Eq '(^|/)\.\.(/|$)|^/' && exit 9
+tar -xzf "$T" -C "$F" --no-same-owner || exit 6"#,
+            guard = guarded_path(&self.root, &rel),
+        );
+        let out = self
+            .transport
+            .exec(
+                ExecSpec::new("bash")
+                    .arg("-lc")
+                    .arg(script)
+                    .stdin(b64.as_bytes().to_vec()),
+            )
+            .await?;
+        if out.code == 4 {
+            return Err(blazar_transport::TransportError::Command {
+                code: 4,
+                stderr: format!("{rel} 不是文件夹"),
+            }
+            .into());
+        }
+        check(&out, &rel)
+    }
+
     pub async fn mkdir(&self, parent: &str, name: &str) -> Result<String> {
         let name = folder_name(name)?;
         let script = format!(
@@ -1074,6 +1146,38 @@ mod tests {
         let v = Vfs::new(Arc::new(TestLocal), root.path().to_string_lossy());
         let b64 = v.archive_base64("pkg", 1 << 20).await.unwrap();
         assert_eq!(tar_names(&b64), ["src/a.rs"]);
+    }
+
+    #[tokio::test]
+    async fn files_and_folders_round_trip_between_roots() {
+        let src = tempfile::tempdir().unwrap();
+        let dst = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(src.path().join("pkg/src")).unwrap();
+        std::fs::write(src.path().join("pkg/src/a.rs"), "fn a() {}").unwrap();
+        std::fs::write(src.path().join("pkg/README.md"), "# pkg").unwrap();
+        std::fs::write(src.path().join("note.bin"), [0u8, 159, 146, 150]).unwrap();
+        let from = Vfs::new(Arc::new(TestLocal), src.path().to_string_lossy());
+        let to = Vfs::new(Arc::new(TestLocal), dst.path().to_string_lossy());
+        let archive = from.archive_base64("pkg", 1 << 20).await.unwrap();
+        to.extract_base64("vendor/pkg", &archive).await.unwrap();
+        assert_eq!(
+            std::fs::read_to_string(dst.path().join("vendor/pkg/src/a.rs")).unwrap(),
+            "fn a() {}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dst.path().join("vendor/pkg/README.md")).unwrap(),
+            "# pkg"
+        );
+        let file = from.read_base64("note.bin", 1 << 20).await.unwrap();
+        to.write_base64("in/note.bin", &file).await.unwrap();
+        assert_eq!(
+            std::fs::read(dst.path().join("in/note.bin")).unwrap(),
+            [0u8, 159, 146, 150]
+        );
+        assert!(to.write_base64("../escape.bin", &file).await.is_err());
+        assert!(to.extract_base64("../out", &archive).await.is_err());
+        assert!(to.extract_base64("in/note.bin", &archive).await.is_err());
+        assert!(!dst.path().join("escape.bin").exists());
     }
 
     #[tokio::test]
