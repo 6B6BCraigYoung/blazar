@@ -175,6 +175,21 @@ pub async fn guard(State(st): State<Shared>, request: Request, next: Next) -> Re
             .into_response();
     }
     let path = request.uri().path();
+    if path == crate::fleet::PATH {
+        let fleet_token = request
+            .headers()
+            .get(header::AUTHORIZATION)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.strip_prefix("Bearer "))
+            .is_some_and(|token| st.fleet.grant(token).is_some());
+        if !fleet_token && !session.authorized(&request) {
+            return (
+                StatusCode::UNAUTHORIZED,
+                axum::Json(serde_json::json!({"error":"调度令牌无效或已过期"})),
+            )
+                .into_response();
+        }
+    }
     let webhook = request.method() == Method::POST
         && path
             .strip_prefix("/api/webhooks/")

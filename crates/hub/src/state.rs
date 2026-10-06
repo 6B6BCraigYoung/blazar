@@ -46,6 +46,8 @@ pub struct AppState {
     pub mesh_ctx: crate::mesh::MeshCtx,
 
     pub proxy: crate::proxy::ProxyState,
+
+    pub fleet: crate::fleet::FleetState,
 }
 
 impl AppState {
@@ -83,6 +85,7 @@ impl AppState {
             mesh_container,
             mesh_ctx,
             proxy: crate::proxy::ProxyState::default(),
+            fleet: crate::fleet::FleetState::default(),
         })
     }
 

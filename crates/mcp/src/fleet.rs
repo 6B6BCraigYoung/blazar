@@ -8,16 +8,7 @@ use crate::tools;
 
 const PROTOCOL_VERSION: &str = "2025-06-18";
 
-pub const SUBCOMMAND: &str = "__mcp-fleet";
-
 pub const SERVER_NAME: &str = "blazar-fleet";
-
-#[must_use]
-pub fn hub_from_args(argv: &[String]) -> Option<String> {
-    argv.windows(2)
-        .find(|w| w[0] == "--hub")
-        .map(|w| w[1].clone())
-}
 
 pub async fn serve(hub: &str) -> Result<()> {
     let mut lines = BufReader::new(tokio::io::stdin()).lines();

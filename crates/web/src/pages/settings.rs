@@ -145,8 +145,8 @@ fn FleetSettings() -> impl IntoView {
             let on = RwSignal::new(flag(&p["fleet"], "enabled"));
             view! {
                 <section class="card settings-card"><h3>"多机调度"</h3>
-                    <p class="muted">"打开后，在本机运行的智能体会挂上 Blazar 调度工具：列出机器、建工作区、给任意机器上的智能体发指令、等它跑完、读它的记录和改动、在工作区之间拷文件。大脑跑在远端机器上的会话不挂，因为远端连不回本机。下一轮启动生效。"</p>
-                    <div class="settings-row"><label for="settings-fleet">"给本机运行的智能体挂上调度工具"</label><input id="settings-fleet" type="checkbox" prop:checked=move || on.get() disabled=move || busy.get() on:change=move |e| { let v = event_target_checked(&e); on.set(v); busy.set(true); leptos::task::spawn_local(async move { if !save("PUT", "/api/settings", json!({"fleet": {"enabled": v}})).await { on.set(!v); } busy.set(false); }); }/></div>
+                    <p class="muted">"打开后，Blazar 启动的每个会话都会挂上调度工具，不管它跑在哪台机器上：列出机器、建工作区、给任意机器上的智能体发指令、等它跑完、读它的记录和改动、在工作区之间拷文件。远端机器经本机 hub 中转，自己不需要别的机器的密钥；每个会话一枚独立令牌，结束即作废。下一轮启动生效。"</p>
+                    <div class="settings-row"><label for="settings-fleet">"给 Blazar 启动的智能体挂上调度工具"</label><input id="settings-fleet" type="checkbox" prop:checked=move || on.get() disabled=move || busy.get() on:change=move |e| { let v = event_target_checked(&e); on.set(v); busy.set(true); leptos::task::spawn_local(async move { if !save("PUT", "/api/settings", json!({"fleet": {"enabled": v}})).await { on.set(!v); } busy.set(false); }); }/></div>
                 </section>
             }.into_any()
         }

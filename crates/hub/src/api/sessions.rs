@@ -477,10 +477,13 @@ async fn prompt_inner(
         if let Some(m) = crate::office::mcp_spec(&st).await {
             spec.mcp_servers.push(m);
         }
-        if run_node == "local"
-            && let Some(m) = crate::fleet::mcp_spec(&st).await
-        {
-            spec.mcp_servers.push(m);
+        match crate::fleet::mcp_spec(&st, session_id, &run_node).await {
+            Ok(Some(m)) => spec.mcp_servers.push(m),
+            Ok(None) => {}
+            Err(error) => tracing::warn!(
+                target: "blazar::fleet",
+                "{run_node} 的调度回程没打通，这轮不挂调度工具: {error}"
+            ),
         }
 
         if let Some(p) = &profile {

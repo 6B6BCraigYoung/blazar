@@ -890,7 +890,10 @@ mod tests {
             crate::services::Services::Isolated,
         );
         assert!(!crate::fleet::enabled(&st).await);
-        assert!(crate::fleet::mcp_spec(&st).await.is_none());
+        assert!(matches!(
+            crate::fleet::mcp_spec(&st, blazar_core_types::SessionId::new(), "local").await,
+            Ok(None)
+        ));
         let saved = put_prefs(
             State(st.clone()),
             Json(json!({ "fleet": { "enabled": true } })),

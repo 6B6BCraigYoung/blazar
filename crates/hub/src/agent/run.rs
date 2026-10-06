@@ -552,6 +552,7 @@ async fn finalize(ctx: &Ctx, code: Option<i32>, p: &mut Progress) -> Result<(), 
         status,
     ));
 
+    ctx.st.fleet.revoke(ctx.sid).await;
     ctx.st.services.spawn(crate::accounts::on_run_finished(
         ctx.st.clone(),
         ctx.sid,

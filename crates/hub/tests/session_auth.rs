@@ -386,3 +386,52 @@ async fn api_and_websocket_require_a_session_even_without_origin() {
         }
     }
 }
+
+#[tokio::test]
+async fn fleet_endpoint_takes_session_tokens_or_the_hub_token() {
+    let (app, token, _dir, state) = fixture(None).await;
+    let body = || Body::from(r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#);
+    let post = |headers: Vec<(&'static str, String)>| {
+        let mut builder = Request::builder()
+            .method("POST")
+            .uri("/mcp/fleet")
+            .header("Host", "127.0.0.1:7777")
+            .header("Content-Type", "application/json");
+        for (name, value) in &headers {
+            builder = builder.header(*name, value.as_str());
+        }
+        let mut request = builder.body(body()).unwrap();
+        request.extensions_mut().insert(ConnectInfo(
+            "10.99.0.2:40000".parse::<SocketAddr>().unwrap(),
+        ));
+        request
+    };
+    let denied = app.clone().oneshot(post(vec![])).await.unwrap();
+    assert_eq!(denied.status(), StatusCode::UNAUTHORIZED);
+    let forged = app
+        .clone()
+        .oneshot(post(vec![("Authorization", "Bearer 0000".into())]))
+        .await
+        .unwrap();
+    assert_eq!(forged.status(), StatusCode::UNAUTHORIZED);
+    let session = blazar_core_types::SessionId::new();
+    let issued = state.fleet.issue(session, "gpu-1").unwrap();
+    let granted = app
+        .clone()
+        .oneshot(post(vec![("Authorization", format!("Bearer {issued}"))]))
+        .await
+        .unwrap();
+    assert_eq!(granted.status(), StatusCode::OK);
+    let hub = app
+        .clone()
+        .oneshot(post(vec![("Authorization", format!("Bearer {token}"))]))
+        .await
+        .unwrap();
+    assert_eq!(hub.status(), StatusCode::OK);
+    state.fleet.revoke(session).await;
+    let revoked = app
+        .oneshot(post(vec![("Authorization", format!("Bearer {issued}"))]))
+        .await
+        .unwrap();
+    assert_eq!(revoked.status(), StatusCode::UNAUTHORIZED);
+}
