@@ -57,15 +57,19 @@ jobs:
   dependencies:
     name: advisories · licenses · sources
     runs-on: ubuntu-latest
-    env:
-      CARGO_HOME: ${{ runner.temp }}/blazar-dependency-cargo
-      CARGO_TARGET_DIR: ${{ runner.temp }}/blazar-dependency-target
-      BLAZAR_AUDIT_TOOLS: ${{ runner.temp }}/blazar-audit-tools
-      BLAZAR_AUDIT_REPORT: ${{ runner.temp }}/blazar-audit-report
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: Isolate the dependency tool paths
+        shell: bash
+        run: |
+          {
+            echo "CARGO_HOME=$RUNNER_TEMP/blazar-dependency-cargo"
+            echo "CARGO_TARGET_DIR=$RUNNER_TEMP/blazar-dependency-target"
+            echo "BLAZAR_AUDIT_TOOLS=$RUNNER_TEMP/blazar-audit-tools"
+            echo "BLAZAR_AUDIT_REPORT=$RUNNER_TEMP/blazar-audit-report"
+          } >> "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: "1.90"
