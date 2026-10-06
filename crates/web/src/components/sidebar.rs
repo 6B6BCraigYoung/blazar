@@ -78,8 +78,11 @@ pub fn Sidebar() -> impl IntoView {
             .with(|s| {
                 s.as_ref().map(|s| {
                     (
-                        s.nodes.iter().filter(|n| n.status == "online").count(),
-                        s.nodes.len(),
+                        s.nodes
+                            .iter()
+                            .filter(|n| n.is_usable() && n.status == "online")
+                            .count(),
+                        s.nodes.iter().filter(|n| n.is_usable()).count(),
                     )
                 })
             })

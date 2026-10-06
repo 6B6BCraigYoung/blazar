@@ -101,7 +101,7 @@ async fn remote_version(st: &Shared, node: &str, runtime: &str) -> Option<(u64, 
 }
 
 async fn other_nodes(st: &Shared, node: &str) -> Vec<String> {
-    sqlx::query_scalar("SELECT name FROM nodes WHERE name != ?1 AND name != 'local' ORDER BY name")
+    sqlx::query_scalar("SELECT name FROM nodes WHERE name != ?1 AND name != 'local' AND (role IS NULL OR role != 'personal') AND (network IS NOT 'easytier' OR role = 'dev') ORDER BY name")
         .bind(node)
         .fetch_all(st.db.pool())
         .await

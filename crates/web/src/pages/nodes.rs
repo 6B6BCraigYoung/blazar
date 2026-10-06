@@ -225,16 +225,17 @@ pub fn NodesPage() -> impl IntoView {
             }>
             <div class="page-head">
                 <h1>"机器与组网"</h1>
-                <span class="muted small">{move || { let n = nodes(); format!("{} 台在线", n.iter().filter(|x| x.status == "online").count()) }}</span>
+                <span class="muted small">{move || { let n = nodes(); format!("{} 台开发机在线", n.iter().filter(|x| x.is_usable() && x.status == "online").count()) }}</span>
                 <span class="grow"></span>
                 <button class="btn primary" on:click=move |_| ssh_pick.set(true)>"添加机器"</button>
                 <input type="file" node_ref=invite_in accept=".blazar" hidden on:change=on_file/>
                 <input type="file" node_ref=toml_in accept=".toml,text/plain" hidden on:change=on_file/>
             </div>
             <p class="muted nodes-intro">"选择一台机器，创建或打开工作区。"</p>
+            <PendingMachines nodes=Signal::derive(nodes)/>
             <section class="card pad">
                 <div class="card-title">
-                    <h3>"机器"</h3><span class="muted small">{move || format!("{} 台", nodes().len())}</span>
+                    <h3>"开发机"</h3><span class="muted small">{move || format!("{} 台", nodes().iter().filter(|n| n.is_usable()).count())}</span>
                     <span class="grow"></span>
                     <input class="page-filter" aria-label="筛选机器" placeholder="搜索机器" prop:value=move || q.get() on:input=move |e| q.set(event_target_value(&e))/>
                     <button class="btn small" disabled=move || m.refreshing.get() on:click=move |_| spawn_local(refresh_mesh(m))>{move || if m.refreshing.get() { "发现中…" } else { "发现组网机器" }}</button>
@@ -256,7 +257,7 @@ pub fn NodesPage() -> impl IntoView {
                             };
                         }
                         let k = q.get().to_lowercase();
-                        let list: Vec<_> = nodes().into_iter().filter(|n| k.is_empty() || n.name.to_lowercase().contains(&k) || (n.name == "local" && "本机".contains(&k))).collect();
+                        let list: Vec<_> = nodes().into_iter().filter(|n| n.is_usable()).filter(|n| k.is_empty() || n.name.to_lowercase().contains(&k) || (n.name == "local" && "本机".contains(&k))).collect();
                         if list.is_empty() {
                             return view! { <EmptyState title=if k.is_empty() { "还没有可用机器" } else { "没有匹配的机器" } detail=if k.is_empty() { "添加 SSH 机器，或发现已加入组网的机器。" } else { "换个名称搜索，或清空筛选。" }/> }.into_any();
                         }
@@ -264,7 +265,9 @@ pub fn NodesPage() -> impl IntoView {
                             let name2 = n.name.clone();
                             let name3 = n.name.clone();
                             let is_ssh = n.network.as_deref() == Some("ssh");
+                            let is_mesh = n.network.as_deref() == Some("easytier");
                             let removable = is_ssh && n.workspace_count == 0;
+                            let name4 = n.name.clone();
                             view! {
                                 <article class="ws-card node-card">
                                     <div class="top"><a class="node-name" href=format!("/nodes/{}", api::enc(&n.name))>{if n.name == "local" { "本机".to_owned() } else { n.name.clone() }}</a><span class="state-pill" data-act=if n.status == "online" { "completed" } else { "idle" }>{if n.status == "online" { "在线" } else { "离线" }}</span></div>
@@ -278,6 +281,7 @@ pub fn NodesPage() -> impl IntoView {
                                     <div class="act">
                                         <a class="btn small" href=format!("/nodes/{}", api::enc(&n.name))>"查看机器"</a>
                                         {removable.then(|| view! { <button class="btn small danger" title="从 Blazar 移除，不修改 SSH 配置" on:click=move |_| remove_ssh(name3.clone())>"移除"</button> })}
+                                        {is_mesh.then(|| view! { <button class="btn small ghost" title="改为个人电脑：不再用来运行任务" on:click=move |_| set_roles(vec![(name4.clone(), Some("personal"))])>"不是开发机"</button> })}
                                         <button class="btn small primary" on:click=move |_| { app.new_ws_node.set(Some(name2.clone())); app.new_ws.set(true); }>"新建工作区"</button>
                                     </div>
                                 </article>
@@ -286,6 +290,7 @@ pub fn NodesPage() -> impl IntoView {
                     }}
                 </div>
             </section>
+            <PersonalMachines nodes=Signal::derive(nodes)/>
             <div class="nodes-section-heading"><h2>"团队组网"</h2><span class="muted small">"由 EasyTier 提供"</span></div>
             <MeshLocal m invite_in toml_in/>
             <Issuer m/>
@@ -294,6 +299,98 @@ pub fn NodesPage() -> impl IntoView {
             {move || m.config.get().map(|(text, err)| view! { <ConfigEditor m text err/> })}
             {move || m.preview.get().map(|(p, text)| view! { <ConfigPreview m p text/> })}
         </div>
+    }
+}
+
+fn set_roles(roles: Vec<(String, Option<&'static str>)>) {
+    let roles: serde_json::Map<String, Value> = roles
+        .into_iter()
+        .map(|(name, role)| (name, json!(role)))
+        .collect();
+    spawn_local(async move {
+        if let Err(e) =
+            api::send::<Value>("PUT", "/api/nodes/roles", &json!({ "roles": roles })).await
+        {
+            toast(format!("设置机器类型失败：{e}"));
+        }
+    });
+}
+
+#[component]
+fn PendingMachines(nodes: Signal<Vec<blazar_core_types::api::NodeView>>) -> impl IntoView {
+    let pending = move || {
+        nodes
+            .get()
+            .into_iter()
+            .filter(|n| n.is_pending())
+            .collect::<Vec<_>>()
+    };
+    move || {
+        let list = pending();
+        (!list.is_empty()).then(|| {
+            let all: Vec<String> = list.iter().map(|n| n.name.clone()).collect();
+            view! {
+                <section class="card pad node-pending" aria-label="新发现的组网机器">
+                    <div class="card-title">
+                        <h3>"新发现的组网机器"</h3><span class="muted small">{format!("{} 台待确认", list.len())}</span>
+                        <span class="grow"></span>
+                        <button class="btn small" on:click=move |_| set_roles(all.iter().map(|n| (n.clone(), Some("personal"))).collect())>"其余都是个人电脑"</button>
+                    </div>
+                    <p class="muted small">"选出可以运行任务的开发机。个人电脑只显示在线状态，不会出现在选择机器的地方。"</p>
+                    <div class="pending-list">
+                        {list.into_iter().map(|n| {
+                            let (dev, personal) = (n.name.clone(), n.name.clone());
+                            view! {
+                                <div class="pending-row">
+                                    <span class="state-pill" data-act=if n.status == "online" { "completed" } else { "idle" }>{if n.status == "online" { "在线" } else { "离线" }}</span>
+                                    <span class="pending-name">{n.name.clone()}</span>
+                                    <span class="muted small mono">{n.ipv4.clone().unwrap_or_default()}</span>
+                                    <span class="muted small">{latency(n.latency_ms)}</span>
+                                    <span class="grow"></span>
+                                    <button class="btn small primary" on:click=move |_| set_roles(vec![(dev.clone(), Some("dev"))])>"开发机"</button>
+                                    <button class="btn small" on:click=move |_| set_roles(vec![(personal.clone(), Some("personal"))])>"个人电脑"</button>
+                                </div>
+                            }
+                        }).collect_view()}
+                    </div>
+                </section>
+            }
+        })
+    }
+}
+
+#[component]
+fn PersonalMachines(nodes: Signal<Vec<blazar_core_types::api::NodeView>>) -> impl IntoView {
+    move || {
+        let list: Vec<_> = nodes
+            .get()
+            .into_iter()
+            .filter(|n| n.is_personal())
+            .collect();
+        (!list.is_empty()).then(|| {
+            let online = list.iter().filter(|n| n.status == "online").count();
+            view! {
+                <details class="card pad nodes-personal">
+                    <summary><b>"个人电脑"</b><span class="muted small">{format!("{} 台 · {} 台在线", list.len(), online)}</span></summary>
+                    <p class="muted small">"这些电脑只显示在线状态，不会用来运行任务。"</p>
+                    <div class="pending-list">
+                        {list.into_iter().map(|n| {
+                            let (dev, reset) = (n.name.clone(), n.name.clone());
+                            view! {
+                                <div class="pending-row">
+                                    <span class="state-pill" data-act=if n.status == "online" { "completed" } else { "idle" }>{if n.status == "online" { "在线" } else { "离线" }}</span>
+                                    <span class="pending-name">{n.name.clone()}</span>
+                                    <span class="muted small mono">{n.ipv4.clone().unwrap_or_default()}</span>
+                                    <span class="grow"></span>
+                                    <button class="btn small" on:click=move |_| set_roles(vec![(dev.clone(), Some("dev"))])>"改为开发机"</button>
+                                    {(n.network.as_deref() == Some("easytier")).then(|| view! { <button class="btn small ghost" title="放回待确认" on:click=move |_| set_roles(vec![(reset.clone(), None)])>"重新确认"</button> })}
+                                </div>
+                            }
+                        }).collect_view()}
+                    </div>
+                </details>
+            }
+        })
     }
 }
 

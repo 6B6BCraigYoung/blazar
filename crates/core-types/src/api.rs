@@ -81,6 +81,34 @@ pub struct NodeView {
     pub workspace_count: i64,
     #[serde(default)]
     pub network: Option<String>,
+    #[serde(default)]
+    pub role: Option<String>,
+}
+
+impl NodeView {
+    #[must_use]
+    pub fn is_self_mesh(&self) -> bool {
+        self.network.as_deref() == Some("easytier")
+            && self
+                .cost
+                .as_deref()
+                .is_some_and(|c| c.eq_ignore_ascii_case("local"))
+    }
+
+    #[must_use]
+    pub fn is_personal(&self) -> bool {
+        self.role.as_deref() == Some("personal")
+    }
+
+    #[must_use]
+    pub fn is_pending(&self) -> bool {
+        self.network.as_deref() == Some("easytier") && self.role.is_none() && !self.is_self_mesh()
+    }
+
+    #[must_use]
+    pub fn is_usable(&self) -> bool {
+        !self.is_personal() && !self.is_pending() && !self.is_self_mesh()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
