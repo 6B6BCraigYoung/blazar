@@ -4,7 +4,7 @@ use web_sys::PointerEvent;
 
 use crate::storage;
 
-const KEY: &str = "blazar.v2.ws.layout";
+const KEY: &str = "blazar.v3.ws.layout";
 const EX: (f64, f64) = (180.0, 480.0);
 const AUX: (f64, f64) = (300.0, 1200.0);
 const CODE_MIN: f64 = 360.0;
@@ -26,9 +26,9 @@ pub struct Layout {
 impl Default for Layout {
     fn default() -> Self {
         Self {
-            ex: 260.0,
-            aux: 400.0,
-            panel: 240.0,
+            ex: 0.191,
+            aux: 0.309,
+            panel: 0.382,
             hide_ex: false,
             hide_aux: false,
             hide_panel: false,
@@ -95,12 +95,12 @@ impl LayoutState {
         let mut ex = if l.hide_ex {
             0.0
         } else {
-            l.ex.clamp(EX.0, EX.1)
+            (l.ex * w).clamp(EX.0, EX.1)
         };
         let mut aux = if l.hide_aux {
             0.0
         } else {
-            l.aux.clamp(AUX.0, AUX.1)
+            (l.aux * w).clamp(AUX.0, AUX.1)
         };
         let mut over = ex + aux + CODE_MIN + 20.0 - w;
         if over > 0.0 && aux > 0.0 {
@@ -111,9 +111,7 @@ impl LayoutState {
         if over > 0.0 && ex > 0.0 {
             ex -= over.min(ex - EX.0);
         }
-        let panel = l
-            .panel
-            .clamp(PANEL_MIN, (h * 0.7).min(h - 160.0).max(PANEL_MIN));
+        let panel = (l.panel * h).clamp(PANEL_MIN, (h * 0.7).min(h - 160.0).max(PANEL_MIN));
         Sizes { ex, aux, panel }
     }
 }
@@ -162,15 +160,17 @@ pub fn Splitter(edge: Edge, state: LayoutState) -> impl IntoView {
         state.lay.update(|l| match edge {
             Edge::Explorer => {
                 let other = if l.hide_aux { 0.0 } else { base.aux };
-                l.ex = (base.ex + d).clamp(EX.0, EX.1.min(room - other).max(EX.0));
+                l.ex = (base.ex + d).clamp(EX.0, EX.1.min(room - other).max(EX.0)) / w.max(1.0);
             }
             Edge::Aux => {
                 let other = if l.hide_ex { 0.0 } else { base.ex };
-                l.aux = (base.aux - d).clamp(AUX.0, AUX.1.min(room - other).max(AUX.0));
+                l.aux =
+                    (base.aux - d).clamp(AUX.0, AUX.1.min(room - other).max(AUX.0)) / w.max(1.0);
             }
             Edge::Panel => {
-                l.panel =
-                    (base.panel - d).clamp(PANEL_MIN, (h * 0.7).min(h - 160.0).max(PANEL_MIN));
+                l.panel = (base.panel - d)
+                    .clamp(PANEL_MIN, (h * 0.7).min(h - 160.0).max(PANEL_MIN))
+                    / h.max(1.0);
             }
         });
     };

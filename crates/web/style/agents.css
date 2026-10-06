@@ -2,7 +2,7 @@
 .agent-toolbar, .agent-tabs, .agent-actions, .agent-save { display: flex; align-items: center; gap: var(--space-toolbar); flex-wrap: wrap; }
 .agent-toolbar .grow, .agent-save .grow, .agent-run .grow { flex: 1; }
 .agent-page input:not([type=checkbox]), .agent-page select, .agent-page textarea, .agent-modal input:not([type=checkbox]), .agent-modal select, .agent-modal textarea { border: 1px solid var(--border); border-radius: var(--r-md); background: var(--bg-canvas); color: var(--fg); padding: var(--space-md) var(--space-control); font: var(--font-size-body) var(--font-sans); max-width: 100%; box-sizing: border-box; }
-.agent-toolbar input { flex: 1; min-width: 180px; }
+.agent-toolbar input { flex: 0 1 var(--measure); min-width: 180px; }
 .agent-page .field, .agent-modal .field { display: flex; flex-direction: column; gap: var(--space-field); margin: var(--space-lg) 0; color: var(--fg-2); font-size: var(--font-size-body); }
 .agent-page .field input, .agent-page .field select, .agent-page .field textarea, .agent-modal .field input, .agent-modal .field select, .agent-modal .field textarea { width: 100%; }
 .agent-page textarea, .agent-modal textarea { resize: vertical; min-height: 65px; }
@@ -21,7 +21,7 @@
 .agent-summary { display: flex; align-items: center; gap: var(--space-section); }
 .agent-summary h2 { margin: 0; font-size: var(--font-size-agent-title); }
 .agent-avatar { font-size: var(--font-size-avatar); }
-.agent-overview { display: grid; grid-template-columns: 1.2fr 1fr; gap: var(--space-xl); }
+.agent-overview { display: grid; grid-template-columns: minmax(0, 1.618fr) minmax(0, 1fr); gap: var(--space-2xl); }
 .agent-stats { display: grid; grid-template-columns: repeat(4,1fr); gap: var(--space-xl); padding: var(--space-section) 0; }
 .agent-stats b { display: block; font-size: var(--font-size-metric); font-weight: var(--font-weight-semibold); }
 .agent-stats span { display: block; color: var(--fg-3); margin-top: var(--space-sm); font-size: var(--font-size-label); }
@@ -43,7 +43,7 @@
 .agent-modal { width: min(660px,calc(100vw - 40px)); max-height: 90vh; overflow-y: auto; padding: var(--inset-agent-modal); }
 .agent-modal h3 { margin: 0 0 var(--space-lg); }
 .skill-modal { width: min(1000px,calc(100vw - 40px)); }
-.skill-editor { display: grid; grid-template-columns: 220px minmax(0,1fr); gap: var(--gap-skill-editor); margin: var(--margin-skill-editor); min-height: 320px; }
+.skill-editor { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(0, 2.618fr); gap: var(--gap-skill-editor); margin: var(--margin-skill-editor); min-height: 320px; }
 .skill-editor>nav { overflow: auto; border-right: 1px solid var(--border); padding-right: var(--space-lg); max-height: 55vh; }
 .skill-editor>nav input { width: 100%; margin: var(--space-md) 0; }
 .skill-content .field { margin: 0; height: 100%; }

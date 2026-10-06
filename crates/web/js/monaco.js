@@ -9,41 +9,78 @@ function load() {
     window.require.config({ paths: { vs: '/vendor/vs' } });
     window.require(['vs/editor/editor.main'], () => {
       const m = window.monaco;
-      const bg = '#0c0c0d';
-      m.editor.defineTheme('blazar-black', {
+      const scrollbars = (fg) => ({
+        'scrollbar.shadow': '#00000000',
+        'scrollbarSlider.background': fg + '1f',
+        'scrollbarSlider.hoverBackground': fg + '33',
+        'scrollbarSlider.activeBackground': fg + '47',
+      });
+      const dark = '#1e1e20';
+      m.editor.defineTheme('blazar-dark', {
         base: 'vs-dark',
         inherit: true,
         rules: [
-          { token: '', foreground: 'c8c8cc' },
-          { token: 'comment', foreground: '5c5c64', fontStyle: 'italic' },
-          { token: 'keyword', foreground: '8fa3c2' },
-          { token: 'number', foreground: 'b5904f' },
-          { token: 'string', foreground: '8fb59a' },
-          { token: 'type', foreground: 'b9c4d6' },
-          { token: 'type.identifier', foreground: 'b9c4d6' },
-          { token: 'delimiter', foreground: 'a1a1aa' },
+          { token: '', foreground: 'd1d1d6' },
+          { token: 'comment', foreground: '7f8c98', fontStyle: 'italic' },
+          { token: 'keyword', foreground: 'fc5fa3' },
+          { token: 'number', foreground: 'd0bf69' },
+          { token: 'string', foreground: 'fc6a5d' },
+          { token: 'type', foreground: '5dd8ff' },
+          { token: 'type.identifier', foreground: '5dd8ff' },
+          { token: 'delimiter', foreground: 'a1a1a6' },
         ],
         colors: {
-          'editor.background': bg,
-          'editor.foreground': '#c8c8cc',
-          'editorGutter.background': bg,
-          'minimap.background': bg,
-          'editorStickyScroll.background': bg,
-          'editorLineNumber.foreground': '#4a4a50',
-          'editorLineNumber.activeForeground': '#8a8a93',
-          'editor.lineHighlightBackground': '#141415',
+          'editor.background': dark,
+          'editor.foreground': '#d1d1d6',
+          'editorGutter.background': dark,
+          'minimap.background': dark,
+          'editorStickyScroll.background': dark,
+          'editorLineNumber.foreground': '#5a5a60',
+          'editorLineNumber.activeForeground': '#a1a1a6',
+          'editor.lineHighlightBackground': '#2a2a2d',
           'editor.lineHighlightBorder': '#00000000',
-          'editor.selectionBackground': '#2f3d52',
-          'editor.inactiveSelectionBackground': '#22262d',
-          'editorCursor.foreground': '#a1a1aa',
-          'editorIndentGuide.background1': '#1f1f22',
-          'editorIndentGuide.activeBackground1': '#323237',
-          'editorWidget.background': '#1b1b1d',
-          'editorWidget.border': '#323237',
-          'scrollbar.shadow': '#00000000',
-          'scrollbarSlider.background': '#ffffff14',
-          'scrollbarSlider.hoverBackground': '#ffffff22',
-          'scrollbarSlider.activeBackground': '#ffffff2e',
+          'editor.selectionBackground': '#0a84ff55',
+          'editor.inactiveSelectionBackground': '#0a84ff2a',
+          'editorCursor.foreground': '#0a84ff',
+          'editorIndentGuide.background1': '#ffffff12',
+          'editorIndentGuide.activeBackground1': '#ffffff2a',
+          'editorWidget.background': '#2c2c2f',
+          'editorWidget.border': '#ffffff1f',
+          ...scrollbars('#ffffff'),
+        },
+      });
+      const light = '#ffffff';
+      m.editor.defineTheme('blazar-light', {
+        base: 'vs',
+        inherit: true,
+        rules: [
+          { token: '', foreground: '1d1d1f' },
+          { token: 'comment', foreground: '6c7986', fontStyle: 'italic' },
+          { token: 'keyword', foreground: 'ad3da4' },
+          { token: 'number', foreground: '272ad8' },
+          { token: 'string', foreground: 'c41a16' },
+          { token: 'type', foreground: '0b4f79' },
+          { token: 'type.identifier', foreground: '0b4f79' },
+          { token: 'delimiter', foreground: '3a3a3c' },
+        ],
+        colors: {
+          'editor.background': light,
+          'editor.foreground': '#1d1d1f',
+          'editorGutter.background': light,
+          'minimap.background': light,
+          'editorStickyScroll.background': light,
+          'editorLineNumber.foreground': '#aeaeb2',
+          'editorLineNumber.activeForeground': '#6e6e73',
+          'editor.lineHighlightBackground': '#f5f5f7',
+          'editor.lineHighlightBorder': '#00000000',
+          'editor.selectionBackground': '#007aff33',
+          'editor.inactiveSelectionBackground': '#007aff1a',
+          'editorCursor.foreground': '#007aff',
+          'editorIndentGuide.background1': '#0000000f',
+          'editorIndentGuide.activeBackground1': '#00000024',
+          'editorWidget.background': '#ffffff',
+          'editorWidget.border': '#0000001f',
+          ...scrollbars('#000000'),
         },
       });
       resolve(m);
@@ -62,12 +99,16 @@ export function langOf(path) {
 }
 
 function preferences() {
-  try { return { fontSize: 12.5, minimap: true, wordWrap: false, ...JSON.parse(localStorage.getItem('blazar.ui') || '{}') }; }
-  catch (_) { return { fontSize: 12.5, minimap: true, wordWrap: false }; }
+  const defaults = { fontSize: 12.5, minimap: false, wordWrap: true };
+  try {
+    const saved = JSON.parse(localStorage.getItem('blazar.ui') || '{}') || {};
+    if (saved.v !== 2) { delete saved.minimap; delete saved.wordWrap; }
+    return { ...defaults, ...saved };
+  } catch (_) { return defaults; }
 }
 function editorTheme() {
   const selected = document.documentElement.dataset.theme;
-  return (selected === 'light' || ((!selected || selected === 'system') && !matchMedia('(prefers-color-scheme: dark)').matches)) ? 'vs' : 'blazar-black';
+  return (selected === 'light' || ((!selected || selected === 'system') && !matchMedia('(prefers-color-scheme: dark)').matches)) ? 'blazar-light' : 'blazar-dark';
 }
 
 export class Editor {
@@ -78,9 +119,11 @@ export class Editor {
     const prefs = preferences();
     this.ed = m.editor.create(host, {
       value: '', language: 'plaintext', theme: editorTheme(), automaticLayout: true,
-      fontSize: prefs.fontSize, wordWrap: prefs.wordWrap ? 'on' : 'off', lineHeight: 22, fontFamily: '"JetBrains Mono", Menlo, monospace',
+      fontSize: prefs.fontSize, wordWrap: prefs.wordWrap ? 'on' : 'off', wrappingIndent: 'same', lineHeight: 22, fontFamily: '"JetBrains Mono", "SF Mono", Menlo, monospace',
       minimap: { enabled: !!prefs.minimap }, scrollBeyondLastLine: false, renderWhitespace: 'selection',
-      padding: { top: 12 }, smoothScrolling: true,
+      padding: { top: 12, bottom: 12 }, smoothScrolling: true, mouseWheelScrollSensitivity: 1,
+      scrollbar: { horizontalScrollbarSize: 10, verticalScrollbarSize: 10, useShadows: false },
+      overviewRulerBorder: false, hideCursorInOverviewRuler: true, renderLineHighlight: 'line', guides: { indentation: true },
     });
     this.updatePrefs = () => {
       const p = preferences();

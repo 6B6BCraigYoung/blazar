@@ -69,6 +69,7 @@ fn Dialog() -> impl IntoView {
                 .map(|s| {
                     s.nodes
                         .iter()
+                        .filter(|n| n.is_usable())
                         .map(|n| n.name.clone())
                         .filter(|n| n != "local")
                         .collect::<Vec<_>>()

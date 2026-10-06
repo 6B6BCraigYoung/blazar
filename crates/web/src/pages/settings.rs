@@ -31,9 +31,13 @@ pub fn apply_ui_preferences() {
 }
 
 fn ui_prefs() -> Value {
-    let mut defaults =
-        json!({"theme":"system","fontSize":12.5,"minimap":true,"wordWrap":false,"sendKey":"enter"});
-    if let Some(Value::Object(saved)) = storage::load::<Value>("blazar.ui") {
+    let mut defaults = json!({"v":2,"theme":"system","fontSize":12.5,"minimap":false,"wordWrap":true,"sendKey":"enter"});
+    if let Some(Value::Object(mut saved)) = storage::load::<Value>("blazar.ui") {
+        if saved.get("v").and_then(Value::as_u64) != Some(2) {
+            saved.remove("minimap");
+            saved.remove("wordWrap");
+            saved.remove("v");
+        }
         defaults.as_object_mut().unwrap().extend(saved);
     }
     defaults

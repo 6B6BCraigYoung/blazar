@@ -106,9 +106,9 @@ fn AppCard(id: &'static str, name: &'static str, desc: &'static str) -> impl Int
         <article class="card apps-card">
             <div class="apps-card-head"><AppLogo id/><h2>{name}</h2></div>
             <p class="muted">{desc}</p>
-            <div class="apps-card-status">{move || match data.get() {
-                None => view! { <LoadingState text="读取连接…" class="apps-inline-state"/> }.into_any(),
-                Some(Err(error)) => view! { <InlineError message="暂时无法读取连接" retry=Callback::new(move |_| rev.update(|n| *n += 1))/><details class="apps-details"><summary>"错误详情"</summary><p>{error.to_string()}</p></details> }.into_any(),
+            <div class="apps-card-status" aria-live="polite">{move || match data.get() {
+                None => view! { <AppStatus label="读取中…" tone="neutral"/> }.into_any(),
+                Some(Err(error)) => view! { <span title=error.to_string()><AppStatus label="无法读取" tone="error"/></span><button type="button" class="linkbtn" on:click=move |_| rev.update(|n| *n += 1)>"重试"</button> }.into_any(),
                 Some(Ok(value)) => view! { <AppStatus label=state(id, &value) tone=state_tone(id, &value)/> }.into_any(),
             }}</div>
             <a class="btn apps-card-link" href=format!("/apps/{id}") aria-label=format!("管理 {name} 连接")>"管理连接"<span aria-hidden="true">"→"</span></a>
