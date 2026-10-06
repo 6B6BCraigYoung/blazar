@@ -1,4 +1,5 @@
 pub mod chat;
+mod children;
 mod diff_panel;
 mod files;
 mod git_panel;
@@ -22,6 +23,7 @@ use crate::md;
 use crate::realtime::use_bus;
 use crate::storage;
 
+use children::Children;
 use diff_panel::{DiffBar, DiffState, DiffView};
 use files::Files;
 use git_panel::{Git, GitView};
@@ -367,6 +369,7 @@ fn Workspace(id: String) -> impl IntoView {
             <div class="ws-head">
                 {move || detail.get().and_then(|d| d.err()).map(|e| view! { <InlineError message=e.to_string()/> })}
                 <span class="grow"></span>
+                <Children id=id.clone()/>
                 <button class="btn small" on:click=move |_| insp.set(true)>"属性"</button>
                 <button class="laybtn" aria-label="切换资源管理器" title="资源管理器 ⌘B" aria-pressed=move || (!lay().hide_ex).to_string()
                     on:click=move |_| state.toggle(Region::Explorer) inner_html=ICON_LEFT></button>

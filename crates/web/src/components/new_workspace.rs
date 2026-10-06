@@ -82,7 +82,14 @@ fn Dialog() -> impl IntoView {
         v
     };
     let node = RwSignal::new(preset);
-    on_cleanup(move || app.new_ws_node.set(None));
+    let parent = app.new_ws_parent.get_untracked();
+    let is_child = parent.is_some();
+    let parent_name = parent.as_ref().map(|p| p.1.clone()).unwrap_or_default();
+    let copy = RwSignal::new(true);
+    on_cleanup(move || {
+        app.new_ws_node.set(None);
+        app.new_ws_parent.set(None);
+    });
     let path = RwSignal::new(String::new());
     let typed = RwSignal::new(String::new());
     let listing = RwSignal::new(None::<Result<Listing, String>>);
@@ -164,7 +171,7 @@ fn Dialog() -> impl IntoView {
         });
     };
     browse();
-    let is_repo = move || listing.with(|l| matches!(l, Some(Ok(l)) if l.is_repo));
+    let is_repo = move || !is_child && listing.with(|l| matches!(l, Some(Ok(l)) if l.is_repo));
     let listed = move || listing.with(|l| matches!(l, Some(Ok(_))));
 
     let start_folder = move || {
@@ -262,6 +269,30 @@ fn Dialog() -> impl IntoView {
         let isolated = iso.get_untracked();
         let from = Some(pick.get_untracked()).filter(|x| !x.is_empty());
         let navigate = navigate.clone();
+        if let Some((pid, _)) = parent.clone() {
+            let want_copy = copy.get_untracked();
+            spawn_local(async move {
+                let r = api::send::<Value>(
+                    "POST",
+                    &format!("/api/workspaces/{}/children", api::enc(&pid)),
+                    &json!({ "node": n, "path": p, "name": nm, "copy": want_copy }),
+                )
+                .await;
+                let _ = busy.try_set(false);
+                match r {
+                    Ok(v) => {
+                        toast(format!(
+                            "已添加子工作区 {}",
+                            v["name"].as_str().unwrap_or("")
+                        ));
+                        app.new_ws.set(false);
+                        app.load_state();
+                    }
+                    Err(e) => toast(format!("创建失败：{e}")),
+                }
+            });
+            return;
+        }
         spawn_local(async move {
             let r = if isolated {
                 api::send::<Value>("POST", "/api/workspaces/isolated", &json!({ "node": n, "repo": p, "from_branch": from, "name": nm, "project": pj })).await
@@ -295,7 +326,8 @@ fn Dialog() -> impl IntoView {
 
     view! {
         <Modal label="新建工作区" class="dlg wide" on_close=Callback::new(move |_| close())>
-                <h3>"新建工作区"</h3>
+                <h3>{if is_child { "新建子工作区" } else { "新建工作区" }}</h3>
+                {is_child.then(|| view! { <p class="muted">{format!("挂在「{parent_name}」名下。智能体在那个工作区里开新一轮时会知道这台机器可用，可以把活派过去。")}</p> })}
                 <label class="field">"机器"
                     <select prop:value=move ||node.get() disabled=move || busy.get() on:change=move |e| { node.set(event_target_value(&e)); path.set(String::new()); typed.set(String::new()); browse(); }>
                         {nodes.into_iter().map(|n| { let selected = n.clone(); view! { <option value=n.clone() selected=move ||node.get()==selected>{n.clone()}</option> } }).collect_view()}
@@ -352,6 +384,12 @@ fn Dialog() -> impl IntoView {
                         }
                     })}
                 </div>
+                {is_child.then(|| view! {
+                    <label class="chk block" title="按 git 规则跳过被忽略的内容；目录里已有的同名文件会被覆盖">
+                        <input type="checkbox" prop:checked=move || copy.get() on:change=move |_| copy.update(|c| *c = !*c)/>
+                        <span><b>"把父工作区的文件拷过去"</b><span class="muted small">" 跳过 git 忽略的内容，最多 128MB。"</span></span>
+                    </label>
+                })}
                 <Show when=is_repo>
                     <label class="chk block" title="启用后会从 origin 获取最新分支，并在独立目录创建工作区。">
                         <input type="checkbox" prop:checked=move || iso.get() on:change=move |_| { iso.update(|i| *i = !*i); if iso.get_untracked() && branches.with_untracked(Option::is_none) { load_branches(); } }/>
@@ -390,14 +428,16 @@ fn Dialog() -> impl IntoView {
                     </Show>
                 </Show>
                 <label class="field">"名称（留空取目录名）"<input prop:value=move || name.get() on:input=move |e| name.set(event_target_value(&e))/></label>
-                <label class="field">"项目"
-                    <input placeholder="可留空；同名项目归为一组" prop:value=move || project.get() on:input=move |e| project.set(event_target_value(&e))
-                        on:keydown=move |e| if e.key() == "Enter" && !e.is_composing() { create2() }/>
-                </label>
+                {(!is_child).then(|| view! {
+                    <label class="field">"项目"
+                        <input placeholder="可留空；同名项目归为一组" prop:value=move || project.get() on:input=move |e| project.set(event_target_value(&e))
+                            on:keydown=move |e| if e.key() == "Enter" && !e.is_composing() { create2() }/>
+                    </label>
+                })}
                 <div class="dlg-foot">
                     <button type="button" class="btn" disabled=move || busy.get() on:click=move |_| close()>"取消"</button>
                     <button type="button" class="btn primary" disabled=move || busy.get() || !matches!(listing.get(), Some(Ok(_))) on:click=move |_| create()>
-                        {move || if busy.get() { "创建中…" } else if iso.get() { "创建独立工作区" } else { "创建工作区" }}
+                        {move || if busy.get() { "创建中…" } else if is_child { "添加子工作区" } else if iso.get() { "创建独立工作区" } else { "创建工作区" }}
                     </button>
                 </div>
         </Modal>

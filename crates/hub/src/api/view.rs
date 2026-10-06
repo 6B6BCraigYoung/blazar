@@ -36,7 +36,7 @@ pub(crate) async fn snapshot(st: &AppState) -> anyhow::Result<StateSnapshot> {
     .collect();
 
     let workspaces = sqlx::query(
-        "SELECT w.id, w.name, w.path, w.activity, w.last_active_at,
+        "SELECT w.id, w.name, w.path, w.activity, w.last_active_at, w.parent_id,
                 w.diff_added, w.diff_removed, w.diff_files, w.diff_at,
                 n.name AS node, p.name AS project,
                 (SELECT s.id FROM sessions s WHERE s.workspace_id = w.id
@@ -71,6 +71,7 @@ pub(crate) async fn snapshot(st: &AppState) -> anyhow::Result<StateSnapshot> {
             _ => None,
         },
         diff_at: r.try_get("diff_at").unwrap_or(None),
+        parent: r.try_get("parent_id").unwrap_or(None),
     })
     .collect();
 

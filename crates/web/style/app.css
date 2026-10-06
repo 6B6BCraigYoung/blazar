@@ -534,3 +534,9 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 .term-tab .term-select, .term-tab .x { padding: 0; border: 0; background: transparent; font: inherit; color: inherit; cursor: pointer; }
 .term-tab .x { color: var(--fg-4); }
 .term-tab .x:hover { color: var(--fg); }
+.ws-children { position: relative; }
+.ws-children > .btn { display: inline-flex; align-items: center; gap: var(--space-xs); }
+.ws-children-menu { min-width: 280px; }
+.menu a.ws-child { display: flex; align-items: center; gap: var(--space-sm); }
+.ws-child .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ws-child-empty { padding: var(--space-xs) var(--space-control); }

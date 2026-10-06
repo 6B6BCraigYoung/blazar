@@ -891,7 +891,7 @@ mod tests {
         );
         assert!(!crate::fleet::enabled(&st).await);
         assert!(matches!(
-            crate::fleet::mcp_spec(&st, blazar_core_types::SessionId::new(), "local").await,
+            crate::fleet::mcp_spec(&st, blazar_core_types::SessionId::new(), "local", false).await,
             Ok(None)
         ));
         let saved = put_prefs(

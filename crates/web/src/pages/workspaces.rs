@@ -164,6 +164,8 @@ fn card(w: WorkspaceView, insp: RwSignal<Option<String>>) -> impl IntoView {
                 </div>
                 <div class="meta">
                     {w.project.clone().map(|p| view! { <span title="项目">{p}</span> })}
+                    {w.parent.as_ref().map(|p| { let parent_name = app.workspaces().into_iter().find(|x| &x.id == p).map(|x| x.name).unwrap_or_else(|| "父工作区".into()); view! { <span class="gchip" title="子工作区">{format!("↳ {parent_name}")}</span> } })}
+                    {{ let n = app.workspaces().iter().filter(|x| x.parent.as_deref() == Some(w.id.as_str())).count(); (n > 0).then(|| view! { <span class="gchip" title="子工作区">{format!("{n} 个子工作区")}</span> }) }}
                     {diff_badge(&w)}
                     <span class="muted">{w.last_active_at.as_deref().map(fmt::ago).unwrap_or_default()}</span>
                 </div>

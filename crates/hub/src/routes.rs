@@ -53,6 +53,10 @@ pub fn build_router(st: Arc<AppState>) -> Router {
         .route("/api/nodes/{name}/browse", get(api::browse_node))
         .route("/api/nodes/{name}/mkdir", post(api::mkdir_node))
         .route("/api/workspaces/{id}/copy", post(api::workspace_copy))
+        .route(
+            "/api/workspaces/{id}/children",
+            post(api::create_child_workspace),
+        )
         .route(crate::fleet::PATH, post(crate::fleet::mcp_http))
         .route(
             "/api/agent-configs",

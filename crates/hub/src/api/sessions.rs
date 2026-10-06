@@ -477,7 +477,8 @@ async fn prompt_inner(
         if let Some(m) = crate::office::mcp_spec(&st).await {
             spec.mcp_servers.push(m);
         }
-        match crate::fleet::mcp_spec(&st, session_id, &run_node).await {
+        let children = crate::fleet::children_of(&st, &id).await;
+        match crate::fleet::mcp_spec(&st, session_id, &run_node, !children.is_empty()).await {
             Ok(Some(m)) => spec.mcp_servers.push(m),
             Ok(None) => {}
             Err(error) => tracing::warn!(
@@ -492,6 +493,13 @@ async fn prompt_inner(
         }
         if let Some(c) = &cfg {
             apply_runtime_config(&mut spec, c);
+        }
+        let brief = crate::fleet::briefing(&id, &children);
+        if !brief.is_empty() {
+            spec.instructions = Some(match spec.instructions.take() {
+                Some(i) => format!("{i}\n\n{brief}"),
+                None => brief,
+            });
         }
         if let Some((k, v)) = account.as_ref().and_then(|a| a.env.clone()) {
             spec.env.entry(k).or_insert(v);

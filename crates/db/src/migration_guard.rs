@@ -219,9 +219,9 @@ mod tests {
         let before = ledger(&db).await;
         db.migrate().await.unwrap();
         let after = ledger(&db).await;
-        assert_eq!(after.len(), before.len() + 2);
+        assert_eq!(after.len(), before.len() + 3);
         assert!(after[..before.len()] == before, "原迁移记录必须保持不变");
-        assert_eq!(after.last().unwrap().0, 26);
+        assert_eq!(after.last().unwrap().0, 27);
     }
 
     #[tokio::test]
@@ -265,11 +265,11 @@ mod tests {
     #[tokio::test]
     async fn newer_migration_versions_are_rejected_without_writing() {
         let db = historical_fixture(25).await;
-        sqlx::query("INSERT INTO _sqlx_migrations(version, description, success, checksum, execution_time) VALUES(27, 'future', 1, X'00', 0)")
+        sqlx::query("INSERT INTO _sqlx_migrations(version, description, success, checksum, execution_time) VALUES(28, 'future', 1, X'00', 0)")
             .execute(db.pool()).await.unwrap();
         let before = ledger(&db).await;
         let error = db.migrate().await.unwrap_err().to_string();
-        assert!(error.contains("不认识") && error.contains("27"), "{error}");
+        assert!(error.contains("不认识") && error.contains("28"), "{error}");
         assert!(ledger(&db).await == before, "原迁移记录必须保持不变");
     }
 

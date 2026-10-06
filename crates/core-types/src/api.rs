@@ -125,6 +125,9 @@ pub struct WorkspaceView {
     pub diff: Option<DiffStat>,
 
     pub diff_at: Option<String>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

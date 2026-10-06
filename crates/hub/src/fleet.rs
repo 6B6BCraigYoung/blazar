@@ -12,6 +12,7 @@ use axum::response::{IntoResponse, Response};
 use blazar_core_types::SessionId;
 use blazar_runtime::McpServerSpec;
 use serde_json::{Value, json};
+use sqlx::Row;
 use tokio::io::{AsyncBufReadExt, BufReader};
 
 use crate::api::Shared;
@@ -167,6 +168,53 @@ async fn open_tunnel(node: &str, hub_port: u16) -> anyhow::Result<Tunnel> {
     Ok(Tunnel { port, child })
 }
 
+#[derive(Debug, Clone)]
+pub struct Child {
+    pub id: String,
+    pub name: String,
+    pub node: String,
+    pub path: String,
+}
+
+pub async fn children_of(st: &Shared, workspace: &str) -> Vec<Child> {
+    sqlx::query(
+        "SELECT w.id, w.name, w.path, n.name AS node FROM workspaces w
+         JOIN nodes n ON n.id = w.node_id WHERE w.parent_id = ?1 ORDER BY w.created_at",
+    )
+    .bind(workspace)
+    .fetch_all(st.db.pool())
+    .await
+    .unwrap_or_default()
+    .iter()
+    .map(|r| Child {
+        id: r.try_get("id").unwrap_or_default(),
+        name: r.try_get("name").unwrap_or_default(),
+        node: r.try_get("node").unwrap_or_default(),
+        path: r.try_get("path").unwrap_or_default(),
+    })
+    .collect()
+}
+
+#[must_use]
+pub fn briefing(parent: &str, children: &[Child]) -> String {
+    if children.is_empty() {
+        return String::new();
+    }
+    let mut out = format!(
+        "这个工作区（id {parent}）挂了下面这些子工作区，都是可以把活派过去的机器。\
+         用 blazar-fleet 的工具操作：send_prompt 派活（立即返回），wait_workspace 等它停下并拿到最后一句回复，\
+         get_history / read_file / get_diff 看它做了什么，copy_files 在工作区之间搬文件；派活前可以先 probe_node 看机器状态。\
+         子工作区：\n"
+    );
+    for c in children {
+        out.push_str(&format!(
+            "- {}：机器 {}，目录 {}，工作区 id {}\n",
+            c.name, c.node, c.path, c.id
+        ));
+    }
+    out
+}
+
 pub async fn enabled(st: &Shared) -> bool {
     crate::office::prefs(st).await["fleet"]["enabled"]
         .as_bool()
@@ -177,8 +225,9 @@ pub async fn mcp_spec(
     st: &Shared,
     session: SessionId,
     node: &str,
+    force: bool,
 ) -> anyhow::Result<Option<McpServerSpec>> {
-    if !enabled(st).await {
+    if !force && !enabled(st).await {
         return Ok(None);
     }
     let base = crate::office::HUB_URL.get().context("hub 地址还没就绪")?;
@@ -307,6 +356,23 @@ async fn internal_request(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn briefing_lists_every_child_with_its_id() {
+        assert!(briefing("p", &[]).is_empty());
+        let text = briefing(
+            "parent-1",
+            &[Child {
+                id: "child-1".into(),
+                name: "orbit @ gpu-1".into(),
+                node: "gpu-1".into(),
+                path: "/data/orbit".into(),
+            }],
+        );
+        assert!(text.contains("parent-1") && text.contains("child-1"));
+        assert!(text.contains("gpu-1") && text.contains("/data/orbit"));
+        assert!(text.contains("send_prompt") && text.contains("copy_files"));
+    }
 
     #[test]
     fn reads_the_port_ssh_allocated() {

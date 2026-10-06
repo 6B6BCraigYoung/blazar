@@ -28,6 +28,7 @@ pub struct AppData {
     pub current_ws: RwSignal<Option<String>>,
     pub new_ws: RwSignal<bool>,
     pub new_ws_node: RwSignal<Option<String>>,
+    pub new_ws_parent: RwSignal<Option<(String, String)>>,
     pub palette: RwSignal<bool>,
     pub side_collapsed: RwSignal<bool>,
     pub alerts_open: RwSignal<bool>,
@@ -234,6 +235,7 @@ pub fn provide(bus: Bus) -> AppData {
         current_ws: RwSignal::new(None),
         new_ws: RwSignal::new(false),
         new_ws_node: RwSignal::new(None),
+        new_ws_parent: RwSignal::new(None),
         palette: RwSignal::new(false),
         side_collapsed: RwSignal::new(
             storage::load_raw("blazar.side.collapsed")

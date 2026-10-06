@@ -116,6 +116,84 @@ pub(crate) fn vfs_for(st: &AppState, node: &str, path: &str) -> Vfs {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct ChildBody {
+    pub node: String,
+    pub path: String,
+    pub name: Option<String>,
+    #[serde(default)]
+    pub copy: bool,
+}
+
+const MAX_CHILD_COPY_BYTES: u64 = 128 * 1024 * 1024;
+
+pub async fn create_child_workspace(
+    State(st): State<Shared>,
+    Path(id): Path<String>,
+    Json(body): Json<ChildBody>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let pool = st.db.pool();
+    let parent = sqlx::query(
+        "SELECT w.name, w.project_id, w.path, n.name AS node FROM workspaces w
+         JOIN nodes n ON n.id = w.node_id WHERE w.id = ?1",
+    )
+    .bind(&id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| ApiError::bad_request("父工作区不存在"))?;
+    let parent_name: String = parent.try_get("name").unwrap_or_default();
+    let parent_project: Option<String> = parent.try_get("project_id").unwrap_or(None);
+    let parent_path: String = parent.try_get("path").unwrap_or_default();
+    let parent_node: String = parent.try_get("node").unwrap_or_default();
+    let path = body.path.trim().trim_end_matches('/').to_owned();
+    if path.is_empty() {
+        return Err(ApiError::bad_request("请先选一个目录"));
+    }
+    if body.node == parent_node && path == parent_path.trim_end_matches('/') {
+        return Err(ApiError::bad_request("子工作区不能和父工作区是同一个目录"));
+    }
+    let name = body
+        .name
+        .map(|n| n.trim().to_owned())
+        .filter(|n| !n.is_empty())
+        .unwrap_or_else(|| format!("{parent_name} @ {}", body.node));
+    let created = create_workspace(
+        State(st.clone()),
+        Json(CreateWorkspace {
+            node: body.node.clone(),
+            path: path.clone(),
+            name: Some(name.clone()),
+            project: None,
+        }),
+    )
+    .await?;
+    let child = created.0["id"].as_str().unwrap_or_default().to_owned();
+    if child == id {
+        return Err(ApiError::bad_request("子工作区不能是父工作区自己"));
+    }
+    sqlx::query("UPDATE workspaces SET parent_id = ?1, project_id = ?2 WHERE id = ?3")
+        .bind(&id)
+        .bind(&parent_project)
+        .bind(&child)
+        .execute(pool)
+        .await?;
+    if body.copy {
+        let from = vfs_for(&st, &parent_node, &parent_path);
+        let to = vfs_for(&st, &body.node, &path);
+        let archive = from.archive_base64(".", MAX_CHILD_COPY_BYTES).await?;
+        to.extract_base64(".", &archive).await?;
+    }
+    st.emit(ServerEvent::WorkspacesChanged);
+    Ok(Json(serde_json::json!({
+        "id": child,
+        "name": name,
+        "node": body.node,
+        "path": path,
+        "parent": id,
+        "copied": body.copy,
+    })))
+}
+
+#[derive(Debug, Deserialize)]
 pub struct CopyBody {
     pub to: String,
     #[serde(default)]
@@ -523,6 +601,75 @@ mod tests {
         .map_err(|e| e.message())
         .unwrap();
         created.0["id"].as_str().unwrap().to_owned()
+    }
+
+    #[tokio::test]
+    async fn child_workspaces_inherit_the_project_and_can_start_from_a_copy() {
+        let root = tempfile::tempdir().unwrap();
+        let st = local_state(root.path()).await;
+        let a = tempfile::tempdir().unwrap();
+        let b = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(a.path().join("src")).unwrap();
+        std::fs::write(a.path().join("src/main.rs"), "fn main() {}").unwrap();
+        let parent = create_workspace(
+            State(st.clone()),
+            Json(CreateWorkspace {
+                node: "local".into(),
+                path: a.path().to_string_lossy().into_owned(),
+                name: Some("orbit".into()),
+                project: Some("Orbit".into()),
+            }),
+        )
+        .await
+        .map_err(|e| e.message())
+        .unwrap()
+        .0["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let child = create_child_workspace(
+            State(st.clone()),
+            Path(parent.clone()),
+            Json(ChildBody {
+                node: "local".into(),
+                path: b.path().to_string_lossy().into_owned(),
+                name: None,
+                copy: true,
+            }),
+        )
+        .await
+        .map_err(|e| e.message())
+        .unwrap()
+        .0;
+        assert_eq!(child["name"], "orbit @ local");
+        assert_eq!(child["parent"], parent);
+        assert_eq!(
+            std::fs::read_to_string(b.path().join("src/main.rs")).unwrap(),
+            "fn main() {}"
+        );
+        let snapshot = super::super::snapshot(&st).await.unwrap();
+        let view = snapshot
+            .workspaces
+            .iter()
+            .find(|w| w.id == child["id"].as_str().unwrap())
+            .unwrap();
+        assert_eq!(view.parent.as_deref(), Some(parent.as_str()));
+        assert_eq!(view.project.as_deref(), Some("Orbit"));
+        let children = crate::fleet::children_of(&st, &parent).await;
+        assert_eq!(children.len(), 1);
+        assert!(crate::fleet::briefing(&parent, &children).contains("orbit @ local"));
+        let same = create_child_workspace(
+            State(st.clone()),
+            Path(parent.clone()),
+            Json(ChildBody {
+                node: "local".into(),
+                path: a.path().to_string_lossy().into_owned(),
+                name: None,
+                copy: false,
+            }),
+        )
+        .await;
+        assert!(same.is_err());
     }
 
     #[tokio::test]
