@@ -2,11 +2,89 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use leptos::prelude::*;
 
-use crate::components::status::{EmptyState, InlineError, LoadingState};
+use crate::components::status::{EmptyState, InlineError};
 
 use crate::api::{self, ChangeKind, DirItems, TreeEntry};
 
 use super::files::Files;
+
+fn guide_dirs(path: &str, depth: usize) -> Vec<String> {
+    let parts: Vec<&str> = path.split('/').collect();
+    (0..depth.min(parts.len()))
+        .map(|i| parts[..i].join("/"))
+        .collect()
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct Menu {
+    x: i32,
+    y: i32,
+    path: String,
+    name: String,
+    dir: bool,
+}
+
+#[component]
+fn TreeMenu(menu: RwSignal<Option<Menu>>, ws: String) -> impl IntoView {
+    let close_down = window_event_listener(leptos::ev::mousedown, move |e| {
+        let inside = e
+            .target()
+            .and_then(|t| wasm_bindgen::JsCast::dyn_into::<web_sys::Element>(t).ok())
+            .and_then(|el| el.closest(".ctx-menu").ok().flatten())
+            .is_some();
+        if !inside {
+            menu.set(None);
+        }
+    });
+    let close_key = window_event_listener(leptos::ev::keydown, move |e| {
+        if e.key() == "Escape" {
+            menu.set(None);
+        }
+    });
+    let close_blur = window_event_listener(leptos::ev::blur, move |_| menu.set(None));
+    on_cleanup(move || {
+        close_down.remove();
+        close_key.remove();
+        close_blur.remove();
+    });
+    move || {
+        menu.get().map(|m| {
+            let (w, h) = (
+                window()
+                    .inner_width()
+                    .ok()
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0) as i32,
+                window()
+                    .inner_height()
+                    .ok()
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0) as i32,
+            );
+            let x = m.x.min(w - 200).max(0);
+            let y = m.y.min(h - 48).max(0);
+            let url = format!(
+                "/api/workspaces/{}/download?path={}{}",
+                api::enc(&ws),
+                api::enc(&m.path),
+                if m.dir { "&dir=true" } else { "" }
+            );
+            let file = if m.dir {
+                format!("{}.tar.gz", m.name)
+            } else {
+                m.name.clone()
+            };
+            view! {
+                <div class="ctx-menu" role="menu" style=format!("left:{x}px;top:{y}px")>
+                    <button type="button" role="menuitem" class="ctx-item" on:click=move |_| {
+                        menu.set(None);
+                        crate::files_js::download_url(&url, &file);
+                    }>{if m.dir { "下载文件夹" } else { "下载" }}</button>
+                </div>
+            }
+        })
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Node {
@@ -298,6 +376,7 @@ pub fn FileTree(
     let root_open = RwSignal::new(true);
     let dirs = RwSignal::new(HashMap::<String, DirItems>::new());
     let loading = RwSignal::new(HashSet::<String>::new());
+    let menu = RwSignal::new(None::<Menu>);
     let errors = RwSignal::new(HashMap::<String, String>::new());
     let tried = StoredValue::new(HashSet::<String>::new());
     let ws = files.ws();
@@ -368,14 +447,18 @@ pub fn FileTree(
     view! {
         <input class="tree-filter" aria-label="筛选文件" title="按路径筛选 Git 已知的文件" placeholder="筛选文件…" prop:value=move || filter.get()
             on:input=move |e| filter.set(event_target_value(&e))/>
-        <div class="tree">
+        <TreeMenu menu ws=files.ws()/>
+        <div class="tree" on:scroll=move |_| menu.set(None)>
             <button type="button" class="tn root" aria-expanded=move || root_open.get().to_string() data-open=move || root_open.get().to_string()
-                title=move || root_name.get() on:click=move |_| root_open.update(|o| *o = !*o)>
+                title=move || root_name.get() on:click=move |_| root_open.update(|o| *o = !*o)
+                on:contextmenu=move |e: leptos::ev::MouseEvent| {
+                    e.prevent_default();
+                    menu.set(Some(Menu { x: e.client_x(), y: e.client_y(), path: String::new(), name: root_name.get_untracked(), dir: true }));
+                }>
                 <span class="chev" inner_html=CHEV></span>
                 <span class="nm dir">{move || root_name.get()}</span>
             </button>
             <Show when=move || root_open.get()>
-                <Show when=move || loading.with(|paths| !paths.is_empty())><LoadingState text="读取目录…" class="tree-state"/></Show>
                 {move || errors.get().into_iter().filter(|(path, _)| path.is_empty() || opened.with(|paths| paths.contains(path))).map(|(path, error)| {
                     let label = if path.is_empty() { "根目录".to_owned() } else { path.clone() };
                     view! { <InlineError message=format!("读取{label}失败：{error}") class="tree-state" retry=Callback::new(move |_| fetch.with_value(|load| load(path.clone())))/> }
@@ -402,12 +485,25 @@ pub fn FileTree(
                             files.open(p.clone(), 0);
                         }
                     };
+                    let menu_path = row.path.clone();
+                    let menu_name = row.name.clone();
+                    let guides = guide_dirs(&row.path, row.depth).into_iter().enumerate().map(|(i, dir)| {
+                        let active = move || files.current.with(|c| c.as_deref().is_some_and(|c| c.rsplit_once('/').map_or("", |(parent, _)| parent) == dir));
+                        view! { <span class="tn-guide" data-active=move || active().to_string() style=if i == 0 { "left:7px".to_owned() } else { format!("left:calc(var(--space-md) + {i} * var(--space-lg) + 7px)") }></span> }
+                    }).collect_view();
                     view! {
                         <button type="button" class="tn" disabled=more aria-expanded=dir.then(|| row.open.to_string()) aria-pressed=move || (!dir && !more).then(|| accessible_sel().to_string()) data-open=row.open.to_string() data-sel=move || sel().to_string()
                             data-ign=row.ignored.to_string() data-more=more.to_string()
                             data-chg=(dir && row.has_change).to_string()
                             title=row.path.clone() on:click=click
+                            on:contextmenu=move |e: leptos::ev::MouseEvent| {
+                                e.prevent_default();
+                                if !more {
+                                    menu.set(Some(Menu { x: e.client_x(), y: e.client_y(), path: menu_path.clone(), name: menu_name.clone(), dir }));
+                                }
+                            }
                             style=format!("padding-left:calc(var(--space-md) + {} * var(--space-lg))", row.depth)>
+                            {guides}
                             <span class="chev" inner_html=if dir { CHEV } else { "" }></span>
                             <span class="nm" class:dir=dir>{row.name}</span>
                             <span class=format!("ch {cls}")>{mark}</span>

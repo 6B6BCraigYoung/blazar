@@ -16,6 +16,11 @@ export function downloadText(name, text, mime) {
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
+export function downloadUrl(url, name) {
+  const a = Object.assign(document.createElement('a'), { href: url, download: name });
+  document.body.appendChild(a); a.click(); a.remove();
+}
+
 export function readText(file) {
   return file.text();
 }

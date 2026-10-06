@@ -10,6 +10,8 @@ extern "C" {
     pub fn confirm_navigation() -> bool;
     #[wasm_bindgen(js_name = downloadText)]
     pub fn download_text(name: &str, text: &str, mime: &str);
+    #[wasm_bindgen(js_name = downloadUrl)]
+    pub fn download_url(url: &str, name: &str);
     #[wasm_bindgen(js_name = readText)]
     fn read_text_js(file: &web_sys::File) -> js_sys::Promise;
 }

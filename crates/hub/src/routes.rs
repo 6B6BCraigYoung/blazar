@@ -121,6 +121,10 @@ pub fn build_router(st: Arc<AppState>) -> Router {
         .route("/api/workspaces/{id}/ls", get(api::workspace_ls))
         .route("/api/workspaces/{id}/raw", get(api::workspace_raw))
         .route(
+            "/api/workspaces/{id}/download",
+            get(api::workspace_download),
+        )
+        .route(
             "/api/workspaces/{id}/file",
             get(api::workspace_file).put(api::workspace_file_write),
         )

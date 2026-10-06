@@ -229,6 +229,112 @@ pub async fn workspace_raw(
         .into_response()
 }
 
+const DOWNLOAD_MAX: u64 = 128 * 1024 * 1024;
+
+#[derive(Debug, Deserialize)]
+pub struct DownloadQuery {
+    #[serde(default)]
+    pub path: String,
+    #[serde(default)]
+    pub dir: bool,
+}
+
+pub async fn workspace_download(
+    State(st): State<Shared>,
+    Path(id): Path<String>,
+    Query(q): Query<DownloadQuery>,
+) -> Response {
+    use base64::Engine;
+    let (node, root) = match locate(&st, &id).await {
+        Ok(v) => v,
+        Err(e) => return ApiError(e).into_response(),
+    };
+    let vfs = vfs_for(&st, &node, &root);
+    let read = if q.dir {
+        vfs.archive_base64(&q.path, DOWNLOAD_MAX).await
+    } else {
+        vfs.read_base64(&q.path, DOWNLOAD_MAX).await
+    };
+    let b64 = match read {
+        Ok(b) => b,
+        Err(blazar_vfs::VfsError::PathEscape(_)) => {
+            return (StatusCode::BAD_REQUEST, "路径越界").into_response();
+        }
+        Err(e) => return (StatusCode::NOT_FOUND, e.to_string()).into_response(),
+    };
+    let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(b64.as_bytes()) else {
+        return (StatusCode::BAD_GATEWAY, "文件没读完整").into_response();
+    };
+    let base = q
+        .path
+        .trim_end_matches('/')
+        .rsplit('/')
+        .next()
+        .filter(|n| !n.is_empty() && *n != ".")
+        .map_or_else(
+            || {
+                root.trim_end_matches('/')
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or_default()
+                    .to_owned()
+            },
+            str::to_owned,
+        );
+    let base = if base.is_empty() {
+        "download".to_owned()
+    } else {
+        base
+    };
+    let name = if q.dir {
+        format!("{base}.tar.gz")
+    } else {
+        base
+    };
+    let ctype = if q.dir {
+        "application/gzip"
+    } else {
+        "application/octet-stream"
+    };
+    (
+        [
+            (axum::http::header::CONTENT_TYPE, ctype.to_owned()),
+            (axum::http::header::CONTENT_DISPOSITION, attachment(&name)),
+            (
+                axum::http::header::X_CONTENT_TYPE_OPTIONS,
+                "nosniff".to_owned(),
+            ),
+            (axum::http::header::CACHE_CONTROL, "no-store".to_owned()),
+        ],
+        bytes,
+    )
+        .into_response()
+}
+
+fn attachment(name: &str) -> String {
+    let fallback: String = name
+        .chars()
+        .map(|c| {
+            if c == ' ' || (c.is_ascii_graphic() && !matches!(c, '"' | '\\')) {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let encoded: String = name
+        .bytes()
+        .map(|b| {
+            if b.is_ascii_alphanumeric() || b"-._~".contains(&b) {
+                (b as char).to_string()
+            } else {
+                format!("%{b:02X}")
+            }
+        })
+        .collect();
+    format!("attachment; filename=\"{fallback}\"; filename*=UTF-8''{encoded}")
+}
+
 #[derive(Debug, Deserialize)]
 pub struct WriteFile {
     pub path: String,
@@ -318,6 +424,14 @@ pub async fn workspace_diff(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn download_names_survive_quotes_and_unicode() {
+        assert_eq!(
+            attachment("报告 \"v2\".pdf"),
+            "attachment; filename=\"__ _v2_.pdf\"; filename*=UTF-8''%E6%8A%A5%E5%91%8A%20%22v2%22.pdf"
+        );
+    }
 
     #[test]
     fn file_write_requests_keep_legacy_mtime_and_accept_content_versions() {

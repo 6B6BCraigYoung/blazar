@@ -373,6 +373,47 @@ base64 < "$F" | tr -d '\n'"#,
         Ok(out.stdout.trim().to_owned())
     }
 
+    pub async fn archive_base64(&self, rel: &str, max: u64) -> Result<String> {
+        let rel = if rel.is_empty() || rel == "." {
+            ".".to_owned()
+        } else {
+            self.safe_rel(rel)?
+        };
+        let script = format!(
+            r#"{guard}
+[ -d "$F" ] || exit 4
+cd -- "$F" || exit 3
+T=$(mktemp) || exit 1
+trap 'rm -f "$T"' EXIT
+if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  git ls-files -z -co --exclude-standard -- . | tar --null -czf "$T" -T - 2>/dev/null
+else
+  tar -czf "$T" . 2>/dev/null
+fi
+[ -s "$T" ] || exit 1
+[ "$(wc -c < "$T" | tr -d ' ')" -le {max} ] || exit 8
+base64 < "$T" | tr -d '\n'"#,
+            guard = guarded_path(&self.root, &rel),
+        );
+        let out = self
+            .transport
+            .exec(ExecSpec::new("bash").arg("-lc").arg(script))
+            .await?;
+        if out.code == 4 || out.code == 8 {
+            return Err(blazar_transport::TransportError::Command {
+                code: out.code,
+                stderr: if out.code == 4 {
+                    format!("{rel} 不是一个文件夹")
+                } else {
+                    format!("{rel} 打包后太大了")
+                },
+            }
+            .into());
+        }
+        check(&out, &rel)?;
+        Ok(out.stdout.trim().to_owned())
+    }
+
     pub async fn write(
         &self,
         rel: &str,
@@ -927,6 +968,61 @@ mod tests {
         ) -> blazar_transport::Result<blazar_transport::LineStream> {
             TestLocal.spawn_lines(spec).await
         }
+    }
+
+    fn tar_names(b64: &str) -> Vec<String> {
+        let mut child = std::process::Command::new("sh")
+            .args(["-c", "base64 -d | tar -tzf -"])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        std::io::Write::write_all(&mut child.stdin.take().unwrap(), b64.as_bytes()).unwrap();
+        let out = child.wait_with_output().unwrap();
+        let mut names: Vec<String> = String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .map(|l| l.trim_start_matches("./").to_owned())
+            .filter(|l| !l.is_empty() && !l.ends_with('/'))
+            .collect();
+        names.sort();
+        names
+    }
+
+    #[tokio::test]
+    async fn folder_archive_skips_git_ignored_files() {
+        let root = tempfile::tempdir().unwrap();
+        let sub = root.path().join("pkg");
+        std::fs::create_dir_all(sub.join("src")).unwrap();
+        std::fs::write(sub.join("src/a.rs"), "a").unwrap();
+        std::fs::write(sub.join("build.log"), "noise").unwrap();
+        std::fs::write(root.path().join(".gitignore"), "*.log\n").unwrap();
+        let git = |args: &[&str]| {
+            std::process::Command::new("git")
+                .args(args)
+                .current_dir(root.path())
+                .output()
+                .unwrap()
+        };
+        git(&["init", "-q"]);
+        let v = Vfs::new(Arc::new(TestLocal), root.path().to_string_lossy());
+        let b64 = v.archive_base64("pkg", 1 << 20).await.unwrap();
+        assert_eq!(tar_names(&b64), ["src/a.rs"]);
+    }
+
+    #[tokio::test]
+    async fn folder_archive_rejects_files_and_oversized_output() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root.path().join("d")).unwrap();
+        std::fs::write(root.path().join("d/x.bin"), vec![7u8; 4096]).unwrap();
+        std::fs::write(root.path().join("f.txt"), "f").unwrap();
+        let v = Vfs::new(Arc::new(TestLocal), root.path().to_string_lossy());
+        assert_eq!(
+            tar_names(&v.archive_base64("d", 1 << 20).await.unwrap()),
+            ["x.bin"]
+        );
+        assert!(v.archive_base64("f.txt", 1 << 20).await.is_err());
+        assert!(v.archive_base64("d", 8).await.is_err());
+        assert!(v.archive_base64("../d", 1 << 20).await.is_err());
     }
 
     #[tokio::test]
