@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub const CONTINUE_TEXT: &str = "（已换账号接着做）请从刚才中断的地方继续，把没做完的工作完成。";
+pub const CONTINUE_TEXT: &str =
+    "(Switched accounts.) Please continue from where you left off and finish the remaining work.";
 pub const ACC_RUNTIMES: [&str; 2] = ["claude", "codex"];
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -163,7 +164,7 @@ pub const MODES_CLAUDE: [Mode; 5] = [
     (
         "acceptEdits",
         "Edit automatically",
-        "Claude will edit your selected text or the whole file",
+        "Claude will edit files without asking and ask before running commands",
         "code",
     ),
     (

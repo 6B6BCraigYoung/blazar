@@ -59,7 +59,8 @@ pub fn Md(text: String, ws: String) -> impl IntoView {
     let html = md::render(&text, "", &ws);
     Effect::new(move |_| {
         let Some(root) = el.get() else { return };
-        let Ok(list) = root.query_selector_all("pre code[class^=\"language-\"]") else {
+        let Ok(list) = root.query_selector_all("pre code[class^=\"language-\"]:not([data-hl])")
+        else {
             return;
         };
         for i in 0..list.length() {
@@ -71,6 +72,7 @@ pub fn Md(text: String, ws: String) -> impl IntoView {
             };
             let lang = code.class_name().trim_start_matches("language-").to_owned();
             let text = code.text_content().unwrap_or_default();
+            let _ = code.set_attribute("data-hl", "");
             if text.len() > 20_000 {
                 continue;
             }
@@ -102,7 +104,7 @@ fn result_view(r: Res, key: String, opened: Opened) -> impl IntoView {
                 {move || if show.get() { all.clone() } else { shown.clone() }}
                 {move || (more > 0 && !show.get()).then(|| {
                     let k = key.clone();
-                    view! { <button class="cc-more" on:click=move |_| { show.set(true); opened.set(&k, true); }>{format!("展开其余 {more} 行")}</button> }
+                    view! { <button class="cc-more" on:click=move |_| { show.set(true); opened.set(&k, true); }>{format!("Show {more} more lines")}</button> }
                 })}
             </div>
         </div>
@@ -120,14 +122,14 @@ fn extra_view(e: &Extra, opened: Opened, key: &str, ws: &str) -> AnyView {
                     let cls = match c { '+' => "dadd", '-' => "ddel", _ => "dgap" };
                     view! { <div class=cls><span class="dm">{if *c == '⋯' { ' ' } else { *c }}</span>{if *c == '⋯' { "⋯".to_owned() } else { l.clone() }}</div> }
                 }).collect_view()}
-                {(*more > 0).then(|| view! { <div class="dgap">{format!("… 还有 {more} 行")}</div> })}
+                {(*more > 0).then(|| view! { <div class="dgap">{format!("… {more} more lines")}</div> })}
             </div>
         }.into_any(),
         Extra::Files(f) => view! { <div class="cc-diff">{f.iter().map(|x| view! { <div class="dh">{x.clone()}</div> }).collect_view()}</div> }.into_any(),
         Extra::Plan(p) => {
             let p = p.clone();
             let ws = ws.to_owned();
-            details(opened, format!("plan:{key}"), "cc-planbody", view! { "计划" }.into_any(), move || view! { <Md text=p ws/> }.into_any()).into_any()
+            details(opened, format!("plan:{key}"), "cc-planbody", view! { "Plan" }.into_any(), move || view! { <Md text=p ws/> }.into_any()).into_any()
         }
     }
 }
@@ -147,7 +149,7 @@ pub fn todo_list(list: &[crate::chat_model::Todo]) -> impl IntoView + use<> {
 
 fn tool_view(t: Tool, opened: Opened, ws: String) -> AnyView {
     let sub = (!t.sub.is_empty() || t.sub_calls > 0).then(|| {
-        let summary = if t.sub_calls > 0 { format!("{} 次工具调用 · 最近：{}", t.sub_calls, t.sub_last) } else { "子智能体处理中…".to_owned() };
+        let summary = if t.sub_calls > 0 { format!("{} tool calls · latest: {}", t.sub_calls, t.sub_last) } else { "Subagent working…".to_owned() };
         let steps = t.sub.clone();
         let ws = ws.clone();
         details(opened, format!("sub:{}", t.id), "cc-sub", view! { {summary} }.into_any(), move || {
@@ -170,7 +172,7 @@ fn tool_view(t: Tool, opened: Opened, ws: String) -> AnyView {
 fn step_view(s: Step, opened: Opened, ws: String) -> AnyView {
     match s {
         Step::Thinking { text, secs } => {
-            let head = if secs > 0 { format!("✻ 思考了 {secs} 秒") } else { "✻ 思考".to_owned() };
+            let head = if secs > 0 { format!("✻ Thought for {secs}s") } else { "✻ Thinking".to_owned() };
             if text.trim().is_empty() {
                 view! { <div class="cc-thinkmark">{head}</div> }.into_any()
             } else {
@@ -181,7 +183,7 @@ fn step_view(s: Step, opened: Opened, ws: String) -> AnyView {
         Step::Tool(t) => tool_view(*t, opened, ws),
         Step::Text(t) => view! { <div class="cc-row cc-msg sub"><span class="cc-dot"></span><div class="cc-main"><Md text=t ws/></div></div> }.into_any(),
         Step::Bg(t) => view! {
-            <div class="cc-row cc-bg"><span class="cc-dot"></span><div class="cc-main"><div class="cc-head"><b>"后台任务"</b><span class="cc-arg">{t}</span></div></div></div>
+            <div class="cc-row cc-bg"><span class="cc-dot"></span><div class="cc-main"><div class="cc-head"><b>"Background task"</b><span class="cc-arg">{t}</span></div></div></div>
         }.into_any(),
         Step::Note(t) => view! { <div class="cc-meta">{t}</div> }.into_any(),
         Step::Orphan(r) => view! { <div class="cc-row cc-orphan">{result_view(r, String::new(), opened)}</div> }.into_any(),
@@ -216,7 +218,7 @@ fn copy(text: String, done: RwSignal<bool>) {
             gloo_timers::future::TimeoutFuture::new(1200).await;
             let _ = done.try_set(false);
         } else {
-            toast("复制失败");
+            toast("Copy failed");
         }
     });
 }
@@ -278,15 +280,15 @@ fn UserMsg(
                 let go2 = do_retry2.clone();
                 view! {
                     <div class="cc-edit">
-                        <textarea rows="3" aria-label="编辑消息并重试" prop:value=move || draft.get() on:input=move |e| draft.set(event_target_value(&e))
+                        <textarea rows="3" aria-label="Edit message and retry" prop:value=move || draft.get() on:input=move |e| draft.set(event_target_value(&e))
                             on:keydown=move |e| {
                                 if e.key() == "Escape" { e.prevent_default(); e.stop_propagation(); editing.set(false); }
                                 if e.key() == "Enter" && (e.meta_key() || e.ctrl_key()) { e.prevent_default(); go(); }
                             }></textarea>
                         <div class="row">
-                            <span class="muted small">"重试会还原文件，并将这条消息及之后的对话移出上下文。"</span><span class="grow"></span>
-                            <button class="btn small" on:click=move |_| editing.set(false)>"取消"</button>
-                            <button class="btn small primary" on:click=move |_| go2()>"重试"</button>
+                            <span class="muted small">"Retrying restores files and removes this message and everything after it from context."</span><span class="grow"></span>
+                            <button class="btn small" on:click=move |_| editing.set(false)>"Cancel"</button>
+                            <button class="btn small primary" on:click=move |_| go2()>"Retry"</button>
                         </div>
                     </div>
                 }
@@ -294,7 +296,7 @@ fn UserMsg(
                 <div class="cc-ut">{text.clone()}</div>
             </Show>
             {long.then(|| view! {
-                <button class="cc-xp" on:click=move |_| open.update(|o| *o = !*o)>{move || if open.get() { "收起" } else { "展开" }}</button>
+                <button class="cc-xp" on:click=move |_| open.update(|o| *o = !*o)>{move || if open.get() { "Show less" } else { "Show more" }}</button>
             })}
             <span class="cc-acts">
                 {first.then(|| {
@@ -302,12 +304,12 @@ fn UserMsg(
                     let sid_r = sid.clone();
                     let later = later.clone();
                     view! {
-                        <button class="cc-rw" title="编辑消息，从这里继续" on:click=move |_| { draft.set(t.clone()); editing.set(true); }>"✎ 编辑"</button>
-                        <button class="cc-rw" title="使用原消息重试" on:click=move |_| chat.retry(sid_r.clone(), None, later())>"⟳ 重试"</button>
+                        <button class="cc-rw" title="Edit and continue from here" on:click=move |_| { draft.set(t.clone()); editing.set(true); }>"✎ Edit"</button>
+                        <button class="cc-rw" title="Retry with the same message" on:click=move |_| chat.retry(sid_r.clone(), None, later())>"⟳ Retry"</button>
                     }
                 })}
                 {move || cp.get().map(|c| view! {
-                    <button class="cc-rw" title="还原文件到这条消息之前" on:click=move |_| chat.rewind(c.clone(), false)>"↺ 还原"</button>
+                    <button class="cc-rw" title="Rewind code to here" on:click=move |_| chat.rewind(c.clone(), false)>"↺ Rewind"</button>
                 })}
             </span>
         </div>
@@ -337,13 +339,17 @@ fn error_view(chat: Chat, text: String, by_account: bool) -> AnyView {
                     .unwrap_or_default()
             });
             if list.is_empty() {
-                toast("暂无其他可用账号，请先在运行时页添加或登录。");
+                toast("No other account available. Add or log in to one on the Runtimes page.");
                 return;
             }
-            let mut choices = vec![Choice::plain("取消")];
+            let mut choices = vec![Choice::plain("Cancel")];
             choices.extend(list.iter().map(|a| Choice::plain(a.label.clone())));
-            if let Some(i) =
-                dialog::ask("换个账号继续", "保留对话上下文，切换账号后继续。", choices).await
+            if let Some(i) = dialog::ask(
+                "Continue with another account",
+                "Keep the conversation and continue on another account.",
+                choices,
+            )
+            .await
                 && i > 0
             {
                 chat.continue_on_another(list[i - 1].id.clone());
@@ -355,7 +361,7 @@ fn error_view(chat: Chat, text: String, by_account: bool) -> AnyView {
     view! {
         <div class="cc-row cc-err"><span class="cc-dot"></span><div class="cc-main">
             {text}
-            {can.then(|| view! { <div><button class="linkbtn" on:click=switch>"换个账号继续"</button></div> })}
+            {can.then(|| view! { <div><button class="linkbtn" on:click=switch>"Continue with another account"</button></div> })}
         </div></div>
     }.into_any()
 }
@@ -371,7 +377,7 @@ fn item_view(it: Item, chat: Chat, opened: Opened, ws: String) -> AnyView {
                 <div class="cc-row cc-msg"><span class="cc-dot"></span><div class="cc-main">
                     <Md text ws/>
                     <div class="cc-acts2">
-                        <button class="cc-copy" aria-label="复制回复" title="复制" data-done=move || done.get().to_string() inner_html=COPY on:click=move |_| copy(t.clone(), done)></button>
+                        <button class="cc-copy" aria-label="Copy response" title="Copy" data-done=move || done.get().to_string() inner_html=COPY on:click=move |_| copy(t.clone(), done)></button>
                     </div>
                 </div></div>
             }.into_any()
@@ -535,9 +541,16 @@ fn Empty(chat: Chat) -> impl IntoView {
             <div class="cc-empty">
                 {match &p {
                     Some(p) => view! {
-                        <div class="who"><b>{format!("与 {} 对话", p.name)}</b><div class="muted small">{p.description.clone().unwrap_or_default()}</div></div>
+                        <div class="who"><b>{format!("Chat with {}", p.name)}</b><div class="muted small">{p.description.clone().unwrap_or_default()}</div></div>
                     }.into_any(),
-                    None => view! { <EmptyState title="新对话" class=""/> }.into_any(),
+                    None => {
+                        let rt = chat.runtime();
+                        let name = match rt.as_str() { "claude" => "Claude Code", "codex" => "Codex", other => other }.to_owned();
+                        view! {
+                            <div class="cc-hero"><span class="cc-hero-mark" inner_html=crate::rt_logo::mark(&rt)></span><span>{name}</span></div>
+                            <div class="cc-tip">"Press "<kbd>"Shift"</kbd>" "<kbd>"Tab"</kbd>" to cycle permission modes, or type "<code>"/"</code>" for commands."</div>
+                        }.into_any()
+                    }
                 }}
                 {(!starters.is_empty()).then(|| view! {
                     <div class="starters">
@@ -547,7 +560,6 @@ fn Empty(chat: Chat) -> impl IntoView {
                         }).collect_view()}
                     </div>
                 })}
-                <div class="muted small">"在下方输入消息开始对话。"</div>
             </div>
         }
     }

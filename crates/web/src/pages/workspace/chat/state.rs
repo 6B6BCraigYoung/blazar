@@ -131,7 +131,9 @@ impl Chat {
             loading: RwSignal::new(true),
             queue: RwSignal::new(Vec::new()),
             checkpoints: RwSignal::new(HashMap::new()),
-            prompt: RwSignal::new(String::new()),
+            prompt: RwSignal::new(
+                storage::load_raw(&format!("blazar.draft.{ws}")).unwrap_or_default(),
+            ),
             attach: RwSignal::new(Vec::new()),
             fresh: RwSignal::new(false),
             agent: RwSignal::new(

@@ -6,7 +6,7 @@ use crate::components::status::EmptyState;
 use crate::components::toast::toast;
 
 use super::super::state::{ACC_RUNTIMES, Chat, ModelSel};
-use super::presentation::{eff_label, icon};
+use super::presentation::{editor_url, eff_label, icon};
 use super::{Pop, SlashItem};
 
 fn row_btn(
@@ -29,24 +29,23 @@ pub(super) fn slash_pop(
     items: Vec<SlashItem>,
     sel: RwSignal<usize>,
     run: impl Fn(usize) + Copy + 'static,
-    chat: Chat,
 ) -> impl IntoView {
-    let cli_n = chat
-        .catalog
-        .with_untracked(|c| c.as_ref().map_or(0, |c| c.commands.len()));
-    view! {
-        <div class="cp-h">{if cli_n > 0 { format!("命令 · {cli_n} 条来自 Claude Code") } else { "斜杠命令".to_owned() }}</div>
-        {if items.is_empty() {
-            view! { <EmptyState title="没有匹配的命令" class="cp-none"/> }.into_any()
-        } else {
-            items.into_iter().enumerate().map(|(i, c)| view! {
-                <button class="cp-row" data-sel=move || (sel.get() == i).to_string() on:click=move |_| run(i)>
-                    <span class="cp-t"><b>{format!("/{}", c.name)}{(!c.hint.is_empty()).then(|| view! { " "<span class="hint">{c.hint.clone()}</span> })}</b>
-                        {(!c.desc.is_empty()).then(|| view! { <span>{c.desc.clone()}</span> })}</span>
-                </button>
-            }).collect_view().into_any()
-        }}
+    if items.is_empty() {
+        return view! { <EmptyState title="No matching commands" class="cp-none"/> }.into_any();
     }
+    items
+        .into_iter()
+        .enumerate()
+        .map(|(i, c)| {
+            view! {
+                <button class="cp-row cp-cmd" data-sel=move || (sel.get() == i).to_string() on:click=move |_| run(i)>
+                    <span class="cp-l">{format!("/{}", c.name)}{(!c.hint.is_empty()).then(|| view! { " "<span class="hint">{c.hint.clone()}</span> })}</span>
+                    <span class="cp-d">{c.desc.clone()}</span>
+                </button>
+            }
+        })
+        .collect_view()
+        .into_any()
 }
 
 #[component]
@@ -93,8 +92,8 @@ pub(super) fn FilesPop(
         insert_at_caret.run(format!("{}{body}\n", if pre_nl { "\n" } else { "" }));
     };
     view! {
-        <div class="cp-h">"添加上下文"</div>
-        <input class="cp-q mono" aria-label="搜索文件和片段" node_ref=input placeholder="搜索文件或片段…" prop:value=move || q.get()
+        <div class="cp-h">"Add context"</div>
+        <input class="cp-q mono" aria-label="Search files and snippets" node_ref=input placeholder="Search files or snippets…" prop:value=move || q.get()
             on:input=move |e| q.set(event_target_value(&e))
             on:keydown=move |e| {
                 if e.key() == "Enter" && !e.is_composing() {
@@ -107,15 +106,25 @@ pub(super) fn FilesPop(
             {move || snippets().into_iter().map(|s| {
                 let body = s.body.clone();
                 let preview: String = s.body.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(70).collect();
-                view! { <button class="cp-row" on:click=move |_| insert_snip(body.clone())><span class="cp-t"><b>{format!("@{}", s.name)}</b><span>{preview}</span></span><span class="cp-r">"片段"</span></button> }
+                view! { <button class="cp-row" on:click=move |_| insert_snip(body.clone())><span class="cp-t"><b>{format!("@{}", s.name)}</b><span>{preview}</span></span><span class="cp-r">"snippet"</span></button> }
             }).collect_view()}
             {move || files().into_iter().map(|f| {
                 let f2 = f.clone();
                 view! { <button class="cp-row cp-file" on:click=move |_| insert_ref.run(f2.clone())>{f}</button> }
             }).collect_view()}
-            {move || (snippets().is_empty() && files().is_empty()).then(|| view! { <EmptyState title="没有匹配的文件或片段" class="cp-none"/> })}
+            {move || (snippets().is_empty() && files().is_empty()).then(|| view! { <EmptyState title="No matching files or snippets" class="cp-none"/> })}
         </div>
     }
+}
+
+fn open_in_editor(chat: Chat) {
+    let root = chat.root.get_value();
+    let target = chat.files.current.get_untracked().map_or_else(
+        || root.clone(),
+        |f| format!("{}/{f}", root.trim_end_matches('/')),
+    );
+    let (_, url) = editor_url(&chat.node.get_value(), &target, None);
+    let _ = window().location().set_href(&url);
 }
 
 pub(super) fn plus_pop(
@@ -126,10 +135,13 @@ pub(super) fn plus_pop(
     let cur = chat.files.current.get_untracked();
     view! {
         <button class="cp-row" on:click=move |_| { pop.set(None); if let Some(i) = file_in.get_untracked() { i.click(); } }>
-            <span class="cp-ico" inner_html=icon("up")></span><span class="cp-t"><b>"上传图片"</b></span><span class="cp-r">"可粘贴或拖入"</span>
+            <span class="cp-ico" inner_html=icon("up")></span><span class="cp-t"><b>"Attach file…"</b></span><span class="cp-r">"or paste / drop"</span>
         </button>
         <button class="cp-row" on:click=move |_| { chat.load_snippets(); pop.set(Some(Pop::Files)); }>
-            <span class="cp-ico" inner_html=icon("file")></span><span class="cp-t"><b>"添加上下文"</b></span><span class="cp-r">"@"</span>
+            <span class="cp-ico" inner_html=icon("file")></span><span class="cp-t"><b>"Mention file from this project…"</b></span><span class="cp-r">"@"</span>
+        </button>
+        <button class="cp-row" on:click=move |_| { pop.set(None); open_in_editor(chat); }>
+            <span class="cp-ico" inner_html=icon("file")></span><span class="cp-t"><b>{format!("Open in {}", editor_url("local", "", None).0)}</b></span>
         </button>
         {cur.map(|f| {
             let on = chat.ctx_off.get_untracked().as_deref() != Some(f.as_str());
@@ -137,7 +149,7 @@ pub(super) fn plus_pop(
             view! {
                 <button class="cp-row" on:click=move |_| { chat.ctx_off.set(if on { Some(f2.clone()) } else { None }); pop.set(None); }>
                     <span class="cp-ico" inner_html=icon("file")></span>
-                    <span class="cp-t"><b>{if on { "移除当前文件" } else { "添加当前文件" }}</b><span>{f}</span></span>
+                    <span class="cp-t"><b>{if on { "Remove current file" } else { "Add current file" }}</b><span>{f}</span></span>
                 </button>
             }
         })}
@@ -186,7 +198,7 @@ fn effort_row(chat: Chat) -> impl IntoView {
 pub(super) fn mode_pop(chat: Chat, pop: RwSignal<Option<Pop>>) -> impl IntoView {
     let cur = chat.effective_mode().map(|m| m.0);
     view! {
-        <div class="cp-sec flex">"模式"<span class="cp-hk"><kbd>"⇧"</kbd>" + "<kbd>"tab"</kbd>" 切换"</span></div>
+        <div class="cp-sec flex">"Modes"<span class="cp-hk"><kbd>"⇧"</kbd>" + "<kbd>"tab"</kbd>" to switch"</span></div>
         {chat.modes().iter().map(|&(v, t, d, ic)| view! {
             <button class="cp-row" data-sel=(Some(v) == cur).to_string() on:click=move |_| { chat.set_mode(v); pop.set(None); }>
                 <span class="cp-ico" inner_html=icon(ic)></span>
@@ -201,7 +213,7 @@ pub(super) fn mode_pop(chat: Chat, pop: RwSignal<Option<Pop>>) -> impl IntoView 
 pub(super) fn model_pop(chat: Chat, pop: RwSignal<Option<Pop>>) -> impl IntoView {
     let rt = chat.runtime();
     view! {
-        <div class="cp-h">"选择模型"</div>
+        <div class="cp-h">"Switch model"</div>
         {move || {
             let rt = rt.clone();
             let s = chat.model_sel(&rt);
@@ -223,6 +235,30 @@ pub(super) fn model_pop(chat: Chat, pop: RwSignal<Option<Pop>>) -> impl IntoView
             }).collect_view()
         }}
         {effort_row(chat)}
+        {(chat.runtime() == "claude").then(|| view! {
+            <button class="cp-row" on:click=move |_| toggle_thinking(chat)>
+                <span class="cp-t"><b>"Thinking"</b><span>"Extended thinking for the next messages"</span></span>
+                <span class="cp-r">{move || if chat.prefs.get().thinking { "On" } else { "Off" }}</span>
+            </button>
+        })}
+    }
+}
+
+fn toggle_thinking(chat: Chat) {
+    let on = !chat.prefs.get_untracked().thinking;
+    chat.set_prefs(
+        |p| p.thinking = on,
+        Some((
+            json!({ "thinking": on }),
+            if on { "thinking on" } else { "thinking off" },
+        )),
+    );
+    if !chat.running.get_untracked() {
+        toast(if on {
+            "Thinking on"
+        } else {
+            "Thinking off for next messages"
+        });
     }
 }
 
@@ -238,23 +274,23 @@ pub(super) fn agent_pop(chat: Chat, pop: RwSignal<Option<Pop>>) -> impl IntoView
         if let Some(a) = acc {
             chat.set_acc_sel(&a, chat.view.get_untracked().as_deref());
             if chat.running.get_untracked() {
-                toast("本轮结束后，下一条消息使用新账号。");
+                toast("The next message will use the new account after this turn.");
             }
         }
     };
     let acc_rows = move |rt: String, current: bool| -> AnyView {
         if remote && rt == "codex" {
             let st = match chat.remote_codex.get_untracked() {
-                Some(true) => "已登录",
-                Some(false) => "未登录 · 去登录",
-                None => "去登录",
+                Some(true) => "Logged in",
+                Some(false) => "Logged out · log in",
+                None => "Log in",
             };
             let n2 = node.clone();
             return view! {
                 <button class="cp-row cp-sub" on:click=move |_| {
                     pop.set(None);
                     crate::pages::runtimes::node_login(n2.clone(), Callback::new(move |()| chat.load_catalogs()));
-                }><span class="cp-t"><b>{format!("在 {node} 登录 Codex")}</b></span><span class="cp-r">{st}</span></button>
+                }><span class="cp-t"><b>{format!("Log in to Codex on {node}")}</b></span><span class="cp-r">{st}</span></button>
             }.into_any();
         }
         let list: Vec<crate::api::Account> = chat.accounts.with_untracked(|a| {
@@ -277,9 +313,9 @@ pub(super) fn agent_pop(chat: Chat, pop: RwSignal<Option<Pop>>) -> impl IntoView
             let away = remote && a.kind != "token";
             let off = !a.usable() || away;
             let note = if away {
-                "远端需配置 setup token".to_owned()
+                "Remote needs a setup token".to_owned()
             } else if off {
-                if a.disabled { "已停用".to_owned() } else if a.kind == "token" { "凭据失效".to_owned() } else { "未登录".to_owned() }
+                if a.disabled { "Disabled".to_owned() } else if a.kind == "token" { "Token expired".to_owned() } else { "Logged out".to_owned() }
             } else {
                 a.windows.iter().filter(|w| w.name != "blocked").map(|w| format!("{} {}%", match w.name.as_str() { "five_hour" => "5h", "seven_day" => "7d", n => n }, (w.utilization * 100.0).round())).collect::<Vec<_>>().join(" · ")
             };
@@ -297,7 +333,7 @@ pub(super) fn agent_pop(chat: Chat, pop: RwSignal<Option<Pop>>) -> impl IntoView
     };
     let none = profiles.is_empty() && rts.is_empty();
     view! {
-        {(!profiles.is_empty()).then(|| view! { <div class="cp-sec">"我的智能体"</div> })}
+        {(!profiles.is_empty()).then(|| view! { <div class="cp-sec">"My agents"</div> })}
         {profiles.into_iter().map(|p| {
             let v = format!("p:{}", p.id);
             let on = v == cur;
@@ -310,7 +346,7 @@ pub(super) fn agent_pop(chat: Chat, pop: RwSignal<Option<Pop>>) -> impl IntoView
                 </button>
             }
         }).collect_view()}
-        {(!rts.is_empty()).then(|| view! { <div class="cp-sec">"运行时"</div> })}
+        {(!rts.is_empty()).then(|| view! { <div class="cp-sec">"Runtimes"</div> })}
         {rts.into_iter().map(|r| {
             let v = format!("r:{}", r.id);
             let on = v == cur;
@@ -326,7 +362,7 @@ pub(super) fn agent_pop(chat: Chat, pop: RwSignal<Option<Pop>>) -> impl IntoView
             }
         }).collect_view()}
         {none.then(|| view! {
-            <div class="cp-none">{if remote { "请在运行时页配置 Claude Code 或 Codex，才能使用远端工作区。" } else { "请先在运行时页配置 Claude Code 或 Codex。" }}</div>
+            <div class="cp-none">{if remote { "Set up Claude Code or Codex on the Runtimes page to use remote workspaces." } else { "Set up Claude Code or Codex on the Runtimes page first." }}</div>
         })}
     }
 }
@@ -358,12 +394,12 @@ pub(super) fn mcp_pop(chat: Chat, pop: RwSignal<Option<Pop>>) -> impl IntoView {
         let ok = list.iter().filter(|m| m.status == "connected").count();
         let n = list.len();
         view! {
-            <div class="cp-h">{format!("MCP 服务 · {ok}/{n} 已连接")}</div>
+            <div class="cp-h">{format!("MCP servers · {ok}/{n} connected")}</div>
             {if list.is_empty() {
-                view! { <EmptyState title="暂无 MCP 服务" class="cp-none"/> }.into_any()
+                view! { <EmptyState title="No MCP servers" class="cp-none"/> }.into_any()
             } else {
                 list.into_iter().map(|m| {
-                    let st = match m.status.as_str() { "connected" => "已连接", "pending" => "连接中", "failed" => "连接失败", "needs-auth" => "待登录", "disabled" => "已停用", s => s }.to_owned();
+                    let st = match m.status.as_str() { "connected" => "connected", "pending" => "connecting", "failed" => "failed", "needs-auth" => "needs auth", "disabled" => "disabled", s => s }.to_owned();
                     let name = m.name.clone();
                     let name2 = m.name.clone();
                     let disabled = m.status == "disabled";
@@ -373,18 +409,18 @@ pub(super) fn mcp_pop(chat: Chat, pop: RwSignal<Option<Pop>>) -> impl IntoView {
                             <span class="nm" title=m.name.clone()>{m.name.clone()}</span>
                             <span class="mcp-st">{st}</span>
                             {(live && m.status == "failed").then(|| view! {
-                                <button class="mcp-act" on:click=move |_| { chat.live(json!({ "mcp_reconnect": name }), "MCP reconnect"); pop.set(None); }>"重连"</button>
+                                <button class="mcp-act" on:click=move |_| { chat.live(json!({ "mcp_reconnect": name }), "MCP reconnect"); pop.set(None); }>"Reconnect"</button>
                             })}
                             {(live && (m.status == "connected" || disabled)).then(|| view! {
                                 <button class="mcp-act" on:click=move |_| { chat.live(json!({ "mcp_toggle": { "name": name2, "enabled": disabled } }), if disabled { "MCP enable" } else { "MCP disable" }); pop.set(None); }>
-                                    {if disabled { "启用" } else { "停用" }}
+                                    {if disabled { "Enable" } else { "Disable" }}
                                 </button>
                             })}
                         </div>
                     }
                 }).collect_view().into_any()
             }}
-            <div class="cp-none">"需要登录时，在终端运行 claude 并使用 /mcp。重连和停用仅作用于当前运行的会话。"</div>
+            <div class="cp-none">"To authenticate, run claude in a terminal and use /mcp. Reconnect and disable only affect the running session."</div>
         }
     }
 }
@@ -408,7 +444,7 @@ pub(super) fn style_pop(chat: Chat, pop: RwSignal<Option<Pop>>) -> impl IntoView
             }
         };
         view! {
-            <div class="cp-sec">"输出风格"</div>
+            <div class="cp-sec">"Output styles"</div>
             {styles.into_iter().map(|x| {
                 let on = x == cur;
                 let label = if x == "default" { "Default".to_owned() } else { x.clone() };

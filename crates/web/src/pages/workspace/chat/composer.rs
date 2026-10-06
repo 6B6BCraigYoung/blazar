@@ -20,7 +20,7 @@ mod queue;
 mod status;
 
 use pickers::{FilesPop, agent_pop, mcp_pop, mode_pop, model_pop, plus_pop, slash_pop, style_pop};
-use presentation::{editor_url, eff_label, fmt_dur, fmt_k, icon, svg};
+use presentation::{eff_label, fmt_dur, fmt_k, icon, svg};
 use queue::{FailedEditor, QueueBand, QueueEditor};
 use status::{RateBanner, Todos};
 
@@ -54,8 +54,44 @@ struct SlashItem {
     name: String,
     desc: String,
     hint: String,
-    blazar: bool,
+    local: bool,
 }
+
+impl SlashItem {
+    fn local(name: &str, desc: &str) -> Self {
+        Self {
+            name: name.to_owned(),
+            desc: desc.to_owned(),
+            hint: String::new(),
+            local: true,
+        }
+    }
+}
+
+const CLAUDE_LOCAL: &[(&str, &str)] = &[
+    ("clear", "Start a new session with empty context"),
+    ("effort", "Set effort level for model usage"),
+    ("fast", "Toggle fast mode"),
+    ("mcp", "Manage MCP servers"),
+    ("model", "Set the AI model for Claude Code"),
+    ("output-style", "List output styles or switch to one"),
+    (
+        "rewind",
+        "Restore the code and/or conversation to a previous point",
+    ),
+    (
+        "usage",
+        "Show session cost, plan usage, and what's contributing to your limits",
+    ),
+];
+
+const CODEX_LOCAL: &[(&str, &str)] = &[
+    ("clear", "clear the terminal and start a new chat"),
+    ("mention", "mention a file"),
+    ("model", "choose what model and reasoning effort to use"),
+    ("new", "start a new chat during a conversation"),
+    ("permissions", "choose what Codex is allowed to do"),
+];
 
 #[component]
 pub fn Composer(chat: Chat, tick: RwSignal<u32>, tree_files: Signal<Vec<String>>) -> impl IntoView {
@@ -77,6 +113,17 @@ pub fn Composer(chat: Chat, tick: RwSignal<u32>, tree_files: Signal<Vec<String>>
         chat.prompt.track();
         request_animation_frame(grow);
     });
+    Effect::new(move |_| {
+        let key = format!("blazar.draft.{}", chat.ws_id());
+        chat.prompt.with(|p| {
+            if p.is_empty() {
+                storage::remove(&key);
+            } else {
+                storage::save_raw(&key, p);
+            }
+        });
+    });
+    let recall = StoredValue::new(None::<(usize, String)>);
     let focus = move || {
         if let Some(t) = ta.try_get_untracked().flatten() {
             let _ = t.focus();
@@ -103,98 +150,53 @@ pub fn Composer(chat: Chat, tick: RwSignal<u32>, tree_files: Signal<Vec<String>>
             return Vec::new();
         };
         let k = k.to_lowercase();
-        let claude = chat.runtime() == "claude";
-        let p = chat.prefs.get();
-        let mut items = vec![
-            ("new", "新建对话".to_owned()),
-            ("model", "切换模型或 Effort".to_owned()),
-            (
-                "modes",
-                chat.effective_mode()
-                    .map_or_else(|| "—".to_owned(), |m| m.1.to_owned()),
-            ),
-        ];
-        if claude {
-            items.push((
-                "thinking",
-                if p.thinking {
-                    "on → off"
-                } else {
-                    "off → on"
-                }
-                .to_owned(),
-            ));
-            items.push((
-                "fast",
-                if p.fast { "on → off" } else { "off → on" }.to_owned(),
-            ));
-            items.push((
-                "output-style",
-                if p.style.is_empty() {
-                    "Default".to_owned()
-                } else {
-                    p.style.clone()
-                },
-            ));
-            items.push(("mcp", "MCP 服务".to_owned()));
-        }
-        items.push(("rewind", "还原到消息发送前".to_owned()));
-        items.push(("usage", "账号与用量".to_owned()));
-        if chat.running.get() {
-            items.push(("interrupt", "停止当前运行".to_owned()));
-        }
-        items.push((
-            "open",
-            format!("在 {} 中打开", editor_url("local", "", None).0),
-        ));
-        let mut out: Vec<SlashItem> = items
-            .into_iter()
-            .map(|(n, d)| SlashItem {
-                name: n.to_owned(),
-                desc: d,
-                hint: String::new(),
-                blazar: true,
-            })
-            .collect();
-        if claude {
+        let mut out: Vec<SlashItem> = if chat.runtime() == "claude" {
             chat.load_catalog();
-            let cli = chat
-                .catalog
-                .with(|c| c.as_ref().map(|c| c.commands.clone()).unwrap_or_default());
-            out.extend(cli.into_iter().map(|c| SlashItem {
-                name: c.name,
-                desc: c.description,
-                hint: c.argument_hint,
-                blazar: false,
-            }));
-        }
-        out.into_iter()
-            .filter(|c| {
-                k.is_empty()
-                    || c.name.to_lowercase().contains(&k)
-                    || c.desc.to_lowercase().contains(&k)
-            })
-            .take(60)
-            .collect()
+            let mut cli: Vec<SlashItem> = chat.catalog.with(|c| {
+                c.as_ref()
+                    .map(|c| c.commands.clone())
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter(|c| !c.name.starts_with('_'))
+                    .map(|c| SlashItem {
+                        local: CLAUDE_LOCAL.iter().any(|(n, _)| *n == c.name),
+                        name: c.name,
+                        desc: c.description,
+                        hint: c.argument_hint,
+                    })
+                    .collect()
+            });
+            for (n, d) in CLAUDE_LOCAL {
+                if !cli.iter().any(|c| c.name == *n) {
+                    cli.push(SlashItem::local(n, d));
+                }
+            }
+            cli
+        } else {
+            CODEX_LOCAL
+                .iter()
+                .map(|(n, d)| SlashItem::local(n, d))
+                .collect()
+        };
+        out.retain(|c| {
+            k.is_empty() || c.name.to_lowercase().contains(&k) || c.desc.to_lowercase().contains(&k)
+        });
+        out.sort_by(|a, b| {
+            let rank = |c: &SlashItem| {
+                let n = c.name.to_lowercase();
+                if n.starts_with(&k) {
+                    0
+                } else if n.contains(&k) {
+                    1
+                } else {
+                    2
+                }
+            };
+            rank(a).cmp(&rank(b)).then_with(|| a.name.cmp(&b.name))
+        });
+        out
     };
 
-    let toggle_thinking = move || {
-        let on = !chat.prefs.get_untracked().thinking;
-        chat.set_prefs(
-            |p| p.thinking = on,
-            Some((
-                json!({ "thinking": on }),
-                if on { "thinking on" } else { "thinking off" },
-            )),
-        );
-        if !chat.running.get_untracked() {
-            toast(if on {
-                "已开启 Thinking"
-            } else {
-                "后续消息关闭 Thinking"
-            });
-        }
-    };
     let toggle_fast = move || {
         let on = !chat.prefs.get_untracked().fast;
         chat.set_prefs(
@@ -205,33 +207,20 @@ pub fn Composer(chat: Chat, tick: RwSignal<u32>, tree_files: Signal<Vec<String>>
             )),
         );
         if !chat.running.get_untracked() {
-            toast(if on {
-                "已开启 Fast mode"
-            } else {
-                "已关闭 Fast mode"
-            });
+            toast(if on { "Fast mode on" } else { "Fast mode off" });
         }
-    };
-    let open_in_editor = move || {
-        let root = chat.root.get_value();
-        let target = chat.files.current.get_untracked().map_or_else(
-            || root.clone(),
-            |f| format!("{}/{f}", root.trim_end_matches('/')),
-        );
-        let (_, url) = editor_url(&chat.node.get_value(), &target, None);
-        let _ = window().location().set_href(&url);
     };
     let usage = move || {
         let windows = chat.transcript.with_untracked(|t| t.rate.clone());
         let body = if windows.is_empty() {
-            "暂无用量数据，完成首轮 Claude 对话后可查看。".to_owned()
+            "No usage data yet. It appears after the first Claude turn.".to_owned()
         } else {
             windows
                 .iter()
                 .map(|w| {
                     format!(
-                        "{}：{}%",
-                        crate::fmt::window_label(&w.name),
+                        "{}: {}%",
+                        crate::fmt::window_label_en(&w.name),
                         (w.utilization * 100.0).round()
                     )
                 })
@@ -239,7 +228,7 @@ pub fn Composer(chat: Chat, tick: RwSignal<u32>, tree_files: Signal<Vec<String>>
                 .join("\n")
         };
         chat.spawn(async move {
-            dialog::ask("用量", &body, vec![Choice::plain("关闭")]).await;
+            dialog::ask("Usage", &body, vec![Choice::plain("Close")]).await;
         });
     };
     let rewind_list = move || {
@@ -258,15 +247,15 @@ pub fn Composer(chat: Chat, tick: RwSignal<u32>, tree_files: Signal<Vec<String>>
                 .collect()
         });
         if users.is_empty() {
-            toast("暂无可还原记录；非 Git 工作区不创建检查点。");
+            toast("Nothing to rewind. Checkpoints are only created in Git workspaces.");
             return;
         }
         chat.spawn(async move {
-            let mut ch = vec![Choice::plain("取消")];
+            let mut ch = vec![Choice::plain("Cancel")];
             ch.extend(users.iter().map(|u| Choice::plain(u.1.clone())));
             if let Some(i) = dialog::ask(
-                "还原到消息之前",
-                "选择一条消息，将文件还原到发送前的状态。",
+                "Rewind",
+                "Pick a message to restore files to the state before it was sent.",
                 ch,
             )
             .await
@@ -282,18 +271,16 @@ pub fn Composer(chat: Chat, tick: RwSignal<u32>, tree_files: Signal<Vec<String>>
             return;
         };
         pop.set(None);
-        if c.blazar
-            || matches!(
-                c.name.as_str(),
-                "mcp" | "fast" | "output-style" | "config" | "model"
-            )
-        {
+        if c.local {
             chat.prompt.set(String::new());
             match c.name.as_str() {
-                "new" => chat.fresh.set(true),
-                "model" | "config" => pop.set(Some(Pop::Model)),
-                "modes" => chat.cycle_mode(),
-                "thinking" => toggle_thinking(),
+                "clear" | "new" => chat.fresh.set(true),
+                "mention" => {
+                    chat.load_snippets();
+                    pop.set(Some(Pop::Files));
+                }
+                "model" | "effort" => pop.set(Some(Pop::Model)),
+                "permissions" => pop.set(Some(Pop::Mode)),
                 "fast" => toggle_fast(),
                 "output-style" => {
                     chat.load_catalog();
@@ -305,8 +292,6 @@ pub fn Composer(chat: Chat, tick: RwSignal<u32>, tree_files: Signal<Vec<String>>
                 }
                 "rewind" => rewind_list(),
                 "usage" => usage(),
-                "interrupt" => chat.stop(),
-                "open" => open_in_editor(),
                 _ => {}
             }
             focus();
@@ -322,11 +307,11 @@ pub fn Composer(chat: Chat, tick: RwSignal<u32>, tree_files: Signal<Vec<String>>
     let add_image = move |f: web_sys::File| {
         let t = f.type_();
         if !["image/png", "image/jpeg", "image/gif", "image/webp"].contains(&t.as_str()) {
-            toast("仅支持 PNG、JPEG、GIF 和 WebP 图片");
+            toast("Only PNG, JPEG, GIF and WebP images are supported");
             return;
         }
         if f.size() > 5.0 * 1024.0 * 1024.0 {
-            toast("图片大小不能超过 5 MB");
+            toast("Images must be 5 MB or smaller");
             return;
         }
         if chat.attach.with_untracked(Vec::len) >= 8 {
@@ -395,6 +380,7 @@ pub fn Composer(chat: Chat, tick: RwSignal<u32>, tree_files: Signal<Vec<String>>
 
     let send_key_mod = storage::load::<UiPrefs>("blazar.ui").is_some_and(|p| p.send_key == "mod");
     let on_input = move |e: ev::Event| {
+        recall.set_value(None);
         let v = event_target_value(&e);
         chat.prompt.set(v.clone());
         grow();
@@ -444,6 +430,15 @@ pub fn Composer(chat: Chat, tick: RwSignal<u32>, tree_files: Signal<Vec<String>>
                             (*s + n - 1) % n
                         }
                     });
+                    request_animation_frame(|| {
+                        if let Ok(Some(row)) =
+                            document().query_selector(".cb-pop .cp-row[data-sel=\"true\"]")
+                        {
+                            let opts = web_sys::ScrollIntoViewOptions::new();
+                            opts.set_block(web_sys::ScrollLogicalPosition::Nearest);
+                            row.scroll_into_view_with_scroll_into_view_options(&opts);
+                        }
+                    });
                     return;
                 }
                 "Enter" | "Tab" if !composing => {
@@ -452,6 +447,56 @@ pub fn Composer(chat: Chat, tick: RwSignal<u32>, tree_files: Signal<Vec<String>>
                     return;
                 }
                 _ => {}
+            }
+        }
+        if (k == "ArrowUp" || k == "ArrowDown")
+            && !composing
+            && pop.get_untracked().is_none()
+            && !(e.shift_key() || e.alt_key() || e.meta_key() || e.ctrl_key())
+            && let Some(t) = ta.try_get_untracked().flatten()
+        {
+            let v = chat.prompt.get_untracked();
+            let at = t.selection_start().ok().flatten().unwrap_or(0) as usize;
+            let end = t.selection_end().ok().flatten().unwrap_or(0) as usize;
+            let u: Vec<u16> = v.encode_utf16().collect();
+            let nl = u16::from(b'\n');
+            let edge = at == end
+                && if k == "ArrowUp" {
+                    !u[..at.min(u.len())].contains(&nl)
+                } else {
+                    !u[end.min(u.len())..].contains(&nl)
+                };
+            if edge {
+                let history = chat.prompt_history();
+                let next = match (recall.get_value(), k.as_str()) {
+                    (None, "ArrowUp") if !history.is_empty() => {
+                        Some((history.len() - 1, v.clone()))
+                    }
+                    (Some((i, draft)), "ArrowUp") if i > 0 => Some((i - 1, draft)),
+                    (Some((i, draft)), "ArrowDown") if i + 1 < history.len() => {
+                        Some((i + 1, draft))
+                    }
+                    (Some((_, draft)), "ArrowDown") => {
+                        recall.set_value(None);
+                        e.prevent_default();
+                        chat.prompt.set(draft);
+                        return;
+                    }
+                    _ => None,
+                };
+                if let Some((i, draft)) = next {
+                    e.prevent_default();
+                    let text = history[i].clone();
+                    let len = text.encode_utf16().count() as u32;
+                    recall.set_value(Some((i, draft)));
+                    chat.prompt.set(text);
+                    request_animation_frame(move || {
+                        if let Some(t) = ta.try_get_untracked().flatten() {
+                            let _ = t.set_selection_range(len, len);
+                        }
+                    });
+                    return;
+                }
             }
         }
         let send_combo = if send_key_mod {
@@ -492,13 +537,13 @@ pub fn Composer(chat: Chat, tick: RwSignal<u32>, tree_files: Signal<Vec<String>>
         };
         let pct = (used as f64 / win as f64 * 100.0).min(100.0);
         let title = if running.get() {
-            "运行中".to_owned()
+            "Running".to_owned()
         } else if used > 0 {
-            format!("上下文 {pct:.0}% · {} / {}", fmt_k(used), fmt_k(win))
+            format!("Context {pct:.0}% · {} / {}", fmt_k(used), fmt_k(win))
         } else {
-            "上下文".to_owned()
+            "Context".to_owned()
         };
-        (format!("--p:{pct:.1}"), title)
+        (format!("--p:{pct:.1}"), title, !running.get())
     };
     let timer = move || {
         tick.track();
@@ -543,7 +588,7 @@ pub fn Composer(chat: Chat, tick: RwSignal<u32>, tree_files: Signal<Vec<String>>
             <Show when=move || pop.get().is_some()>
                 <div class="cb-pop">
                     {move || match pop.get() {
-                        Some(Pop::Slash) => slash_pop(slash_items(), sel, run_slash, chat).into_any(),
+                        Some(Pop::Slash) => slash_pop(slash_items(), sel, run_slash).into_any(),
                         Some(Pop::Files) => view! { <FilesPop chat tree_files insert_ref=Callback::new(insert_ref) insert_at_caret=Callback::new(insert_at_caret) pop/> }.into_any(),
                         Some(Pop::Plus) => plus_pop(chat, pop, file_in).into_any(),
                         Some(Pop::Mode) => mode_pop(chat, pop).into_any(),
@@ -559,16 +604,16 @@ pub fn Composer(chat: Chat, tick: RwSignal<u32>, tree_files: Signal<Vec<String>>
             <RateBanner chat/>
             {move || (review_n() > 0).then(|| view! {
                 <div class="cb-band review">
-                    <span>"附带 "<b>{review_n()}</b>" 条审阅意见"</span><span class="grow"></span>
-                    <button class="linkbtn" on:click=move |_| chat.show_diff.run(())>"查看"</button>
+                    <span><b>{review_n()}</b>" review comments attached"</span><span class="grow"></span>
+                    <button class="linkbtn" on:click=move |_| chat.show_diff.run(())>"View"</button>
                     <button class="linkbtn" on:click=move |_| {
                         let n = review_n();
                         chat.spawn(async move {
-                            if dialog::ask("丢弃审阅意见", &format!("丢弃 {n} 条尚未发送的审阅意见？"), vec![Choice::plain("取消"), Choice::danger("丢弃")]).await == Some(1) {
+                            if dialog::ask("Discard review comments", &format!("Discard {n} unsent review comments?"), vec![Choice::plain("Cancel"), Choice::danger("Discard")]).await == Some(1) {
                                 chat.clear_review();
                             }
                         });
-                    }>"清空"</button>
+                    }>"Clear"</button>
                 </div>
             })}
             <QueueBand chat/>
@@ -577,11 +622,11 @@ pub fn Composer(chat: Chat, tick: RwSignal<u32>, tree_files: Signal<Vec<String>>
                 chat.deliveries.with(|d| d.failed()).into_iter().filter(|(_, request)| request["resume_session"].as_str() == thread.as_deref()).map(|(id, request)| {
                 let text = request["text"].as_str().unwrap_or_default().to_owned();
                 let images = request["images"].as_array().map_or(0, Vec::len);
-                view! { <div class="cb-band queue"><div class="cq-h"><b>"发送失败"</b><span class="grow"></span><button class="linkbtn" on:click=move |_| chat.retry_failed(id)>"重试"</button><button class="linkbtn" on:click=move |_| failed_edit.set(Some((id, request.clone())))>"编辑"</button><button class="linkbtn" on:click=move |_| chat.spawn(async move {
-                    if dialog::ask("丢弃消息？", "这条消息尚未发送，丢弃后无法恢复。", vec![Choice::plain("取消"), Choice::danger("丢弃")]).await == Some(1) {
+                view! { <div class="cb-band queue"><div class="cq-h"><b>"Failed to send"</b><span class="grow"></span><button class="linkbtn" on:click=move |_| chat.retry_failed(id)>"Retry"</button><button class="linkbtn" on:click=move |_| failed_edit.set(Some((id, request.clone())))>"Edit"</button><button class="linkbtn" on:click=move |_| chat.spawn(async move {
+                    if dialog::ask("Discard message?", "This message was not sent. Discarding it cannot be undone.", vec![Choice::plain("Cancel"), Choice::danger("Discard")]).await == Some(1) {
                         let _ = chat.deliveries.try_update(|deliveries| deliveries.take_failed(id));
                     }
-                })>"丢弃"</button></div><div class="cq-t">{text}{(images > 0).then(|| format!(" · {images} 张附件"))}</div></div> }
+                })>"Discard"</button></div><div class="cq-t">{text}{(images > 0).then(|| format!(" · {images} attachments"))}</div></div> }
             }).collect_view()}}
             {move || chat.editing_queue.get().map(|queued| view! { <QueueEditor chat queued/> })}
             {move || failed_edit.get().map(|(id, request)| view! { <FailedEditor chat id request on_close=Callback::new(move |_| failed_edit.set(None))/> })}
@@ -599,14 +644,14 @@ pub fn Composer(chat: Chat, tick: RwSignal<u32>, tree_files: Signal<Vec<String>>
                         <div class="cb-atts">
                             {list.into_iter().enumerate().map(|(i, a)| view! {
                                 <span class="cb-att"><img src=a.url alt=""/>
-                                    <button aria-label="移除" on:click=move |_| chat.attach.update(|l| { l.remove(i); })>"×"</button>
+                                    <button aria-label="Remove" on:click=move |_| chat.attach.update(|l| { l.remove(i); })>"×"</button>
                                 </span>
                             }).collect_view()}
                         </div>
                     })
                 }}
-                <textarea node_ref=ta rows="1" class="prompt" aria-label="消息"
-                    placeholder=move || if running.get() { "添加下一条消息…" } else { "发送消息…" }
+                <textarea node_ref=ta rows="1" class="prompt" aria-label="Message"
+                    placeholder=move || if running.get() { "Queue another message…" } else { "⌘ Esc to focus or unfocus Claude" }
                     prop:value=move || chat.prompt.get()
                     on:input=on_input on:keydown=on_key
                     on:paste=move |e: ev::ClipboardEvent| {
@@ -614,8 +659,8 @@ pub fn Composer(chat: Chat, tick: RwSignal<u32>, tree_files: Signal<Vec<String>>
                         if !imgs.is_empty() { e.prevent_default(); imgs.into_iter().for_each(add_image); }
                     }></textarea>
                 <div class="cb-bar">
-                    <button class="cb-ic cb-trigger" aria-label="添加附件" title="添加附件" inner_html=icon("plus") on:click=move |_| pop.update(|p| *p = if *p == Some(Pop::Plus) { None } else { Some(Pop::Plus) })></button>
-                    <button class="cb-ic cb-trigger" aria-label="斜杠命令" title="斜杠命令（/）" inner_html=icon("slash") on:click=move |_| {
+                    <button class="cb-ic cb-trigger" aria-label="Add context" title="Add context" inner_html=icon("plus") on:click=move |_| pop.update(|p| *p = if *p == Some(Pop::Plus) { None } else { Some(Pop::Plus) })></button>
+                    <button class="cb-ic cb-trigger" aria-label="Slash commands" title="Slash commands (/)" inner_html=icon("slash") on:click=move |_| {
                         if !chat.prompt.get_untracked().starts_with('/') { chat.prompt.set("/".into()); }
                         sel.set(0);
                         pop.set(Some(Pop::Slash));
@@ -623,43 +668,42 @@ pub fn Composer(chat: Chat, tick: RwSignal<u32>, tree_files: Signal<Vec<String>>
                     }></button>
                     {move || (chat.runtime() == "claude").then(|| {
                         let (n, bad) = chat.transcript.with(|t| t.mcp.clone()).iter().fold((0, 0), |(n, b), m| (n + 1, b + usize::from(m.status == "failed")));
-                        view! { <button class="cb-ic cb-trigger" data-bad=(bad > 0).to_string() aria-label="MCP 服务" title=format!("MCP 服务{}", if n > 0 { format!(" ({n})") } else { String::new() })
+                        view! { <button class="cb-ic cb-trigger" data-bad=(bad > 0).to_string() aria-label="MCP servers" title=format!("MCP servers{}", if n > 0 { format!(" ({n})") } else { String::new() })
                             inner_html=icon("plug") on:click=move |_| { chat.load_catalog(); pop.update(|p| *p = if *p == Some(Pop::Mcp) { None } else { Some(Pop::Mcp) }); }></button> }
                     })}
-                    {move || { let (st, title) = ring(); view! { <span class="cb-ring" data-run=running.get().to_string() style=st title=title></span> } }}
-                    <span class="cb-time">{timer}</span>
-                    <button class="cb-chip cb-trigger" title="选择模型" on:click=move |_| pop.update(|p| *p = if *p == Some(Pop::Model) { None } else { Some(Pop::Model) })>
-                        {move || { let (n, e) = model_label(); view! { {n}{e.map(|e| view! { " "<span class="muted">{e}</span> })} } }}
+                    <button class="cb-chip cb-trigger cb-model" title="Switch model" on:click=move |_| pop.update(|p| *p = if *p == Some(Pop::Model) { None } else { Some(Pop::Model) })>
+                        <span class="cb-tx">{move || { let (n, e) = model_label(); view! { {n}{e.map(|e| view! { " "<span class="muted">{e}</span> })} } }}</span>
                     </button>
-                    {move || chat.ctx_file().map(|f| {
-                        let name = f.rsplit('/').next().unwrap_or(&f).to_owned();
-                        let f2 = f.clone();
-                        view! {
-                            <span class="cb-div"></span>
-                            <span class="cb-chip cb-ctx" title=format!("当前文件：{f}")>
-                                <span inner_html=icon("file")></span><span class="nm">{name}</span>
-                                <button class="x" aria-label="移除当前文件上下文" title="移除当前文件上下文" on:click=move |e| { e.stop_propagation(); chat.ctx_off.set(Some(f2.clone())); }>"×"</button>
-                            </span>
-                        }
-                    })}
-                    <Show when=move || chat.fresh.get() && chat.view.get().is_some()>
-                        <button type="button" class="cb-chip cb-fresh" aria-label="取消新建对话，继续当前对话" title="下一条消息会新建对话" on:click=move |_| chat.fresh.set(false)>"新建对话 ×"</button>
-                    </Show>
+                {move || chat.ctx_file().map(|f| {
+                    let name = f.rsplit('/').next().unwrap_or(&f).to_owned();
+                    let f2 = f.clone();
+                    view! {
+                        <span class="cb-chip cb-ctx" title=format!("Current file: {f}")>
+                            <span inner_html=icon("file")></span><span class="nm cb-tx">{name}</span>
+                            <button class="x" aria-label="Remove current file" title="Remove current file" on:click=move |e| { e.stop_propagation(); chat.ctx_off.set(Some(f2.clone())); }>"×"</button>
+                        </span>
+                    }
+                })}
+                <Show when=move || chat.fresh.get() && chat.view.get().is_some()>
+                    <button type="button" class="cb-chip cb-fresh" aria-label="Keep the current conversation" title="The next message starts a new conversation" on:click=move |_| chat.fresh.set(false)>"New conversation ×"</button>
+                </Show>
+                    {move || { let (st, title, empty) = ring(); view! { <span class="cb-ring" data-empty=empty.to_string() data-run=running.get().to_string() style=st title=title></span> } }}
+                    <span class="cb-time">{timer}</span>
                     <span class="cb-grow"></span>
                     <span class="cb-right">
-                    <button class="cb-chip cb-plain cb-trigger" title="选择智能体和账号，保留当前对话上下文"
+                    <button class="cb-chip cb-plain cb-trigger cb-agent" title="Switch agent or account, keeping the conversation"
                         on:click=move |_| pop.update(|p| *p = if *p == Some(Pop::Agent) { None } else { Some(Pop::Agent) })>
                         <span class="rt-dot" data-rt=move || chat.runtime()></span>
-                        <span>{move || chat.agent_label()}</span>
+                        <span class="cb-tx">{move || chat.agent_label()}
                         {move || {
                             let rt = chat.runtime();
                             (ACC_RUNTIMES.contains(&rt.as_str()) && chat.agent.get().starts_with("r:")).then(|| {
                                 chat.current_account(&rt).and_then(|id| chat.account(&id)).map(|a| view! { <span class="muted">{format!(" · {}", a.label)}</span> })
                             }).flatten()
-                        }}
+                        }}</span>
                     </button>
                     {move || chat.effective_mode().map(|m| {
-                        let from = if !chat.perm.get().is_empty() { "" } else if chat.profile().and_then(|p| p.permission_mode).is_some() { "（来自智能体）" } else { "（默认）" };
+                        let from = if !chat.perm.get().is_empty() { "" } else if chat.profile().and_then(|p| p.permission_mode).is_some() { " (from agent)" } else { " (default)" };
                         view! {
                             <button class="cb-chip cb-plain cb-trigger cb-mode" data-mode=m.0 title=format!("{}{from}", m.2)
                                 on:click=move |_| pop.update(|p| *p = if *p == Some(Pop::Mode) { None } else { Some(Pop::Mode) })>
@@ -669,8 +713,8 @@ pub fn Composer(chat: Chat, tick: RwSignal<u32>, tree_files: Signal<Vec<String>>
                     })}
                     <button class="cb-send" data-mode=move || if stop_mode() { "stop" } else { "send" } data-busy=move || (chat.busy.get() > 0).to_string()
                         data-pmode=move || chat.effective_mode().map(|m| m.0).unwrap_or("")
-                        aria-label=move || if stop_mode() { "停止" } else if running.get() { "加入队列" } else { "发送" }
-                        title=move || if stop_mode() { "停止（Esc）" } else if running.get() { "加入队列（Enter）" } else { "发送（Enter）" }
+                        aria-label=move || if stop_mode() { "Stop" } else if running.get() { "Queue" } else { "Send" }
+                        title=move || if stop_mode() { "Stop (Esc)" } else if running.get() { "Queue (Enter)" } else { "Send (Enter)" }
                         on:click=move |_| if stop_mode() { chat.stop() } else { chat.send() }>
                         <span class="i-send" inner_html=svg(r#"<path d="M12 19V5M5.5 11.5 12 5l6.5 6.5"/>"#)></span>
                         <span class="i-stop"></span>

@@ -51,7 +51,16 @@ pub fn ChatPane(
             chat.show_aux.run(());
         }
     });
-    on_cleanup(move || keys.remove());
+    let menu = crate::shortcuts::on_menu(move |id| {
+        if id == "act:newchat" {
+            chat.new_chat();
+            chat.show_aux.run(());
+        }
+    });
+    on_cleanup(move || {
+        keys.remove();
+        menu.remove();
+    });
     Effect::new(move |previous: Option<Option<String>>| {
         let profile = query.read().get("agent").filter(|id| !id.is_empty());
         let fresh = query.read().get("new").as_deref() == Some("1");
@@ -71,7 +80,9 @@ pub fn ChatPane(
             chat.new_chat();
             chat.prompt.set(text);
             chat.show_aux.run(());
-            crate::components::toast::toast("已在新对话中填入草稿，选择智能体后发送。");
+            crate::components::toast::toast(
+                "Draft added to a new conversation. Pick an agent and send.",
+            );
         }
     });
 
@@ -95,7 +106,7 @@ pub fn ChatPane(
     let history_trigger = NodeRef::<html::Button>::new();
     view! {
         <div class="rhead chat-head">
-            <div class="chat-tabs" role="group" aria-label="打开的对话">
+            <div class="chat-tabs" role="group" aria-label="Open conversations">
                 <For each=move || chat.tabs.get() key=|t| t.clone() let:t>
                     {
                         let t1 = t.clone();
@@ -109,7 +120,7 @@ pub fn ChatPane(
                             let Some(id) = t4.clone() else { return };
                             let cur = chat.thread_title(Some(&id));
                             chat.spawn(async move {
-                                let name = window().prompt_with_message_and_default("对话名称", &cur).ok().flatten();
+                                let name = window().prompt_with_message_and_default("Conversation name", &cur).ok().flatten();
                                 if let Some(name) = name.map(|name| name.trim().to_owned()).filter(|name| !name.is_empty()) {
                                     chat.rename(id, name);
                                 }
@@ -118,38 +129,38 @@ pub fn ChatPane(
                         let rename_click = rename.clone();
                         let active_button = active.clone();
                         view! {
-                            <span class="ctab" data-active=move || active().to_string() title=move || format!("{}（双击重命名）", title.get())
+                            <span class="ctab" data-active=move || active().to_string() title=move || format!("{} (double-click to rename)", title.get())
                                 on:click={ let t = t.clone(); move |_| if chat.view.get_untracked() != t { chat.activate(t.clone()) } }
                                 on:dblclick=move |_| rename()>
                                 <button type="button" class="ctab-select" aria-pressed=move || active_button().to_string()>
                                     <span class="t">{move || title.get()}</span>
-                                    {move || live().then(|| view! { <span class="live" aria-label="运行中"></span> })}
+                                    {move || live().then(|| view! { <span class="live" aria-label="Running"></span> })}
                                 </button>
-                                {t.is_some().then(|| view! { <button type="button" class="ctab-rename" title="重命名对话" aria-label="重命名对话" on:dblclick=|event| event.stop_propagation() on:click=move |event| { event.stop_propagation(); rename_click(); }>"✎"</button> })}
-                                <button type="button" class="x" title="关闭对话" aria-label="关闭对话" on:click={ let t = t.clone(); move |e| { e.stop_propagation(); chat.close_tab(t.clone()); } }>"×"</button>
+                                {t.is_some().then(|| view! { <button type="button" class="ctab-rename" title="Rename" aria-label="Rename" on:dblclick=|event| event.stop_propagation() on:click=move |event| { event.stop_propagation(); rename_click(); }>"✎"</button> })}
+                                <button type="button" class="x" title="Close" aria-label="Close" on:click={ let t = t.clone(); move |e| { e.stop_propagation(); chat.close_tab(t.clone()); } }>"×"</button>
                             </span>
                         }
                     }
                 </For>
-                <button class="ctab add" aria-label="新建对话" title="新建对话" on:click=move |_| chat.new_chat()>"＋"</button>
+                <button class="ctab add" aria-label="New conversation" title="New conversation" on:click=move |_| chat.new_chat()>"＋"</button>
             </div>
             <span class="more">
-                <button class="laybtn" node_ref=history_trigger aria-label="历史对话" aria-haspopup="menu" aria-expanded=move || hist.get().to_string() title="历史对话" on:click=move |_| {
+                <button class="laybtn" node_ref=history_trigger aria-label="Past conversations" aria-haspopup="menu" aria-expanded=move || hist.get().to_string() title="Past conversations" on:click=move |_| {
                     hist.update(|h| *h = !*h);
                     if hist.get_untracked() { chat.spawn(async move { chat.load_threads().await }); }
                 } inner_html=r#"<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7M3 4v4h4"/><path d="M12 7v5l3 2"/></svg>"#></button>
                 <Show when=move || hist.get()>
-                    <div class="menu hist" role="menu" aria-label="历史对话" node_ref=history_menu on:keydown=move |event| { if let Some(root) = history_menu.get_untracked() { menu_keydown(&event, root.unchecked_ref(), Callback::new(move |_| { hist.set(false); if let Some(trigger) = history_trigger.get_untracked() { let _ = trigger.focus(); } })); } } on:mouseleave=move |_| hist.set(false)>
-                        <button role="menuitem" on:click=move |_| { hist.set(false); chat.new_chat(); }><b>"＋ 新建对话"</b></button>
+                    <div class="menu hist" role="menu" aria-label="Past conversations" node_ref=history_menu on:keydown=move |event| { if let Some(root) = history_menu.get_untracked() { menu_keydown(&event, root.unchecked_ref(), Callback::new(move |_| { hist.set(false); if let Some(trigger) = history_trigger.get_untracked() { let _ = trigger.focus(); } })); } } on:mouseleave=move |_| hist.set(false)>
+                        <button role="menuitem" on:click=move |_| { hist.set(false); chat.new_chat(); }><b>"＋ New conversation"</b></button>
                         <div class="menu-sep"></div>
                         {move || chat.threads.get().into_iter().map(|t| {
                             let id = t.id.clone();
                             let on = chat.view.get().as_deref() == Some(id.as_str());
                             let when = t.last_at.clone().unwrap_or_else(|| t.created_at.clone());
-                            let sub = format!("{} · {}{}", t.runtime, crate::fmt::ago(&when), if t.status.as_deref() == Some("running") { " · 运行中" } else { "" });
+                            let sub = format!("{} · {}{}", t.runtime, crate::fmt::ago_en(&when), if t.status.as_deref() == Some("running") { " · running" } else { "" });
                             view! {
                                 <button role="menuitem" class="hist-row" data-sel=on.to_string() on:click=move |_| { hist.set(false); chat.activate(Some(id.clone())); }>
-                                    <b>{t.title.clone().filter(|x| !x.is_empty()).unwrap_or_else(|| "未命名对话".into())}</b>
+                                    <b>{t.title.clone().filter(|x| !x.is_empty()).unwrap_or_else(|| "Untitled".into())}</b>
                                     <span class="muted small">{sub}</span>
                                 </button>
                             }
@@ -157,8 +168,8 @@ pub fn ChatPane(
                     </div>
                 </Show>
             </span>
-            <button class="laybtn" aria-label="新建对话" title="新建对话" on:click=move |_| chat.new_chat() inner_html=r#"<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>"#></button>
-            <button class="laybtn" aria-label="收起对话" title="收起对话 ⌘⌥B" on:click=move |_| on_hide.run(())>"×"</button>
+            <button class="laybtn" aria-label="New conversation" title="New conversation" on:click=move |_| chat.new_chat() inner_html=r#"<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>"#></button>
+            <button class="laybtn" aria-label="Hide" title="Hide ⌘⌥B" on:click=move |_| on_hide.run(())>"×"</button>
         </div>
         <div class="chat-body">
             <Log chat tick/>

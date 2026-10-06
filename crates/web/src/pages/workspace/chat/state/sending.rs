@@ -12,6 +12,8 @@ use super::delivery::take_composer;
 use super::send_context::SendContext;
 use super::{ACC_RUNTIMES, CONTINUE_TEXT, Chat, Comment, PendingMsg, Queued};
 
+const PROMPT_HISTORY_MAX: usize = 200;
+
 impl Chat {
     pub(super) fn send_context(self, thread: Option<String>) -> SendContext {
         SendContext {
@@ -195,12 +197,12 @@ impl Chat {
             .map(|(i, c)| {
                 let code: String = c.code.trim().chars().take(200).collect();
                 format!(
-                    "{}. `{}` 第 {} 行{}\n   > {code}\n   {}",
+                    "{}. `{}` line {}{}\n   > {code}\n   {}",
                     i + 1,
                     c.file,
                     c.line,
                     if c.side == "old" {
-                        "（被删掉的那一行）"
+                        " (deleted line)"
                     } else {
                         ""
                     },
@@ -209,7 +211,7 @@ impl Chat {
             })
             .collect();
         format!(
-            "\n\n---\n审阅意见（{} 条），请逐条处理：\n\n{}",
+            "\n\n---\nReview comments ({}). Please address each one:\n\n{}",
             list.len(),
             items.join("\n\n")
         )
@@ -218,6 +220,23 @@ impl Chat {
     pub fn clear_review(self) {
         self.diff.comments.set(Vec::new());
         storage::remove(&format!("blazar.review.{}", self.ws_id()));
+    }
+
+    pub fn prompt_history(self) -> Vec<String> {
+        storage::load(&format!("blazar.history.{}", self.ws_id())).unwrap_or_default()
+    }
+
+    fn remember_prompt(self, text: &str) {
+        let text = text.trim();
+        if text.is_empty() {
+            return;
+        }
+        let mut history = self.prompt_history();
+        history.retain(|h| h != text);
+        history.push(text.to_owned());
+        let excess = history.len().saturating_sub(PROMPT_HISTORY_MAX);
+        history.drain(..excess);
+        storage::save(&format!("blazar.history.{}", self.ws_id()), &history);
     }
 
     pub fn send(self) {
@@ -229,11 +248,12 @@ impl Chat {
             return;
         }
         let (text, images) = take_composer(&mut self.prompt.write(), &mut self.attach.write());
+        self.remember_prompt(&text);
         let text = if text.trim().is_empty() {
             if reviews.is_empty() {
-                "看一下这张图"
+                "Take a look at this image"
             } else {
-                "请逐条处理下面的审阅意见。"
+                "Please address the review comments below."
             }
             .to_owned()
         } else {
@@ -301,9 +321,9 @@ impl Chat {
                     match q {
                         Ok(q) => {
                             self.queue.set(q);
-                            toast("已排队，当前轮次结束后发送");
+                            toast("Queued. Sends after this turn.");
                         }
-                        Err(e) => toast(format!("排队失败，消息已保留：{e}")),
+                        Err(e) => toast(format!("Couldn't queue, message kept: {e}")),
                     }
                 }
                 Ok(r) => {
@@ -321,7 +341,7 @@ impl Chat {
                         self.drop_pending(pid);
                         let why = r["activity"]["reason"].as_str().unwrap_or("").to_owned();
                         toast(if why.is_empty() {
-                            "智能体未启动".to_owned()
+                            "Agent failed to start".to_owned()
                         } else {
                             why.clone()
                         });
@@ -331,14 +351,14 @@ impl Chat {
                             .unwrap_or_default();
                         if self.context_is_current(&context) {
                             self.local_errors
-                                .update(|e| e.push(format!("智能体未启动：{why}{class}")));
+                                .update(|e| e.push(format!("Agent failed to start: {why}{class}")));
                         }
                     }
                 }
                 Err(e) => {
                     self.drop_pending(pid);
                     self.deliveries.update(|d| d.finish(pid, false));
-                    toast(format!("发送失败，消息已保留：{e}"));
+                    toast(format!("Send failed, message kept: {e}"));
                 }
             }
             gloo_timers::future::TimeoutFuture::new(60_000).await;
@@ -370,7 +390,7 @@ impl Chat {
                 Ok(r) if r["admitted"] == json!(false) => toast(
                     r["reason"]
                         .as_str()
-                        .unwrap_or("工作区正在处理其他操作")
+                        .unwrap_or("The workspace is busy with another operation")
                         .to_owned(),
                 ),
                 Ok(r) => {
@@ -379,9 +399,9 @@ impl Chat {
                         r["session_id"].as_str().map(str::to_owned),
                         r["thread_id"].as_str().map(str::to_owned),
                     );
-                    toast(format!("使用 {label} 继续"));
+                    toast(format!("Continuing with {label}"));
                 }
-                Err(e) => toast(format!("发送失败：{e}")),
+                Err(e) => toast(format!("Send failed: {e}")),
             }
         });
     }

@@ -25,23 +25,23 @@ pub(super) fn QueueBand(chat: Chat) -> impl IntoView {
                     <div class="cb-band queue">
                         <div class="cq-h">
                             <span class="cq-dot" data-held=m.held.is_some().to_string()></span>
-                            <b>{if m.held.is_some() { "已暂停" } else { "待发送" }}</b>
-                            <span class="muted">{m.held.clone().unwrap_or_else(|| "本轮结束后发送".into())}</span>
+                            <b>{if m.held.is_some() { "Paused" } else { "Queued" }}</b>
+                            <span class="muted">{m.held.clone().unwrap_or_else(|| "Sends after this turn".into())}</span>
                             <span class="grow"></span>
                             {if running {
-                                view! { <button class="linkbtn" title="立即补充到当前轮次" on:click=move |_| chat.queue_act("steer", m1.clone())>"立即补充"</button> }.into_any()
+                                view! { <button class="linkbtn" title="Add to the current turn now" on:click=move |_| chat.queue_act("steer", m1.clone())>"Send now"</button> }.into_any()
                             } else {
-                                view! { <button class="linkbtn" on:click=move |_| chat.queue_act("send", m1.clone())>"发送"</button> }.into_any()
+                                view! { <button class="linkbtn" on:click=move |_| chat.queue_act("send", m1.clone())>"Send"</button> }.into_any()
                             }}
-                            <button class="linkbtn" on:click=move |_| chat.queue_act("edit", m2.clone())>"编辑"</button>
-                            <button class="linkbtn" on:click=move |_| chat.queue_act("drop", m3.clone())>"移除"</button>
+                            <button class="linkbtn" on:click=move |_| chat.queue_act("edit", m2.clone())>"Edit"</button>
+                            <button class="linkbtn" on:click=move |_| chat.queue_act("drop", m3.clone())>"Remove"</button>
                         </div>
-                        <div class="cq-t">{m.text.clone()}{(m.images > 0).then(|| view! { <span class="muted">{format!(" · {} 张附件", m.images)}</span> })}</div>
-                        {(others > 0).then(|| view! { <div class="cq-o muted">{format!("其他对话还有 {others} 条待发送消息")}</div> })}
+                        <div class="cq-t">{m.text.clone()}{(m.images > 0).then(|| view! { <span class="muted">{format!(" · {} attachments", m.images)}</span> })}</div>
+                        {(others > 0).then(|| view! { <div class="cq-o muted">{format!("{others} more queued in other conversations")}</div> })}
                     </div>
                 }.into_any()
             }
-            None => view! { <div class="cb-band queue"><div class="cq-o muted">{format!("其他对话有 {others} 条待发送消息")}</div></div> }.into_any(),
+            None => view! { <div class="cb-band queue"><div class="cq-o muted">{format!("{others} queued in other conversations")}</div></div> }.into_any(),
         })
     }
 }
@@ -70,7 +70,7 @@ pub(super) fn QueueEditor(chat: Chat, queued: Queued) -> impl IntoView {
         if request["text"].as_str().is_none_or(|t| t.trim().is_empty())
             && request["images"].as_array().is_none_or(Vec::is_empty)
         {
-            error.set("请输入消息".into());
+            error.set("Enter a message".into());
             return;
         }
         let ws = ws.clone();
@@ -96,12 +96,12 @@ pub(super) fn QueueEditor(chat: Chat, queued: Queued) -> impl IntoView {
         });
     };
     view! {
-        <Modal label="编辑排队消息" on_close=Callback::new(move |_| close())>
-                <h3>"编辑排队消息"</h3>
-                <textarea data-modal-initial-focus="" aria-label="消息内容" prop:value=move || text.get() disabled=move || busy.get() on:input=move |e| text.set(event_target_value(&e))></textarea>
-                <p class="muted">"附件、文件上下文和原发送设置会保留。"</p>
+        <Modal label="Edit queued message" on_close=Callback::new(move |_| close())>
+                <h3>"Edit queued message"</h3>
+                <textarea data-modal-initial-focus="" aria-label="Message" prop:value=move || text.get() disabled=move || busy.get() on:input=move |e| text.set(event_target_value(&e))></textarea>
+                <p class="muted">"Attachments, file context and send settings are kept."</p>
                 <Show when=move || !error.get().is_empty()>{move || view! { <InlineError message=error.get()/> }}</Show>
-                <div class="dlg-foot"><button class="btn" disabled=move || busy.get() on:click=move |_| close()>"取消"</button><button class="btn primary" disabled=move || busy.get() on:click=save>{move || if busy.get() { "保存中…" } else { "保存" }}</button></div>
+                <div class="dlg-foot"><button class="btn" disabled=move || busy.get() on:click=move |_| close()>"Cancel"</button><button class="btn primary" disabled=move || busy.get() on:click=save>{move || if busy.get() { "Saving…" } else { "Save" }}</button></div>
         </Modal>
     }
 }
@@ -121,7 +121,7 @@ pub(super) fn FailedEditor(
         let text = text.get_untracked();
         let images = images.get_untracked();
         if text.trim().is_empty() && images.is_empty() {
-            error.set("请输入消息或保留附件".into());
+            error.set("Enter a message or keep an attachment".into());
             return;
         }
         let mut request = edit_request(&original.get_value(), text);
@@ -129,19 +129,19 @@ pub(super) fn FailedEditor(
         if chat.deliveries.write().edit_failed(id, request) {
             on_close.run(());
         } else {
-            error.set("消息已重试或丢弃，无法保存这次编辑".into());
+            error.set("The message was already retried or discarded".into());
         }
     };
     view! {
-        <Modal label="编辑未发送的消息" on_close>
-                <h3>"编辑未发送的消息"</h3>
-                <textarea data-modal-initial-focus="" aria-label="消息内容" prop:value=move || text.get() on:input=move |e| text.set(event_target_value(&e))></textarea>
+        <Modal label="Edit unsent message" on_close>
+                <h3>"Edit unsent message"</h3>
+                <textarea data-modal-initial-focus="" aria-label="Message" prop:value=move || text.get() on:input=move |e| text.set(event_target_value(&e))></textarea>
                 {move || images.get().iter().enumerate().map(|(index, _)| view! {
-                    <div class="row"><span>{format!("附件 {}", index + 1)}</span><button class="linkbtn" on:click=move |_| images.update(|images| { if index < images.len() { images.remove(index); } })>"移除"</button></div>
+                    <div class="row"><span>{format!("Attachment {}", index + 1)}</span><button class="linkbtn" on:click=move |_| images.update(|images| { if index < images.len() { images.remove(index); } })>"Remove"</button></div>
                 }).collect_view()}
-                <p class="muted">"文件上下文和原发送设置会保留。保存后可重试。"</p>
+                <p class="muted">"File context and send settings are kept. Retry after saving."</p>
                 <Show when=move || !error.get().is_empty()>{move || view! { <InlineError message=error.get()/> }}</Show>
-                <div class="dlg-foot"><button class="btn" on:click=move |_| on_close.run(())>"取消"</button><button class="btn primary" on:click=save>"保存"</button></div>
+                <div class="dlg-foot"><button class="btn" on:click=move |_| on_close.run(())>"Cancel"</button><button class="btn primary" on:click=save>"Save"</button></div>
         </Modal>
     }
 }
