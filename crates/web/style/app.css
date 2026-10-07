@@ -138,11 +138,16 @@ body.drag-y, body.drag-y * { cursor: row-resize !important; user-select: none; }
 
 .tree-filter { margin: var(--space-md) var(--space-md) var(--space-xs); height: 28px; padding: 0 var(--space-control); border: 0; border-radius: var(--r-md); background: var(--control-track); color: var(--fg); font: var(--font-size-label) var(--font-sans); outline: none; }
 .tree-filter:focus { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 45%, transparent); }
-.tree { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: var(--space-xs) var(--space-sm) var(--space-lg); }
-.tn { display: flex; align-items: center; gap: var(--space-xs); height: 26px; padding-right: var(--space-md); border-radius: var(--radius-tree-item); color: var(--fg-2); cursor: pointer; white-space: nowrap; }
+.tree { --tree-base: 2px; --tree-indent: 10px; --tree-chev: 10px; flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: var(--space-xs) var(--space-sm) var(--space-lg); }
+.tn { display: flex; align-items: center; gap: 4px; height: 24px; padding-right: var(--space-md); border-radius: var(--radius-tree-item); color: var(--fg-2); cursor: pointer; white-space: nowrap; }
 .tn:hover { background: var(--bg-hover); }
 .tn[data-sel="true"] { background: var(--bg-selected); color: var(--fg); }
-.tn .chev { width: 14px; flex: 0 0 auto; display: inline-grid; place-items: center; color: var(--fg-4); }
+.tn .chev { width: var(--tree-chev, 12px); flex: 0 0 auto; display: inline-grid; place-items: center; color: var(--fg-4); }
+.tn .ic { width: 16px; height: 16px; flex: 0 0 auto; display: inline-grid; place-items: center; color: var(--fg-3); }
+.tn .ic svg { width: 15px; height: 15px; }
+.tn .ic.folder { color: color-mix(in srgb, var(--accent) 72%, var(--fg-3)); }
+.tn[data-sel="true"] .ic { color: var(--fg); }
+.tn[data-ign="true"] .ic { color: var(--fg-4); opacity: .7; }
 .tn .chev svg { width: 10px; height: 10px; transition: transform var(--duration-caret); }
 .tn[data-open="true"] .chev svg { transform: rotate(90deg); }
 .tn .nm { overflow: hidden; text-overflow: ellipsis; }

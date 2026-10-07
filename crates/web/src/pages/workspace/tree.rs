@@ -362,6 +362,40 @@ fn rows(root: &Node, opened: &HashSet<String>, filter: &str) -> Vec<Row> {
     out
 }
 
+const ICON_FOLDER: &str = r#"<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"><path d="M1.5 4.5a1 1 0 0 1 1-1h3.1l1.4 1.5h6.5a1 1 0 0 1 1 1V12a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1z"/></svg>"#;
+const ICON_FOLDER_OPEN: &str = r#"<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"><path d="M1.5 12V4.5a1 1 0 0 1 1-1h3.1l1.4 1.5h5.5a1 1 0 0 1 1 1V7"/><path d="M1.5 12l1.9-4.3a1 1 0 0 1 .9-.6h10.2l-2.1 4.9a1 1 0 0 1-.9.6H2.5a1 1 0 0 1-1-.6z"/></svg>"#;
+const ICON_FILE: &str = r#"<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"><path d="M4 1.5h5L12.5 5v8.5a1 1 0 0 1-1 1h-7.5a1 1 0 0 1-1-1v-11a1 1 0 0 1 1-1z"/><path d="M9 1.5V5h3.5"/></svg>"#;
+const ICON_CODE: &str = r#"<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"><path d="M4 1.5h5L12.5 5v8.5a1 1 0 0 1-1 1h-7.5a1 1 0 0 1-1-1v-11a1 1 0 0 1 1-1z"/><path d="M9 1.5V5h3.5"/><path d="M6.6 8.4 5.3 9.7l1.3 1.3M9.4 8.4l1.3 1.3-1.3 1.3"/></svg>"#;
+const ICON_TEXT: &str = r#"<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"><path d="M4 1.5h5L12.5 5v8.5a1 1 0 0 1-1 1h-7.5a1 1 0 0 1-1-1v-11a1 1 0 0 1 1-1z"/><path d="M9 1.5V5h3.5"/><path d="M5.8 8.3h4.4M5.8 10.6h4.4"/></svg>"#;
+const ICON_IMAGE: &str = r#"<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"><path d="M4 1.5h5L12.5 5v8.5a1 1 0 0 1-1 1h-7.5a1 1 0 0 1-1-1v-11a1 1 0 0 1 1-1z"/><path d="M9 1.5V5h3.5"/><circle cx="6.4" cy="8.3" r=".9"/><path d="M4.6 13 7 10.3l1.5 1.6 1.2-1.1 1.7 2.2"/></svg>"#;
+
+const CODE_EXT: &[&str] = &[
+    "rs", "ts", "tsx", "js", "jsx", "mjs", "cjs", "py", "go", "java", "c", "h", "cpp", "hpp", "cc",
+    "cs", "rb", "php", "swift", "kt", "lua", "sh", "bash", "zsh", "fish", "sql", "toml", "yaml",
+    "yml", "json", "xml", "html", "css", "scss", "less", "vue", "svelte", "proto", "cmake", "mk",
+    "gradle", "dart", "scala", "zig", "ex", "exs", "erl", "hs", "ml", "r", "jl", "m", "mm", "nix",
+];
+const TEXT_EXT: &[&str] = &[
+    "md", "txt", "rst", "csv", "tsv", "log", "adoc", "org", "lock",
+];
+const IMAGE_EXT: &[&str] = &[
+    "png", "jpg", "jpeg", "gif", "svg", "webp", "ico", "bmp", "tiff", "avif", "heic",
+];
+
+fn file_icon(name: &str) -> &'static str {
+    let lower = name.to_ascii_lowercase();
+    let ext = lower.rsplit_once('.').map_or("", |(_, e)| e);
+    if CODE_EXT.contains(&ext) || lower == "makefile" || lower == "dockerfile" {
+        ICON_CODE
+    } else if TEXT_EXT.contains(&ext) || lower == "license" || lower == "readme" {
+        ICON_TEXT
+    } else if IMAGE_EXT.contains(&ext) {
+        ICON_IMAGE
+    } else {
+        ICON_FILE
+    }
+}
+
 const CHEV: &str = r#"<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg>"#;
 
 #[component]
@@ -489,7 +523,7 @@ pub fn FileTree(
                     let menu_name = row.name.clone();
                     let guides = guide_dirs(&row.path, row.depth).into_iter().enumerate().map(|(i, dir)| {
                         let active = move || files.current.with(|c| c.as_deref().is_some_and(|c| c.rsplit_once('/').map_or("", |(parent, _)| parent) == dir));
-                        view! { <span class="tn-guide" data-active=move || active().to_string() style=if i == 0 { "left:7px".to_owned() } else { format!("left:calc(var(--space-md) + {i} * var(--space-lg) + 7px)") }></span> }
+                        view! { <span class="tn-guide" data-active=move || active().to_string() style=format!("left:calc(var(--tree-base) + {i} * var(--tree-indent) + var(--tree-chev) / 2)")></span> }
                     }).collect_view();
                     view! {
                         <button type="button" class="tn" disabled=more aria-expanded=dir.then(|| row.open.to_string()) aria-pressed=move || (!dir && !more).then(|| accessible_sel().to_string()) data-open=row.open.to_string() data-sel=move || sel().to_string()
@@ -502,9 +536,10 @@ pub fn FileTree(
                                     menu.set(Some(Menu { x: e.client_x(), y: e.client_y(), path: menu_path.clone(), name: menu_name.clone(), dir }));
                                 }
                             }
-                            style=format!("padding-left:calc(var(--space-md) + {} * var(--space-lg))", row.depth)>
+                            style=format!("padding-left:calc(var(--tree-base) + {} * var(--tree-indent))", row.depth)>
                             {guides}
                             <span class="chev" inner_html=if dir { CHEV } else { "" }></span>
+                            {(!more).then(|| view! { <span class="ic" class:folder=dir inner_html=if dir { if row.open { ICON_FOLDER_OPEN } else { ICON_FOLDER } } else { file_icon(&row.name) }></span> })}
                             <span class="nm" class:dir=dir>{row.name}</span>
                             <span class=format!("ch {cls}")>{mark}</span>
                         </button>
