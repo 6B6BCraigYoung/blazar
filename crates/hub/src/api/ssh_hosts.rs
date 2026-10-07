@@ -65,6 +65,17 @@ fn expand_include(pat: &str, base: &FsPath) -> Vec<PathBuf> {
     out
 }
 
+fn strip_comment(value: &str) -> &str {
+    let mut cut = value.len();
+    for (i, c) in value.char_indices() {
+        if c == '#' && value[..i].ends_with(char::is_whitespace) {
+            cut = i;
+            break;
+        }
+    }
+    value[..cut].trim_end()
+}
+
 fn parse_file(path: &FsPath, base: &FsPath, depth: u8, out: &mut Vec<SshHost>) {
     let Ok(text) = std::fs::read_to_string(path) else {
         return;
@@ -79,7 +90,7 @@ fn parse_file(path: &FsPath, base: &FsPath, depth: u8, out: &mut Vec<SshHost>) {
         let (key, val) = match line.split_once(|c: char| c.is_whitespace() || c == '=') {
             Some((k, v)) => (
                 k.to_ascii_lowercase(),
-                v.trim().trim_start_matches('=').trim(),
+                strip_comment(v.trim().trim_start_matches('=').trim()),
             ),
             None => continue,
         };
@@ -322,6 +333,26 @@ mod tests {
             "Match 块里的设置不算到上一个 Host 头上"
         );
         assert!(hosts[0].file.ends_with("work"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn trailing_comments_stay_out_of_values() {
+        assert_eq!(strip_comment("10.0.0.7  # lab box"), "10.0.0.7");
+        assert_eq!(strip_comment("10.0.0.7\t# lab"), "10.0.0.7");
+        assert_eq!(strip_comment("#tagged-host"), "#tagged-host");
+        assert_eq!(strip_comment("plain"), "plain");
+        let dir = std::env::temp_dir().join(format!("blazar-sshcmt-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("config"),
+            "Host lab\n  HostName 10.0.0.7  # easytier; public 203.0.113.9\n  User me # ops\n",
+        )
+        .unwrap();
+        let hosts = parse_config(&dir.join("config"));
+        assert_eq!(hosts[0].hostname.as_deref(), Some("10.0.0.7"));
+        assert_eq!(hosts[0].user.as_deref(), Some("me"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

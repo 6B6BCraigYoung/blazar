@@ -274,9 +274,9 @@ pub fn NodesPage() -> impl IntoView {
                                     <div class="meta"><span>{if n.name == "local" { "当前电脑" } else if is_ssh { "SSH 连接" } else { "组网连接" }}</span><span>{format!("{} 个工作区", n.workspace_count)}</span></div>
                                     <div class="nodes-details">
                                         <div class="kv"><span class="k">"标识"</span><span class="v mono">{n.name.clone()}</span></div>
-                                        <div class="kv"><span class="k">"地址"</span><span class="v mono">{n.ipv4.clone().filter(|v| !v.is_empty()).unwrap_or_else(|| "—".into())}</span></div>
-                                        {n.cost.clone().map(|cost| view! { <div class="kv"><span class="k">"连接方式"</span><span class="v">{cost}</span></div> })}
-                                        {if is_ssh { view! { <div class="muted small">"通过 SSH 连接，未加入组网。"</div> }.into_any() } else { view! { <div class="kv"><span class="k">"延迟"</span><span class="v">{latency(n.latency_ms)}</span></div> }.into_any() }}
+                                        <div class="kv"><span class="k">"地址"</span><span class="v mono" title=n.ipv4.clone().unwrap_or_default()>{n.ipv4.clone().filter(|v| !v.is_empty()).unwrap_or_else(|| "—".into())}</span></div>
+                                        <div class="kv"><span class="k">"连接方式"</span><span class="v">{if n.name == "local" { "本机".to_owned() } else if is_ssh { "SSH".to_owned() } else { n.cost.clone().filter(|c| !c.is_empty()).unwrap_or_else(|| "组网".into()) }}</span></div>
+                                        <div class="kv"><span class="k">"延迟"</span><span class="v">{latency(if is_mesh { n.latency_ms } else { None })}</span></div>
                                     </div>
                                     <div class="act">
                                         <a class="btn small" href=format!("/nodes/{}", api::enc(&n.name))>"查看机器"</a>

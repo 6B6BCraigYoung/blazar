@@ -478,7 +478,8 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 }
 
 .nodes-page .nodes-intro { margin: 0 0 var(--space-section); }
-.nodes-page .node-card { cursor: default; min-width: 0; min-height: auto; }
+.ws-list.nodes { grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); }
+.nodes-page .node-card { cursor: default; min-width: 0; min-height: auto; aspect-ratio: var(--phi); align-self: stretch; }
 .nodes-page .nodes-details { padding-top: var(--space-xs); border-top: 1px solid var(--line); }
 .nodes-page .node-name { color: var(--fg); font-weight: var(--font-weight-semibold); flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .nodes-page .node-card .act { opacity: 1; flex-wrap: wrap; margin-top: auto; padding-top: var(--space-sm); }
@@ -499,6 +500,7 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 .nodes-page .nodes-details p, .nodes-dialog .nodes-details p { margin: var(--space-sm) 0; }
 .nodes-page .nodes-details .kv .v, .nodes-dialog .nodes-details .kv .v { overflow: visible; text-overflow: clip; overflow-wrap: anywhere; white-space: pre-wrap; }
 .nodes-page .nodes-details .mono, .nodes-dialog .nodes-details .mono { overflow-wrap: anywhere; white-space: pre-wrap; }
+.nodes-page .node-card .nodes-details .kv .v, .nodes-page .node-card .nodes-details .mono { overflow: hidden; text-overflow: ellipsis; overflow-wrap: normal; white-space: nowrap; }
 .nodes-page .nodes-section-heading { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-control); margin: var(--space-2xl) 0 var(--space-control); }
 .nodes-page .nodes-section-heading h2 { margin: 0; font-size: var(--font-size-section-title); font-weight: var(--font-weight-semibold); }
 .nodes-page .nodes-form, .nodes-dialog .nodes-form { border: 0; padding: 0; margin: 0; min-width: 0; }
