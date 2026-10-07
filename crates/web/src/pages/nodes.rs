@@ -272,12 +272,12 @@ pub fn NodesPage() -> impl IntoView {
                                 <article class="ws-card node-card">
                                     <div class="top"><a class="node-name" href=format!("/nodes/{}", api::enc(&n.name))>{if n.name == "local" { "本机".to_owned() } else { n.name.clone() }}</a><span class="state-pill" data-act=if n.status == "online" { "completed" } else { "idle" }>{if n.status == "online" { "在线" } else { "离线" }}</span></div>
                                     <div class="meta"><span>{if n.name == "local" { "当前电脑" } else if is_ssh { "SSH 连接" } else { "组网连接" }}</span><span>{format!("{} 个工作区", n.workspace_count)}</span></div>
-                                    <details class="nodes-details"><summary>"连接详情"</summary>
+                                    <div class="nodes-details">
                                         <div class="kv"><span class="k">"标识"</span><span class="v mono">{n.name.clone()}</span></div>
                                         <div class="kv"><span class="k">"地址"</span><span class="v mono">{n.ipv4.clone().filter(|v| !v.is_empty()).unwrap_or_else(|| "—".into())}</span></div>
                                         {n.cost.clone().map(|cost| view! { <div class="kv"><span class="k">"连接方式"</span><span class="v">{cost}</span></div> })}
                                         {if is_ssh { view! { <div class="muted small">"通过 SSH 连接，未加入组网。"</div> }.into_any() } else { view! { <div class="kv"><span class="k">"延迟"</span><span class="v">{latency(n.latency_ms)}</span></div> }.into_any() }}
-                                    </details>
+                                    </div>
                                     <div class="act">
                                         <a class="btn small" href=format!("/nodes/{}", api::enc(&n.name))>"查看机器"</a>
                                         {removable.then(|| view! { <button class="btn small danger" title="从 Blazar 移除，不修改 SSH 配置" on:click=move |_| remove_ssh(name3.clone())>"移除"</button> })}
@@ -560,7 +560,7 @@ fn MeshLocal(
                         let label = s(&x, "label");
                         return view! {
                             <div class="card-title"><h3>"本机组网"</h3><span class="state-pill" data-act="completed">"已连接"</span></div>
-                            <p class="muted small">"已使用现有组网连接，无需重新加入。"</p><details class="nodes-details"><summary>"连接详情"</summary><p class="muted small">{format!("连接由 {label} 提供。Blazar 复用这个连接，避免两个 EasyTier 实例争用同一网段的路由。")}</p>
+                            <p class="muted small">"已使用现有组网连接，无需重新加入。"</p><div class="nodes-details"><p class="muted small">{format!("连接由 {label} 提供。Blazar 复用这个连接，避免两个 EasyTier 实例争用同一网段的路由。")}</p>
                             {(!s(&xn, "network_name").is_empty()).then(|| kv("网络", s(&xn, "network_name"), true))}
                             {kv("虚拟地址", Some(s(&x, "virtual_ipv4")).filter(|a| !a.is_empty()).unwrap_or_else(|| "未能识别".into()), true)}
                             {(!s(&xn, "hostname").is_empty()).then(|| kv("主机名", s(&xn, "hostname"), true))}
@@ -581,7 +581,7 @@ fn MeshLocal(
                                     </div>
                                 </div>
                             })}
-                            </details><div class="row-actions"><button class="btn small" disabled=move || m.refreshing.get() on:click=move |_| spawn_local(async move { refresh_mesh(m).await; })>"刷新机器"</button>
+                            </div><div class="row-actions"><button class="btn small" disabled=move || m.refreshing.get() on:click=move |_| spawn_local(async move { refresh_mesh(m).await; })>"刷新机器"</button>
                                 <button class="btn small" disabled=move || m.operation.get() on:click=move |_| if let Some(i) = invite_in.get_untracked() { i.click() }>"使用邀请文件"</button>
                                 <button class="btn small" disabled=move || m.operation.get() on:click=move |_| if let Some(i) = toml_in.get_untracked() { i.click() }>"导入 EasyTier 配置"</button>
                             </div>
@@ -609,14 +609,14 @@ fn MeshLocal(
                         <div class="card-title"><h3>"本机组网"</h3>
                             {if running { view! { <span class="state-pill" data-act="completed">"已连接"</span> }.into_any() } else { view! { <span class="state-pill bad" data-act="errored">"未连接"</span> }.into_any() }}
                         </div>
-                        <details class="nodes-details"><summary>"连接详情"</summary>
+                        <div class="nodes-details">
                         {kv("可见机器", st["peer_count"].as_u64().unwrap_or(0).to_string(), false)}
                         {kv("网络", Some(s(&n, "network_name")).filter(|x| !x.is_empty()).unwrap_or_else(|| "—".into()), true)}
                         {kv("主机名", Some(s(&n, "hostname")).filter(|x| !x.is_empty()).unwrap_or_else(|| "—".into()), true)}
                         {kv("虚拟地址", Some(s(&n, "virtual_ipv4")).filter(|x| !x.is_empty()).unwrap_or_else(|| "—".into()), true)}
                         {kv("NAT", Some(s(&n, "nat_type")).filter(|x| !x.is_empty()).unwrap_or_else(|| "—".into()), false)}
                         {kv("引擎", format!("EasyTier {}", Some(s(&n, "version")).filter(|x| !x.is_empty()).unwrap_or_else(|| s(&st, "engine_version"))), true)}
-                        </details>
+                        </div>
                         {other}
                         {(!running).then(|| view! { <div class="notice-box warn">"组网服务已停止。请重新打开邀请文件加入；排查日志位于系统组网目录的 logs/。"</div> })}
                         <div class="row-actions">
@@ -811,10 +811,10 @@ fn JoinDialog(m: Mesh, p: Value, text: Option<String>) -> impl IntoView {
                 <h3>"加入团队组网"</h3>
                 <div class="muted small">{format!("{} 邀请这台电脑加入组网。加入后，团队里的机器可以通过虚拟地址访问它，它也能访问团队的机器。", Some(s(&sm, "issued_by")).filter(|x| !x.is_empty()).unwrap_or_else(|| "管理员".into()))}</div>
                 <div class="kv"><span class="k">"网络"</span><span class="v mono">{net.clone()}</span></div>
-                <details class="nodes-details"><summary>"连接详情"</summary><div class="kv"><span class="k">"本机主机名"</span><span class="v mono">{s(&sm, "hostname")}</span></div>
+                <div class="nodes-details"><div class="kv"><span class="k">"本机主机名"</span><span class="v mono">{s(&sm, "hostname")}</span></div>
                 <div class="kv"><span class="k">"本机地址"</span><span class="v mono">{Some(s(&sm, "ipv4")).filter(|x| !x.is_empty()).unwrap_or_else(|| "自动分配".into())}</span></div>
                 <div class="kv"><span class="k">"入网地址"</span><span class="v mono">{peers.join("\n")}</span></div>
-                </details><div class="kv"><span class="k">"有效期至"</span><span class="v">{format!("{}（{} 天）", date_of(exp), days_left(exp))}</span></div>
+                </div><div class="kv"><span class="k">"有效期至"</span><span class="v">{format!("{}（{} 天）", date_of(exp), days_left(exp))}</span></div>
                 {(!s(&sm, "note").is_empty()).then(|| view! { <div class="kv"><span class="k">"备注"</span><span class="v">{s(&sm, "note")}</span></div> })}
                 {warns.into_iter().map(|w| view! { <div class="notice-box warn">{w}</div> }).collect_view()}
                 <div class="muted small">"需要输入这台电脑的登录密码：组网要创建虚拟网卡，并把引擎装成开机自启的系统服务（关掉 Blazar 也保持在线）。"</div>
@@ -910,7 +910,7 @@ fn Issuer(m: Mesh) -> impl IntoView {
                             <span class="grow"></span><button class="btn small ghost" on:click=move |_| settings.set(true)>"签发设置"</button></div>
                     };
                     if !reach {
-                        return view! { {head}<InlineError message=format!("无法连接签发机器，请检查连接或修改签发设置：{}", s(&v, "error")) retry=Callback::new(move |()|m.issuer.update(|n| *n += 1))/><details class="nodes-details"><summary>"连接详情"</summary><div class="mono small">{where_}</div></details> }.into_any();
+                        return view! { {head}<InlineError message=format!("无法连接签发机器，请检查连接或修改签发设置：{}", s(&v, "error")) retry=Callback::new(move |()|m.issuer.update(|n| *n += 1))/><div class="nodes-details"><div class="mono small">{where_}</div></div> }.into_any();
                     }
                     let no_entry = eps.is_empty();
                     view! {

@@ -478,7 +478,8 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 }
 
 .nodes-page .nodes-intro { margin: 0 0 var(--space-section); }
-.nodes-page .node-card { cursor: default; min-width: 0; }
+.nodes-page .node-card { cursor: default; min-width: 0; min-height: auto; }
+.nodes-page .nodes-details { padding-top: var(--space-xs); border-top: 1px solid var(--line); }
 .nodes-page .node-name { color: var(--fg); font-weight: var(--font-weight-semibold); flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .nodes-page .node-card .act { opacity: 1; flex-wrap: wrap; margin-top: auto; padding-top: var(--space-sm); }
 .nodes-page .node-pending { margin-bottom: var(--space-xl); }
