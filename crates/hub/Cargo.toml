@@ -46,6 +46,11 @@ directories = "5"
 jiff = { version = "0.2", default-features = false, features = ["std", "tz-system", "tzdb-zoneinfo"] }
 tracing-subscriber.workspace = true
 blazar-mcp.workspace = true
+rcgen = { version = "0.14", default-features = false, features = ["crypto", "pem", "aws_lc_rs"] }
+rustls = "0.23"
+tokio-rustls = "0.26"
+hyper-util = { version = "0.1", features = ["server-auto", "tokio", "service"] }
+tower = { version = "0.5", features = ["util"] }
 
 [lints]
 workspace = true
@@ -56,4 +61,3 @@ nix = { version = "0.28", features = ["process", "signal"] }
 [dev-dependencies]
 http-body-util = "0.1"
 tempfile = "3"
-tower = { version = "0.5", features = ["util"] }

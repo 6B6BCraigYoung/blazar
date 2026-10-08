@@ -71,7 +71,7 @@ fn shared_items(provider: &str) -> &'static [(&'static str, bool)] {
     }
 }
 
-fn default_home(provider: &str) -> Option<PathBuf> {
+pub(crate) fn default_home(provider: &str) -> Option<PathBuf> {
     if let Some(dir) = env_key(provider)
         .and_then(std::env::var_os)
         .filter(|v| !v.is_empty())
@@ -379,6 +379,15 @@ pub async fn resolve(
         return Ok(None);
     }
     let remote = run_node != "local";
+    if remote && provider == "codex" {
+        let chosen = pick(st, provider, false, requested, prior, model, exclude).await?;
+        return Ok(chosen.map(|c| Chosen {
+            env: None,
+            token_file: None,
+            proxy: true,
+            ..c
+        }));
+    }
     if remote && provider != "claude" {
         return Ok(None);
     }

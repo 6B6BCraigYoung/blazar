@@ -337,7 +337,7 @@ async fn prompt_inner(
             let secret = crate::proxy::secret(&st, &a.id)
                 .await
                 .map_err(|e| ApiError(anyhow::anyhow!(e)))?;
-            Some((format!("http://127.0.0.1:{port}"), secret))
+            Some((port, a.id.clone(), secret))
         }
         None => None,
     };
@@ -514,12 +514,22 @@ async fn prompt_inner(
                 spec.env.entry(k).or_insert(v);
             }
         }
-        if let Some((base, secret)) = proxy_env {
-            spec.env.insert("ANTHROPIC_BASE_URL".into(), base);
-            spec.env.insert("CLAUDE_CODE_OAUTH_TOKEN".into(), secret);
+        if let Some((port, account_id, secret)) = proxy_env {
+            if agent_id == "codex" {
+                let remote =
+                    crate::codex_proxy::prepare_remote(&st, &run_node, &account_id, port)
+                        .await
+                        .map_err(|e| ApiError(anyhow::anyhow!(e)))?;
+                spec.env.extend(remote.env);
+                spec.extra_args.extend(remote.args);
+            } else {
+                spec.env
+                    .insert("ANTHROPIC_BASE_URL".into(), format!("http://127.0.0.1:{port}"));
+                spec.env.insert("CLAUDE_CODE_OAUTH_TOKEN".into(), secret);
+                spec.env.remove("ANTHROPIC_API_KEY");
+                spec.env.remove("ANTHROPIC_AUTH_TOKEN");
+            }
             crate::proxy::bypass_loopback(&mut spec.env);
-            spec.env.remove("ANTHROPIC_API_KEY");
-            spec.env.remove("ANTHROPIC_AUTH_TOKEN");
         }
         if local_brain {
             let exe = std::env::current_exe()

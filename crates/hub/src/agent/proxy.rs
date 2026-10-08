@@ -23,6 +23,7 @@ pub struct Proxy {
     port: u16,
     key: Vec<u8>,
     client: reqwest::Client,
+    ca_pem: Option<String>,
 }
 
 struct Tunnel {
@@ -107,6 +108,62 @@ fn data_dir(st: &Shared) -> PathBuf {
         .map_or_else(std::env::temp_dir, std::path::Path::to_path_buf)
 }
 
+fn load_ca_key(dir: &std::path::Path) -> Result<String, String> {
+    let path = dir.join("proxy-ca.key");
+    if let Ok(k) = std::fs::read_to_string(&path)
+        && rcgen::KeyPair::from_pem(&k).is_ok()
+    {
+        return Ok(k);
+    }
+    let k = rcgen::KeyPair::generate()
+        .map_err(|e| format!("生成代理证书密钥失败：{e}"))?
+        .serialize_pem();
+    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600);
+    }
+    use std::io::Write;
+    blazar_core_types::private_storage::open(&path, &opts)
+        .and_then(|mut f| f.write_all(k.as_bytes()))
+        .map_err(|e| format!("保存代理证书密钥失败：{e}"))?;
+    Ok(k)
+}
+
+async fn serve(
+    listener: tokio::net::TcpListener,
+    app: Router,
+    tls: Option<tokio_rustls::TlsAcceptor>,
+) {
+    use hyper_util::rt::{TokioExecutor, TokioIo};
+    use hyper_util::server::conn::auto::Builder;
+    use hyper_util::service::TowerToHyperService;
+    loop {
+        let Ok((tcp, _)) = listener.accept().await else {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            continue;
+        };
+        let (app, tls) = (app.clone(), tls.clone());
+        tokio::spawn(async move {
+            let mut first = [0u8; 1];
+            let is_tls = matches!(tcp.peek(&mut first).await, Ok(1) if first[0] == 0x16);
+            let svc = TowerToHyperService::new(app);
+            let conn = Builder::new(TokioExecutor::new());
+            if !is_tls {
+                let _ = conn.serve_connection(TokioIo::new(tcp), svc).await;
+            } else if let Some(Ok(stream)) = match tls {
+                Some(t) => Some(t.accept(tcp).await),
+                None => None,
+            } {
+                let _ = conn.serve_connection(TokioIo::new(stream), svc).await;
+            }
+        });
+    }
+}
+
 fn load_key(dir: &std::path::Path) -> Result<Vec<u8>, String> {
     let path = dir.join("proxy.key");
     #[cfg(windows)]
@@ -157,6 +214,13 @@ async fn proxy(st: &Shared) -> Result<Arc<Proxy>, String> {
         .proxy
         .get_or_try_init(|| async {
             let key = load_key(&data_dir(st))?;
+            let tls = match load_ca_key(&data_dir(st)).and_then(|k| crate::codex_proxy::tls(&k)) {
+                Ok(t) => Some(t),
+                Err(e) => {
+                    tracing::warn!(target: "blazar::proxy", "代理的 HTTPS 起不来，远端 Codex 用不了本机账号：{e}");
+                    None
+                }
+            };
             let client = reqwest::Client::builder()
                 .connect_timeout(Duration::from_secs(20))
                 .build()
@@ -166,13 +230,15 @@ async fn proxy(st: &Shared) -> Result<Arc<Proxy>, String> {
                 .map_err(|e| format!("代理监听失败：{e}"))?;
             let port = listener.local_addr().map_err(|e| e.to_string())?.port();
             let app = Router::new().fallback(forward).with_state(st.clone());
-            tokio::spawn(async move {
-                if let Err(e) = axum::serve(listener, app).await {
-                    tracing::error!(target: "blazar::proxy", "凭据代理停了：{e}");
-                }
-            });
+            let ca_pem = tls.as_ref().map(|t| t.ca_pem.clone());
+            tokio::spawn(serve(listener, app, tls.map(|t| t.acceptor)));
             tracing::info!(target: "blazar::proxy", "凭据代理在 127.0.0.1:{port}");
-            Ok(Arc::new(Proxy { port, key, client }))
+            Ok(Arc::new(Proxy {
+                port,
+                key,
+                client,
+                ca_pem,
+            }))
         })
         .await
         .cloned()
@@ -180,6 +246,14 @@ async fn proxy(st: &Shared) -> Result<Arc<Proxy>, String> {
 
 pub async fn secret(st: &Shared, account: &str) -> Result<String, String> {
     Ok(secret_for(&proxy(st).await?.key, account))
+}
+
+pub async fn ca_pem(st: &Shared) -> Result<String, String> {
+    proxy(st)
+        .await?
+        .ca_pem
+        .clone()
+        .ok_or_else(|| "凭据代理的 HTTPS 没起来".to_owned())
 }
 
 fn deny(status: StatusCode, msg: &str) -> Response {
@@ -218,6 +292,9 @@ async fn forward(State(st): State<Shared>, req: Request) -> Response {
     let Ok(p) = proxy_boxed(&st).await else {
         return deny(StatusCode::SERVICE_UNAVAILABLE, "Blazar 凭据代理没起来");
     };
+    if crate::codex_proxy::is_codex_path(req.uri().path()) {
+        return crate::codex_proxy::forward(&st, &p.client, &p.key, req).await;
+    }
     let presented = req
         .headers()
         .get("authorization")
@@ -430,7 +507,7 @@ async fn watch(st: &Shared, node: &str) {
 async fn needs_tunnel(st: &Shared, node: &str) -> bool {
     sqlx::query_scalar::<_, i64>(
         "SELECT COUNT(*) FROM sessions s JOIN accounts a ON a.id = s.account_id
-         WHERE s.status = 'running' AND s.node = ?1 AND a.auth_mode = 'token'",
+         WHERE s.status = 'running' AND s.node = ?1 AND (a.auth_mode = 'token' OR a.provider = 'codex')",
     )
     .bind(node)
     .fetch_one(st.db.pool())
@@ -442,7 +519,7 @@ async fn needs_tunnel(st: &Shared, node: &str) -> bool {
 pub async fn restore(st: Shared) {
     let nodes: Vec<String> = sqlx::query_scalar(
         "SELECT DISTINCT s.node FROM sessions s JOIN accounts a ON a.id = s.account_id
-         WHERE s.status = 'running' AND s.node IS NOT NULL AND s.node != 'local' AND a.auth_mode = 'token'",
+         WHERE s.status = 'running' AND s.node IS NOT NULL AND s.node != 'local' AND (a.auth_mode = 'token' OR a.provider = 'codex')",
     )
     .fetch_all(st.db.pool())
     .await

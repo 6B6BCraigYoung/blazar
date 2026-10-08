@@ -17,7 +17,9 @@ pub mod office;
 mod routes;
 mod skills;
 mod work;
-pub use agent::{accounts, agents, catalog, chat, checkpoint, proxy, remote_cli, run, titles};
+pub use agent::{
+    accounts, agents, catalog, chat, checkpoint, codex_proxy, proxy, remote_cli, run, titles,
+};
 pub use skills::{library, skillhub};
 pub use work::{analytics, autopilot, inbox, rules, scripts, snippets, tasks};
 pub mod services;

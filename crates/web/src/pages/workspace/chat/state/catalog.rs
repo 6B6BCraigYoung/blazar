@@ -180,20 +180,6 @@ impl Chat {
             self.fix_agent();
         });
         self.load_accounts();
-        if self.remote() {
-            let node = self.node.get_value();
-            self.spawn(async move {
-                if let Ok(v) =
-                    api::get::<Vec<Value>>(&format!("/api/nodes/{}/agents", api::enc(&node))).await
-                {
-                    let authed = v
-                        .iter()
-                        .find(|x| x["id"] == "codex")
-                        .and_then(|x| x["authed"].as_bool());
-                    let _ = self.remote_codex.try_set(authed);
-                }
-            });
-        }
     }
 
     pub fn load_accounts(self) {

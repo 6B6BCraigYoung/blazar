@@ -88,7 +88,6 @@ pub struct Chat {
     pub models: RwSignal<HashMap<String, Vec<ModelInfo>>>,
     pub catalog: RwSignal<Option<Catalog>>,
     pub snippets: RwSignal<Vec<Snippet>>,
-    pub remote_codex: RwSignal<Option<bool>>,
 }
 
 impl Chat {
@@ -158,7 +157,6 @@ impl Chat {
             models: RwSignal::new(HashMap::new()),
             catalog: RwSignal::new(None),
             snippets: RwSignal::new(Vec::new()),
-            remote_codex: RwSignal::new(None),
         }
     }
 

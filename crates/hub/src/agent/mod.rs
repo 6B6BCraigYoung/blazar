@@ -3,6 +3,7 @@ pub mod agents;
 pub mod catalog;
 pub mod chat;
 pub mod checkpoint;
+pub mod codex_proxy;
 pub mod global_login;
 pub mod proxy;
 pub mod remote_cli;

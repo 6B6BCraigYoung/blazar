@@ -262,12 +262,29 @@ fn toggle_thinking(chat: Chat) {
     }
 }
 
+fn usage_note<'a>(windows: impl Iterator<Item = (&'a str, f64)>) -> String {
+    windows
+        .filter(|(name, _)| *name != "blocked")
+        .map(|(name, u)| {
+            format!(
+                "{} {}%",
+                match name {
+                    "five_hour" => "5h",
+                    "seven_day" => "7d",
+                    n => n,
+                },
+                (u * 100.0).round()
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" · ")
+}
+
 pub(super) fn agent_pop(chat: Chat, pop: RwSignal<Option<Pop>>) -> impl IntoView {
     let cur = chat.agent.get_untracked();
     let profiles = chat.profiles.get_untracked();
     let rts = untrack(move || chat.runtimes());
     let remote = chat.remote();
-    let node = chat.node.get_value();
     let pick = move |v: String, acc: Option<String>| {
         pop.set(None);
         chat.set_agent(v);
@@ -279,20 +296,7 @@ pub(super) fn agent_pop(chat: Chat, pop: RwSignal<Option<Pop>>) -> impl IntoView
         }
     };
     let acc_rows = move |rt: String, current: bool| -> AnyView {
-        if remote && rt == "codex" {
-            let st = match chat.remote_codex.get_untracked() {
-                Some(true) => "Logged in",
-                Some(false) => "Logged out · log in",
-                None => "Log in",
-            };
-            let n2 = node.clone();
-            return view! {
-                <button class="cp-row cp-sub" on:click=move |_| {
-                    pop.set(None);
-                    crate::pages::runtimes::node_login(n2.clone(), Callback::new(move |()| chat.load_catalogs()));
-                }><span class="cp-t"><b>{format!("Log in to Codex on {node}")}</b></span><span class="cp-r">{st}</span></button>
-            }.into_any();
-        }
+        let claude = rt == "claude";
         let list: Vec<crate::api::Account> = chat.accounts.with_untracked(|a| {
             a.as_ref()
                 .map(|a| {
@@ -310,14 +314,14 @@ pub(super) fn agent_pop(chat: Chat, pop: RwSignal<Option<Pop>>) -> impl IntoView
             None
         };
         list.into_iter().map(|a| {
-            let away = remote && a.kind != "token";
+            let away = remote && claude && a.kind != "token";
             let off = !a.usable() || away;
             let note = if away {
                 "Remote needs a setup token".to_owned()
             } else if off {
                 if a.disabled { "Disabled".to_owned() } else if a.kind == "token" { "Token expired".to_owned() } else { "Logged out".to_owned() }
             } else {
-                a.windows.iter().filter(|w| w.name != "blocked").map(|w| format!("{} {}%", match w.name.as_str() { "five_hour" => "5h", "seven_day" => "7d", n => n }, (w.utilization * 100.0).round())).collect::<Vec<_>>().join(" · ")
+                usage_note(a.windows.iter().map(|w| (w.name.as_str(), w.utilization)))
             };
             let on = on_id.as_deref() == Some(a.id.as_str());
             let v = format!("r:{}", a.provider);
