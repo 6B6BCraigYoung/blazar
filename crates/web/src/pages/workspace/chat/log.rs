@@ -273,8 +273,39 @@ fn UserMsg(
         chat.retry(sid_edit.clone(), Some(t), later2());
     };
     let do_retry2 = do_retry.clone();
+    let menu = RwSignal::new(None::<(i32, i32)>);
+    let sid_l = sid.clone();
+    let latest = Memo::new(move |_| {
+        chat.transcript.with(|t| {
+            t.items
+                .iter()
+                .rev()
+                .find_map(|it| match &it.body {
+                    Body::User { sid: s, seq: q, .. } => Some(*s == sid_l && *q == seq),
+                    _ => None,
+                })
+                .unwrap_or(false)
+        })
+    });
+    let edit = Callback::new(move |()| {
+        draft.set(t2.clone());
+        editing.set(true);
+    });
+    let sid_r = sid.clone();
+    let retry = Callback::new(move |()| chat.retry(sid_r.clone(), None, later()));
+    let rewind = Callback::new(move |()| {
+        if let Some(c) = cp.get_untracked() {
+            chat.rewind(c, false);
+        }
+    });
     view! {
-        <div class="cc-user" data-first=first.to_string() data-long=long.to_string() data-open=move || open.get().to_string()>
+        <div class="cc-user" on:contextmenu=move |e: leptos::ev::MouseEvent| {
+                if editing.get_untracked() || (!first && cp.get_untracked().is_none()) {
+                    return;
+                }
+                e.prevent_default();
+                menu.set(Some((e.client_x(), e.client_y())));
+            } data-first=first.to_string() data-long=long.to_string() data-open=move || open.get().to_string()>
             <Show when=move || !editing.get() fallback=move || {
                 let go = do_retry.clone();
                 let go2 = do_retry2.clone();
@@ -293,25 +324,80 @@ fn UserMsg(
                     </div>
                 }
             }>
-                <div class="cc-ut">{text.clone()}</div>
+                <div class="cc-uline">
+                    <div class="cc-ut">{text.clone()}</div>
+                    {move || (latest.get() && !editing.get()).then(|| view! {
+                        <span class="cc-acts">
+                            {first.then(|| view! {
+                                <button class="cc-rw" title="Edit and continue from here" on:click=move |_| edit.run(())>"✎ Edit"</button>
+                                <button class="cc-rw" title="Retry with the same message" on:click=move |_| retry.run(())>"⟳ Retry"</button>
+                            })}
+                            {move || cp.get().map(|_| view! {
+                                <button class="cc-rw" title="Rewind code to here" on:click=move |_| rewind.run(())>"↺ Rewind"</button>
+                            })}
+                        </span>
+                    })}
+                </div>
             </Show>
             {long.then(|| view! {
                 <button class="cc-xp" on:click=move |_| open.update(|o| *o = !*o)>{move || if open.get() { "Show less" } else { "Show more" }}</button>
             })}
-            <span class="cc-acts">
-                {first.then(|| {
-                    let t = t2.clone();
-                    let sid_r = sid.clone();
-                    let later = later.clone();
-                    view! {
-                        <button class="cc-rw" title="Edit and continue from here" on:click=move |_| { draft.set(t.clone()); editing.set(true); }>"✎ Edit"</button>
-                        <button class="cc-rw" title="Retry with the same message" on:click=move |_| chat.retry(sid_r.clone(), None, later())>"⟳ Retry"</button>
-                    }
-                })}
-                {move || cp.get().map(|c| view! {
-                    <button class="cc-rw" title="Rewind code to here" on:click=move |_| chat.rewind(c.clone(), false)>"↺ Rewind"</button>
-                })}
-            </span>
+            {move || menu.get().map(|(x, y)| view! { <MsgMenu menu x y first edit retry rewind=cp.get().is_some().then_some(rewind)/> })}
+        </div>
+    }
+}
+
+#[component]
+fn MsgMenu(
+    menu: RwSignal<Option<(i32, i32)>>,
+    x: i32,
+    y: i32,
+    first: bool,
+    edit: Callback<()>,
+    retry: Callback<()>,
+    rewind: Option<Callback<()>>,
+) -> impl IntoView {
+    let close_down = window_event_listener(leptos::ev::mousedown, move |e| {
+        let inside = e
+            .target()
+            .and_then(|t| t.dyn_into::<web_sys::Element>().ok())
+            .and_then(|el| el.closest(".ctx-menu").ok().flatten())
+            .is_some();
+        if !inside {
+            menu.set(None);
+        }
+    });
+    let close_key = window_event_listener(leptos::ev::keydown, move |e| {
+        if e.key() == "Escape" {
+            menu.set(None);
+        }
+    });
+    let close_blur = window_event_listener(leptos::ev::blur, move |_| menu.set(None));
+    on_cleanup(move || {
+        close_down.remove();
+        close_key.remove();
+        close_blur.remove();
+    });
+    let size = |v: Result<wasm_bindgen::JsValue, wasm_bindgen::JsValue>| {
+        v.ok().and_then(|v| v.as_f64()).unwrap_or(0.0) as i32
+    };
+    let x = x.min(size(window().inner_width()) - 180).max(0);
+    let y = y.min(size(window().inner_height()) - 104).max(0);
+    let pick = move |f: Callback<()>| {
+        move |_| {
+            menu.set(None);
+            f.run(());
+        }
+    };
+    view! {
+        <div class="ctx-menu" role="menu" style=format!("left:{x}px;top:{y}px")>
+            {first.then(|| view! {
+                <button type="button" role="menuitem" class="ctx-item" on:click=pick(edit)>"Edit"</button>
+                <button type="button" role="menuitem" class="ctx-item" on:click=pick(retry)>"Retry"</button>
+            })}
+            {rewind.map(|r| view! {
+                <button type="button" role="menuitem" class="ctx-item" on:click=pick(r)>"Rewind code to here"</button>
+            })}
         </div>
     }
 }

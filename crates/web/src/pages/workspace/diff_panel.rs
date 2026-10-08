@@ -512,7 +512,7 @@ fn add_btn(
         code: code.to_owned(),
         id: None,
     };
-    view! { <button class="dcm" aria-label="添加行级意见" title="对这一行写意见" on:click=move |_| editing.set(Some(e.clone()))>"+"</button> }
+    view! { <button class="dcm" aria-label="添加行级意见" title="点行号对这一行写意见" on:click=move |_| editing.set(Some(e.clone()))></button> }
 }
 
 fn half(

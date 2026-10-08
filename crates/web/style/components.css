@@ -2,7 +2,7 @@
 .err-line { color: var(--err-fg); }
 .btn { height: 28px; padding: 0 var(--space-lg); border-radius: var(--r-md); border: 0; background: var(--control-bg); box-shadow: var(--shadow-control); color: var(--fg); font-weight: var(--font-weight-medium); font-size: var(--font-size-label); cursor: pointer; transition: background-color var(--duration-control), filter var(--duration-control), transform var(--duration-control); }
 .btn:hover { background: var(--control-bg-hover); }
-.btn:active:not(:disabled) { filter: brightness(.94); transform: scale(.985); }
+.btn:active:not(:disabled) { filter: brightness(.94); }
 .btn.primary { background: var(--gradient-primary); box-shadow: var(--shadow-control-primary); color: #fff; }
 .btn.primary:hover { background: var(--gradient-primary); filter: brightness(1.08); }
 .btn.ghost { background: transparent; box-shadow: none; color: var(--fg-2); }
@@ -18,9 +18,9 @@
 .menu button, .menu a { all: unset; padding: var(--space-xs) var(--space-control); border-radius: var(--r-sm); font-size: var(--font-size-body); color: var(--fg); cursor: default; }
 .menu button:hover, .menu a:hover { background: var(--accent); color: #fff; }
 .dlg-mask { position: fixed; inset: 0; z-index: var(--layer-modal); background: var(--overlay-scrim); display: grid; place-items: center; animation: dlgfade var(--duration-content-dim) ease-out; }
-.dlg { width: min(460px, calc(100vw - 32px)); padding: var(--inset-dialog); border: 0; border-radius: 14px; background: var(--bg-panel); box-shadow: var(--shadow-dialog); animation: dlgpop var(--duration-approval-enter) cubic-bezier(.2, .9, .3, 1.2); }
+.dlg { width: min(460px, calc(100vw - 32px)); padding: var(--inset-dialog); border: 0; border-radius: 14px; background: var(--bg-panel); box-shadow: var(--shadow-dialog); animation: dlgpop var(--duration-approval-enter) ease-out; }
 @keyframes dlgfade { from { opacity: 0; } }
-@keyframes dlgpop { from { opacity: 0; transform: scale(.96); } }
+@keyframes dlgpop { from { opacity: 0; } }
 .dlg h3 { margin: 0 0 var(--space-md); font-size: var(--font-size-section-title); font-weight: var(--font-weight-semibold); }
 .dlg-body { color: var(--fg-2); word-break: break-all; }
 .dlg-foot { display: flex; justify-content: flex-end; gap: var(--space-md); margin-top: var(--space-section); flex-wrap: wrap; }

@@ -6,8 +6,7 @@
 .ctab[data-active="true"] { background: var(--control-bg); box-shadow: var(--shadow-thumb); color: var(--fg); }
 .ctab .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ctab .live { width: 6px; height: 6px; border-radius: 50%; background: var(--clay); animation: ccpulse var(--duration-tab-pulse) ease-in-out infinite; }
-.ctab .x { color: var(--fg-4); visibility: hidden; padding: 0 var(--space-2xs); }
-.ctab:hover .x, .ctab[data-active="true"] .x { visibility: visible; }
+.ctab .x { color: var(--fg-4); padding: 0 var(--space-2xs); }
 .ctab .x:hover { color: var(--fg); }
 .ctab.add { padding: 0 var(--space-md); }
 .menu.hist { width: 300px; right: -60px; max-height: 420px; }
@@ -42,8 +41,9 @@
 .cc-user .cc-ut { white-space: pre-wrap; word-break: break-word; color: var(--fg); }
 .cc-user[data-long="true"]:not([data-open="true"]) .cc-ut { max-height: 7.5em; overflow: hidden; -webkit-mask-image: linear-gradient(var(--mask-opaque) 60%, transparent); mask-image: linear-gradient(var(--mask-opaque) 60%, transparent); }
 .cc-xp { all: unset; cursor: pointer; font-size: var(--font-size-caption-readable); color: var(--accent); }
-.cc-acts { display: none; gap: var(--space-control); margin-top: var(--space-xs); }
-.cc-user:hover .cc-acts { display: flex; }
+.cc-uline { display: flex; align-items: flex-end; gap: var(--space-lg); }
+.cc-uline .cc-ut { flex: 1; min-width: 0; }
+.cc-acts { display: flex; flex: none; gap: var(--space-control); line-height: 1.6; }
 .cc-rw { all: unset; cursor: pointer; font-size: var(--font-size-caption-readable); color: var(--fg-3); }
 .cc-rw:hover { color: var(--fg); }
 .cc-edit textarea { width: 100%; padding: var(--space-field) var(--space-control); border: 1px solid var(--accent); border-radius: var(--r-md); background: var(--bg-canvas); color: var(--fg); font: var(--font-size-body) var(--font-sans); outline: none; resize: vertical; }
@@ -74,8 +74,7 @@
 .cc-md.md-body hr { margin: var(--margin-chat-separator); }
 .cc-md .md-insight { display: inline-block; font: var(--font-weight-semibold) var(--font-size-caption-readable) var(--font-mono); letter-spacing: var(--tracking-heading); color: var(--clay); }
 .cc-md .md-rule { display: block; height: 0; border-top: 1px solid var(--line); margin: var(--margin-chat-rule); }
-.cc-acts2 { display: flex; align-items: center; gap: var(--space-control); height: 22px; opacity: 0; transition: opacity var(--duration-control); }
-.cc-msg:hover .cc-acts2 { opacity: 1; }
+.cc-acts2 { display: flex; align-items: center; gap: var(--space-control); height: 22px; }
 .cc-copy { all: unset; cursor: pointer; width: 18px; height: 18px; display: grid; place-items: center; color: var(--fg-4); }
 .cc-copy:hover { color: var(--fg); }
 .cc-copy svg { width: 14px; height: 14px; }
@@ -142,8 +141,7 @@
 .cc-empty .starters { width: 100%; max-width: 420px; text-align: left; }
 .cc-empty .who b { color: var(--fg); }
 .starters { display: grid; gap: var(--space-sm); }
-.starter { all: unset; cursor: pointer; display: flex; flex-direction: column; gap: var(--space-2xs); padding: var(--space-md) var(--space-lg); border-radius: var(--r-lg); background: var(--bg-panel); box-shadow: var(--shadow-card); transition: box-shadow var(--duration-content-dim); }
-.starter:hover { box-shadow: var(--shadow-card-hover); }
+.starter { all: unset; cursor: pointer; display: flex; flex-direction: column; gap: var(--space-2xs); padding: var(--space-md) var(--space-lg); border-radius: var(--r-lg); background: var(--bg-panel); box-shadow: var(--shadow-card); }
 .starter b { color: var(--fg); font-weight: var(--font-weight-medium); }
 .starter span { font-size: var(--font-size-label); color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
@@ -303,7 +301,7 @@
 .ctab-select { display: inline-flex; align-items: center; gap: var(--space-sm); min-width: 0; height: 100%; padding: 0; border: 0; background: transparent; color: inherit; cursor: pointer; }
 .ctab .x, .ctab-rename { border: 0; background: transparent; font: inherit; cursor: pointer; }
 .ctab-rename { padding: 0 var(--space-2xs); color: var(--fg-4); visibility: hidden; }
-.ctab:hover .ctab-rename, .ctab:focus-within .ctab-rename, .ctab:focus-within .x { visibility: visible; }
+.ctab[data-active="true"] .ctab-rename { visibility: visible; }
 .cc-load { padding: var(--space-control) 0; color: var(--fg-3); font-size: var(--font-size-label); }
 .cp-cmd { gap: var(--space-lg); padding: 5px var(--space-md); }
 .cp-cmd .cp-l { flex: 0 0 auto; max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg); }
