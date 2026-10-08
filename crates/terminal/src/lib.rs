@@ -42,6 +42,7 @@ pub enum TerminalTarget {
 fn shell_command(cwd: &str, session: Option<&str>) -> String {
     let term = format!(
         "export TERM={TERM}; \
+         for d in /usr/local/bin /opt/homebrew/bin; do [ -d \"$d\" ] && PATH=\"$d:$PATH\"; done; export PATH=\"$HOME/.blazar/bin:$PATH\"; \
          [ -n \"$LC_ALL$LC_CTYPE$LANG\" ] || \
          if [ \"$(uname)\" = Darwin ]; then export LANG=en_US.UTF-8; else export LANG=C.UTF-8; fi; "
     );
@@ -51,7 +52,8 @@ fn shell_command(cwd: &str, session: Option<&str>) -> String {
             "{term}if command -v tmux >/dev/null 2>&1; then \
                exec tmux -u new-session -A -s {name_q} -c {cwd_q} \\; \
                     set-option -t {name_q} status off \\; \
-                    set-option -t {name_q} mouse on; \
+                    set-option -t {name_q} mouse on \\; \
+                    set-environment -t {name_q} PATH \"$PATH\"; \
              else {login}; fi",
             name_q = shell_quote(name),
             cwd_q = shell_quote(cwd),

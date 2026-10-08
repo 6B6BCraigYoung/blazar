@@ -40,11 +40,11 @@ export class Term {
     const sock = new WebSocket(`${url}${sep}cols=${this.term.cols}&rows=${this.term.rows}`);
     sock.binaryType = 'arraybuffer';
     this.sock = sock;
-    sock.onopen = () => onState('open');
+    sock.onopen = () => { onState('open'); this.resize(); };
     sock.onmessage = e => this.term.write(e.data instanceof ArrayBuffer ? new Uint8Array(e.data) : e.data);
     sock.onclose = () => {
       if (this.disposed) return;
-      this.term.write('\r\n\x1b[90m[已断开 —— 远端会话仍在运行，点「重连」回到原处]\x1b[0m\r\n');
+      this.term.write(url.includes('/login/') ? '\r\n\x1b[90m[登录流程已结束]\x1b[0m\r\n' : '\r\n\x1b[90m[已断开 —— 远端会话仍在运行，点「重连」回到原处]\x1b[0m\r\n');
       onState('closed');
     };
     this.term.onData(d => { if (sock.readyState === 1) sock.send(JSON.stringify({ type: 'input', data: d })); });

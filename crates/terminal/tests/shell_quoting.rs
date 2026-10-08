@@ -13,6 +13,8 @@ fn tmux_shell_preserves_workspace_and_session_arguments() {
     let output = Command::new("/bin/bash")
         .args(["--noprofile", "--norc", "-c", &script])
         .env_clear()
+        .env("HOME", "/h")
+        .env("PATH", "/usr/bin:/bin")
         .output()
         .unwrap();
     assert!(
@@ -21,7 +23,13 @@ fn tmux_shell_preserves_workspace_and_session_arguments() {
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(output.stderr.is_empty());
-    let expected: Vec<u8> = [
+    let got: Vec<String> = output
+        .stdout
+        .split(|b| *b == 0)
+        .filter(|part| !part.is_empty())
+        .map(|part| String::from_utf8(part.to_vec()).unwrap())
+        .collect();
+    let expected = [
         "xterm-256color",
         "tmux",
         "-u",
@@ -43,9 +51,15 @@ fn tmux_shell_preserves_workspace_and_session_arguments() {
         session,
         "mouse",
         "on",
-    ]
-    .into_iter()
-    .flat_map(|value| value.as_bytes().iter().copied().chain([0]))
-    .collect();
-    assert_eq!(output.stdout, expected);
+        ";",
+        "set-environment",
+        "-t",
+        session,
+        "PATH",
+    ];
+    assert_eq!(&got[..expected.len()], &expected[..]);
+    let path = &got[expected.len()];
+    assert!(path.starts_with("/h/.blazar/bin:"), "{path}");
+    assert!(path.ends_with(":/usr/bin:/bin"), "{path}");
+    assert_eq!(got.len(), expected.len() + 1);
 }
