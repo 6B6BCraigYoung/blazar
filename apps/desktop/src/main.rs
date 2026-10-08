@@ -155,6 +155,11 @@ fn run() -> Result<()> {
                     window_geometry::save(&w2);
                     if !QUITTING.load(std::sync::atomic::Ordering::SeqCst) {
                         api.prevent_close();
+                        #[cfg(target_os = "macos")]
+                        if w2.is_fullscreen().unwrap_or(false) {
+                            let _ = w2.app_handle().hide();
+                            return;
+                        }
                         let _ = w2.hide();
                     }
                 }
@@ -178,6 +183,7 @@ fn run() -> Result<()> {
         if let tauri::RunEvent::Reopen { .. } = &event
             && let Some(w) = handle.get_webview_window("main")
         {
+            let _ = handle.show();
             let _ = w.unminimize();
             let _ = w.show();
             let _ = w.set_focus();
