@@ -85,7 +85,7 @@ fn Dialog() -> impl IntoView {
     let parent = app.new_ws_parent.get_untracked();
     let is_child = parent.is_some();
     let parent_name = parent.as_ref().map(|p| p.1.clone()).unwrap_or_default();
-    let copy = RwSignal::new(true);
+    let copy = RwSignal::new(false);
     on_cleanup(move || {
         app.new_ws_node.set(None);
         app.new_ws_parent.set(None);
