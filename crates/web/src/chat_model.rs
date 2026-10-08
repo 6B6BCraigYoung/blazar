@@ -659,6 +659,7 @@ fn kind_name(k: &EntryKind) -> &'static str {
         EntryKind::TokenUsage(_) => "token_usage",
         EntryKind::RateLimit(_) => "rate_limit",
         EntryKind::Error { .. } => "error",
+        EntryKind::Notice { .. } => "notice",
         EntryKind::BackgroundTask { .. } => "background_task",
         EntryKind::Finished(_) => "finished",
         EntryKind::Progress { .. } => "progress",
@@ -866,6 +867,13 @@ impl Builder<'_> {
                 *n = (*n).max(output_tokens);
             }
             EntryKind::RateLimit(rl) => self.out.rate = rl.windows,
+            EntryKind::Notice { message } => self.push(
+                key,
+                BBody::Meta {
+                    text: message,
+                    bad: false,
+                },
+            ),
             EntryKind::Error { message } => self.push(
                 key,
                 BBody::Error {

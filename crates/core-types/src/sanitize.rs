@@ -126,7 +126,7 @@ pub fn sanitize(kind: &mut EntryKind) {
         EntryKind::UserMessage { text }
         | EntryKind::AssistantMessage { text }
         | EntryKind::Thinking { text } => clean(text),
-        EntryKind::Error { message } => clean(message),
+        EntryKind::Error { message } | EntryKind::Notice { message } => clean(message),
         EntryKind::ToolUse { input, .. } => sanitize_json(input),
         EntryKind::ToolResult {
             content,

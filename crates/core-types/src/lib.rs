@@ -209,6 +209,9 @@ pub enum EntryKind {
     Error {
         message: String,
     },
+    Notice {
+        message: String,
+    },
 
     BackgroundTask {
         task_id: String,
@@ -333,7 +336,10 @@ impl ActivityState {
             | EntryKind::Thinking { .. }
             | EntryKind::ToolUse { .. }
             | EntryKind::ToolResult { .. } => Some(Self::Running),
-            EntryKind::TokenUsage(_) | EntryKind::RateLimit(_) | EntryKind::Progress { .. } => None,
+            EntryKind::TokenUsage(_)
+            | EntryKind::RateLimit(_)
+            | EntryKind::Progress { .. }
+            | EntryKind::Notice { .. } => None,
         }
     }
 }

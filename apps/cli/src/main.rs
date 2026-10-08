@@ -430,6 +430,7 @@ fn render(seq: &u64, kind: &EntryKind) -> String {
             format!("额度  {}", windows.join(" "))
         }
         EntryKind::Error { message } => format!("错误  {message}"),
+        EntryKind::Notice { message } => format!("提示  {message}"),
         EntryKind::Finished(Outcome::Success { denied, .. }) if !denied.is_empty() => {
             format!(
                 "被拦  {} 次操作被权限拒绝、没有执行：{}",

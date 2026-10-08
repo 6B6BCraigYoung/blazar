@@ -83,7 +83,7 @@ fn parse_item(item: &Value, phase: Phase) -> Vec<EntryKind> {
             .unwrap_or_default(),
 
         "error" => text_of(item, &["message", "text"])
-            .map(|message| text_only_when_done(EntryKind::Error { message }))
+            .map(|message| text_only_when_done(EntryKind::Notice { message }))
             .unwrap_or_default(),
 
         "command_execution" => {
@@ -200,7 +200,7 @@ mod tests {
     fn parses_the_real_capture_end_to_end() {
         let all: Vec<_> = REAL.iter().flat_map(|l| parse_line(l)).collect();
         assert!(matches!(all[0], EntryKind::SessionStarted { .. }));
-        assert!(matches!(all[1], EntryKind::Error { .. }));
+        assert!(matches!(all[1], EntryKind::Notice { .. }));
         assert!(matches!(all[2], EntryKind::AssistantMessage { .. }));
         assert!(matches!(all[3], EntryKind::TokenUsage(_)));
         assert!(matches!(
