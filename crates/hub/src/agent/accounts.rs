@@ -1949,7 +1949,48 @@ pub async fn node_login_ws(
         env: Vec::new(),
         cwd: home.display().to_string(),
     };
-    ws.on_upgrade(move |socket| pty_bridge(socket, target, q))
+    ws.on_upgrade(move |socket| install_then_login(st, node, socket, target, q))
+}
+
+async fn install_then_login(
+    st: Shared,
+    node: String,
+    mut socket: ws::WebSocket,
+    target: blazar_terminal::TerminalTarget,
+    q: LoginQuery,
+) {
+    if crate::remote_cli::remote_version(&st, &node, "codex")
+        .await
+        .is_none()
+    {
+        let version = crate::remote_cli::target_version("codex")
+            .await
+            .map(|v| format!(" {v}"))
+            .unwrap_or_default();
+        let _ = socket
+            .send(ws::Message::Text(
+                format!(
+                    "{node} 上还没有 Codex，正在把官方发布的 Codex{version} 装进 ~/.blazar …\r\n"
+                )
+                .into(),
+            ))
+            .await;
+        match crate::remote_cli::install(&st, &node, "codex").await {
+            Ok((_, msg)) => {
+                let _ = socket
+                    .send(ws::Message::Text(format!("{msg}\r\n\r\n").into()))
+                    .await;
+            }
+            Err(e) => {
+                let _ = socket
+                    .send(ws::Message::Text(format!("安装失败：{e}\r\n").into()))
+                    .await;
+                let _ = socket.close().await;
+                return;
+            }
+        }
+    }
+    pty_bridge(socket, target, q).await;
 }
 
 async fn pty_bridge(socket: ws::WebSocket, target: blazar_terminal::TerminalTarget, q: LoginQuery) {

@@ -25,7 +25,7 @@ xattr -dr com.apple.quarantine /Applications/Blazar.app
 ```
 
 Linux 的构建目标为 x86_64 `.deb` / `.AppImage`；Windows x86_64 `.msi` 为实验性构建，下载以 Releases 实际附件为准。
-要运行智能体，请先在执行任务的机器上安装并登录 Claude Code、Codex 等 CLI；Blazar 不包含这些 CLI。
+要运行智能体，执行任务的机器上需要有 Claude Code、Codex 等 CLI。Blazar 自己不打包这些 CLI；远端机器缺 Claude Code 或 Codex 时，会像 Cursor 一样把官方发布的版本（校验过的，版本和本机一致）装进那台机器的 `~/.blazar`，远端连不上外网就由本机下载后传过去。其他 CLI 需要自己安装并登录。
 
 ## 开始使用
 

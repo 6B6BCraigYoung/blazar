@@ -92,7 +92,7 @@ async fn run(st: &Shared, node: &str, script: &str, secs: u64) -> Result<String,
     }
 }
 
-async fn remote_version(st: &Shared, node: &str, runtime: &str) -> Option<(u64, u64, u64)> {
+pub async fn remote_version(st: &Shared, node: &str, runtime: &str) -> Option<(u64, u64, u64)> {
     let script = format!(
         "{}\n{runtime} --version 2>/dev/null",
         blazar_transport::PATH_PRELUDE
@@ -106,6 +106,10 @@ async fn other_nodes(st: &Shared, node: &str) -> Vec<String> {
         .fetch_all(st.db.pool())
         .await
         .unwrap_or_default()
+}
+
+fn ssh_target(st: &Shared, node: &str) -> String {
+    st.transport(node).target().to_owned()
 }
 
 fn scp_remote_path(target: &str, path: &str) -> Result<String, String> {
@@ -124,21 +128,10 @@ fn scp_remote_path(target: &str, path: &str) -> Result<String, String> {
     })
 }
 
-async fn scp3(src: &str, src_path: &str, dst: &str, dst_path: &str) -> Result<(), String> {
-    let src = scp_remote_path(src, src_path)?;
-    let dst = scp_remote_path(dst, dst_path)?;
+async fn scp(args: &[&str]) -> Result<(), String> {
     let out = tokio::process::Command::new("scp")
-        .args([
-            "-3",
-            "-q",
-            "-o",
-            "BatchMode=yes",
-            "-o",
-            "ConnectTimeout=15",
-            "--",
-            &src,
-            &dst,
-        ])
+        .args(["-q", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15"])
+        .args(args)
         .output()
         .await
         .map_err(|e| format!("起不了 scp：{e}"))?;
@@ -153,142 +146,441 @@ async fn scp3(src: &str, src_path: &str, dst: &str, dst_path: &str) -> Result<()
     }
 }
 
-async fn update_claude(st: &Shared, node: &str, want: (u64, u64, u64)) -> Result<String, String> {
-    blazar_transport::validate_ssh_target(node).map_err(|e| e.to_string())?;
-    let v = fmt_version(want);
-    let script = format!(
-        "{}{}\nclaude install {v} 2>&1 | tail -3",
-        exports(st, node).await,
-        blazar_transport::PATH_PRELUDE
-    );
-    let log = run(st, node, &script, 600).await.unwrap_or_else(|e| e);
-    if remote_version(st, node, "claude").await == Some(want) {
-        return Ok(format!("已用官方安装器更新到 {v}"));
+async fn scp3(src: &str, src_path: &str, dst: &str, dst_path: &str) -> Result<(), String> {
+    let src = scp_remote_path(src, src_path)?;
+    let dst = scp_remote_path(dst, dst_path)?;
+    scp(&["-3", "--", &src, &dst]).await
+}
+
+async fn scp_up(local: &std::path::Path, dst: &str, dst_path: &str) -> Result<(), String> {
+    let dst = scp_remote_path(dst, dst_path)?;
+    scp(&["--", &local.to_string_lossy(), &dst]).await
+}
+
+const PLATFORM_SH: &str = r#"uname -s; uname -m
+if [ -f /lib/libc.musl-x86_64.so.1 ] || [ -f /lib/libc.musl-aarch64.so.1 ] || ldd /bin/ls 2>&1 | grep -q musl; then echo musl; else echo gnu; fi"#;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Platform {
+    os: &'static str,
+    arch: &'static str,
+    musl: bool,
+}
+
+impl Platform {
+    fn claude(&self) -> String {
+        format!(
+            "{}-{}{}",
+            self.os,
+            self.arch,
+            if self.musl { "-musl" } else { "" }
+        )
     }
-    let file = format!(".local/share/claude/versions/{v}");
+
+    fn codex(&self) -> (String, String) {
+        let triple = match (self.os, self.arch) {
+            ("darwin", "arm64") => "aarch64-apple-darwin",
+            ("darwin", _) => "x86_64-apple-darwin",
+            (_, "arm64") => "aarch64-unknown-linux-musl",
+            _ => "x86_64-unknown-linux-musl",
+        };
+        (format!("{}-{}", self.os, self.arch), triple.to_owned())
+    }
+}
+
+fn parse_platform(raw: &str) -> Result<Platform, String> {
+    let mut lines = raw.lines().map(str::trim).filter(|l| !l.is_empty());
+    let os = match lines.next() {
+        Some("Linux") => "linux",
+        Some("Darwin") => "darwin",
+        other => return Err(format!("不支持的系统：{}", other.unwrap_or("未知"))),
+    };
+    let arch = match lines.next() {
+        Some("x86_64" | "amd64") => "x64",
+        Some("aarch64" | "arm64") => "arm64",
+        other => return Err(format!("不支持的 CPU 架构：{}", other.unwrap_or("未知"))),
+    };
+    let musl = os == "linux" && lines.next() == Some("musl");
+    Ok(Platform { os, arch, musl })
+}
+
+async fn platform(st: &Shared, node: &str) -> Result<Platform, String> {
+    parse_platform(&run(st, node, PLATFORM_SH, 30).await?)
+}
+
+const CLAUDE_DIST: &str = "https://downloads.claude.ai/claude-code-releases";
+
+fn http() -> Result<reqwest::Client, String> {
+    reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(15))
+        .build()
+        .map_err(|e| e.to_string())
+}
+
+async fn claude_latest() -> Result<(u64, u64, u64), String> {
+    let text = http()?
+        .get(format!("{CLAUDE_DIST}/latest"))
+        .timeout(Duration::from_secs(30))
+        .send()
+        .await
+        .and_then(reqwest::Response::error_for_status)
+        .map_err(|e| format!("查不到 Claude Code 最新版本：{e}"))?
+        .text()
+        .await
+        .map_err(|e| e.to_string())?;
+    parse_version(&text).ok_or_else(|| "Claude Code 最新版本号格式不对".to_owned())
+}
+
+async fn claude_checksum(v: &str, platform: &str) -> Result<String, String> {
+    let manifest: serde_json::Value = http()?
+        .get(format!("{CLAUDE_DIST}/{v}/manifest.json"))
+        .timeout(Duration::from_secs(30))
+        .send()
+        .await
+        .and_then(reqwest::Response::error_for_status)
+        .map_err(|e| format!("拿不到 Claude Code {v} 的发布清单：{e}"))?
+        .bytes()
+        .await
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .ok_or_else(|| format!("Claude Code {v} 的发布清单格式不对"))?;
+    manifest["platforms"][platform]["checksum"]
+        .as_str()
+        .and_then(sha256_digest)
+        .map(str::to_owned)
+        .ok_or_else(|| format!("Claude Code {v} 没有 {platform} 版本"))
+}
+
+fn cache_dir(st: &Shared) -> std::path::PathBuf {
+    st.mesh_ctx
+        .staging_dir
+        .parent()
+        .map_or_else(std::env::temp_dir, std::path::Path::to_path_buf)
+        .join("agent-cache")
+}
+
+async fn cached_download(path: &std::path::Path, url: &str, sha256: &str) -> Result<(), String> {
+    use sha2::{Digest, Sha256};
+    use tokio::io::AsyncWriteExt;
+
+    let hex = |d: &[u8]| d.iter().map(|b| format!("{b:02x}")).collect::<String>();
+    if let Ok(bytes) = tokio::fs::read(path).await
+        && hex(&Sha256::digest(&bytes)) == sha256
+    {
+        return Ok(());
+    }
+    if let Some(dir) = path.parent() {
+        tokio::fs::create_dir_all(dir)
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+    let part = path.with_extension("part");
+    let mut resp = http()?
+        .get(url)
+        .send()
+        .await
+        .and_then(reqwest::Response::error_for_status)
+        .map_err(|e| format!("本机下载失败：{e}"))?;
+    let mut file = tokio::fs::File::create(&part)
+        .await
+        .map_err(|e| e.to_string())?;
+    let mut hash = Sha256::new();
+    while let Some(chunk) = resp
+        .chunk()
+        .await
+        .map_err(|e| format!("本机下载中断：{e}"))?
+    {
+        hash.update(&chunk);
+        file.write_all(&chunk).await.map_err(|e| e.to_string())?;
+    }
+    file.flush().await.map_err(|e| e.to_string())?;
+    drop(file);
+    if hex(&hash.finalize()) != sha256 {
+        let _ = tokio::fs::remove_file(&part).await;
+        return Err("本机下载的文件校验不通过".into());
+    }
+    tokio::fs::rename(&part, path)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+pub const MANAGED_BIN: &str = ".blazar/bin";
+
+fn claude_install_script(v: &str, sha256: &str, source: &str) -> String {
+    format!(
+        r#"set -e
+umask 022
+R="$HOME/.blazar/agents/claude/{v}"
+F="$R/claude.part"
+mkdir -p "$R" "$HOME/{MANAGED_BIN}"
+{source}
+S=$( (sha256sum "$F" 2>/dev/null || shasum -a 256 "$F") | cut -d' ' -f1)
+[ "$S" = {sum} ] || {{ rm -f "$F"; echo "校验失败" >&2; exit 1; }}
+chmod +x "$F" && mv -f "$F" "$R/claude"
+ln -sfn "$R/claude" "$HOME/{MANAGED_BIN}/claude"
+"#,
+        sum = shell_quote(sha256),
+    )
+}
+
+async fn install_claude(st: &Shared, node: &str, want: (u64, u64, u64)) -> Result<String, String> {
+    let v = fmt_version(want);
+    let p = platform(st, node).await?;
+    let plat = p.claude();
+    let sum = claude_checksum(&v, &plat).await?;
+    let url = format!("{CLAUDE_DIST}/{v}/{plat}/claude");
+    let fetch = format!(
+        "curl -fsSL --connect-timeout 15 --retry 2 -o \"$F\" -- {u} 2>/dev/null || wget -q -T 15 -t 2 -O \"$F\" -- {u}",
+        u = shell_quote(&url)
+    );
+    let script = format!(
+        "{}{}",
+        exports(st, node).await,
+        claude_install_script(&v, &sum, &fetch)
+    );
+    let remote_log = run(st, node, &script, 900).await.unwrap_or_else(|e| e);
+    if remote_version(st, node, "claude").await == Some(want) {
+        return Ok(format!(
+            "已把 Claude Code {v} 装到 {node} 的 ~/.blazar（官方发布，sha256 校验通过）"
+        ));
+    }
+
+    let target = ssh_target(st, node);
+    let dst = format!(".blazar/agents/claude/{v}/claude.part");
+    let local = cache_dir(st)
+        .join("claude")
+        .join(&v)
+        .join(&plat)
+        .join("claude");
+    let pushed = match cached_download(&local, &url, &sum).await {
+        Ok(()) => {
+            let _ = run(
+                st,
+                node,
+                &format!("mkdir -p ~/.blazar/agents/claude/{v}"),
+                30,
+            )
+            .await;
+            scp_up(&local, &target, &dst).await
+        }
+        Err(e) => Err(e),
+    };
+    if pushed.is_ok() {
+        let _ = run(st, node, &claude_install_script(&v, &sum, ":"), 120).await;
+        if remote_version(st, node, "claude").await == Some(want) {
+            return Ok(format!(
+                "{node} 下载不了，已由本机下载后传过去，装在 ~/.blazar（sha256 校验通过），现在是 {v}"
+            ));
+        }
+    }
+
     for src in other_nodes(st, node).await {
-        if remote_version(st, &src, "claude").await != Some(want) {
+        if remote_version(st, &src, "claude").await != Some(want)
+            || platform(st, &src).await.ok().as_ref() != Some(&p)
+        {
             continue;
         }
-        let Ok(sum) = run(st, &src, &format!("sha256sum ~/{file} | cut -d' ' -f1"), 60).await
+        let Ok(path) = run(
+            st,
+            &src,
+            &format!(
+                "{}\nreadlink -f \"$(command -v claude)\"",
+                blazar_transport::PATH_PRELUDE
+            ),
+            30,
+        )
+        .await
         else {
             continue;
         };
-        let Some(sum) = sha256_digest(&sum) else {
+        let path = path.trim();
+        if !path.starts_with('/') {
             continue;
-        };
+        }
         let _ = run(
             st,
             node,
-            "mkdir -p ~/.local/share/claude/versions ~/.local/bin",
+            &format!("mkdir -p ~/.blazar/agents/claude/{v}"),
             30,
         )
         .await;
-        if let Err(e) = scp3(&src, &file, node, &format!("{file}.part")).await {
+        if let Err(e) = scp3(&ssh_target(st, &src), path, &target, &dst).await {
             tracing::warn!(target: "blazar::remote_cli", "从 {src} 拷 claude 到 {node} 失败：{e}");
             continue;
         }
-        let install = format!(
-            "f=~/{file}.part; [ \"$(sha256sum $f | cut -d' ' -f1)\" = {sum} ] || {{ rm -f $f; echo BAD; exit 1; }}; \
-             chmod +x $f && mv $f ~/{file} && ln -sfn ~/{file} ~/.local/bin/claude",
-            sum = shell_quote(sum),
-        );
-        if run(st, node, &install, 60)
-            .await
-            .is_ok_and(|o| !o.contains("BAD"))
-            && remote_version(st, node, "claude").await == Some(want)
-        {
+        let _ = run(st, node, &claude_install_script(&v, &sum, ":"), 120).await;
+        if remote_version(st, node, "claude").await == Some(want) {
             return Ok(format!(
-                "官方下载没成功，已从 {src} 拷贝 {v}（sha256 校验通过）"
+                "下载都没成功，已从 {src} 拷贝 {v} 到 ~/.blazar（sha256 校验通过）"
             ));
         }
     }
     Err(format!(
-        "没能更新到 {v}：官方安装器失败（{}），也没有别的机器已经装了这个版本可以拷",
-        log.lines().last().unwrap_or("").trim()
+        "没能在 {node} 上装好 Claude Code {v}：远端下载失败（{}），本机{}，也没有别的机器装了这个版本可以拷",
+        remote_log.lines().last().unwrap_or("").trim(),
+        match pushed {
+            Ok(()) => "传过去后校验没通过".to_owned(),
+            Err(e) => format!("兜底也失败（{e}）"),
+        }
     ))
 }
 
-fn codex_install_script(v: &str, sri_b64: &str, source: &str) -> String {
+fn codex_install_script(v: &str, triple: &str, sri_b64: &str, source: &str) -> String {
     format!(
         r#"set -e
-T=x86_64-unknown-linux-musl
+umask 022
+T={triple}
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 {source}
-[ "$(openssl dgst -sha512 -binary "$TMP/pkg.tgz" | base64 -w0)" = {sri_b64} ] || {{ echo 校验失败; exit 1; }}
+[ "$(openssl dgst -sha512 -binary "$TMP/pkg.tgz" | openssl base64 -A)" = {sri_b64} ] || {{ echo 校验失败; exit 1; }}
 tar xzf "$TMP/pkg.tgz" -C "$TMP"
-R=$HOME/.codex/packages/standalone/releases/{v}-$T
-rm -rf "$R"; mkdir -p "$(dirname "$R")" "$HOME/.local/bin"
+R=$HOME/.blazar/agents/codex/{v}
+rm -rf "$R"; mkdir -p "$(dirname "$R")" "$HOME/{MANAGED_BIN}"
 cp -a "$TMP/package/vendor/$T" "$R"
-ln -sfn "$R" "$HOME/.codex/packages/standalone/current"
-for b in codex codex-code-mode-host; do ln -sfn "$HOME/.codex/packages/standalone/current/bin/$b" "$HOME/.local/bin/$b"; done
+for b in "$R"/bin/*; do ln -sfn "$b" "$HOME/{MANAGED_BIN}/$(basename "$b")"; done
 "#,
         sri_b64 = shell_quote(sri_b64),
     )
 }
 
-async fn update_codex(st: &Shared, node: &str, want: (u64, u64, u64)) -> Result<String, String> {
-    blazar_transport::validate_ssh_target(node).map_err(|e| e.to_string())?;
-    let v = fmt_version(want);
-    let meta = tokio::process::Command::new("curl")
-        .args([
-            "-fsSL",
-            "--max-time",
-            "30",
-            &format!("https://registry.npmjs.org/@openai%2fcodex/{v}-linux-x64"),
-        ])
-        .output()
+async fn codex_latest() -> Result<(u64, u64, u64), String> {
+    let meta: serde_json::Value = http()?
+        .get("https://registry.npmjs.org/@openai%2fcodex/latest")
+        .timeout(Duration::from_secs(30))
+        .send()
         .await
-        .map_err(|e| format!("起不了 curl：{e}"))?;
-    let meta: serde_json::Value = serde_json::from_slice(&meta.stdout)
-        .map_err(|_| "从 npm 拿不到 Codex 的发布信息".to_owned())?;
+        .and_then(reqwest::Response::error_for_status)
+        .map_err(|e| format!("查不到 Codex 最新版本：{e}"))?
+        .bytes()
+        .await
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .ok_or_else(|| "Codex 发布信息格式不对".to_owned())?;
+    meta["version"]
+        .as_str()
+        .and_then(parse_version)
+        .ok_or_else(|| "Codex 最新版本号格式不对".to_owned())
+}
+
+async fn install_codex(st: &Shared, node: &str, want: (u64, u64, u64)) -> Result<String, String> {
+    let v = fmt_version(want);
+    let (npm_plat, triple) = platform(st, node).await?.codex();
+    let meta: serde_json::Value = http()?
+        .get(format!(
+            "https://registry.npmjs.org/@openai%2fcodex/{v}-{npm_plat}"
+        ))
+        .timeout(Duration::from_secs(30))
+        .send()
+        .await
+        .and_then(reqwest::Response::error_for_status)
+        .map_err(|e| format!("从 npm 拿不到 Codex {v} 的发布信息：{e}"))?
+        .bytes()
+        .await
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .ok_or_else(|| "从 npm 拿不到 Codex 的发布信息".to_owned())?;
     let (url, sri) = npm_dist(&meta)?;
     let remote_fetch = format!(
-        "curl -fsSL --retry 3 -o \"$TMP/pkg.tgz\" -- {}",
-        shell_quote(url)
+        "curl -fsSL --connect-timeout 15 --retry 2 -o \"$TMP/pkg.tgz\" -- {u} 2>/dev/null || wget -q -T 15 -t 2 -O \"$TMP/pkg.tgz\" -- {u}",
+        u = shell_quote(url)
     );
     let script = format!(
         "{}{}",
         exports(st, node).await,
-        codex_install_script(&v, sri, &remote_fetch)
+        codex_install_script(&v, &triple, sri, &remote_fetch)
     );
     let _ = run(st, node, &script, 900).await;
     if remote_version(st, node, "codex").await == Some(want) {
-        return Ok(format!("已从 npm 官方仓库更新到 {v}（sha512 校验通过）"));
+        return Ok(format!(
+            "已把 Codex {v} 装到 {node} 的 ~/.blazar（npm 官方仓库，sha512 校验通过）"
+        ));
     }
-    let tmp = std::env::temp_dir().join(format!("blazar-codex-{v}.tgz"));
-    let dl = tokio::process::Command::new("curl")
+    let local = cache_dir(st)
+        .join("codex")
+        .join(&v)
+        .join(&npm_plat)
+        .join("pkg.tgz");
+    if let Some(dir) = local.parent() {
+        let _ = tokio::fs::create_dir_all(dir).await;
+    }
+    let downloaded = tokio::process::Command::new("curl")
         .args(["-fsSL", "--retry", "3", "-o"])
-        .arg(&tmp)
+        .arg(local.with_extension("part"))
         .arg("--")
         .arg(url)
         .status()
-        .await;
-    if !dl.is_ok_and(|s| s.success()) {
-        return Err(format!("没能更新到 {v}：远端和本机都下载不到安装包"));
+        .await
+        .is_ok_and(|s| s.success());
+    if !downloaded {
+        return Err(format!("没能装好 Codex {v}：远端和本机都下载不到安装包"));
     }
-    let up = tokio::process::Command::new("scp")
-        .args(["-q", "-o", "BatchMode=yes"])
-        .arg("--")
-        .arg(&tmp)
-        .arg(scp_remote_path(
-            node,
-            &format!("/tmp/blazar-codex-{v}.tgz"),
-        )?)
-        .status()
-        .await;
-    let _ = std::fs::remove_file(&tmp);
-    if !up.is_ok_and(|s| s.success()) {
-        return Err(format!("没能把安装包传到 {node}"));
-    }
-    let local_src = format!("mv /tmp/blazar-codex-{v}.tgz \"$TMP/pkg.tgz\"");
-    let _ = run(st, node, &codex_install_script(&v, sri, &local_src), 600).await;
+    let _ = tokio::fs::rename(local.with_extension("part"), &local).await;
+    let remote_tmp = format!("/tmp/blazar-codex-{v}.tgz");
+    scp_up(&local, &ssh_target(st, node), &remote_tmp)
+        .await
+        .map_err(|e| format!("没能把安装包传到 {node}：{e}"))?;
+    let local_src = format!("mv {remote_tmp} \"$TMP/pkg.tgz\"");
+    let _ = run(
+        st,
+        node,
+        &codex_install_script(&v, &triple, sri, &local_src),
+        600,
+    )
+    .await;
     if remote_version(st, node, "codex").await == Some(want) {
         Ok(format!(
-            "远端下载没成功，已由本机下载后传过去（sha512 校验通过），现在是 {v}"
+            "{node} 下载不了，已由本机下载后传过去（sha512 校验通过），装在 ~/.blazar，现在是 {v}"
         ))
     } else {
-        Err(format!("没能更新到 {v}"))
+        Err(format!("没能在 {node} 上装好 Codex {v}"))
+    }
+}
+
+pub async fn store_agents(st: &Shared, node: &str, agents: &[blazar_runtime::DiscoveredAgent]) {
+    let Ok(json) = serde_json::to_string(agents) else {
+        return;
+    };
+    let _ = sqlx::query(
+        "UPDATE nodes SET capabilities = json_set(
+             CASE WHEN capabilities = '' OR capabilities IS NULL THEN '{}' ELSE capabilities END,
+             '$.agents', json(?1))
+         WHERE name = ?2",
+    )
+    .bind(json)
+    .bind(node)
+    .execute(st.db.pool())
+    .await;
+    st.emit(crate::state::ServerEvent::NodesChanged);
+}
+
+pub fn installable(runtime: &str) -> bool {
+    matches!(runtime, "claude" | "codex")
+}
+
+pub async fn install(st: &Shared, node: &str, runtime: &str) -> Result<(String, String), String> {
+    let want = match local_version(runtime).await {
+        Some(v) => v,
+        None if runtime == "claude" => claude_latest().await?,
+        None if runtime == "codex" => codex_latest().await?,
+        None => return Err(format!("不支持自动安装 {runtime}")),
+    };
+    let msg = if runtime == "claude" {
+        install_claude(st, node, want).await?
+    } else {
+        install_codex(st, node, want).await?
+    };
+    if let Ok(found) = blazar_runtime::discover(&st.transport(node)).await {
+        store_agents(st, node, &found).await;
+    }
+    Ok((fmt_version(want), msg))
+}
+
+pub async fn target_version(runtime: &str) -> Option<String> {
+    match local_version(runtime).await {
+        Some(v) => Some(fmt_version(v)),
+        None if runtime == "claude" => claude_latest().await.ok().map(fmt_version),
+        None if runtime == "codex" => codex_latest().await.ok().map(fmt_version),
+        None => None,
     }
 }
 
@@ -322,23 +614,13 @@ pub async fn update(
     if known.is_none() || node == "local" {
         return fail(StatusCode::NOT_FOUND, "没有这台机器".into());
     }
-    if !matches!(runtime.as_str(), "claude" | "codex") {
-        return fail(StatusCode::BAD_REQUEST, format!("不支持更新 {runtime}"));
+    if !installable(&runtime) {
+        return fail(StatusCode::BAD_REQUEST, format!("不支持安装 {runtime}"));
     }
-    let Some(want) = local_version(&runtime).await else {
-        return fail(
-            StatusCode::CONFLICT,
-            format!("本机没装 {runtime}，不知道该对齐到哪个版本"),
-        );
-    };
-    let r = if runtime == "claude" {
-        update_claude(&st, &node, want).await
-    } else {
-        update_codex(&st, &node, want).await
-    };
-    match r {
-        Ok(msg) => Json(json!({ "ok": true, "version": fmt_version(want), "message": msg }))
-            .into_response(),
+    match install(&st, &node, &runtime).await {
+        Ok((version, message)) => {
+            Json(json!({ "ok": true, "version": version, "message": message })).into_response()
+        }
         Err(e) => fail(StatusCode::BAD_GATEWAY, e),
     }
 }
@@ -399,6 +681,70 @@ mod tests {
                 npm_dist(&json!({"dist": {"tarball": official, "integrity": digest}})).is_err()
             );
         }
+    }
+
+    #[test]
+    fn platforms_map_to_release_names() {
+        let p = parse_platform("Linux\nx86_64\ngnu\n").unwrap();
+        assert_eq!(p.claude(), "linux-x64");
+        assert_eq!(p.codex().1, "x86_64-unknown-linux-musl");
+        let p = parse_platform("Linux\naarch64\nmusl\n").unwrap();
+        assert_eq!(p.claude(), "linux-arm64-musl");
+        assert_eq!(
+            p.codex(),
+            ("linux-arm64".into(), "aarch64-unknown-linux-musl".into())
+        );
+        let p = parse_platform("Darwin\narm64\nmusl\n").unwrap();
+        assert_eq!(p.claude(), "darwin-arm64");
+        assert_eq!(p.codex().1, "aarch64-apple-darwin");
+        assert!(parse_platform("FreeBSD\nx86_64\n").is_err());
+        assert!(parse_platform("Linux\nriscv64\n").is_err());
+    }
+
+    #[test]
+    fn claude_install_script_verifies_and_links_into_managed_bin() {
+        use sha2::{Digest, Sha256};
+        let home = tempfile::tempdir().unwrap();
+        let src = home.path().join("payload");
+        std::fs::write(&src, "#!/bin/sh\necho 9.8.7 '(Claude Code)'\n").unwrap();
+        let sum: String = Sha256::digest(std::fs::read(&src).unwrap())
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        let fetch = format!("cp {} \"$F\"", shell_quote(&src.to_string_lossy()));
+        let run = |script: String| {
+            std::process::Command::new("bash")
+                .arg("-c")
+                .arg(script)
+                .env("HOME", home.path())
+                .output()
+                .unwrap()
+        };
+
+        let bad = run(claude_install_script("9.8.7", &"0".repeat(64), &fetch));
+        assert!(!bad.status.success());
+        assert!(!home.path().join(".blazar/bin/claude").exists());
+        assert!(
+            !home
+                .path()
+                .join(".blazar/agents/claude/9.8.7/claude.part")
+                .exists()
+        );
+
+        let ok = run(claude_install_script("9.8.7", &sum, &fetch));
+        assert!(
+            ok.status.success(),
+            "{}",
+            String::from_utf8_lossy(&ok.stderr)
+        );
+        let out = run(format!(
+            "{}\nclaude --version",
+            blazar_transport::PATH_PRELUDE
+        ));
+        assert_eq!(
+            parse_version(&String::from_utf8_lossy(&out.stdout)),
+            Some((9, 8, 7))
+        );
     }
 
     #[test]

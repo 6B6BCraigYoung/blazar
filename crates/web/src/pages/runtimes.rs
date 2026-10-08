@@ -142,7 +142,8 @@ pub fn login(a: &Account) {
             }
         ),
         path: format!("/api/accounts/{}/login/ws", api::enc(&a.id)),
-        after: Callback::new(move |()| {
+        verify_node: None,
+        after: Callback::new(move |_| {
             let id = id.clone();
             spawn_local(async move {
                 match api::send::<Value>(
@@ -173,13 +174,14 @@ pub fn login(a: &Account) {
     });
 }
 
-pub fn node_login(node: String, after: Callback<()>) {
+pub fn node_login(node: String, after: Callback<bool>) {
     term_dialog::open(TermLogin {
         title: format!("在 {node} 上登录 Codex"),
         hint: format!(
-            "正在 {node} 上运行 codex login --device-auth。在本地浏览器打开下面的链接、输入验证码即可，凭据只保存在 {node} 上。"
+            "在 {node} 上运行 codex login --device-auth（没装 Codex 会先装进 ~/.blazar）。在本地浏览器打开下面的链接、输入验证码即可，凭据只保存在 {node} 上。"
         ),
         path: format!("/api/nodes/{}/login/codex/ws", api::enc(&node)),
+        verify_node: Some(node.clone()),
         after,
     });
 }

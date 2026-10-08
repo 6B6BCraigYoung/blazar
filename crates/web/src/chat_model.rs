@@ -334,7 +334,7 @@ pub fn tool_title(name: &str, input: &Value, root: &str) -> (String, String) {
             "LS" => rp("path"),
             "WebFetch" => s(input, "url").to_owned(),
             "WebSearch" => s(input, "query").to_owned(),
-            "Task" | "Agent" => s(input, "description").to_owned(),
+            "Task" | "Agent" | "Install" => s(input, "description").to_owned(),
             "TodoWrite" | "ExitPlanMode" => String::new(),
             _ => short(&input.to_string(), 100),
         }

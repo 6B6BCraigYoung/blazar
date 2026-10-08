@@ -25,7 +25,7 @@ xattr -dr com.apple.quarantine /Applications/Blazar.app
 ```
 
 Linux builds target x86_64 `.deb` / `.AppImage`; Windows x86_64 `.msi` builds are experimental. Check Releases for the assets actually available.
-To run an agent, first install and sign in to Claude Code, Codex, or another supported CLI on the machine that will run the task. Blazar does not bundle these CLIs.
+To run an agent, the machine running the task needs Claude Code, Codex, or another supported CLI. Blazar does not bundle these CLIs. When a remote machine is missing Claude Code or Codex, Blazar installs the official, checksum-verified release (matching your local version) into that machine's `~/.blazar`, the way Cursor installs its remote server; if the remote has no internet access, your local machine downloads it and copies it over. Other CLIs must be installed and signed in manually.
 
 ## Get started
 

@@ -367,7 +367,8 @@ impl Chat {
                             .as_str()
                             .map(|c| format!(" ({c})"))
                             .unwrap_or_default();
-                        if self.context_is_current(&context) {
+                        let logged = r["activity"]["failed"] == json!(true);
+                        if !logged && self.context_is_current(&context) {
                             self.local_errors
                                 .update(|e| e.push(format!("Agent failed to start: {why}{class}")));
                         }

@@ -29,6 +29,7 @@ elif [ -d "$fnm/node-versions" ]; then
   pick=$(ls -1 "$fnm/node-versions" 2>/dev/null | sort -V | tail -1)
   [ -n "$pick" ] && [ -d "$fnm/node-versions/$pick/installation/bin" ] && PATH="$fnm/node-versions/$pick/installation/bin:$PATH"
 fi
+[ -d "$HOME/.blazar/bin" ] && PATH="$HOME/.blazar/bin:$PATH"
 export PATH
 "#;
 

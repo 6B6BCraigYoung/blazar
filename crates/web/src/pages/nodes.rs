@@ -1305,11 +1305,12 @@ fn NodeDetail(name: String) -> impl IntoView {
                     None => view! { <EmptyState title="尚未检查" detail="读取已安装的运行时及登录状态。" class="muted small"/> }.into_any(),
                     Some(Err(e)) => view! { <InlineError message=format!("无法读取运行时：{e}") retry=Callback::new(move |()| scan())/> }.into_any(),
                     Some(Ok((found, vers))) => {
+                        let n = nm.get_value();
+                        let missing: Vec<Value> = found.iter().filter(|a| n != "local" && !a["path"].is_string() && matches!(s(a, "id").as_str(), "claude" | "codex")).cloned().collect();
                         let inst: Vec<Value> = found.into_iter().filter(|a| a["path"].is_string()).collect();
-                        if inst.is_empty() {
+                        if inst.is_empty() && missing.is_empty() {
                             return view! { <EmptyState title="未发现运行时" detail="在这台机器安装 Claude Code 或 Codex 后，重新检查。" class="muted small"/> }.into_any();
                         }
-                        let n = nm.get_value();
                         view! {
                             <div class="nodes-table"><table class="tb">
                                 <thead><tr><th>"运行时"</th><th>"版本与路径"</th><th>"登录状态"</th><th>"操作"</th></tr></thead>
@@ -1328,7 +1329,7 @@ fn NodeDetail(name: String) -> impl IntoView {
                                                 <td><details class="nodes-details"><summary>"查看详情"</summary><div class="kv"><span class="k">"版本"</span><span class="v mono">{Some(s(&a, "version")).filter(|x| !x.is_empty()).unwrap_or_else(|| "—".into())}</span></div><div class="kv"><span class="k">"路径"</span><span class="v mono">{s(&a, "path")}</span></div><div class="kv"><span class="k">"本机版本"</span><span class="v mono">{if local_v.is_empty() { "—".to_owned() } else { local_v.clone() }}</span></div><div class="muted small">{s(&a, "auth_hint")}</div></details>
                                                     {behind.then(|| view! {
                                                         " "<span class="gchip warn" title=format!("本机是 {local_v}")>"可更新"</span>" "
-                                                        <button class="btn small" disabled=move || busy.get() on:click=move |_| {
+                                                        <button class="btn small" style="min-width:72px" disabled=move || busy.get() on:click=move |_| {
                                                             if busy.get_untracked() { return; }
                                                             busy.set(true);
                                                             let (id, n) = (id2.clone(), n2.clone());
@@ -1345,8 +1346,35 @@ fn NodeDetail(name: String) -> impl IntoView {
                                                 </td>
                                                 <td>{match authed { Some(true) => view! { <span class="state-pill" data-act="completed">"已登录"</span> }.into_any(), Some(false) => view! { <span class="state-pill" data-act="idle">"未登录"</span> }.into_any(), None => view! { <span class="state-pill" data-act="awaiting_approval">"待核对"</span> }.into_any() }}</td>
                                                 <td style="text-align:right">{(id == "codex" && n3 != "local").then(|| view! {
-                                                    <button class="btn small ghost" on:click=move |_| crate::pages::runtimes::node_login(n3.clone(), Callback::new(move |()| scan()))>{if authed == Some(true) { "重新登录" } else { "登录" }}</button>
+                                                    <button class="btn small ghost" on:click=move |_| crate::pages::runtimes::node_login(n3.clone(), Callback::new(move |_| scan()))>{if authed == Some(true) { "重新登录" } else { "登录" }}</button>
                                                 })}</td>
+                                            </tr>
+                                        }
+                                    }).collect_view()}
+                                    {missing.into_iter().map(|a| {
+                                        let id = s(&a, "id");
+                                        let n = nm.get_value();
+                                        let busy = RwSignal::new(false);
+                                        view! {
+                                            <tr>
+                                                <td>{s(&a, "label")}</td>
+                                                <td class="muted">"未安装"</td>
+                                                <td></td>
+                                                <td style="text-align:right">
+                                                    <button class="btn small" style="min-width:72px" title="把官方发布的版本装进这台机器的 ~/.blazar，和本机版本一致" disabled=move || busy.get() on:click=move |_| {
+                                                        if busy.get_untracked() { return; }
+                                                        busy.set(true);
+                                                        let (id, n) = (id.clone(), n.clone());
+                                                        spawn_local(async move {
+                                                            match api::send::<Value>("POST", &format!("/api/nodes/{}/update/{id}", api::enc(&n)), &json!({})).await {
+                                                                Ok(r) => toast(s(&r, "message")),
+                                                                Err(e) => toast(format!("安装失败：{e}")),
+                                                            }
+                                                            busy.try_set(false);
+                                                            scan();
+                                                        });
+                                                    }>{move || if busy.get() { "安装中…" } else { "安装" }}</button>
+                                                </td>
                                             </tr>
                                         }
                                     }).collect_view()}

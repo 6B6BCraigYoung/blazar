@@ -455,7 +455,17 @@ async fn finalize(ctx: &Ctx, code: Option<i32>, p: &mut Progress) -> Result<(), 
                         } else {
                             format!("。stderr: {tail}")
                         },
-                        if ctx.node != "local" && tail.contains("unknown option") {
+                        if c == 127 && tail.contains("not found") {
+                            let program = ctx.runtime.spec().label;
+                            if ctx.node == "local" {
+                                format!("。本机找不到 {program}：先装好它，或换一个智能体")
+                            } else {
+                                format!(
+                                    "。{} 上没有装 {program}：到「机器 → {}」里装上，或换一台机器 / 换一个智能体",
+                                    ctx.node, ctx.node
+                                )
+                            }
+                        } else if ctx.node != "local" && tail.contains("unknown option") {
                             format!(
                                 "。{} 上的 CLI 比本机旧，不认这个参数：到「机器 → {}」里把它更新到和本机一致",
                                 ctx.node, ctx.node
@@ -487,6 +497,9 @@ async fn finalize(ctx: &Ctx, code: Option<i32>, p: &mut Progress) -> Result<(), 
         drop(state);
         if let EntryKind::Finished(Outcome::Failed { message }) = &e.kind {
             crate::accounts::note_failure(&ctx.st, ctx.sid, message).await;
+            if let Some(tx) = p.started.take() {
+                let _ = tx.send(Err(message.clone()));
+            }
         }
         ctx.st.emit(ServerEvent::Entry {
             workspace_id: ctx.ws,
