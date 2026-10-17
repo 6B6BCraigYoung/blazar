@@ -27,9 +27,23 @@ struct Listing {
 }
 
 async fn confirm_broad(path: &str) -> bool {
+    let (title, body) = if path == "/" {
+        (
+            "用磁盘根目录建工作区？",
+            "根目录包含整块磁盘，读取文件列表会很慢，还可能弹出系统授权。建议选具体的项目文件夹。"
+                .to_owned(),
+        )
+    } else {
+        (
+            "用整个家目录建工作区？",
+            format!(
+                "「{path}」是你的家目录，读取文件列表会很慢，还可能弹出系统授权。建议选具体的项目文件夹。"
+            ),
+        )
+    };
     dialog::ask(
-        "用这个目录建工作区？",
-        &format!("「{path}」是整个家目录或磁盘根目录。读取文件列表会很慢，还可能弹出系统授权。建议选具体的项目文件夹。"),
+        title,
+        &body,
         vec![Choice::plain("换一个文件夹"), Choice::danger("仍然创建")],
     )
     .await
@@ -278,7 +292,9 @@ fn Dialog() -> impl IntoView {
             || listing.with_untracked(
                 |l| matches!(l, Some(Ok(l)) if l.home.as_deref() == Some(p.as_str())),
             );
-        busy.set(true);
+        if !broad {
+            busy.set(true);
+        }
         let n = node.get_untracked();
         let nm = Some(name.get_untracked().trim().to_owned()).filter(|x| !x.is_empty());
         let pj = Some(project.get_untracked().trim().to_owned()).filter(|x| !x.is_empty());
@@ -288,9 +304,11 @@ fn Dialog() -> impl IntoView {
         if let Some((pid, _)) = parent.clone() {
             let want_copy = copy.get_untracked();
             spawn_local(async move {
-                if broad && !confirm_broad(&p).await {
-                    let _ = busy.try_set(false);
-                    return;
+                if broad {
+                    if !confirm_broad(&p).await {
+                        return;
+                    }
+                    let _ = busy.try_set(true);
                 }
                 let r = api::send::<Value>(
                     "POST",
@@ -314,9 +332,11 @@ fn Dialog() -> impl IntoView {
             return;
         }
         spawn_local(async move {
-            if broad && !confirm_broad(&p).await {
-                let _ = busy.try_set(false);
-                return;
+            if broad {
+                if !confirm_broad(&p).await {
+                    return;
+                }
+                let _ = busy.try_set(true);
             }
             let r = if isolated {
                 api::send::<Value>("POST", "/api/workspaces/isolated", &json!({ "node": n, "repo": p, "from_branch": from, "name": nm, "project": pj })).await
