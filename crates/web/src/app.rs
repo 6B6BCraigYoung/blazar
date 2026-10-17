@@ -17,6 +17,7 @@ pub fn App() -> impl IntoView {
     let app = crate::app_state::provide(bus);
     provide_mesh();
     dialog::provide();
+    crate::files_js::install_leave_confirm();
     toast::provide();
     term_dialog::provide();
     view! {

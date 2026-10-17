@@ -301,14 +301,12 @@ fn Dialog() -> impl IntoView {
             toast("请先进入要用作工作区的文件夹");
             return;
         }
-        if !crate::files_js::confirm_navigation() {
-            return;
-        }
         let broad = p == "/"
             || listing.with_untracked(
                 |l| matches!(l, Some(Ok(l)) if l.home.as_deref() == Some(p.as_str())),
             );
-        if !broad {
+        let leaving = parent.is_none() && crate::files_js::leave_blocked();
+        if !broad && !leaving {
             busy.set(true);
         }
         let n = node.get_untracked();
@@ -351,12 +349,13 @@ fn Dialog() -> impl IntoView {
         }
         let chosen = (n.clone(), p.clone());
         spawn_local(async move {
-            if broad {
-                if !confirm_broad(&p).await {
-                    return;
-                }
-                let _ = busy.try_set(true);
+            if leaving && !crate::files_js::confirm_leave().await {
+                return;
             }
+            if broad && !confirm_broad(&p).await {
+                return;
+            }
+            let _ = busy.try_set(true);
             let r = if isolated {
                 api::send::<Value>("POST", "/api/workspaces/isolated", &json!({ "node": n, "repo": p, "from_branch": from, "name": nm, "project": pj })).await
             } else {

@@ -23,9 +23,13 @@ pub fn Palette() -> impl IntoView {
 
     let global_navigate = navigate.clone();
     let go = move |path: &str| {
-        if crate::files_js::confirm_navigation() {
-            global_navigate(path, Default::default());
-        }
+        let path = path.to_owned();
+        let navigate = global_navigate.clone();
+        leptos::task::spawn_local(async move {
+            if crate::files_js::confirm_leave().await {
+                navigate(&path, Default::default());
+            }
+        });
     };
     let go_action = go.clone();
     let run = move |action: &str| match action {
@@ -126,17 +130,24 @@ pub fn Palette() -> impl IntoView {
             .collect::<Vec<_>>()
     };
     let go = StoredValue::new_local(move |h: &Hit| {
-        if h.href != "cmd:new" && !crate::files_js::confirm_navigation() {
+        if h.href == "cmd:new" {
+            app.palette.set(false);
+            app.new_ws.set(true);
             return;
         }
-        app.palette.set(false);
-        if h.href == "cmd:new" {
-            app.new_ws.set(true);
-        } else if h.href.starts_with("/") {
-            navigate(&h.href, Default::default());
-        } else {
-            let _ = window().location().set_href(&h.href);
-        }
+        let href = h.href.clone();
+        let navigate = navigate.clone();
+        leptos::task::spawn_local(async move {
+            if !crate::files_js::confirm_leave().await {
+                return;
+            }
+            app.palette.set(false);
+            if href.starts_with('/') {
+                navigate(&href, Default::default());
+            } else {
+                let _ = window().location().set_href(&href);
+            }
+        });
     });
     view! {
         <Show when=move || app.palette.get()>

@@ -65,13 +65,7 @@ pub(super) async fn confirm(title: &str, body: &str) -> bool {
 
 pub(super) fn guard_unsaved(dirty: RwSignal<bool>) {
     let listener = Closure::<dyn Fn(web_sys::Event)>::new(move |e: web_sys::Event| {
-        if e.default_prevented() || !dirty.get_untracked() {
-            return;
-        }
-        if !window()
-            .confirm_with_message("有尚未保存的修改。离开会丢失这些修改，确定离开？")
-            .unwrap_or(false)
-        {
+        if dirty.get_untracked() {
             e.prevent_default();
         }
     });
@@ -296,7 +290,7 @@ pub fn AgentProfilePage() -> impl IntoView {
                 <div class="page-head"><a class="crumb" href="/agents">"智能体"</a><span>"/"</span><h1>{text(&a.get_value(),"name")}</h1><span class="grow"/><AgentActions agent=a.get_value() rev blocked=dirty/></div>
                 {closed.then(||view!{<div class="card notice">"已归档，恢复后可以再次选择这个智能体。"</div>})}
                 <div class="card pad agent-summary"><span class="agent-avatar">{if text(&a.get_value(),"avatar").is_empty(){"🤖".into()}else{text(&a.get_value(),"avatar")}}</span><div><p class="muted">{text(&a.get_value(),"description")}</p><span class="muted">{format!("{} · {} · {} 次进行中",text(&a.get_value(),"runtime_label"),if text(&a.get_value(),"model").is_empty(){"默认模型".into()}else{text(&a.get_value(),"model")},n(&a.get_value(),"running"))}</span></div></div>
-                <div class="agent-tabs" role="group" aria-label="智能体内容">{[("overview","概览"),("work","工作记录"),("instructions","指令与开场建议"),("skills","技能"),("mcp","MCP"),("settings","设置")].into_iter().map(|(key,label)|view!{<button class="btn" aria-pressed=move||tab.get()==key class:active=move||tab.get()==key on:click=move |_| { if tab.get_untracked()==key{return;} spawn_local(async move { if !dirty.get_untracked() || confirm("放弃未保存的修改？", "当前智能体配置尚未保存。").await { dirty.set(false); tab.set(key.into()); let view = if matches!(key,"instructions"|"skills"|"mcp"){format!("capabilities&tab={key}")}else{key.to_owned()}; let id=params.with_untracked(|p|p.get("id")).unwrap_or_default(); if !crate::files_js::confirm_navigation(){return;} navigate.with_value(|go|go(&format!("/agent/{}?view={view}",api::enc(&id)),Default::default())); } }); }>{label}</button>}).collect_view()}</div>
+                <div class="agent-tabs" role="group" aria-label="智能体内容">{[("overview","概览"),("work","工作记录"),("instructions","指令与开场建议"),("skills","技能"),("mcp","MCP"),("settings","设置")].into_iter().map(|(key,label)|view!{<button class="btn" aria-pressed=move||tab.get()==key class:active=move||tab.get()==key on:click=move |_| { if tab.get_untracked()==key{return;} spawn_local(async move { if !dirty.get_untracked() || confirm("放弃未保存的修改？", "当前智能体配置尚未保存。").await { dirty.set(false); tab.set(key.into()); let view = if matches!(key,"instructions"|"skills"|"mcp"){format!("capabilities&tab={key}")}else{key.to_owned()}; let id=params.with_untracked(|p|p.get("id")).unwrap_or_default(); if !crate::files_js::confirm_leave().await{return;} navigate.with_value(|go|go(&format!("/agent/{}?view={view}",api::enc(&id)),Default::default())); } }); }>{label}</button>}).collect_view()}</div>
                 {move || match tab.get().as_str(){
                     "overview"=>view!{<AgentOverview agent=a.get_value()/>}.into_any(),
                     "work"=>view!{<AgentRuns runs=list(&a.get_value(),"runs")/>}.into_any(),
@@ -364,7 +358,7 @@ fn AgentActions(agent: Value, rev: RwSignal<u32>, blocked: RwSignal<bool>) -> im
                         _ => "已取消全部运行",
                     });
                     if action == "delete" {
-                        if crate::files_js::confirm_navigation() {
+                        if crate::files_js::confirm_leave().await {
                             nav.with_value(|n| n("/agents", Default::default()));
                         }
                     } else {
@@ -380,7 +374,7 @@ fn AgentActions(agent: Value, rev: RwSignal<u32>, blocked: RwSignal<bool>) -> im
         {(!archived(&a.get_value())).then(||view!{<button class="btn primary" disabled=move ||busy.get()||blocked.get() on:click=move |_|{match runtimes.get_untracked(){Some(Ok(r)) if availability(&a.get_value(),&r.runtimes)!="unbound"=>pick.set(true),Some(Err(e))=>toast(e.to_string()),Some(Ok(_))=>toast("请先在设置中绑定已安装的运行时"),None=>toast("正在读取运行时，请稍后再试")}}>"开始对话"</button><a class="btn ghost" href=format!("/agents/new?template={}",api::enc(&text(&a.get_value(),"id")))>"复制"</a>})}
         {(n(&a.get_value(),"running")>0).then(||view!{<button class="btn" disabled=move||busy.get()||blocked.get() on:click=move |_|act("cancel-runs")>"取消全部运行"</button>})}
         {if archived(&a.get_value()){view!{<button class="btn" disabled=move||busy.get()||blocked.get() on:click=move |_|act("restore")>"恢复"</button><button class="btn danger" disabled=move||busy.get()||blocked.get() on:click=move |_|act("delete")>"删除"</button>}.into_any()}else{view!{<button class="btn" disabled=move||busy.get()||blocked.get() on:click=move |_|act("archive")>"归档"</button>}.into_any()}}
-        {move||pick.get().then(||view!{<Modal label="选择工作区" class="dlg agent-modal" on_close=Callback::new(move |_| pick.set(false))><h3>"在哪个工作区对话？"</h3>{if app.workspaces().is_empty(){view!{<EmptyState title="先创建工作区" detail="选择项目后，即可和智能体开始对话。"/><a class="btn primary" href="/workspaces">"打开工作区列表"</a>}.into_any()}else{app.workspaces().into_iter().map(|w|view!{<button class="agent-pick" on:click=move |_|{if !crate::files_js::confirm_navigation(){return;} pick.set(false);nav.with_value(|n|n(&format!("/w/{}?agent={}&new=1",api::enc(&w.id),api::enc(&text(&a.get_value(),"id"))),Default::default()));}><b>{w.name}</b><span class="muted" title=w.path>{w.node}</span></button>}).collect_view().into_any()}}<button class="btn" on:click=move |_|pick.set(false)>"取消"</button></Modal>})}
+        {move||pick.get().then(||view!{<Modal label="选择工作区" class="dlg agent-modal" on_close=Callback::new(move |_| pick.set(false))><h3>"在哪个工作区对话？"</h3>{if app.workspaces().is_empty(){view!{<EmptyState title="先创建工作区" detail="选择项目后，即可和智能体开始对话。"/><a class="btn primary" href="/workspaces">"打开工作区列表"</a>}.into_any()}else{app.workspaces().into_iter().map(|w|view!{<button class="agent-pick" on:click=move |_|{let href=format!("/w/{}?agent={}&new=1",api::enc(&w.id),api::enc(&text(&a.get_value(),"id")));leptos::task::spawn_local(async move{if !crate::files_js::confirm_leave().await{return;} pick.set(false);nav.with_value(|n|n(&href,Default::default()));});}><b>{w.name}</b><span class="muted" title=w.path>{w.node}</span></button>}).collect_view().into_any()}}<button class="btn" on:click=move |_|pick.set(false)>"取消"</button></Modal>})}
     </div>}
 }
 
@@ -398,7 +392,7 @@ fn AgentRuns(runs: Vec<Value>) -> impl IntoView {
     view! {<div class="card pad"><div class="agent-toolbar"><h3>"运行记录"</h3><select aria-label="运行状态" prop:value=move||filter.get() on:change=move|e|filter.set(event_target_value(&e))>{[("all","全部"),("running","进行中"),("done","成功"),("failed","失败"),("interrupted","已取消")].into_iter().map(|(v,l)|view!{<option value=v prop:selected=move||filter.get()==v>{l}</option>}).collect_view()}</select></div>{move||{
         let rows:Vec<_>=runs.get_value().into_iter().filter(|r|filter.get()=="all"||text(r,"status")==filter.get()).collect();
         if rows.is_empty(){return view!{<EmptyState title="暂无运行记录" detail="开始对话后，可在这里查看运行结果。"/>}.into_any();}
-        rows.into_iter().map(|r|{let row=StoredValue::new(r.clone());view!{<button class="agent-run" disabled=r["workspace"].is_null() on:click=move |_|{let r=row.get_value();let ws=text(&r,"workspace_id");let thread=text(&r,"thread");if !crate::files_js::confirm_navigation(){return;} nav.with_value(|n|n(&format!("/w/{}?thread={}",api::enc(&ws),api::enc(&thread)),Default::default()));}><span class="badge">{status_label(&text(&r,"status")).to_owned()}</span><span class="grow">{if text(&r,"title").is_empty(){"聊天会话".into()}else{text(&r,"title")}}<span class="muted">{format!(" · {}",if text(&r,"workspace").is_empty(){"工作区已删除".into()}else{text(&r,"workspace")})}</span></span><span class="muted">{format!("{} · {} 条",fmt::ago(&text(&r,"created_at")),n(&r,"events"))}</span></button>}}).collect_view().into_any()
+        rows.into_iter().map(|r|{let row=StoredValue::new(r.clone());view!{<button class="agent-run" disabled=r["workspace"].is_null() on:click=move |_|{let r=row.get_value();let href=format!("/w/{}?thread={}",api::enc(&text(&r,"workspace_id")),api::enc(&text(&r,"thread")));leptos::task::spawn_local(async move{if !crate::files_js::confirm_leave().await{return;} nav.with_value(|n|n(&href,Default::default()));});}><span class="badge">{status_label(&text(&r,"status")).to_owned()}</span><span class="grow">{if text(&r,"title").is_empty(){"聊天会话".into()}else{text(&r,"title")}}<span class="muted">{format!(" · {}",if text(&r,"workspace").is_empty(){"工作区已删除".into()}else{text(&r,"workspace")})}</span></span><span class="muted">{format!("{} · {} 条",fmt::ago(&text(&r,"created_at")),n(&r,"events"))}</span></button>}}).collect_view().into_any()
     }}</div>}
 }
 
@@ -552,7 +546,7 @@ fn AgentEditor(
                     toast("已保存智能体");
                     if create {
                         dirty.set(false);
-                        if !crate::files_js::confirm_navigation() {
+                        if !crate::files_js::confirm_leave().await {
                             busy.set(false);
                             return;
                         }
