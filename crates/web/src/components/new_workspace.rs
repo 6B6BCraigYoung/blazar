@@ -425,7 +425,7 @@ fn Dialog() -> impl IntoView {
                             Some(Ok(l)) => l.entries.into_iter().map(|e| {
                                 let p = e.path.clone();
                                 view! {
-                                    <button type="button" class="brow" class:repo=e.is_repo title=e.path.clone() on:click=move |_| { path.set(p.clone()); browse(); }>
+                                    <button type="button" class="brow" class:repo=e.is_repo title=e.path.clone() aria-label=if e.is_repo { format!("{}，Git 仓库", e.name) } else { e.name.clone() } on:click=move |_| { path.set(p.clone()); browse(); }>
                                         <span class="mk" title=if e.is_repo { "Git 仓库" } else { "目录" }>{if e.is_repo { "◆" } else { "▸" }}</span>
                                         <span class="nm">{e.name.clone()}</span>
                                         {e.children.map(|c| view! { <span class="muted small">{c}</span> })}
