@@ -106,7 +106,7 @@ pub fn select_field(
         .iter()
         .map(|(k, v)| (k.to_string(), v.to_string()))
         .collect::<Vec<_>>();
-    view!{<label class="work-field"><span>{label}</span><select class="input" prop:value=move || value.get() on:change=move |e| value.set(event_target_value(&e))>{options.into_iter().map(|(k,v)|{let selected=k.clone();view!{<option value=k selected=move ||value.get()==selected>{v}</option>}}).collect_view()}</select></label>}.into_any()
+    view!{<label class="work-field"><span>{label}</span><select class="input" data-ui-guard=(label == "权限模式").then_some("") prop:value=move || value.get() on:change=move |e| value.set(event_target_value(&e))>{options.into_iter().map(|(k,v)|{let selected=k.clone();view!{<option value=k selected=move ||value.get()==selected>{v}</option>}}).collect_view()}</select></label>}.into_any()
 }
 #[component]
 pub fn WorkspaceField(

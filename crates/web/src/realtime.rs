@@ -59,6 +59,7 @@ impl Bus {
                 self.bump_workspaces_soon();
             }
             ServerEvent::NodesChanged => bump(self.nodes),
+            ServerEvent::UiCommand { id, command } => crate::ui_driver::handle(*id, command),
             _ => {}
         }
     }

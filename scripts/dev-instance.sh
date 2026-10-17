@@ -48,7 +48,8 @@ url() {
 start() {
   [ -x "$BIN" ] || build
   stop
-  open -n -g -a "$DEV" --env "BLAZAR_PROFILE=$PROFILE" --env BLAZAR_DEV_INSTANCE=1
+  open -n -g -a "$DEV" --env "BLAZAR_PROFILE=$PROFILE" --env BLAZAR_DEV_INSTANCE=1 \
+    --env "BLAZAR_UI_DRIVER=${BLAZAR_UI_DRIVER:-1}"
   for _ in $(seq 1 120); do
     local p u
     p=$(pid)
@@ -93,6 +94,16 @@ EOF
   echo "$out"
 }
 
+ui() {
+  local session="$DATA/hub.session" base token
+  [ -n "$(pid)" ] && [ -f "$session" ] || { echo "开发实例没有运行" >&2; return 1; }
+  base=$(plutil -extract url raw -o - "$session")
+  token=$(plutil -extract token raw -o - "$session")
+  curl -sS -X POST "$base/api/dev/ui" -H "Authorization: Bearer $token" \
+    -H 'Content-Type: application/json' --data "$1"
+  echo
+}
+
 case "${1:-status}" in
   build) build ;;
   start) start ;;
@@ -101,5 +112,6 @@ case "${1:-status}" in
   status) status ;;
   url) url ;;
   shot) shot "${2:-}" ;;
-  *) echo "用法：dev-instance.sh build|start|stop|restart|status|url|shot [文件]" >&2; exit 2 ;;
+  ui) ui "${2:?用法：dev-instance.sh ui '<JSON 命令>'}" ;;
+  *) echo "用法：dev-instance.sh build|start|stop|restart|status|url|shot [文件]|ui '<JSON>'" >&2; exit 2 ;;
 esac

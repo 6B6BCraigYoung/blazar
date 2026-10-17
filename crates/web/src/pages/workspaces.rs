@@ -228,7 +228,7 @@ fn PendingApprovals() -> impl IntoView {
                     let what = if ask { String::new() } else { chat_model::approval_what(&a["request"], &root) };
                     let (i1, i2, i3, i4) = (id.clone(), id.clone(), id.clone(), id.clone());
                     view! {
-                        <div class="cc-appr static">
+                        <div class="cc-appr static" data-ui-guard="">
                             <div class="muted small">
                                 <a href=format!("/w/{wid}") title=w.as_ref().map(|w| w.node.clone()).unwrap_or_default()>{w.as_ref().map_or("工作区".to_owned(), |w| w.name.clone())}</a>
                                 {format!(" · {}", fmt::ago(a["created_at"].as_str().unwrap_or("")))}

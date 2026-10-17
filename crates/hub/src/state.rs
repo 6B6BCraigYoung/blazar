@@ -58,6 +58,8 @@ pub struct AppState {
     pub fleet: crate::fleet::FleetState,
     pub sims: crate::sims::SimsState,
     pub bots: crate::bots::BotsState,
+
+    pub ui_driver: crate::ui_driver::UiDriver,
 }
 
 impl AppState {
@@ -98,6 +100,7 @@ impl AppState {
             fleet: crate::fleet::FleetState::default(),
             sims: crate::sims::SimsState::default(),
             bots: crate::bots::BotsState::default(),
+            ui_driver: crate::ui_driver::UiDriver::from_env(),
         })
     }
 

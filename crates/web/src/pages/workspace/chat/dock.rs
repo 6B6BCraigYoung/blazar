@@ -241,7 +241,7 @@ fn ApprovalCard(chat: Chat, p: Pending) -> impl IntoView {
     };
 
     view! {
-        <div class="cc-appr" node_ref=root tabindex="0" data-folded=move || folded.get().to_string() on:keydown=keys>
+        <div class="cc-appr" data-ui-guard="" node_ref=root tabindex="0" data-folded=move || folded.get().to_string() on:keydown=keys>
             <div class="ahd">
                 <span class="ah">{title}</span>
                 <button class="afold" aria-label="Collapse or expand" aria-expanded=move || (!folded.get()).to_string() title="Collapse or expand" inner_html=CHEVRON on:click=move |_| folded.update(|f| *f = !*f)></button>

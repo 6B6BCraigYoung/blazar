@@ -752,7 +752,7 @@ pub fn Composer(chat: Chat, tick: RwSignal<u32>, tree_files: Signal<Vec<String>>
                     {move || chat.effective_mode().map(|m| {
                         let from = if !chat.perm.get().is_empty() { "" } else if chat.profile().and_then(|p| p.permission_mode).is_some() { " (from agent)" } else { " (default)" };
                         view! {
-                            <button class="cb-chip cb-plain cb-trigger cb-mode" data-mode=m.0 title=format!("{}{from}", m.2)
+                            <button class="cb-chip cb-plain cb-trigger cb-mode" data-ui-guard="" data-mode=m.0 title=format!("{}{from}", m.2)
                                 on:click=move |_| pop.update(|p| *p = if *p == Some(Pop::Mode) { None } else { Some(Pop::Mode) })>
                                 <span inner_html=icon(m.3)></span><span>{m.1}</span>
                             </button>

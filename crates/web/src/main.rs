@@ -44,6 +44,8 @@ mod storage;
 mod stream;
 #[cfg(target_arch = "wasm32")]
 mod term;
+#[cfg(target_arch = "wasm32")]
+mod ui_driver;
 
 #[cfg(target_arch = "wasm32")]
 fn main() {

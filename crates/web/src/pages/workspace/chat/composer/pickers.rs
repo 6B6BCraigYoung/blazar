@@ -200,7 +200,7 @@ pub(super) fn mode_pop(chat: Chat, pop: RwSignal<Option<Pop>>) -> impl IntoView 
     view! {
         <div class="cp-sec flex">"Modes"<span class="cp-hk"><kbd>"⇧"</kbd>" + "<kbd>"tab"</kbd>" to switch"</span></div>
         {chat.modes().iter().map(|&(v, t, d, ic)| view! {
-            <button class="cp-row" data-sel=(Some(v) == cur).to_string() on:click=move |_| { chat.set_mode(v); pop.set(None); }>
+            <button class="cp-row" data-ui-guard="" data-sel=(Some(v) == cur).to_string() on:click=move |_| { chat.set_mode(v); pop.set(None); }>
                 <span class="cp-ico" inner_html=icon(ic)></span>
                 <span class="cp-t"><b>{t}</b><span>{d}</span></span>
                 {(Some(v) == cur).then(|| view! { <span class="cp-ok">"✓"</span> })}

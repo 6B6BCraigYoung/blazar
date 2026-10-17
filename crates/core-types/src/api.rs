@@ -180,6 +180,11 @@ pub enum ServerEvent {
         session_id: SessionId,
         title: String,
     },
+
+    UiCommand {
+        id: u64,
+        command: serde_json::Value,
+    },
 }
 
 #[cfg(test)]

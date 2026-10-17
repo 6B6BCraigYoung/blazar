@@ -26,6 +26,7 @@ pub use skills::{library, skillhub};
 pub use work::{analytics, autopilot, inbox, rules, scripts, snippets, tasks};
 pub mod services;
 pub mod state;
+pub mod ui_driver;
 
 pub use routes::build_router;
 pub use state::AppState;

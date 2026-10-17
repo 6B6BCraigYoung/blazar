@@ -123,5 +123,5 @@ pub fn TermPane(ws: String, terms: Terms, active: Signal<bool>) -> impl IntoView
         }
     });
     on_cleanup(move || live.set_value(None));
-    view! { <div class="term-host" role="region" aria-label="终端" node_ref=host></div> }
+    view! { <div class="term-host" data-ui-guard="" role="region" aria-label="终端" node_ref=host></div> }
 }
