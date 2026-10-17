@@ -33,7 +33,17 @@ pub fn who(v: &Value) -> String {
         s(v, "runtime")
     } else {
         format!("{} {}", s(v, "agent_avatar"), s(v, "agent_name"))
+            .trim()
+            .to_owned()
     }
+}
+pub fn meta(parts: &[String]) -> String {
+    parts
+        .iter()
+        .map(|p| p.trim())
+        .filter(|p| !p.is_empty())
+        .collect::<Vec<_>>()
+        .join(" · ")
 }
 pub fn thread_link(ws: &str, thread: &str) -> String {
     format!("/w/{}?thread={}", api::enc(ws), api::enc(thread))

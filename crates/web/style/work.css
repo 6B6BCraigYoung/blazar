@@ -72,6 +72,7 @@
 .tasks-page .work-task { gap: var(--space-sm); }
 .tasks-page .work-task-key { font-family: var(--font-sans); align-items: center; gap: var(--space-md); }
 .tasks-page .work-task-key > span:first-child { font-family: var(--font-mono); }
+.work-task-key > span:empty { display: none; }
 .tasks-page .work-list .work-task { grid-template-columns: minmax(160px, 1fr) auto minmax(100px, 180px); }
 .tasks-page .tasks-empty { padding: var(--space-section) 0; }
 .tasks-page .tasks-column-empty { padding: var(--space-xl) var(--space-sm); font-size: var(--font-size-label); color: var(--fg-3); }
