@@ -208,9 +208,10 @@ async function run(command) {
       return snapshot();
     case 'click': {
       const el = guard(find(command));
+      const clicked = label(el);
       click(el);
       await sleep(settle);
-      return { ok: true, clicked: label(el) };
+      return { ok: true, clicked };
     }
     case 'context_menu': {
       const el = guard(find(command));
