@@ -11,7 +11,9 @@ use crate::components::{
 use crate::{api, app_state::use_app};
 
 mod job_poll;
+mod sims;
 use job_poll::JobPoll;
+pub use sims::SIMS;
 
 const APPS: &[(&str, &str, &str)] = &[
     (
@@ -86,13 +88,23 @@ fn AppLogo(id: &'static str) -> impl IntoView {
         "github" => {
             view! { <span class="apps-logo apps-github-logo" aria-hidden="true"></span> }.into_any()
         }
+        "isaacsim" => {
+            view! { <img class="apps-logo" src="/vendor/brands/isaacsim.png" alt=""/> }.into_any()
+        }
+        "mujoco" => {
+            view! { <img class="apps-logo apps-logo-wide" src="/vendor/brands/mujoco.svg" alt=""/> }
+                .into_any()
+        }
         _ => ().into_any(),
     }
 }
 
 #[component]
 pub fn AppsPage() -> impl IntoView {
-    view! { <div class="page apps-page"><div class="page-head"><h1>"接入的软件"</h1></div><p class="muted">"连接常用软件，让智能体协助处理工作。"</p><div class="apps-grid">{APPS.iter().map(|&(id,name,desc)|view! { <AppCard id name desc/> }).collect_view()}</div></div> }
+    view! { <div class="page apps-page"><div class="page-head"><h1>"接入的软件"</h1></div><p class="muted">"连接常用软件，让智能体协助处理工作。"</p>
+        <section class="apps-section"><h2>"办公"</h2><div class="apps-grid">{APPS.iter().map(|&(id,name,desc)|view! { <AppCard id name desc/> }).collect_view()}</div></section>
+        <section class="apps-section"><h2>"仿真"</h2><div class="apps-grid">{SIMS.iter().map(|&(id,name,desc)|view! { <sims::SimCard id name desc/> }).collect_view()}</div></section>
+    </div> }
 }
 
 #[component]
@@ -120,7 +132,7 @@ fn AppCard(id: &'static str, name: &'static str, desc: &'static str) -> impl Int
 pub fn AppDetailPage() -> impl IntoView {
     let params = use_params_map();
     view! { <div class="page apps-page"><For each=move ||vec![params.with(|p|p.get("id").unwrap_or_default())] key=|id|id.clone() children=move |id|{
-        if let Some(&(app,name,_))=APPS.iter().find(|&&(app,_,_)|app==id){view! { <AppDetail id=app name/> }.into_any()}else{view! { <div class="page-head"><h1>"接入的软件"</h1></div><EmptyState title="找不到这个软件"/><a class="btn" href="/apps">"返回接入的软件"</a> }.into_any()}
+        if let Some(&(app,name,_))=APPS.iter().find(|&&(app,_,_)|app==id){view! { <AppDetail id=app name/> }.into_any()}else if let Some(&(app,name,_))=SIMS.iter().find(|&&(app,_,_)|app==id){view! { <sims::SimApp id=app name/> }.into_any()}else{view! { <div class="page-head"><h1>"接入的软件"</h1></div><EmptyState title="找不到这个软件"/><a class="btn" href="/apps">"返回接入的软件"</a> }.into_any()}
     }/></div> }
 }
 

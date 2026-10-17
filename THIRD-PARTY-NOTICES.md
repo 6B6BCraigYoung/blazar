@@ -37,7 +37,11 @@ endorsement or affiliation. The GitHub mark (`brands/github.svg`) is the unmodif
 pinned to commit `923a31b34542702800cb90a0fd390e2e60dd92ac`. It is licensed under MIT;
 the complete upstream notice is distributed as `brands/github-LICENSE.txt`.
 Trademark use is governed by [GitHub Logos and Usage](https://github.com/logos).
-The Feishu and Obsidian icons are the application icons. Redistributors who prefer not to carry
+The Feishu and Obsidian icons are the application icons. The Isaac Sim icon
+(`brands/isaacsim.png`) is the extension icon shipped inside the `isaacsim` Python package and
+belongs to NVIDIA Corporation; the MuJoCo wordmark (`brands/mujoco.svg`) is the unmodified
+[`doc/images/banner.svg`](https://github.com/google-deepmind/mujoco/blob/main/doc/images/banner.svg)
+from the MuJoCo repository (Apache-2.0) and belongs to Google DeepMind. Redistributors who prefer not to carry
 these marks can remove the `AppLogo` rendering in `crates/web/src/pages/apps.rs` and the
 `.apps-github-logo` mask, then omit the image files under `crates/hub/static/vendor/brands/`.
 The product names and connection actions remain available as text.

@@ -45,6 +45,11 @@ impl AppData {
             .with(|s| s.as_ref().map(|s| s.workspaces.clone()).unwrap_or_default())
     }
 
+    pub fn nodes(self) -> Vec<blazar_core_types::api::NodeView> {
+        self.state
+            .with(|s| s.as_ref().map(|s| s.nodes.clone()).unwrap_or_default())
+    }
+
     pub fn unseen(self, w: &WorkspaceView) -> bool {
         if !matches!(
             w.activity.as_str(),

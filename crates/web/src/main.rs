@@ -41,6 +41,8 @@ mod shortcuts;
 #[cfg(target_arch = "wasm32")]
 mod storage;
 #[cfg(target_arch = "wasm32")]
+mod stream;
+#[cfg(target_arch = "wasm32")]
 mod term;
 
 #[cfg(target_arch = "wasm32")]

@@ -48,6 +48,7 @@ pub struct AppState {
     pub proxy: crate::proxy::ProxyState,
 
     pub fleet: crate::fleet::FleetState,
+    pub sims: crate::sims::SimsState,
 }
 
 impl AppState {
@@ -86,6 +87,7 @@ impl AppState {
             mesh_ctx,
             proxy: crate::proxy::ProxyState::default(),
             fleet: crate::fleet::FleetState::default(),
+            sims: crate::sims::SimsState::default(),
         })
     }
 

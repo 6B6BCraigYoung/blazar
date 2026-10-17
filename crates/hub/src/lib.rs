@@ -15,6 +15,7 @@ pub mod git;
 pub mod mesh;
 pub mod office;
 mod routes;
+pub mod sims;
 mod skills;
 mod work;
 pub use agent::{

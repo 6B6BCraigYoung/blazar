@@ -27,7 +27,7 @@ fn fmt_version(v: (u64, u64, u64)) -> String {
     format!("{}.{}.{}", v.0, v.1, v.2)
 }
 
-fn sha256_digest(raw: &str) -> Option<&str> {
+pub(crate) fn sha256_digest(raw: &str) -> Option<&str> {
     let digest = raw.trim();
     (digest.len() == 64 && digest.bytes().all(|b| b.is_ascii_hexdigit())).then_some(digest)
 }
@@ -74,7 +74,7 @@ async fn local_version(runtime: &str) -> Option<(u64, u64, u64)> {
     parse_version(&out.stdout)
 }
 
-async fn exports(st: &Shared, node: &str) -> String {
+pub(crate) async fn exports(st: &Shared, node: &str) -> String {
     crate::proxy::node_net_env(st, node)
         .await
         .iter()
@@ -82,7 +82,12 @@ async fn exports(st: &Shared, node: &str) -> String {
         .collect()
 }
 
-async fn run(st: &Shared, node: &str, script: &str, secs: u64) -> Result<String, String> {
+pub(crate) async fn run(
+    st: &Shared,
+    node: &str,
+    script: &str,
+    secs: u64,
+) -> Result<String, String> {
     let t = st.transport(node);
     let fut = t.exec(ExecSpec::new("bash").arg("-lc").arg(script));
     match tokio::time::timeout(Duration::from_secs(secs), fut).await {
@@ -108,7 +113,7 @@ async fn other_nodes(st: &Shared, node: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
-fn ssh_target(st: &Shared, node: &str) -> String {
+pub(crate) fn ssh_target(st: &Shared, node: &str) -> String {
     st.transport(node).target().to_owned()
 }
 
@@ -152,7 +157,11 @@ async fn scp3(src: &str, src_path: &str, dst: &str, dst_path: &str) -> Result<()
     scp(&["-3", "--", &src, &dst]).await
 }
 
-async fn scp_up(local: &std::path::Path, dst: &str, dst_path: &str) -> Result<(), String> {
+pub(crate) async fn scp_up(
+    local: &std::path::Path,
+    dst: &str,
+    dst_path: &str,
+) -> Result<(), String> {
     let dst = scp_remote_path(dst, dst_path)?;
     scp(&["--", &local.to_string_lossy(), &dst]).await
 }
@@ -161,9 +170,9 @@ const PLATFORM_SH: &str = r#"uname -s; uname -m
 if [ -f /lib/libc.musl-x86_64.so.1 ] || [ -f /lib/libc.musl-aarch64.so.1 ] || ldd /bin/ls 2>&1 | grep -q musl; then echo musl; else echo gnu; fi"#;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct Platform {
-    os: &'static str,
-    arch: &'static str,
+pub(crate) struct Platform {
+    pub(crate) os: &'static str,
+    pub(crate) arch: &'static str,
     musl: bool,
 }
 
@@ -204,13 +213,13 @@ fn parse_platform(raw: &str) -> Result<Platform, String> {
     Ok(Platform { os, arch, musl })
 }
 
-async fn platform(st: &Shared, node: &str) -> Result<Platform, String> {
+pub(crate) async fn platform(st: &Shared, node: &str) -> Result<Platform, String> {
     parse_platform(&run(st, node, PLATFORM_SH, 30).await?)
 }
 
 const CLAUDE_DIST: &str = "https://downloads.claude.ai/claude-code-releases";
 
-fn http() -> Result<reqwest::Client, String> {
+pub(crate) fn http() -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(15))
         .build()
@@ -251,7 +260,7 @@ async fn claude_checksum(v: &str, platform: &str) -> Result<String, String> {
         .ok_or_else(|| format!("Claude Code {v} 没有 {platform} 版本"))
 }
 
-fn cache_dir(st: &Shared) -> std::path::PathBuf {
+pub(crate) fn cache_dir(st: &Shared) -> std::path::PathBuf {
     st.mesh_ctx
         .staging_dir
         .parent()
@@ -259,7 +268,11 @@ fn cache_dir(st: &Shared) -> std::path::PathBuf {
         .join("agent-cache")
 }
 
-async fn cached_download(path: &std::path::Path, url: &str, sha256: &str) -> Result<(), String> {
+pub(crate) async fn cached_download(
+    path: &std::path::Path,
+    url: &str,
+    sha256: &str,
+) -> Result<(), String> {
     use sha2::{Digest, Sha256};
     use tokio::io::AsyncWriteExt;
 
@@ -330,7 +343,7 @@ async fn install_claude(st: &Shared, node: &str, want: (u64, u64, u64)) -> Resul
     let sum = claude_checksum(&v, &plat).await?;
     let url = format!("{CLAUDE_DIST}/{v}/{plat}/claude");
     let fetch = format!(
-        "curl -fsSL --connect-timeout 15 --retry 2 -o \"$F\" -- {u} 2>/dev/null || wget -q -T 15 -t 2 -O \"$F\" -- {u}",
+        "curl -fsSL --connect-timeout 15 --max-time 900 --speed-limit 50000 --speed-time 30 --retry 2 -o \"$F\" -- {u} 2>/dev/null || wget -q -T 30 -t 2 -O \"$F\" -- {u}",
         u = shell_quote(&url)
     );
     let script = format!(
@@ -481,7 +494,7 @@ async fn install_codex(st: &Shared, node: &str, want: (u64, u64, u64)) -> Result
         .ok_or_else(|| "从 npm 拿不到 Codex 的发布信息".to_owned())?;
     let (url, sri) = npm_dist(&meta)?;
     let remote_fetch = format!(
-        "curl -fsSL --connect-timeout 15 --retry 2 -o \"$TMP/pkg.tgz\" -- {u} 2>/dev/null || wget -q -T 15 -t 2 -O \"$TMP/pkg.tgz\" -- {u}",
+        "curl -fsSL --connect-timeout 15 --max-time 900 --speed-limit 50000 --speed-time 30 --retry 2 -o \"$TMP/pkg.tgz\" -- {u} 2>/dev/null || wget -q -T 30 -t 2 -O \"$TMP/pkg.tgz\" -- {u}",
         u = shell_quote(url)
     );
     let script = format!(

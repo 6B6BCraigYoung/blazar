@@ -5,7 +5,7 @@ use axum::routing::{delete, get, post, put};
 
 use super::{
     AppState, accounts, agents, analytics, api, asset, auth, autopilot, catalog, chat, checkpoint,
-    git, inbox, library, mesh, office, remote_cli, rules, scripts, skillhub, snippets, tasks,
+    git, inbox, library, mesh, office, remote_cli, rules, scripts, sims, skillhub, snippets, tasks,
     titles, v2_redirect, web,
 };
 
@@ -268,6 +268,28 @@ pub fn build_router(st: Arc<AppState>) -> Router {
             get(accounts::global_get).put(accounts::global_put),
         )
         .route("/api/accounts/check", post(accounts::check_all))
+        .route("/api/sims", get(sims::list))
+        .route("/api/sims/{sw}/scan", post(sims::scan))
+        .route("/api/sims/{sw}/path/{node}", put(sims::set_path))
+        .route("/api/sims/{sw}/launch", post(sims::launch))
+        .route("/api/sims/{sw}/install", post(sims::install::start))
+        .route("/api/sims/{sw}/install/{node}", get(sims::install::status))
+        .route(
+            "/api/sims/{sw}/install/{node}/cancel",
+            post(sims::install::cancel),
+        )
+        .route("/api/sims/launches/{id}", delete(sims::remove))
+        .route("/api/sims/launches/{id}/stop", post(sims::stop))
+        .route("/api/sims/launches/{id}/log", get(sims::log))
+        .route(
+            "/api/sims/display/{node}/virtual",
+            post(sims::display::start_virtual),
+        )
+        .route(
+            "/api/sims/display/setup-script",
+            get(sims::display::setup_script_route),
+        )
+        .route("/api/sims/stream/ws", get(sims::stream::ws))
         .route(
             "/api/accounts/{id}",
             put(accounts::update).delete(accounts::remove),
@@ -302,7 +324,8 @@ pub fn build_router(st: Arc<AppState>) -> Router {
                 .route(
                     "/api/nodes/{name}/login/{runtime}/ws",
                     get(accounts::node_login_ws),
-                ),
+                )
+                .route("/api/sims/stream/ws", get(sims::stream::ws)),
         )
         .fallback(web)
         .layer(axum::middleware::from_fn_with_state(

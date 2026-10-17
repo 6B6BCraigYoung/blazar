@@ -43,6 +43,7 @@ Blazar uses EasyTier to connect machines. Join a network with a `.blazar` invite
 - **Feishu / Lark**: connect through `lark-cli`, then opt in to agent read or write access for documents and other office content.
 - **GitHub**: create PRs and view their status through `gh` on the workspace machine, or open the browser to create a PR.
 - **Obsidian**: open a vault as a workspace, preview Markdown, and save tasks as notes.
+- **Isaac Sim, MuJoCo**: pick a workspace and Blazar finds the software on that machine (the workspace's Python environment, a conda environment, or a path you set), launches it there, and streams that machine's display back with hardware encoding. If the software is missing, Blazar can install it: it creates its own Python environment on that machine, installs MuJoCo from PyPI or Isaac Sim from NVIDIA's package index (which requires accepting NVIDIA's license). A desktop session of yours is used directly; a headless machine needs a one-time root run of a script Blazar generates to set up a virtual display. When ffmpeg is missing, a checksum-verified static build is installed into that machine's `~/.blazar`.
 
 ## Architecture
 

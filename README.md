@@ -43,6 +43,7 @@ Blazar 使用 EasyTier 连接机器，支持通过 `.blazar` 邀请文件加入�
 - **飞书**：通过 `lark-cli` 接入，按需开启智能体读或写权限，处理文档等办公内容。
 - **GitHub**：通过工作区机器上的 `gh` 创建 PR 并查看状态；也可跳转网页创建 PR。
 - **Obsidian**：把笔记库作为工作区，预览 Markdown，并将任务保存为笔记。
+- **Isaac Sim、MuJoCo**：选一个工作区，Blazar 在它所在的机器上找到软件（工作区里的 Python 环境、conda 环境，或你填的安装路径）并启动，然后把那台机器的画面用显卡编码推回来看。机器上没装时可以一键安装：Blazar 在那台机器上建一个自己的 Python 环境，MuJoCo 从 PyPI 装，Isaac Sim 从 NVIDIA 的软件源装（需要接受 NVIDIA 的许可协议）。机器上有你的桌面会话就直接用；无头机器需要用 root 跑一次 Blazar 生成的脚本准备虚拟显示。缺 ffmpeg 时会把校验过的静态构建装进那台机器的 `~/.blazar`。
 
 ## 架构
 

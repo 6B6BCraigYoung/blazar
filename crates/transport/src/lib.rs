@@ -204,7 +204,7 @@ impl ExecSpec {
     }
 }
 
-pub(crate) fn shell_quote(s: &str) -> String {
+pub fn shell_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', r"'\''"))
 }
 
@@ -290,6 +290,33 @@ impl LineStream {
     }
 }
 
+pub struct ByteStream {
+    pub stdout: futures::stream::BoxStream<'static, Vec<u8>>,
+
+    pub stderr_tail: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+
+    pub killer: ProcessKiller,
+
+    guard: tokio::task::JoinHandle<()>,
+}
+
+impl Drop for ByteStream {
+    fn drop(&mut self) {
+        self.killer.kill();
+        self.guard.abort();
+    }
+}
+
+impl ByteStream {
+    #[must_use]
+    pub fn stderr_summary(&self) -> String {
+        self.stderr_tail
+            .lock()
+            .map(|t| t.join(" | "))
+            .unwrap_or_default()
+    }
+}
+
 const STDERR_TAIL_LINES: usize = 20;
 
 #[async_trait]
@@ -301,6 +328,14 @@ pub trait NodeTransport: Send + Sync {
     async fn exec(&self, spec: ExecSpec) -> Result<ExecOutput>;
 
     async fn spawn_lines(&self, spec: ExecSpec) -> Result<LineStream>;
+
+    async fn spawn_bytes(&self, spec: ExecSpec) -> Result<ByteStream> {
+        let _ = spec;
+        Err(TransportError::Command {
+            code: -1,
+            stderr: "这个传输不支持字节流".into(),
+        })
+    }
 
     async fn read_file(&self, path: &Path) -> Result<Vec<u8>> {
         let out = self
@@ -408,6 +443,16 @@ impl NodeTransport for LocalTransport {
             .kill_on_drop(true)
             .spawn()?;
         pipe_lines(child)
+    }
+
+    async fn spawn_bytes(&self, spec: ExecSpec) -> Result<ByteStream> {
+        let child = self
+            .build(&spec)?
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()?;
+        pipe_bytes(child)
     }
 }
 
@@ -576,6 +621,84 @@ fn pipe_lines(mut child: tokio::process::Child) -> Result<LineStream> {
     })
 }
 
+fn watch_stderr(
+    stderr: Option<tokio::process::ChildStderr>,
+) -> std::sync::Arc<std::sync::Mutex<Vec<String>>> {
+    use tokio::io::{AsyncBufReadExt, BufReader};
+    let stderr_tail = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    if let Some(stderr) = stderr {
+        let tail = stderr_tail.clone();
+        tokio::spawn(async move {
+            let mut lines = BufReader::new(stderr).lines();
+            while let Ok(Some(l)) = lines.next_line().await {
+                tracing::debug!(target: "blazar::transport", "stderr: {l}");
+                if let Ok(mut t) = tail.lock() {
+                    if t.len() == STDERR_TAIL_LINES {
+                        t.remove(0);
+                    }
+                    t.push(l);
+                }
+            }
+        });
+    }
+    stderr_tail
+}
+
+fn pipe_bytes(mut child: tokio::process::Child) -> Result<ByteStream> {
+    use futures::StreamExt;
+    use tokio::io::AsyncReadExt;
+
+    let mut stdout = child.stdout.take().ok_or(TransportError::Encoding)?;
+    let stderr_tail = watch_stderr(child.stderr.take());
+    let (tx, rx) = tokio::sync::mpsc::channel::<Vec<u8>>(64);
+    let killer = ProcessKiller(std::sync::Arc::new(tokio::sync::Notify::new()));
+    let kill_signal = killer.0.clone();
+
+    let guard = tokio::spawn(async move {
+        let mut buf = vec![0u8; 64 * 1024];
+        let killed = loop {
+            tokio::select! {
+                () = kill_signal.notified() => break true,
+                n = stdout.read(&mut buf) => match n {
+                    Ok(n) if n > 0 => {
+                        if tx.send(buf[..n].to_vec()).await.is_err() {
+                            break true;
+                        }
+                    }
+                    _ => break false,
+                },
+            }
+        };
+        if killed {
+            if let Some(pid) = child.id() {
+                kill_tree(pid).await;
+            }
+            let _ = child.kill().await;
+            return;
+        }
+        tokio::select! {
+            () = kill_signal.notified() => {
+                if let Some(pid) = child.id() {
+                    kill_tree(pid).await;
+                }
+                let _ = child.kill().await;
+            }
+            r = child.wait() => {
+                if let Err(err) = r {
+                    tracing::warn!(target: "blazar::transport", "回收子进程失败: {err}");
+                }
+            }
+        }
+    });
+
+    Ok(ByteStream {
+        stdout: tokio_stream::wrappers::ReceiverStream::new(rx).boxed(),
+        stderr_tail,
+        killer,
+        guard,
+    })
+}
+
 pub struct SshTransport {
     host: String,
     connect_timeout_secs: u32,
@@ -640,6 +763,16 @@ impl NodeTransport for SshTransport {
             .kill_on_drop(true)
             .spawn()?;
         pipe_lines(child)
+    }
+
+    async fn spawn_bytes(&self, spec: ExecSpec) -> Result<ByteStream> {
+        let child = self
+            .build_streaming(&spec)?
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()?;
+        pipe_bytes(child)
     }
 }
 
