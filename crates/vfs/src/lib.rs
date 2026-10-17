@@ -177,6 +177,7 @@ fn change_from_porcelain(code: &str) -> ChangeKind {
 pub const MAX_READ_BYTES: u64 = 2 * 1024 * 1024;
 
 const BROWSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+const TREE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DirEntry {
@@ -267,8 +268,23 @@ if git rev-parse --git-dir >/dev/null 2>&1; then
   )
 else
   echo "__PLAIN__"
-  find . -type f -not -path '*/.git/*' -not -path '*/node_modules/*' \
-       -not -path '*/target/*' -not -path '*/.venv/*' 2>/dev/null \
+  set --
+  if [ "$(uname)" = Darwin ]; then
+    H=$(cd ~ && pwd -P)
+    R=$(pwd -P)
+    P=""
+    if [ "$R" = "$H" ]; then P=.
+    elif [ "$R" = / ]; then P=".$H"
+    else case "$H" in "$R"/*) P=".${{H#"$R"}}";; esac
+    fi
+    if [ -n "$P" ]; then
+      for d in Desktop Documents Downloads Library Movies Music Pictures; do
+        set -- "$@" -path "$P/$d" -prune -o
+      done
+    fi
+  fi
+  find . "$@" -type f -not -path '*/.git/*' -not -path '*/node_modules/*' \
+       -not -path '*/target/*' -not -path '*/.venv/*' -print 2>/dev/null \
     | sed 's|^\./||' | head -{cap}
 fi"#,
             root = shell_quote(&self.root),
@@ -277,10 +293,17 @@ fi"#,
             temp_index = TEMP_INDEX,
         );
 
-        let out = self
-            .transport
-            .exec(ExecSpec::new("bash").arg("-lc").arg(script))
-            .await?;
+        let out = tokio::time::timeout(
+            TREE_TIMEOUT,
+            self.transport
+                .exec(ExecSpec::new("bash").arg("-lc").arg(script)),
+        )
+        .await
+        .map_err(|_| {
+            VfsError::Folder(
+                "读取文件列表超时：目录可能太大，或在等系统授权访问其中的文件夹".into(),
+            )
+        })??;
         check(&out, &self.root)?;
         Ok((parse_tree(&out.stdout), parse_stat(&out.stdout)))
     }
@@ -1242,6 +1265,30 @@ mod tests {
             assert!(entry("Desktop").is_repo);
             assert_eq!(entry("Desktop").children, Some(1));
         }
+    }
+
+    #[tokio::test]
+    async fn a_home_workspace_tree_skips_protected_folders() {
+        let home = tempfile::tempdir().unwrap();
+        for (dir, file) in [("Desktop", "secret.txt"), ("proj", "a.txt")] {
+            std::fs::create_dir_all(home.path().join(dir)).unwrap();
+            std::fs::write(home.path().join(dir).join(file), "x").unwrap();
+        }
+        let root = home.path().to_string_lossy().into_owned();
+        let v = Vfs::new(Arc::new(WithHome(root.clone())), root);
+        let paths: Vec<String> = v
+            .tree(None)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|e| e.path)
+            .collect();
+        assert!(paths.iter().any(|p| p == "proj/a.txt"), "{paths:?}");
+        assert_eq!(
+            paths.iter().any(|p| p == "Desktop/secret.txt"),
+            !cfg!(target_os = "macos"),
+            "{paths:?}"
+        );
     }
 
     #[tokio::test]
