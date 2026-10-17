@@ -26,6 +26,19 @@ struct Listing {
     home: Option<String>,
 }
 
+fn remembered_dir(node: &str) -> String {
+    crate::storage::load_raw(&format!("blazar.new-ws.dir.{node}")).unwrap_or_default()
+}
+
+fn remember_dir(node: &str, chosen: &str) {
+    let parent = match chosen.trim_end_matches('/').rsplit_once('/') {
+        Some(("", _)) => "/",
+        Some((parent, _)) => parent,
+        None => return,
+    };
+    crate::storage::save_raw(&format!("blazar.new-ws.dir.{node}"), parent);
+}
+
 async fn confirm_broad(path: &str) -> bool {
     let (title, body) = if path == "/" {
         (
@@ -196,6 +209,7 @@ fn Dialog() -> impl IntoView {
             let _ = listing.try_set(Some(r));
         });
     };
+    path.set(remembered_dir(&node.get_untracked()));
     browse();
     let is_repo = move || !is_child && listing.with(|l| matches!(l, Some(Ok(l)) if l.is_repo));
     let listed = move || listing.with(|l| matches!(l, Some(Ok(_))));
@@ -303,6 +317,7 @@ fn Dialog() -> impl IntoView {
         let navigate = navigate.clone();
         if let Some((pid, _)) = parent.clone() {
             let want_copy = copy.get_untracked();
+            let chosen = (n.clone(), p.clone());
             spawn_local(async move {
                 if broad {
                     if !confirm_broad(&p).await {
@@ -319,6 +334,7 @@ fn Dialog() -> impl IntoView {
                 let _ = busy.try_set(false);
                 match r {
                     Ok(v) => {
+                        remember_dir(&chosen.0, &chosen.1);
                         toast(format!(
                             "已添加子工作区 {}",
                             v["name"].as_str().unwrap_or("")
@@ -331,6 +347,7 @@ fn Dialog() -> impl IntoView {
             });
             return;
         }
+        let chosen = (n.clone(), p.clone());
         spawn_local(async move {
             if broad {
                 if !confirm_broad(&p).await {
@@ -351,6 +368,7 @@ fn Dialog() -> impl IntoView {
             let _ = busy.try_set(false);
             match r {
                 Ok(v) => {
+                    remember_dir(&chosen.0, &chosen.1);
                     app.new_ws.set(false);
                     app.load_state();
                     if let Some(b) = v["branch"].as_str() {
@@ -373,7 +391,7 @@ fn Dialog() -> impl IntoView {
                 <h3>{if is_child { "新建子工作区" } else { "新建工作区" }}</h3>
                 {is_child.then(|| view! { <p class="muted">{format!("挂在「{parent_name}」名下。智能体在那个工作区里开新一轮时会知道这台机器可用，可以把活派过去。")}</p> })}
                 <label class="field">"机器"
-                    <select prop:value=move ||node.get() disabled=move || busy.get() on:change=move |e| { node.set(event_target_value(&e)); path.set(String::new()); typed.set(String::new()); browse(); }>
+                    <select prop:value=move ||node.get() disabled=move || busy.get() on:change=move |e| { let picked = event_target_value(&e); path.set(remembered_dir(&picked)); node.set(picked); typed.set(String::new()); browse(); }>
                         {nodes.into_iter().map(|n| { let selected = n.clone(); view! { <option value=n.clone() selected=move ||node.get()==selected>{n.clone()}</option> } }).collect_view()}
                     </select>
                 </label>
@@ -436,8 +454,8 @@ fn Dialog() -> impl IntoView {
                 })}
                 <Show when=is_repo>
                     <label class="chk block" title="启用后会从 origin 获取最新分支，并在独立目录创建工作区。">
-                        <input type="checkbox" prop:checked=move || iso.get() on:change=move |_| { iso.update(|i| *i = !*i); if iso.get_untracked() && branches.with_untracked(Option::is_none) { load_branches(); } }/>
-                        <span><b>"独立分支"</b><span class="muted small">" 在独立目录中工作，保留当前工作区。"</span></span>
+                        <input type="checkbox" aria-label="独立分支" aria-describedby="new-ws-iso-desc" prop:checked=move || iso.get() on:change=move |_| { iso.update(|i| *i = !*i); if iso.get_untracked() && branches.with_untracked(Option::is_none) { load_branches(); } }/>
+                        <span><b>"独立分支"</b><span class="muted small" id="new-ws-iso-desc">" 在独立目录中工作，保留当前工作区。"</span></span>
                     </label>
                     <Show when=move || iso.get()>
                         <div class="field" title="按最近提交排序；读取时会从 origin 获取最新分支。">"起始分支"
