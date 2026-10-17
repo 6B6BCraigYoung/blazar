@@ -102,10 +102,12 @@ function find(command) {
   }
   if (command.text) {
     const want = command.text.trim();
-    const pool = [...document.querySelectorAll(command.selector || INTERACTIVE)].filter(visible);
-    const el = pool.find(e => label(e) === want) || pool.find(e => label(e).includes(want));
-    if (!el) throw new Error(`没有文字为「${want}」的${command.selector ? `、匹配 ${command.selector} 的` : '可交互'}元素`);
-    return el;
+    const pick = pool => pool.find(e => label(e) === want) || pool.find(e => label(e).includes(want));
+    const all = [...document.querySelectorAll(command.selector || INTERACTIVE)];
+    const el = pick(all.filter(visible));
+    if (el) return el;
+    if (pick(all.filter(e => e.closest('[inert]')))) throw new Error(`「${want}」被上层弹窗挡住了，先处理最上面的弹窗`);
+    throw new Error(`没有文字为「${want}」的${command.selector ? `、匹配 ${command.selector} 的` : '可交互'}元素`);
   }
   throw new Error('需要 ref、selector 或 text');
 }
