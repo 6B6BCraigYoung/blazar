@@ -230,6 +230,19 @@ async function run(command) {
     }
     case 'layout':
       return { overflowing: overflowing(), viewport: [innerWidth, innerHeight] };
+    case 'timing': {
+      const nav = performance.getEntriesByType('navigation')[0];
+      const wasm = performance.getEntriesByType('resource').find(r => r.name.endsWith('.wasm'));
+      const round = v => (typeof v === 'number' ? Math.round(v) : null);
+      return {
+        now: round(performance.now()),
+        dom_interactive: round(nav?.domInteractive),
+        dom_content_loaded: round(nav?.domContentLoadedEventEnd),
+        load: round(nav?.loadEventEnd),
+        wasm: wasm ? { start: round(wasm.startTime), duration: round(wasm.duration), bytes: wasm.encodedBodySize || null } : null,
+        marks: performance.getEntriesByType('mark').map(m => ({ name: m.name, at: round(m.startTime) })),
+      };
+    }
     case 'style': {
       const props = Array.isArray(command.props) ? command.props.slice(0, 40) : [];
       const nodes = [...document.querySelectorAll(command.selector || ':root')].slice(0, 20);
