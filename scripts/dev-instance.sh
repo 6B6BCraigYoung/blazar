@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+SRC="$ROOT/target/release/bundle/macos/Blazar.app"
+DEV="$ROOT/target/dev-instance/Blazar Dev.app"
+BIN="$DEV/Contents/MacOS/blazar-desktop"
+PROFILE="${BLAZAR_DEV_PROFILE:-dev}"
+DATA="$HOME/Library/Application Support/ai.blazar.Blazar/profiles/$PROFILE"
+LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+
+pid() {
+  pgrep -f "^$BIN" | head -1 || true
+}
+
+build() {
+  "$ROOT/scripts/package-macos.sh"
+  "$LSREGISTER" -u "$SRC" 2>/dev/null || true
+  rm -rf "$DEV"
+  mkdir -p "$(dirname "$DEV")"
+  ditto "$SRC" "$DEV"
+  local plist="$DEV/Contents/Info.plist"
+  plutil -replace CFBundleIdentifier -string ai.blazar.desktop.dev "$plist"
+  plutil -replace CFBundleName -string "Blazar Dev" "$plist"
+  plutil -replace CFBundleDisplayName -string "Blazar Dev" "$plist"
+  plutil -remove CFBundleDocumentTypes "$plist" 2>/dev/null || true
+  "$ROOT/scripts/local-signing.sh" sign "$DEV"
+}
+
+stop() {
+  local p
+  p=$(pid)
+  [ -z "$p" ] && return 0
+  kill -TERM "$p"
+  for _ in $(seq 1 40); do
+    kill -0 "$p" 2>/dev/null || return 0
+    sleep 0.25
+  done
+  kill -KILL "$p" 2>/dev/null || true
+}
+
+url() {
+  local port
+  port=$(cat "$DATA/hub.port" 2>/dev/null || true)
+  [ -n "$port" ] && echo "http://127.0.0.1:$port"
+}
+
+start() {
+  [ -x "$BIN" ] || build
+  stop
+  open -n -g -a "$DEV" --env "BLAZAR_PROFILE=$PROFILE" --env BLAZAR_DEV_INSTANCE=1
+  for _ in $(seq 1 120); do
+    local p u
+    p=$(pid)
+    u=$(url || true)
+    if [ -n "$p" ] && [ -n "$u" ] && curl -fsS -o /dev/null "$u/" 2>/dev/null; then
+      echo "已启动：pid $p，$u"
+      return 0
+    fi
+    sleep 0.5
+  done
+  echo "开发实例没有在 60 秒内就绪，日志：$DATA/logs/desktop.log" >&2
+  return 1
+}
+
+status() {
+  local p
+  p=$(pid)
+  if [ -n "$p" ]; then
+    echo "运行中：pid $p，$(url || echo 无地址)，数据目录 $DATA"
+  else
+    echo "没有运行"
+    return 1
+  fi
+}
+
+shot() {
+  local out="${1:-$ROOT/target/dev-instance/shot.png}" p id
+  p=$(pid)
+  [ -z "$p" ] && { echo "开发实例没有运行" >&2; return 1; }
+  id=$(swift - "$p" <<'EOF'
+import CoreGraphics
+let pid = Int(CommandLine.arguments[1]) ?? 0
+let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as! [[String: Any]]
+for w in list where (w["kCGWindowOwnerPID"] as? Int) == pid && (w["kCGWindowLayer"] as? Int) == 0 {
+  print(w["kCGWindowNumber"]!)
+  break
+}
+EOF
+)
+  [ -z "$id" ] && { echo "开发实例的窗口不在屏幕上" >&2; return 1; }
+  screencapture -x -o -l"$id" "$out"
+  echo "$out"
+}
+
+case "${1:-status}" in
+  build) build ;;
+  start) start ;;
+  stop) stop ;;
+  restart) stop; start ;;
+  status) status ;;
+  url) url ;;
+  shot) shot "${2:-}" ;;
+  *) echo "用法：dev-instance.sh build|start|stop|restart|status|url|shot [文件]" >&2; exit 2 ;;
+esac

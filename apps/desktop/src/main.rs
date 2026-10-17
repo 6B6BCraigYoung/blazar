@@ -11,6 +11,10 @@ use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 mod menu;
 mod profile;
 
+fn dev_instance() -> bool {
+    std::env::var("BLAZAR_DEV_INSTANCE").is_ok_and(|v| v == "1")
+}
+
 static QUITTING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 fn main() {
@@ -124,8 +128,14 @@ fn run() -> Result<()> {
                 .expect("内嵌 hub 地址应为合法 URL");
 
             let geo = window_geometry::load();
+            let dev = dev_instance();
+            #[cfg(target_os = "macos")]
+            if dev {
+                app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+            }
             let mut b = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
-                .title("Blazar")
+                .title(if dev { "Blazar Dev" } else { "Blazar" })
+                .focused(!dev)
                 .inner_size(geo.map_or(1440.0, |g| g.w), geo.map_or(900.0, |g| g.h))
                 .min_inner_size(900.0, 600.0)
                 .disable_drag_drop_handler()
@@ -169,7 +179,7 @@ fn run() -> Result<()> {
                 _ => {}
             });
             app.manage(HubAddr(addr));
-            menu::install(app.handle(), menu_state.clone(), rt_handle.clone())?;
+            menu::install(app.handle(), menu_state.clone(), rt_handle.clone(), !dev)?;
             Ok(())
         })
         .build(tauri::generate_context!())

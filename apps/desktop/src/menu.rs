@@ -19,6 +19,7 @@ pub fn install(
     app: &AppHandle,
     state: Arc<AppState>,
     rt: tokio::runtime::Handle,
+    with_tray: bool,
 ) -> tauri::Result<()> {
     let account = Submenu::with_id(app, "account", "账号", true)?;
     let menu = Menu::with_items(
@@ -35,15 +36,19 @@ pub fn install(
         ],
     )?;
     app.set_menu(menu)?;
-    let tray_account = Submenu::with_id(app, "tray-account", "账号", true)?;
-    match tray(app, &tray_account) {
-        Ok(()) => tracing::info!(
-            present = app.tray_by_id("blazar").is_some(),
-            "菜单栏图标已创建"
-        ),
-        Err(e) => tracing::warn!("菜单栏图标创建失败：{e}"),
+    let mut accounts = vec![account];
+    if with_tray {
+        let tray_account = Submenu::with_id(app, "tray-account", "账号", true)?;
+        match tray(app, &tray_account) {
+            Ok(()) => tracing::info!(
+                present = app.tray_by_id("blazar").is_some(),
+                "菜单栏图标已创建"
+            ),
+            Err(e) => tracing::warn!("菜单栏图标创建失败：{e}"),
+        }
+        accounts.push(tray_account);
     }
-    app.manage(AccountMenu(vec![account, tray_account]));
+    app.manage(AccountMenu(accounts));
 
     let handle = app.clone();
     let st = state.clone();
