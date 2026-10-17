@@ -313,7 +313,7 @@ fn NewBotForm(on_close: Callback<()>) -> impl IntoView {
                 <small id="new-bot-handle-rule" class="muted" class:bad=move || !handle.get().is_empty() && !handle_ok()>"小写字母、数字和连字符，1–32 个字符，不能以连字符开头或结尾"</small>
             </label>
             <label class="field">{move || if agent.get().is_empty() { "它负责什么" } else { "它负责什么（已选档案，可以不写）" }}
-                <textarea rows="3" placeholder="例如：盯着 x8-0 上的训练队列，每小时汇报 loss，异常就发邮件给总控。" prop:value=move || duty.get() on:input=move |e| duty.set(event_target_value(&e))></textarea>
+                <textarea rows="3" placeholder="例如：盯着 gpu-0 上的训练队列，每小时汇报 loss，异常就发邮件给总控。" prop:value=move || duty.get() on:input=move |e| duty.set(event_target_value(&e))></textarea>
             </label>
             <label class="field">"生命周期"
                 <select on:change=move |e| lifetime.set(event_target_value(&e))>

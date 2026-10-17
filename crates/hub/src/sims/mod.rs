@@ -433,7 +433,7 @@ mod tests {
 
     #[test]
     fn scan_output_is_filtered_by_software() {
-        let raw = "CAND\tisaacsim\tconda:behavior\t/h/envs/behavior/bin/isaacsim\t\t5.1.0.0\n\
+        let raw = "CAND\tisaacsim\tconda:isaac\t/h/envs/isaac/bin/isaacsim\t\t5.1.0.0\n\
                    CAND\tmujoco\tworkspace\t/w/.venv/bin/python\t-m mujoco.viewer\t3.2.7\n\
                    CFGMISSING\t/opt/isaac-sim/isaac-sim.sh\nnoise\n";
         let (c, missing) = parse_scan(raw, "mujoco");
@@ -443,7 +443,7 @@ mod tests {
         assert_eq!(c[0].version, "3.2.7");
         assert_eq!(missing.as_deref(), Some("/opt/isaac-sim/isaac-sim.sh"));
         let (c, _) = parse_scan(raw, "isaacsim");
-        assert_eq!(c[0].source, "conda:behavior");
+        assert_eq!(c[0].source, "conda:isaac");
         assert!(c[0].args.is_empty());
     }
 
@@ -463,7 +463,7 @@ mod tests {
         };
         mk(&ws.join(".venv"), "mujoco", "python", "3.2.7");
         mk(
-            &home.path().join("miniforge3/envs/behavior"),
+            &home.path().join("miniforge3/envs/isaac"),
             "isaacsim",
             "isaacsim",
             "5.1.0.0",
@@ -482,7 +482,7 @@ mod tests {
         let raw = String::from_utf8_lossy(&out.stdout);
         let (isaac, missing) = parse_scan(&raw, "isaacsim");
         assert_eq!(isaac.len(), 1, "{raw}");
-        assert_eq!(isaac[0].source, "conda:behavior");
+        assert_eq!(isaac[0].source, "conda:isaac");
         assert_eq!(isaac[0].version, "5.1.0.0");
         assert_eq!(missing.as_deref(), Some("/nope/isaac-sim.sh"));
         let (mj, _) = parse_scan(&raw, "mujoco");

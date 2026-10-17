@@ -203,7 +203,7 @@ mod tests {
 
     #[test]
     fn bot_handles_are_short_lowercase_words_joined_by_hyphens() {
-        for good in ["trainer", "x8-0-watch", "a", &"a".repeat(32)] {
+        for good in ["trainer", "gpu-0-watch", "a", &"a".repeat(32)] {
             assert!(valid_bot_handle(good), "{good}");
         }
         for bad in [
