@@ -9,6 +9,7 @@ use crate::app_state::use_app;
 use crate::components::toast::toast;
 use crate::fmt;
 
+use super::dialog::{self, Choice};
 use super::menu::menu_keydown;
 use super::modal::Modal;
 use super::status::{EmptyState, InlineError, LoadingState};
@@ -22,6 +23,17 @@ struct Listing {
     parent: Option<String>,
     is_repo: bool,
     entries: Vec<Entry>,
+    home: Option<String>,
+}
+
+async fn confirm_broad(path: &str) -> bool {
+    dialog::ask(
+        "用这个目录建工作区？",
+        &format!("「{path}」是整个家目录或磁盘根目录。读取文件列表会很慢，还可能弹出系统授权。建议选具体的项目文件夹。"),
+        vec![Choice::plain("换一个文件夹"), Choice::danger("仍然创建")],
+    )
+    .await
+        == Some(1)
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Deserialize)]
@@ -262,6 +274,10 @@ fn Dialog() -> impl IntoView {
         if !crate::files_js::confirm_navigation() {
             return;
         }
+        let broad = p == "/"
+            || listing.with_untracked(
+                |l| matches!(l, Some(Ok(l)) if l.home.as_deref() == Some(p.as_str())),
+            );
         busy.set(true);
         let n = node.get_untracked();
         let nm = Some(name.get_untracked().trim().to_owned()).filter(|x| !x.is_empty());
@@ -272,6 +288,10 @@ fn Dialog() -> impl IntoView {
         if let Some((pid, _)) = parent.clone() {
             let want_copy = copy.get_untracked();
             spawn_local(async move {
+                if broad && !confirm_broad(&p).await {
+                    let _ = busy.try_set(false);
+                    return;
+                }
                 let r = api::send::<Value>(
                     "POST",
                     &format!("/api/workspaces/{}/children", api::enc(&pid)),
@@ -294,6 +314,10 @@ fn Dialog() -> impl IntoView {
             return;
         }
         spawn_local(async move {
+            if broad && !confirm_broad(&p).await {
+                let _ = busy.try_set(false);
+                return;
+            }
             let r = if isolated {
                 api::send::<Value>("POST", "/api/workspaces/isolated", &json!({ "node": n, "repo": p, "from_branch": from, "name": nm, "project": pj })).await
             } else {

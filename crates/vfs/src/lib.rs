@@ -198,6 +198,9 @@ pub struct DirListing {
     pub entries: Vec<DirEntry>,
 
     pub is_repo: bool,
+
+    #[serde(default)]
+    pub home: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -642,6 +645,7 @@ if [ "$(uname)" = Darwin ]; then
   done
 fi
 echo "PATH|$HERE"
+echo "HOME|$(cd ~ && pwd -P)"
 if [ "$HERE" != "/" ]; then echo "PARENT|$(dirname "$HERE")"; fi
 if [ -d "$HERE/.git" ] || [ -f "$HERE/.git" ]; then echo "SELFREPO|1"; fi
 for d in */ ; do
@@ -1037,6 +1041,7 @@ fn parse_listing(raw: &str) -> DirListing {
     let mut path = String::new();
     let mut parent = None;
     let mut is_repo = false;
+    let mut home = None;
     let mut entries = Vec::new();
 
     for line in raw.lines() {
@@ -1044,6 +1049,7 @@ fn parse_listing(raw: &str) -> DirListing {
         match parts.as_slice() {
             ["PATH", p] => path = (*p).to_owned(),
             ["PARENT", p] => parent = Some((*p).to_owned()),
+            ["HOME", p] if !p.is_empty() => home = Some((*p).to_owned()),
             ["SELFREPO", _] => is_repo = true,
             ["DIR", name, full, repo, cnt] => entries.push(DirEntry {
                 name: (*name).to_owned(),
@@ -1065,6 +1071,7 @@ fn parse_listing(raw: &str) -> DirListing {
         parent,
         entries,
         is_repo,
+        home,
     }
 }
 
@@ -1255,6 +1262,7 @@ mod tests {
             "",
         );
         let listed = v.browse("").await.unwrap();
+        assert_eq!(listed.home.as_deref(), Some(listed.path.as_str()));
         let entry = |name: &str| listed.entries.iter().find(|e| e.name == name).unwrap();
         assert!(entry("proj").is_repo);
         assert_eq!(entry("proj").children, Some(1));
