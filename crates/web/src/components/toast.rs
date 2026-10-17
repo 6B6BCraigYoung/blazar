@@ -27,11 +27,10 @@ pub fn toast(text: impl Into<String>) {
     let Some(t) = TOASTS.get() else { return };
     let id = t.next.get_value();
     t.next.set_value(id.wrapping_add(1));
+    let text = text.into();
     t.list.update(|l| {
-        l.push(Item {
-            id,
-            text: text.into(),
-        });
+        l.retain(|x| x.text != text);
+        l.push(Item { id, text });
         if l.len() > 3 {
             l.remove(0);
         }
