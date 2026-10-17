@@ -52,6 +52,9 @@ fn main() {
     console_error_panic_hook::set_once();
     pages::apply_ui_preferences();
     leptos::mount::mount_to_body(app::App);
+    if let Some(performance) = web_sys::window().and_then(|w| w.performance()) {
+        let _ = performance.mark("blazar:mounted");
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
