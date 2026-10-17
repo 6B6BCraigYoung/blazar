@@ -17,5 +17,6 @@ fi
 (cd ../../crates/web && trunk build --release)
 cargo build --bins --release --features tauri/custom-protocol
 cargo tauri bundle --bundles app,dmg
+../../scripts/local-signing.sh sign ../../target/release/bundle/macos/Blazar.app
 echo
 ls -d ../../target/release/bundle/macos/*.app ../../target/release/bundle/dmg/*.dmg
