@@ -5,7 +5,7 @@ use crate::components::status::{EmptyState, InlineError, LoadingState};
 use crate::components::toast::toast;
 use crate::realtime::use_bus;
 use crate::{api, app_state::use_app, fmt};
-use blazar_core_types::api::ServerEvent;
+use blazar_core_types::api::{ServerEvent, valid_bot_handle as valid_handle};
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_router::hooks::use_params_map;
@@ -131,12 +131,12 @@ pub fn BotsPage() -> impl IntoView {
                 <h1>"bot"</h1>
                 <span class="muted">"临时拉一个干活，干得久了再转固定"</span>
                 <span class="grow"></span>
-                <button type="button" class="btn ghost" on:click=move |_| archived.update(|a| *a = !*a)>{move || if archived.get() { "返回在用的" } else { "已归档" }}</button>
+                <button type="button" class="btn ghost" on:click=move |_| archived.update(|a| *a = !*a)>{move || if archived.get() { "返回在用的" } else { "查看已归档" }}</button>
                 <button type="button" class="btn primary" on:click=move |_| creating.set(true)>"＋ 新建 bot"</button>
             </div>
             {move || fleet.get().and_then(|r| r.ok()).map(|f| {
-                let nodes = arr(&f, "nodes");
-                let online = nodes.iter().filter(|n| s(n, "status") == "online").count();
+                let nodes: Vec<_> = app.nodes().into_iter().filter(|n| n.is_usable()).collect();
+                let online = nodes.iter().filter(|n| n.status == "online").count();
                 let alerts = arr(&f, "alerts");
                 let facts = arr(&f, "unhealthy_facts");
                 view! {
@@ -244,13 +244,17 @@ fn NewBotForm(on_close: Callback<()>) -> impl IntoView {
     let busy = RwSignal::new(false);
     let agents =
         LocalResource::new(|| async { api::get::<Vec<Value>>("/api/agent-profiles").await });
+    let handle_ok = move || valid_handle(&handle.get());
+    let ready = move || handle_ok() && (!duty.get().trim().is_empty() || !agent.get().is_empty());
     let submit = move || {
         if busy.get_untracked() {
             return;
         }
         let h = handle.get_untracked().trim().to_owned();
-        if h.is_empty() {
-            error.set(Some("先给它一个 handle，比如 trainer".into()));
+        if !valid_handle(&h) {
+            error.set(Some(
+                "handle 只能用小写字母、数字和连字符，1–32 个字符".into(),
+            ));
             return;
         }
         let d = duty.get_untracked().trim().to_owned();
@@ -303,10 +307,11 @@ fn NewBotForm(on_close: Callback<()>) -> impl IntoView {
     view! {
         <Modal label="新建 bot" on_close=Callback::new(move |_| on_close.run(()))>
             <h3>"新建 bot"</h3>
-            <label class="field">"handle（小写字母、数字、连字符）"
-                <input data-modal-initial-focus="" maxlength="32" placeholder="trainer" prop:value=move || handle.get() on:input=move |e| handle.set(event_target_value(&e))/>
+            <label class="field">"handle"
+                <input data-modal-initial-focus="" maxlength="32" placeholder="trainer" aria-describedby="new-bot-handle-rule" prop:value=move || handle.get() on:input=move |e| handle.set(event_target_value(&e))/>
+                <small id="new-bot-handle-rule" class="muted" class:bad=move || !handle.get().is_empty() && !handle_ok()>"小写字母、数字和连字符，1–32 个字符，不能以连字符开头或结尾"</small>
             </label>
-            <label class="field">"它负责什么"
+            <label class="field">{move || if agent.get().is_empty() { "它负责什么" } else { "它负责什么（已选档案，可以不写）" }}
                 <textarea rows="3" placeholder="例如：盯着 x8-0 上的训练队列，每小时汇报 loss，异常就发邮件给总控。" prop:value=move || duty.get() on:input=move |e| duty.set(event_target_value(&e))></textarea>
             </label>
             <label class="field">"生命周期"
@@ -352,8 +357,9 @@ fn NewBotForm(on_close: Callback<()>) -> impl IntoView {
             </details>
             {move || error.get().map(|message| view! { <InlineError message/> })}
             <div class="dlg-foot">
+                <span class="muted small grow">"创建时会在 hub 本机建它的家目录；收到邮件后才会起会话、消耗额度。"</span>
                 <button type="button" class="btn" disabled=move || busy.get() on:click=move |_| on_close.run(())>"取消"</button>
-                <button type="button" class="btn primary" disabled=move || busy.get() on:click=move |_| submit()>{move || if busy.get() { "创建中…" } else { "创建" }}</button>
+                <button type="button" class="btn primary" disabled=move || busy.get() || !ready() on:click=move |_| submit()>{move || if busy.get() { "创建中…" } else { "创建" }}</button>
             </div>
         </Modal>
     }

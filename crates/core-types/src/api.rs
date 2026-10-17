@@ -111,6 +111,16 @@ impl NodeView {
     }
 }
 
+#[must_use]
+pub fn valid_bot_handle(handle: &str) -> bool {
+    let h = handle.trim();
+    (1..=32).contains(&h.len())
+        && h.bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+        && !h.starts_with('-')
+        && !h.ends_with('-')
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WorkspaceView {
     pub id: String,
@@ -190,6 +200,23 @@ pub enum ServerEvent {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bot_handles_are_short_lowercase_words_joined_by_hyphens() {
+        for good in ["trainer", "x8-0-watch", "a", &"a".repeat(32)] {
+            assert!(valid_bot_handle(good), "{good}");
+        }
+        for bad in [
+            "",
+            "Bad Handle!",
+            "-lead",
+            "tail-",
+            "under_score",
+            &"a".repeat(33),
+        ] {
+            assert!(!valid_bot_handle(bad), "{bad}");
+        }
+    }
 
     #[test]
     fn resync_event_round_trips_without_changing_existing_event_tags() {

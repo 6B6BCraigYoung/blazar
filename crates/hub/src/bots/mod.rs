@@ -238,12 +238,7 @@ pub fn changed(st: &Shared) {
 
 #[must_use]
 pub fn valid_handle(h: &str) -> bool {
-    let h = h.trim();
-    (1..=32).contains(&h.len())
-        && h.bytes()
-            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
-        && !h.starts_with('-')
-        && !h.ends_with('-')
+    blazar_core_types::api::valid_bot_handle(h)
 }
 
 #[must_use]
