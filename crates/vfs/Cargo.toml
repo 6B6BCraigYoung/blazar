@@ -11,6 +11,7 @@ blazar-transport.workspace = true
 
 serde.workspace = true
 thiserror.workspace = true
+tokio = { workspace = true, features = ["time"] }
 
 [dev-dependencies]
 async-trait.workspace = true

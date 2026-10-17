@@ -12,7 +12,11 @@ pub async fn browse_node(
     Query(q): Query<BrowseQuery>,
 ) -> ApiResult<Json<blazar_vfs::DirListing>> {
     let vfs = Vfs::new(st.transport(&name), "");
-    Ok(Json(vfs.browse(&q.path).await?))
+    let listing = vfs.browse(&q.path).await.map_err(|error| match error {
+        blazar_vfs::VfsError::Folder(message) => ApiError::bad_request(message),
+        other => other.into(),
+    })?;
+    Ok(Json(listing))
 }
 
 #[derive(Debug, Deserialize)]

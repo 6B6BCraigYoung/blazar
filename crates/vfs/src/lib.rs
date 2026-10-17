@@ -176,6 +176,8 @@ fn change_from_porcelain(code: &str) -> ChangeKind {
 
 pub const MAX_READ_BYTES: u64 = 2 * 1024 * 1024;
 
+const BROWSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DirEntry {
     pub name: String,
@@ -184,7 +186,7 @@ pub struct DirEntry {
 
     pub is_repo: bool,
 
-    pub children: u32,
+    pub children: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -609,6 +611,13 @@ fi"#,
             r#"set -e
 cd {target} 2>/dev/null || cd ~ || exit 3
 HERE=$(pwd -P)
+PROTECTED=""
+if [ "$(uname)" = Darwin ]; then
+  HOME_REAL=$(cd ~ && pwd -P)
+  for p in Desktop Documents Downloads Library Movies Music Pictures; do
+    PROTECTED="$PROTECTED|$HOME_REAL/$p|"
+  done
+fi
 echo "PATH|$HERE"
 if [ "$HERE" != "/" ]; then echo "PARENT|$(dirname "$HERE")"; fi
 if [ -d "$HERE/.git" ] || [ -f "$HERE/.git" ]; then echo "SELFREPO|1"; fi
@@ -616,6 +625,7 @@ for d in */ ; do
   [ -d "$d" ] || continue
   n=${{d%/}}
   case "$n" in .*) continue;; esac
+  case "$PROTECTED" in *"|$HERE/$n|"*) echo "DIR|$n|$HERE/$n|0|"; continue;; esac
   repo=0
   if [ -d "$HERE/$n/.git" ] || [ -f "$HERE/$n/.git" ]; then repo=1; fi
   cnt=$(find "$HERE/$n" -maxdepth 1 -mindepth 1 -type d ! -name '.*' 2>/dev/null | head -200 | wc -l | tr -d ' ')
@@ -624,10 +634,17 @@ done"#,
             target = target,
         );
 
-        let out = self
-            .transport
-            .exec(ExecSpec::new("bash").arg("-lc").arg(script))
-            .await?;
+        let out = tokio::time::timeout(
+            BROWSE_TIMEOUT,
+            self.transport
+                .exec(ExecSpec::new("bash").arg("-lc").arg(script)),
+        )
+        .await
+        .map_err(|_| {
+            VfsError::Folder(
+                "读取目录超时：可能在等系统授权访问这个文件夹，请到这台机器上看看".into(),
+            )
+        })??;
         check(&out, &self.root)?;
         Ok(parse_listing(&out.stdout))
     }
@@ -1009,7 +1026,7 @@ fn parse_listing(raw: &str) -> DirListing {
                 name: (*name).to_owned(),
                 path: (*full).to_owned(),
                 is_repo: *repo == "1",
-                children: cnt.parse().unwrap_or(0),
+                children: cnt.parse().ok(),
             }),
             _ => {}
         }
@@ -1178,6 +1195,53 @@ mod tests {
         assert!(to.extract_base64("../out", &archive).await.is_err());
         assert!(to.extract_base64("in/note.bin", &archive).await.is_err());
         assert!(!dst.path().join("escape.bin").exists());
+    }
+
+    struct WithHome(String);
+
+    #[async_trait::async_trait]
+    impl NodeTransport for WithHome {
+        fn kind(&self) -> blazar_transport::TransportKind {
+            blazar_transport::TransportKind::Local
+        }
+        fn target(&self) -> &str {
+            "local"
+        }
+        async fn exec(
+            &self,
+            spec: ExecSpec,
+        ) -> blazar_transport::Result<blazar_transport::ExecOutput> {
+            TestLocal.exec(spec.env("HOME", &self.0)).await
+        }
+        async fn spawn_lines(
+            &self,
+            spec: ExecSpec,
+        ) -> blazar_transport::Result<blazar_transport::LineStream> {
+            TestLocal.spawn_lines(spec.env("HOME", &self.0)).await
+        }
+    }
+
+    #[tokio::test]
+    async fn browsing_home_leaves_protected_folders_unopened() {
+        let home = tempfile::tempdir().unwrap();
+        for dir in ["Desktop/inner", "Desktop/.git", "proj/src", "proj/.git"] {
+            std::fs::create_dir_all(home.path().join(dir)).unwrap();
+        }
+        let v = Vfs::new(
+            Arc::new(WithHome(home.path().to_string_lossy().into_owned())),
+            "",
+        );
+        let listed = v.browse("").await.unwrap();
+        let entry = |name: &str| listed.entries.iter().find(|e| e.name == name).unwrap();
+        assert!(entry("proj").is_repo);
+        assert_eq!(entry("proj").children, Some(1));
+        if cfg!(target_os = "macos") {
+            assert!(!entry("Desktop").is_repo);
+            assert_eq!(entry("Desktop").children, None);
+        } else {
+            assert!(entry("Desktop").is_repo);
+            assert_eq!(entry("Desktop").children, Some(1));
+        }
     }
 
     #[tokio::test]
@@ -1648,7 +1712,7 @@ mod tests {
         assert!(l.entries[0].is_repo);
         assert_eq!(l.entries[1].name, "Alpha");
         assert_eq!(l.entries[2].name, "zebra");
-        assert_eq!(l.entries[0].children, 12);
+        assert_eq!(l.entries[0].children, Some(12));
     }
 
     #[test]
