@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use blazar_hub::state::AppState;
+use tauri::utils::config::BackgroundThrottlingPolicy;
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
 mod menu;
@@ -156,6 +157,9 @@ fn run() -> Result<()> {
                 });
             if let Some(g) = geo {
                 b = b.position(g.x, g.y);
+            }
+            if dev {
+                b = b.background_throttling(BackgroundThrottlingPolicy::Disabled);
             }
             let win = b.build()?;
             let _ = badge_tx.send(win.clone());
