@@ -130,6 +130,7 @@ fn Dialog() -> impl IntoView {
         app.new_ws_parent.set(None);
     });
     let path = RwSignal::new(String::new());
+    let touched = RwSignal::new(false);
     let typed = RwSignal::new(String::new());
     let listing = RwSignal::new(None::<Result<Listing, String>>);
     let iso = RwSignal::new(false);
@@ -251,6 +252,7 @@ fn Dialog() -> impl IntoView {
                     let _ = creating.try_set(false);
                     if let Some(created) = v["path"].as_str() {
                         path.set(created.to_owned());
+                        touched.set(true);
                         browse();
                     }
                 }
@@ -295,8 +297,8 @@ fn Dialog() -> impl IntoView {
             return;
         }
         let p = path.get_untracked();
-        if p.is_empty() {
-            toast("请先选一个目录");
+        if p.is_empty() || !touched.get_untracked() {
+            toast("请先进入要用作工作区的文件夹");
             return;
         }
         if !crate::files_js::confirm_navigation() {
@@ -391,17 +393,17 @@ fn Dialog() -> impl IntoView {
                 <h3>{if is_child { "新建子工作区" } else { "新建工作区" }}</h3>
                 {is_child.then(|| view! { <p class="muted">{format!("挂在「{parent_name}」名下。智能体在那个工作区里开新一轮时会知道这台机器可用，可以把活派过去。")}</p> })}
                 <label class="field">"机器"
-                    <select prop:value=move ||node.get() disabled=move || busy.get() on:change=move |e| { let picked = event_target_value(&e); path.set(remembered_dir(&picked)); node.set(picked); typed.set(String::new()); browse(); }>
+                    <select prop:value=move ||node.get() disabled=move || busy.get() on:change=move |e| { let picked = event_target_value(&e); path.set(remembered_dir(&picked)); touched.set(false); node.set(picked); typed.set(String::new()); browse(); }>
                         {nodes.into_iter().map(|n| { let selected = n.clone(); view! { <option value=n.clone() selected=move ||node.get()==selected>{n.clone()}</option> } }).collect_view()}
                     </select>
                 </label>
                 <div class="field">"目录"
                     <div class="browse-bar">
                         <button type="button" class="btn small" aria-label="上一级目录" title="上一级" disabled=move || listing.with(|l| !matches!(l, Some(Ok(l)) if l.parent.is_some()))
-                            on:click=move |_| { if let Some(Some(Ok(l))) = listing.try_get_untracked() && let Some(p) = l.parent { path.set(p); browse(); } }>"↑"</button>
+                            on:click=move |_| { if let Some(Some(Ok(l))) = listing.try_get_untracked() && let Some(p) = l.parent { path.set(p); touched.set(true); browse(); } }>"↑"</button>
                         <input class="mono" aria-label="目录路径" placeholder="~" prop:value=move || typed.get() on:input=move |e| typed.set(event_target_value(&e))
-                            on:keydown=move |e| if e.key() == "Enter" && !e.is_composing() { path.set(typed.get_untracked().trim().to_owned()); browse(); }/>
-                        <button type="button" class="btn small" on:click=move |_| { path.set(typed.get_untracked().trim().to_owned()); browse(); }>"前往"</button>
+                            on:keydown=move |e| if e.key() == "Enter" && !e.is_composing() { path.set(typed.get_untracked().trim().to_owned()); touched.set(true); browse(); }/>
+                        <button type="button" class="btn small" on:click=move |_| { path.set(typed.get_untracked().trim().to_owned()); touched.set(true); browse(); }>"前往"</button>
                         <button type="button" class="btn small" title="在当前目录下新建文件夹" disabled=move || busy.get() || !listed() on:click=move |_| start_folder()>"新建文件夹"</button>
                     </div>
                     <div class="browser" node_ref=directories role="group" aria-label="子目录" data-keyboard-list="" on:contextmenu=open_menu on:keydown=move |event| { if let Some(root) = directories.get_untracked() { menu_keydown(&event, root.unchecked_ref(), Callback::new(move |_| close())); } }>
@@ -425,7 +427,7 @@ fn Dialog() -> impl IntoView {
                             Some(Ok(l)) => l.entries.into_iter().map(|e| {
                                 let p = e.path.clone();
                                 view! {
-                                    <button type="button" class="brow" class:repo=e.is_repo title=e.path.clone() aria-label=if e.is_repo { format!("{}，Git 仓库", e.name) } else { e.name.clone() } on:click=move |_| { path.set(p.clone()); browse(); }>
+                                    <button type="button" class="brow" class:repo=e.is_repo title=e.path.clone() aria-label=if e.is_repo { format!("{}，Git 仓库", e.name) } else { e.name.clone() } on:click=move |_| { path.set(p.clone()); touched.set(true); browse(); }>
                                         <span class="mk" title=if e.is_repo { "Git 仓库" } else { "目录" }>{if e.is_repo { "◆" } else { "▸" }}</span>
                                         <span class="nm">{e.name.clone()}</span>
                                         {e.children.map(|c| view! { <span class="muted small">{c}</span> })}
@@ -497,8 +499,9 @@ fn Dialog() -> impl IntoView {
                     </label>
                 })}
                 <div class="dlg-foot">
+                    <span class="muted small grow">{move || (!touched.get()).then_some("先进入要用作工作区的文件夹")}</span>
                     <button type="button" class="btn" disabled=move || busy.get() on:click=move |_| close()>"取消"</button>
-                    <button type="button" class="btn primary" disabled=move || busy.get() || !matches!(listing.get(), Some(Ok(_))) on:click=move |_| create()>
+                    <button type="button" class="btn primary" disabled=move || busy.get() || !touched.get() || !matches!(listing.get(), Some(Ok(_))) on:click=move |_| create()>
                         {move || if busy.get() { "创建中…" } else if is_child { "添加子工作区" } else if iso.get() { "创建独立工作区" } else { "创建工作区" }}
                     </button>
                 </div>
