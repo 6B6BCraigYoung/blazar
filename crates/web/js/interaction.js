@@ -102,7 +102,9 @@ export function attachModal(root, opener, close, closeOnBackdrop) {
     focusWithin(modal);
   };
   const onKey = event => {
-    if (topModal() !== modal || event.defaultPrevented || event.isComposing || !root.contains(event.target)) return;
+    const adrift = event.target === document.body || event.target === document.documentElement;
+    if (topModal() !== modal || event.defaultPrevented || event.isComposing) return;
+    if (!adrift && !root.contains(event.target)) return;
     if (event.key === 'Escape') {
       event.preventDefault();
       event.stopPropagation();
