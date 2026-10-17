@@ -39,11 +39,28 @@ function topModal() {
   return modals.at(-1);
 }
 
+const inerted = new Set();
+
+function isolateTop() {
+  for (const element of inerted) element.inert = false;
+  inerted.clear();
+  const top = topModal();
+  if (!top || !top.mask.isConnected) return;
+  for (let node = top.mask; node.parentElement && node !== document.body; node = node.parentElement) {
+    for (const sibling of node.parentElement.children) {
+      if (sibling === node || sibling.inert || sibling.matches('script, [aria-live]')) continue;
+      sibling.inert = true;
+      inerted.add(sibling);
+    }
+  }
+}
+
 function syncModals() {
   for (const [index, modal] of modals.entries()) {
     modal.mask.style.setProperty('--modal-depth', String(index));
     modal.root.setAttribute('aria-modal', String(modal === topModal()));
   }
+  isolateTop();
 }
 
 function focusWithin(modal) {
