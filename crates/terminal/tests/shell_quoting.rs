@@ -63,3 +63,22 @@ fn tmux_shell_preserves_workspace_and_session_arguments() {
     assert!(path.ends_with(":/usr/bin:/bin"), "{path}");
     assert_eq!(got.len(), expected.len() + 1);
 }
+
+#[test]
+fn cleanup_closes_only_this_workspaces_sessions() {
+    let name = blazar_terminal::session_name("ws-1");
+    let script = format!(
+        "tmux() {{ case \"$1\" in list-sessions) printf '%s\\n' {name} {name}-1 {name}x other;; kill-session) printf '%s\\n' \"$3\";; esac; }}\n{}",
+        blazar_terminal::cleanup_script("ws-1")
+    );
+    let output = Command::new("/bin/bash")
+        .args(["--noprofile", "--norc", "-c", &script])
+        .env_clear()
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        format!("={name}\n={name}-1\n")
+    );
+}

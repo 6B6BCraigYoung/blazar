@@ -308,6 +308,7 @@ pub async fn destroy_workspace(
     let workspace = WorkspaceId(id.parse()?);
     let _guard = st.quiesce(workspace).map_err(ApiError::bad_request)?;
     let stopped = stop_sessions_of(&st, workspace).await?;
+    close_terminals(&st, &id).await;
 
     let mut branch_kept = None;
     if task_env_of(&st, &id).await?.is_some() {

@@ -92,12 +92,27 @@ pub async fn delete_workspace(
     let workspace = WorkspaceId(id.parse()?);
     let _guard = st.quiesce(workspace).map_err(ApiError::bad_request)?;
     stop_sessions_of(&st, workspace).await?;
+    close_terminals(&st, &id).await;
     sqlx::query("DELETE FROM workspaces WHERE id = ?1")
         .bind(&id)
         .execute(st.db.pool())
         .await?;
     st.emit(ServerEvent::WorkspacesChanged);
     Ok(StatusCode::NO_CONTENT)
+}
+
+pub(crate) async fn close_terminals(st: &AppState, id: &str) {
+    let Ok((node, _)) = locate(st, id).await else {
+        return;
+    };
+    let spec = blazar_transport::ExecSpec::new("bash")
+        .arg("-lc")
+        .arg(blazar_terminal::cleanup_script(id));
+    let _ = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        st.transport(&node).exec(spec),
+    )
+    .await;
 }
 
 pub(crate) async fn locate(st: &AppState, id: &str) -> anyhow::Result<(String, String)> {

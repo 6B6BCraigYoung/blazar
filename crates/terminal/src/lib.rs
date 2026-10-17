@@ -173,6 +173,18 @@ pub fn session_name(workspace_id: &str) -> String {
     format!("blazar-{}", if slug.is_empty() { "ws" } else { &slug })
 }
 
+#[must_use]
+pub fn cleanup_script(workspace_id: &str) -> String {
+    let name = shell_quote(&session_name(workspace_id));
+    format!(
+        "command -v tmux >/dev/null 2>&1 || exit 0\n\
+         tmux list-sessions -F '#{{session_name}}' 2>/dev/null | while IFS= read -r s; do\n\
+         case \"$s\" in {name}|{name}-*) tmux kill-session -t \"=$s\";; esac\n\
+         done\n\
+         exit 0"
+    )
+}
+
 fn shell_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', r"'\''"))
 }
