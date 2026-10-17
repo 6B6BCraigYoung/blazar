@@ -13,7 +13,6 @@ if [[ ! -x engine/easytier-core ]]; then
   ../../scripts/fetch-easytier.sh
 fi
 
-
 (cd ../../crates/web && trunk build --release)
 cargo build --bins --release --features tauri/custom-protocol
 cargo tauri bundle --bundles "${BLAZAR_BUNDLES:-app,dmg}"

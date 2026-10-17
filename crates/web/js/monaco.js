@@ -152,7 +152,6 @@ export class Editor {
 
   has(path) { return this.models.has(path); }
 
-
   open(path, text, readonly, line) {
     let e = this.models.get(path);
     if (!e) {
@@ -174,7 +173,6 @@ export class Editor {
   }
 
   value(path) { return this.models.get(path)?.model.getValue() ?? ''; }
-
 
   replace(path, text) {
     const e = this.models.get(path);
@@ -219,7 +217,6 @@ export async function createEditor(host, onSave, onDirty) {
   const m = await load();
   return new Editor(m, host, onSave, onDirty);
 }
-
 
 const colorized = new Map();
 const COLORIZE_CACHE = 400;

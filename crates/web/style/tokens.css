@@ -14,7 +14,6 @@
   --bg-code: #19191b;
   --bg-selected: rgba(10,132,255,.16);
 
-
   --fg: #f2f2f7;
   --fg-2: #c7c7cc;
   --fg-3: #98989f;
@@ -23,7 +22,6 @@
   --line: rgba(255,255,255,.08);
   --border: rgba(255,255,255,.11);
   --border-strong: rgba(255,255,255,.18);
-
 
   --accent: #0a84ff;
   --primary: #0a84ff;
@@ -239,7 +237,6 @@
   --duration-activity-pulse: 1.2s;
   --duration-tab-pulse: 1.6s;
 }
-
 
 :root[data-theme="light"] {
   --bg-canvas: #ffffff;

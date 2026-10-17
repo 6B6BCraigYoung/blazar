@@ -1,4 +1,3 @@
-
 const TONES = { soft: ['sine', 1], bright: ['triangle', 1.5], wood: ['square', 0.5] };
 let ctx;
 
@@ -28,7 +27,6 @@ export async function requestNotify() {
   if (!notifySupported()) return 'unsupported';
   return Notification.permission === 'granted' ? 'granted' : await Notification.requestPermission();
 }
-
 
 export function notify(title, body, tag, sticky, onClick) {
   try {

@@ -1,6 +1,3 @@
-
-
-
 export class Term {
   constructor(host, url, onState) {
     this.onState = onState;

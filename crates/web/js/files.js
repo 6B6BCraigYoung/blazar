@@ -1,4 +1,3 @@
-
 export function readDataUrl(file) {
   return new Promise((resolve, reject) => {
     const r = new FileReader();
@@ -7,7 +6,6 @@ export function readDataUrl(file) {
     r.readAsDataURL(file);
   });
 }
-
 
 export function downloadText(name, text, mime) {
   const url = URL.createObjectURL(new Blob([text], { type: mime || 'text/plain' }));
