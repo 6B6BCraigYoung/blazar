@@ -270,7 +270,7 @@ fn ScriptsDialog(
         let id = ws.get_value();
         let c = cfg
             .with_untracked(ScriptDraft::for_save)
-            .map_err(api::ApiError);
+            .map_err(api::ApiError::new);
         async move {
             let c = c?;
             api::send::<Value>("PUT", &format!("/api/workspaces/{id}/scripts"), &json!({ "setup": c.setup, "cleanup": c.cleanup, "dev": c.dev, "copy_files": c.copy_files })).await

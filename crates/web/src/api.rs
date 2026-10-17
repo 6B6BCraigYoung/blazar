@@ -19,9 +19,9 @@ pub async fn session() -> Result<(), ApiError> {
     let response = Request::post("/api/auth/session")
         .send()
         .await
-        .map_err(|e| ApiError(format!("连接 Blazar 失败：{e}")))?;
+        .map_err(|e| ApiError::new(format!("连接 Blazar 失败：{e}")))?;
     if !response.ok() {
-        return Err(ApiError("无法建立本机会话，请重新打开 Blazar".into()));
+        return Err(ApiError::new("无法建立本机会话，请重新打开 Blazar"));
     }
     SESSION_READY.with(|ready| ready.set(true));
     Ok(())
@@ -41,16 +41,33 @@ pub fn websocket_url(path: &str) -> String {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ApiError(pub String);
+pub struct ApiError {
+    pub message: String,
+    pub status: Option<u16>,
+}
+
+impl ApiError {
+    pub fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            status: None,
+        }
+    }
+
+    #[must_use]
+    pub fn not_found(&self) -> bool {
+        self.status == Some(404)
+    }
+}
 
 impl std::fmt::Display for ApiError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.0)
+        f.write_str(&self.message)
     }
 }
 
 async fn read<T: DeserializeOwned>(resp: Result<Response, gloo_net::Error>) -> Result<T, ApiError> {
-    let resp = resp.map_err(|e| ApiError(format!("连不上 hub：{e}")))?;
+    let resp = resp.map_err(|e| ApiError::new(format!("连不上 hub：{e}")))?;
     if !resp.ok() {
         if resp.status() == 401 {
             reset_session();
@@ -61,15 +78,18 @@ async fn read<T: DeserializeOwned>(resp: Result<Response, gloo_net::Error>) -> R
             .ok()
             .and_then(|v| v["error"].as_str().map(str::to_owned))
             .unwrap_or_else(|| format!("HTTP {}", resp.status()));
-        return Err(ApiError(msg));
+        return Err(ApiError {
+            message: msg,
+            status: Some(resp.status()),
+        });
     }
     if resp.status() == 204 {
         return serde_json::from_value(serde_json::Value::Null)
-            .map_err(|e| ApiError(format!("返回的数据看不懂：{e}")));
+            .map_err(|e| ApiError::new(format!("返回的数据看不懂：{e}")));
     }
     resp.json::<T>()
         .await
-        .map_err(|e| ApiError(format!("返回的数据看不懂：{e}")))
+        .map_err(|e| ApiError::new(format!("返回的数据看不懂：{e}")))
 }
 
 pub async fn get<T: DeserializeOwned>(path: &str) -> Result<T, ApiError> {
@@ -90,7 +110,7 @@ pub async fn send<T: DeserializeOwned>(
     };
     let req = b
         .json(body)
-        .map_err(|e| ApiError(format!("请求编不出来：{e}")))?;
+        .map_err(|e| ApiError::new(format!("请求编不出来：{e}")))?;
     read(req.send().await).await
 }
 

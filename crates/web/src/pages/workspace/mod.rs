@@ -366,8 +366,14 @@ fn Workspace(id: String) -> impl IntoView {
 
     view! {
         <div class="ws">
+            <Show when=move || detail.get().is_some_and(|d| d.as_ref().is_err_and(api::ApiError::not_found))>
+                <div class="ws-gone" role="alert">
+                    <EmptyState title="这个工作区已被删除" detail="它在别处被删除了，这里的文件、终端和对话都不再可用。"/>
+                    <a class="btn primary" href="/">"回到全部工作区"</a>
+                </div>
+            </Show>
             <div class="ws-head">
-                {move || detail.get().and_then(|d| d.err()).map(|e| view! { <InlineError message=e.to_string()/> })}
+                {move || detail.get().and_then(|d| d.err()).filter(|e| !e.not_found()).map(|e| view! { <InlineError message=e.to_string()/> })}
                 <span class="grow"></span>
                 <Children id=id.clone()/>
                 <button class="btn small" on:click=move |_| insp.set(true)>"属性"</button>
