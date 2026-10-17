@@ -211,6 +211,17 @@ async function run(command) {
     }
     case 'layout':
       return { overflowing: overflowing(), viewport: [innerWidth, innerHeight] };
+    case 'style': {
+      const props = Array.isArray(command.props) ? command.props.slice(0, 40) : [];
+      const nodes = [...document.querySelectorAll(command.selector || ':root')].slice(0, 20);
+      return {
+        matches: nodes.length,
+        styles: nodes.map(el => {
+          const s = getComputedStyle(el, command.pseudo || null);
+          return Object.fromEntries(props.map(p => [p, s.getPropertyValue(p)]));
+        }),
+      };
+    }
     default:
       throw new Error(`不认识的 action：${command.action}`);
   }
