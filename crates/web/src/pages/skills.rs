@@ -115,7 +115,7 @@ pub fn SkillsPage() -> impl IntoView {
             busy.set(false);
         });
     };
-    view! {<div class="page wide agent-page skills-page"><div class="page-head"><h1>"技能"</h1><span class="sub">"为智能体添加可复用的能力"</span></div>
+    view! {<div class="page wide agent-page skills-page"><div class="page-head"><h1>"智能体"</h1>{crate::components::section::agents("/skills")}</div>
         <div class="agent-tabs" role="group" aria-label="技能内容">{[("skills","已安装"),("market","发现"),("mcp","MCP 服务器")].into_iter().map(|(k,l)|view!{<button class="btn" aria-pressed=move||tab.get()==k class:active=move||tab.get()==k on:click=move |_|{if tab.get_untracked()!=k{tab.set(k.into());navigate.with_value(|go|go(&format!("/skills?tab={k}"),Default::default()));}}>{l}</button>}).collect_view()}</div>
         {move||if tab.get()=="market"{view!{<SkillMarket preview refresh=rev/>}.into_any()}else{
             let is_mcp=tab.get()=="mcp";

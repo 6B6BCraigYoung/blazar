@@ -3,6 +3,7 @@ pub mod menu;
 pub mod modal;
 pub mod new_workspace;
 pub mod palette;
+pub mod section;
 pub mod sidebar;
 pub mod status;
 pub mod term_dialog;

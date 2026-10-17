@@ -35,7 +35,7 @@ pub fn UsagePage() -> impl IntoView {
     });
     view! {
         <div class="page usage-page">
-            <div class="page-head"><h1>"用量"</h1><span class="sub">"查看运行表现与费用"</span><span class="grow"></span><button class="btn" disabled=move || analytics.get().is_none() || usage.get().is_none() on:click=move |_| refresh.update(|n| *n += 1)>"刷新"</button></div>
+            <div class="page-head"><h1>"智能体"</h1>{crate::components::section::agents("/usage")}<span class="grow"></span><button class="btn" disabled=move || analytics.get().is_none() || usage.get().is_none() on:click=move |_| refresh.update(|n| *n += 1)>"刷新"</button></div>
             <div class="settings-actions usage-period" role="group" aria-label="统计时间范围"><h2>{move || format!("近 {} 天", days.get())}</h2>{[7, 30, 90].into_iter().map(move |d| view! {
                 <button class="btn" aria-pressed=move || days.get() == d class:primary=move || days.get() == d on:click=move |_| { storage::save_raw("blazar.an.days", &d.to_string()); days.set(d); }>{format!("{d} 天")}</button>
             }).collect_view()}</div>

@@ -47,7 +47,7 @@ Blazar uses EasyTier to connect machines. Join a network with a `.blazar` invite
 
 ## Resident bots
 
-A bot is a persistent identity inside the hub: a role (an agent profile), a home workspace, a mailbox, the resources it has claimed, and its conversation threads. A process only starts when there is work and exits when it is done.
+A bot is a persistent identity inside the hub: a duty (an agent profile), a home workspace, a mailbox, the resources it has claimed, and its conversation threads. A process only starts when there is work and exits when it is done.
 
 - **Temporary or fixed**: a bot can be spun up for one job with a single sentence of duty (the "new bot" form, or `spawn_bot` from the lead); it is archived after a day idle with its home workspace and conversation kept, and "promote" keeps it for good.
 - **Work arrives as mail**: send a bot mail from its page, or let another bot call `send_message`. An idle bot wakes up and resumes its previous conversation; urgent mail is injected into the turn it is running. Bots answer with `reply` and wait with `wait_reply`.

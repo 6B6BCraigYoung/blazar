@@ -215,7 +215,7 @@ pub const SHORTCUTS: &[(&str, &str, &str)] = &[
     ("preview", "预览面板", "Mod+Shift+P"),
     ("inbox", "收件箱", "Alt+I"),
     ("tasks", "任务", "Alt+T"),
-    ("workspaces", "全部工作区", "Alt+W"),
+    ("workspaces", "工作区", "Alt+W"),
 ];
 
 #[component]

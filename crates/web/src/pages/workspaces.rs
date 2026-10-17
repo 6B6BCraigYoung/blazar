@@ -8,6 +8,7 @@ use crate::app_state::use_app;
 use crate::chat_model;
 use crate::components::dialog::{self, Choice};
 use crate::components::modal::Modal;
+use crate::components::section::{SectionTabs, Tab};
 use crate::components::status::{EmptyState, InlineError, LoadingState};
 use crate::components::toast::toast;
 use crate::fmt;
@@ -57,10 +58,30 @@ fn List(kind: Kind) -> impl IntoView {
     let q = RwSignal::new(String::new());
     let insp = RwSignal::new(None::<String>);
     let title = move || match kind {
-        Kind::All => "全部工作区".to_owned(),
-        Kind::Running => "运行中".to_owned(),
-        Kind::Waiting => "等我审批".to_owned(),
         Kind::Project => project(),
+        _ => "工作区".to_owned(),
+    };
+    let count = move |activity: Option<&'static str>| {
+        Signal::derive(move || {
+            app.workspaces()
+                .iter()
+                .filter(|w| activity.is_none_or(|a| w.activity == a))
+                .count()
+        })
+    };
+    let tabs = move || {
+        let current = match kind {
+            Kind::Running => "/running",
+            Kind::Waiting => "/waiting",
+            _ => "/",
+        };
+        view! {
+            <SectionTabs label="工作区" current tabs=vec![
+                Tab::counted("全部", "/", count(None)),
+                Tab::counted("运行中", "/running", count(Some("running"))),
+                Tab::counted("等我审批", "/waiting", count(Some("awaiting_approval"))),
+            ]/>
+        }
     };
     let list = move || {
         let p = project();
@@ -96,7 +117,11 @@ fn List(kind: Kind) -> impl IntoView {
         <div class="page workspaces-page">
             <div class="page-head">
                 <h1>{title}</h1>
-                <span class="gchip">{move || list().len()}</span>
+                {if kind == Kind::Project {
+                    view! { <span class="gchip">{move || list().len()}</span> }.into_any()
+                } else {
+                    tabs().into_any()
+                }}
                 <span class="grow"></span>
                 <input class="page-filter" aria-label="筛选工作区" placeholder="搜索工作区…" prop:value=move || q.get() on:input=move |e| q.set(event_target_value(&e))/>
                 <button type="button" class=if matches!(kind, Kind::Running | Kind::Waiting) { "btn" } else { "btn primary" } on:click=move |_| app.new_ws.set(true)>"新建工作区"</button>

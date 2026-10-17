@@ -255,17 +255,13 @@ fn go_menu(app: &AppHandle) -> tauri::Result<Submenu<Wry>> {
         true,
         &[
             &item(app, "go:/inbox", "收件箱", None)?,
-            &item(app, "go:/", "全部工作区", None)?,
+            &item(app, "go:/", "工作区", None)?,
+            &item(app, "go:/bots", "bot", None)?,
             &item(app, "go:/tasks", "任务", None)?,
-            &item(app, "go:/autopilots", "自动化", None)?,
             &PredefinedMenuItem::separator(app)?,
-            &item(app, "go:/runtimes", "运行时", None)?,
             &item(app, "go:/agents", "智能体", None)?,
-            &item(app, "go:/skills", "SKILLs", None)?,
-            &PredefinedMenuItem::separator(app)?,
             &item(app, "go:/apps", "接入的软件", None)?,
             &item(app, "go:/nodes", "机器与组网", None)?,
-            &item(app, "go:/usage", "用量", None)?,
         ],
     )
 }

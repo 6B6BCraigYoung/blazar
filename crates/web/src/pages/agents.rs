@@ -159,7 +159,7 @@ pub fn AgentsPage() -> impl IntoView {
             let ids = selected.get_untracked();
             if action == "archive"
                 && !confirm(
-                    "归档选中的智能体？",
+                    "归档选中的角色档案？",
                     "进行中的运行会被取消，配置与历史保留，可以稍后恢复。",
                 )
                 .await
@@ -192,10 +192,10 @@ pub fn AgentsPage() -> impl IntoView {
     };
     view! {
         <div class="page wide agent-page">
-            <div class="page-head"><h1>"智能体"</h1><span class="sub">"保存指令与能力，重复使用"</span><span class="grow"/><a class="btn primary" href="/agents/new">"新建智能体"</a></div>
+            <div class="page-head"><h1>"智能体"</h1>{crate::components::section::agents("/agents")}<span class="grow"/><a class="btn primary" href="/agents/new">"新建角色档案"</a></div>
             <div class="agent-toolbar">
                 <select disabled=move || busy.get() aria-label="范围" prop:value=move || scope.get() on:change=move |e| { scope.set(event_target_value(&e)); selected.set(HashSet::new()); }><option value="all" prop:selected=move || scope.get()=="all">"全部"</option><option value="archived" prop:selected=move || scope.get()=="archived">"已归档"</option></select>
-                <input aria-label="搜索智能体" placeholder="搜索名称或描述…" prop:value=move || query.get() on:input=move |e| query.set(event_target_value(&e))/>
+                <input aria-label="搜索角色档案" placeholder="搜索名称或描述…" prop:value=move || query.get() on:input=move |e| query.set(event_target_value(&e))/>
                 <details class="agent-filter-details"><summary>{move || if !rt.get().is_empty() || avail.get() != "all" { "筛选与排序 · 已筛选" } else { "筛选与排序" }}</summary><div class="agent-toolbar"><select aria-label="可用性" prop:value=move || avail.get() on:change=move |e| avail.set(event_target_value(&e))><option value="all" prop:selected=move || avail.get()=="all">"全部状态"</option><option value="online" prop:selected=move || avail.get()=="online">"可用"</option><option value="offline" prop:selected=move || avail.get()=="offline">"需登录"</option><option value="unbound" prop:selected=move || avail.get()=="unbound">"待配置"</option></select>
                 <select aria-label="运行时" prop:value=move || rt.get() on:change=move |e| rt.set(event_target_value(&e))><option value="" prop:selected=move || rt.get().is_empty()>"全部运行时"</option>{move || runtimes.get().and_then(Result::ok).map(|r| r.runtimes.into_iter().map(|r| {let id=r.id.clone();view! { <option value=r.id prop:selected=move || rt.get()==id>{r.label}</option> }}).collect_view())}</select>
                 <select aria-label="排序" prop:value=move || sort.get() on:change=move |e| sort.set(event_target_value(&e))><option value="recent" prop:selected=move || sort.get()=="recent">"最近活跃"</option><option value="name" prop:selected=move || sort.get()=="name">"名称"</option><option value="runs" prop:selected=move || sort.get()=="runs">"运行次数"</option><option value="created" prop:selected=move || sort.get()=="created">"创建时间"</option></select>
@@ -204,8 +204,8 @@ pub fn AgentsPage() -> impl IntoView {
             {move || runtimes.get().and_then(Result::err).map(|e| view! { <InlineError message=format!("无法检查运行时：{e}") retry=Callback::new(move |_| runtimes.refetch())/> })}
             {move || (!selected.get().is_empty()).then(|| view! { <div class="agent-toolbar"><b>{move || format!("已选 {} 个",selected.get().len())}</b><button class="btn" disabled=move || busy.get() on:click=move |_| selected.set(HashSet::new())>"清除选择"</button><button class="btn" disabled=move || busy.get() on:click=batch>{move || if busy.get() { "处理中…" } else if scope.get()=="archived" { "恢复" } else { "归档" }}</button></div> })}
             {move || match profiles.get() {
-                None => view! { <LoadingState text="正在加载智能体…"/> }.into_any(),
-                Some(Err(e)) => view! { <InlineError message=format!("无法加载智能体：{e}") retry=Callback::new(move |_| rev.update(|v| *v += 1))/> }.into_any(),
+                None => view! { <LoadingState text="正在加载角色档案…"/> }.into_any(),
+                Some(Err(e)) => view! { <InlineError message=format!("无法加载角色档案：{e}") retry=Callback::new(move |_| rev.update(|v| *v += 1))/> }.into_any(),
                 Some(Ok(mut profiles)) => {
                     let has_profiles = !profiles.is_empty();
                     let q = query.get().to_lowercase(); let r = rt.get(); let av = avail.get();
@@ -214,8 +214,8 @@ pub fn AgentsPage() -> impl IntoView {
                     profiles.retain(|a| (q.is_empty() || format!("{} {}",text(a,"name"),text(a,"description")).to_lowercase().contains(&q)) && (r.is_empty() || text(a,"runtime")==r) && (av=="all" || availability(a,&rts)==av));
                     let order = sort.get();
                     profiles.sort_by(|a,b| { let cmp = match order.as_str() { "runs" => n(a,"runs_30d").cmp(&n(b,"runs_30d")), "name" => text(a,"name").cmp(&text(b,"name")), "created" => text(a,"created_at").cmp(&text(b,"created_at")), _ => text(a,"last_used_at").cmp(&text(b,"last_used_at")) }; if asc.get() { cmp } else { cmp.reverse() } });
-                    if profiles.is_empty() { return view! { <EmptyState title=if has_profiles { "没有匹配的智能体" } else if scope.get() == "archived" { "暂无归档的智能体" } else { "创建第一个智能体" } detail=if has_profiles { "调整搜索或筛选条件后再试。" } else if scope.get() == "archived" { "归档后可在这里恢复。" } else { "为常用工作保存指令，之后直接开始对话。" }/> }.into_any(); }
-                    view! { <div class="card agent-table"><table><thead><tr><th>"选择"</th><th>"智能体"</th><th>"状态"</th><th>"运行时 / 模型"</th><th>"近 30 天"</th><th>"最近活跃"</th></tr></thead><tbody>{profiles.into_iter().map(|a| {
+                    if profiles.is_empty() { return view! { <EmptyState title=if has_profiles { "没有匹配的角色档案" } else if scope.get() == "archived" { "暂无归档的角色档案" } else { "创建第一个角色档案" } detail=if has_profiles { "调整搜索或筛选条件后再试。" } else if scope.get() == "archived" { "归档后可在这里恢复。" } else { "为常用工作保存指令，之后直接开始对话。" }/> }.into_any(); }
+                    view! { <div class="card agent-table"><table><thead><tr><th>"选择"</th><th>"角色档案"</th><th>"状态"</th><th>"运行时 / 模型"</th><th>"近 30 天"</th><th>"最近活跃"</th></tr></thead><tbody>{profiles.into_iter().map(|a| {
                         let id = text(&a,"id"); let check_id = id.clone(); let toggle_id = id.clone(); let status=availability(&a,&rts);
                         view! { <tr><td><input type="checkbox" disabled=move || busy.get() aria-label=format!("选择 {}",text(&a,"name")) prop:checked=move || selected.with(|s| s.contains(&check_id)) on:change=move |e| selected.update(|s| { if event_target_checked(&e) { s.insert(toggle_id.clone()); } else { s.remove(&toggle_id); } })/></td><td><a class="agent-name" href=format!("/agent/{}",api::enc(&id))><span>{if text(&a,"avatar").is_empty(){"🤖".into()} else {text(&a,"avatar")}}</span><b>{text(&a,"name")}</b></a><div class="muted">{text(&a,"description")}</div></td><td><span class=if !rts_ready { "state muted" } else if status == "online" { "state ok" } else if status == "offline" { "state warn" } else { "state muted" }>{if rts_ready { status_label(status) } else { "待检查" }}</span>{(n(&a,"running") > 0).then(|| view! { <div class="muted">{format!("{} 次进行中",n(&a,"running"))}</div> })}</td><td>{text(&a,"runtime_label")}<div class="muted mono">{if text(&a,"model").is_empty(){"默认".into()}else{text(&a,"model")}}</div></td><td>{format!("{} 次运行",n(&a,"runs_30d"))}{(n(&a,"failed_30d") > 0).then(|| view! { <div class="muted">{format!("{} 次失败",n(&a,"failed_30d"))}</div> })}</td><td>{if text(&a,"last_used_at").is_empty(){"尚未运行".into()}else{fmt::ago(&text(&a,"last_used_at"))}}</td></tr> }
                     }).collect_view()}</tbody></table></div> }.into_any()
@@ -247,7 +247,7 @@ pub fn AgentCreatePage() -> impl IntoView {
             }
         }
     });
-    view! { <div class="page agent-page"><div class="page-head"><a class="crumb" href="/agents">"智能体"</a><span>"/"</span><h1>{move || if query.with(|q| q.get("template").is_some()) { "复制智能体" } else { "创建智能体" }}</h1></div>{move || match data.get() {
+    view! { <div class="page agent-page"><div class="page-head"><a class="crumb" href="/agents">"智能体"</a><span>"/"</span><h1>{move || if query.with(|q| q.get("template").is_some()) { "复制角色档案" } else { "新建角色档案" }}</h1></div>{move || match data.get() {
         None=>view!{<LoadingState text="正在加载配置…"/>}.into_any(), Some(Err(e))=>view!{<InlineError message=format!("无法加载配置：{e}") retry=Callback::new(move |_| data.refetch())/>}.into_any(), Some(Ok(a))=>{let copied=query.with_untracked(|q|q.get("template").is_some());view!{<AgentEditor initial=a create=true copied on_saved=Callback::new(|_|{})/>}.into_any()}
     }}</div> }
 }
@@ -282,15 +282,15 @@ pub fn AgentProfilePage() -> impl IntoView {
         async move { api::get::<Value>(&format!("/api/agent-profiles/{}", api::enc(&id))).await }
     });
     view! { <div class="page wide agent-page">{move || match data.get() {
-        None=>view!{<LoadingState text="正在加载智能体…"/>}.into_any(),
-        Some(Err(e))=>view!{<InlineError message=format!("无法加载智能体：{e}") retry=Callback::new(move |_| rev.update(|v| *v += 1))/><a href="/agents">"返回智能体列表"</a>}.into_any(),
+        None=>view!{<LoadingState text="正在加载角色档案…"/>}.into_any(),
+        Some(Err(e))=>view!{<InlineError message=format!("无法加载角色档案：{e}") retry=Callback::new(move |_| rev.update(|v| *v += 1))/><a href="/agents">"返回角色档案列表"</a>}.into_any(),
         Some(Ok(a))=>{
             let a=StoredValue::new(a); let closed=archived(&a.get_value());
             view!{
                 <div class="page-head"><a class="crumb" href="/agents">"智能体"</a><span>"/"</span><h1>{text(&a.get_value(),"name")}</h1><span class="grow"/><AgentActions agent=a.get_value() rev blocked=dirty/></div>
-                {closed.then(||view!{<div class="card notice">"已归档，恢复后可以再次选择这个智能体。"</div>})}
+                {closed.then(||view!{<div class="card notice">"已归档，恢复后可以再次选择这个角色档案。"</div>})}
                 <div class="card pad agent-summary"><span class="agent-avatar">{if text(&a.get_value(),"avatar").is_empty(){"🤖".into()}else{text(&a.get_value(),"avatar")}}</span><div><p class="muted">{text(&a.get_value(),"description")}</p><span class="muted">{format!("{} · {} · {} 次进行中",text(&a.get_value(),"runtime_label"),if text(&a.get_value(),"model").is_empty(){"默认模型".into()}else{text(&a.get_value(),"model")},n(&a.get_value(),"running"))}</span></div></div>
-                <div class="agent-tabs" role="group" aria-label="智能体内容">{[("overview","概览"),("work","工作记录"),("instructions","指令与开场建议"),("skills","技能"),("mcp","MCP"),("settings","设置")].into_iter().map(|(key,label)|view!{<button class="btn" aria-pressed=move||tab.get()==key class:active=move||tab.get()==key on:click=move |_| { if tab.get_untracked()==key{return;} spawn_local(async move { if !dirty.get_untracked() || confirm("放弃未保存的修改？", "当前智能体配置尚未保存。").await { dirty.set(false); tab.set(key.into()); let view = if matches!(key,"instructions"|"skills"|"mcp"){format!("capabilities&tab={key}")}else{key.to_owned()}; let id=params.with_untracked(|p|p.get("id")).unwrap_or_default(); if !crate::files_js::confirm_leave().await{return;} navigate.with_value(|go|go(&format!("/agent/{}?view={view}",api::enc(&id)),Default::default())); } }); }>{label}</button>}).collect_view()}</div>
+                <div class="agent-tabs" role="group" aria-label="角色档案内容">{[("overview","概览"),("work","工作记录"),("instructions","指令与开场建议"),("skills","技能"),("mcp","MCP"),("settings","设置")].into_iter().map(|(key,label)|view!{<button class="btn" aria-pressed=move||tab.get()==key class:active=move||tab.get()==key on:click=move |_| { if tab.get_untracked()==key{return;} spawn_local(async move { if !dirty.get_untracked() || confirm("放弃未保存的修改？", "当前角色档案尚未保存。").await { dirty.set(false); tab.set(key.into()); let view = if matches!(key,"instructions"|"skills"|"mcp"){format!("capabilities&tab={key}")}else{key.to_owned()}; let id=params.with_untracked(|p|p.get("id")).unwrap_or_default(); if !crate::files_js::confirm_leave().await{return;} navigate.with_value(|go|go(&format!("/agent/{}?view={view}",api::enc(&id)),Default::default())); } }); }>{label}</button>}).collect_view()}</div>
                 {move || match tab.get().as_str(){
                     "overview"=>view!{<AgentOverview agent=a.get_value()/>}.into_any(),
                     "work"=>view!{<AgentRuns runs=list(&a.get_value(),"runs")/>}.into_any(),
@@ -323,8 +323,8 @@ fn AgentActions(agent: Value, rev: RwSignal<u32>, blocked: RwSignal<bool>) -> im
             if matches!(action, "archive" | "delete" | "cancel-runs")
                 && !confirm(
                     match action {
-                        "archive" => "归档智能体？",
-                        "delete" => "彻底删除智能体？",
+                        "archive" => "归档这个角色档案？",
+                        "delete" => "彻底删除这个角色档案？",
                         _ => "取消全部运行？",
                     },
                     match action {
@@ -543,7 +543,7 @@ fn AgentEditor(
             };
             match api::send::<Value>(if create { "POST" } else { "PUT" }, &path, &body).await {
                 Ok(v) => {
-                    toast("已保存智能体");
+                    toast("已保存角色档案");
                     if create {
                         dirty.set(false);
                         if !crate::files_js::confirm_leave().await {

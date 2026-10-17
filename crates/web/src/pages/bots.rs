@@ -39,7 +39,7 @@ pub fn state_label(state: &str) -> (&'static str, &'static str) {
 }
 
 fn role_label(role: &str) -> &'static str {
-    if role == "lead" { "总控" } else { "worker" }
+    if role == "lead" { "总控" } else { "干活" }
 }
 
 fn pill(state: &str) -> AnyView {
@@ -323,14 +323,14 @@ fn NewBotForm(on_close: Callback<()>) -> impl IntoView {
                 </select>
             </label>
             <details class="runtime-details">
-                <summary>"更多：运行时、已有档案、角色、优先级、家目录"</summary>
+                <summary>"更多设置"</summary>
                 <label class="field">"运行时"
                     <select on:change=move |e| runtime.set(event_target_value(&e))>
                         <option value="claude" selected=true>"Claude Code"</option>
                         <option value="codex">"Codex"</option>
                     </select>
                 </label>
-                <label class="field">"改用已有的智能体档案（选了就不用写职责）"
+                <label class="field">"改用已有的角色档案（选了就不用写职责）"
                     <select on:change=move |e| agent.set(event_target_value(&e))>
                         <option value="" selected=move || agent.get().is_empty()>"不用"</option>
                         {move || agents.get().and_then(|r| r.ok()).unwrap_or_default().into_iter()
@@ -339,7 +339,7 @@ fn NewBotForm(on_close: Callback<()>) -> impl IntoView {
                             .collect_view()}
                     </select>
                 </label>
-                <label class="field">"角色"
+                <label class="field">"分工"
                     <select on:change=move |e| role.set(event_target_value(&e))>
                         <option value="worker" selected=true>"worker · 干活"</option>
                         <option value="lead">"lead · 总控，可以给别人派活、临时拉 bot"</option>

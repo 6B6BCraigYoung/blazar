@@ -84,8 +84,8 @@ pub fn RuntimesPage() -> impl IntoView {
     view! {
         <div class="page runtimes-page">
             <div class="page-head">
-                <h1>"运行时"</h1>
-                <span class="sub">"选择账号，开始工作"</span>
+                <h1>"智能体"</h1>
+                {crate::components::section::agents("/runtimes")}
                 <span class="grow"></span>
                 <button class="btn" disabled=move || refreshing.get() on:click=refresh_quota title="一次刷新所有运行时账号的额度">{move || if refreshing.get() { "刷新中…" } else { "刷新额度" }}</button>
                 <button class="btn" disabled=move || runtimes.get().is_none() on:click=move |_| rescan.update(|n| *n += 1)>"重新扫描"</button>

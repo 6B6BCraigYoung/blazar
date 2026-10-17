@@ -88,15 +88,15 @@ pub fn Palette() -> impl IntoView {
 
     let hits = move || {
         let mut all: Vec<Hit> = [
-            ("全部工作区", "导航", "/", "workspaces"),
+            ("工作区", "导航", "/", "全部工作区 workspaces"),
             ("运行中", "导航", "/running", "running"),
             ("等我审批", "导航", "/waiting", "审批 approval"),
-            ("全部 bot", "导航", "/bots", "bots 机器人"),
-            ("运行时", "导航", "/runtimes", "runtimes 账号"),
+            ("bot", "导航", "/bots", "全部 bot bots 机器人"),
+            ("运行时", "导航", "/runtimes", "runtimes 账号 智能体"),
             ("收件箱", "导航", "/inbox", "inbox 通知"),
             ("任务", "导航", "/tasks", "tasks"),
-            ("自动化", "导航", "/autopilots", "autopilots 定时"),
-            ("SKILLs", "导航", "/skills", "技能 skills mcp"),
+            ("自动化", "导航", "/autopilots", "autopilots 定时 任务"),
+            ("技能", "导航", "/skills", "skills mcp 智能体"),
             (
                 "接入的软件",
                 "导航",
@@ -105,7 +105,7 @@ pub fn Palette() -> impl IntoView {
             ),
             ("角色档案", "导航", "/agents", "智能体 agents"),
             ("机器与组网", "导航", "/nodes", "节点 nodes mesh"),
-            ("用量", "导航", "/usage", "usage 费用"),
+            ("用量", "导航", "/usage", "usage 费用 智能体"),
             ("设置", "导航", "/settings", "settings 快捷键"),
             ("新建工作区", "命令", "cmd:new", "new workspace"),
         ]
