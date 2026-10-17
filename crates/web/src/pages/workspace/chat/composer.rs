@@ -85,6 +85,19 @@ const CLAUDE_LOCAL: &[(&str, &str)] = &[
     ),
 ];
 
+const CODEX_SENT: &[(&str, &str, &str)] = &[
+    (
+        "compact",
+        "summarize conversation to prevent hitting the context limit",
+        "",
+    ),
+    (
+        "review",
+        "review my current changes and find issues",
+        "[instructions]",
+    ),
+];
+
 const CODEX_LOCAL: &[(&str, &str)] = &[
     ("clear", "clear the terminal and start a new chat"),
     ("mention", "mention a file"),
@@ -173,10 +186,21 @@ pub fn Composer(chat: Chat, tick: RwSignal<u32>, tree_files: Signal<Vec<String>>
             }
             cli
         } else {
-            CODEX_LOCAL
+            let mut items: Vec<SlashItem> = CODEX_LOCAL
                 .iter()
                 .map(|(n, d)| SlashItem::local(n, d))
-                .collect()
+                .collect();
+            if chat.runtime() == "codex" {
+                for (n, d, h) in CODEX_SENT {
+                    items.push(SlashItem {
+                        name: (*n).to_owned(),
+                        desc: (*d).to_owned(),
+                        hint: (*h).to_owned(),
+                        local: false,
+                    });
+                }
+            }
+            items
         };
         out.retain(|c| {
             k.is_empty() || c.name.to_lowercase().contains(&k) || c.desc.to_lowercase().contains(&k)
@@ -616,6 +640,29 @@ pub fn Composer(chat: Chat, tick: RwSignal<u32>, tree_files: Signal<Vec<String>>
                     }>"Clear"</button>
                 </div>
             })}
+            {move || {
+                let list = chat.shells.get();
+                let busy = chat.shell_busy.get();
+                (!list.is_empty() || busy).then(|| view! {
+                    <div class="cb-band queue cc-shells">
+                        <div class="cq-h"><b>"Shell"</b><span class="muted">" · included with your next message"</span><span class="grow"></span>
+                            {(!list.is_empty()).then(|| view! { <button class="linkbtn" on:click=move |_| chat.shells.set(Vec::new())>"Clear"</button> })}
+                        </div>
+                        {list.into_iter().enumerate().map(|(i, r)| {
+                            let lines = r.stdout.lines().count() + r.stderr.lines().count();
+                            let body = format!("{}{}{}", r.stdout.trim_end(), if r.stderr.trim().is_empty() || r.stdout.trim().is_empty() { "" } else { "\n" }, r.stderr.trim_end());
+                            view! {
+                                <details class="cc-shell">
+                                    <summary><code>{format!("! {}", r.command)}</code><span class="muted">{format!(" · exit {} · {lines} lines{}", r.code, if r.truncated { " · truncated" } else { "" })}</span>
+                                        <button class="x" title="Remove" on:click=move |e| { e.prevent_default(); chat.shells.update(|s| { if i < s.len() { s.remove(i); } }); }>"×"</button></summary>
+                                    <pre>{if body.is_empty() { "(no output)".to_owned() } else { body }}</pre>
+                                </details>
+                            }
+                        }).collect_view()}
+                        {busy.then(|| view! { <div class="muted cc-shell-run">"Running…"</div> })}
+                    </div>
+                })
+            }}
             <QueueBand chat/>
             {move || {
                 let thread = chat.view.get();
@@ -631,7 +678,7 @@ pub fn Composer(chat: Chat, tick: RwSignal<u32>, tree_files: Signal<Vec<String>>
             {move || chat.editing_queue.get().map(|queued| view! { <QueueEditor chat queued/> })}
             {move || failed_edit.get().map(|(id, request)| view! { <FailedEditor chat id request on_close=Callback::new(move |_| failed_edit.set(None))/> })}
             <Dock chat/>
-            <div class="cc-box" on:dragover=move |e: ev::DragEvent| {
+            <div class="cc-box" data-bash=move || chat.prompt.with(|p| p.trim_start().starts_with('!')).to_string() on:dragover=move |e: ev::DragEvent| {
                     if e.data_transfer().is_some_and(|d| (0..d.items().length()).any(|i| d.items().get(i).is_some_and(|x| x.type_().starts_with("image/")))) { e.prevent_default(); }
                 }
                 on:drop=move |e: ev::DragEvent| {
@@ -651,7 +698,7 @@ pub fn Composer(chat: Chat, tick: RwSignal<u32>, tree_files: Signal<Vec<String>>
                     })
                 }}
                 <textarea node_ref=ta rows="1" class="prompt" aria-label="Message"
-                    placeholder=move || if running.get() { "Queue another message…" } else { "⌘ Esc to focus or unfocus Claude" }
+                    placeholder=move || if running.get() { if matches!(chat.runtime().as_str(), "claude" | "codex") { "Message the agent while it works…" } else { "Queue another message…" } } else { "⌘ Esc to focus or unfocus Claude" }
                     prop:value=move || chat.prompt.get()
                     on:input=on_input on:keydown=on_key
                     on:paste=move |e: ev::ClipboardEvent| {
@@ -713,8 +760,8 @@ pub fn Composer(chat: Chat, tick: RwSignal<u32>, tree_files: Signal<Vec<String>>
                     })}
                     <button class="cb-send" data-mode=move || if stop_mode() { "stop" } else { "send" } data-busy=move || (chat.busy.get() > 0).to_string()
                         data-pmode=move || chat.effective_mode().map(|m| m.0).unwrap_or("")
-                        aria-label=move || if stop_mode() { "Stop" } else if running.get() { "Queue" } else { "Send" }
-                        title=move || if stop_mode() { "Stop (Esc)" } else if running.get() { "Queue (Enter)" } else { "Send (Enter)" }
+                        aria-label=move || if stop_mode() { "Stop" } else if running.get() && !matches!(chat.runtime().as_str(), "claude" | "codex") { "Queue" } else { "Send" }
+                        title=move || if stop_mode() { "Stop (Esc)" } else if running.get() && !matches!(chat.runtime().as_str(), "claude" | "codex") { "Queue (Enter)" } else { "Send (Enter)" }
                         on:click=move |_| if stop_mode() { chat.stop() } else { chat.send() }>
                         <span class="i-send" inner_html=svg(r#"<path d="M12 19V5M5.5 11.5 12 5l6.5 6.5"/>"#)></span>
                         <span class="i-stop"></span>

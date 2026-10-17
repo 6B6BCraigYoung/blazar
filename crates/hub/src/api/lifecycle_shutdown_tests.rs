@@ -124,6 +124,7 @@ impl Fixture {
                 interrupt_requested: false,
                 bg: Default::default(),
                 idle: false,
+                app: Default::default(),
             }),
         });
         let (st, ws, sid, transport) = (self.st.clone(), self.ws, self.sid, fake.clone());

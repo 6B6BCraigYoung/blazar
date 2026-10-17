@@ -312,6 +312,7 @@ pub fn build_router(st: Arc<AppState>) -> Router {
             post(remote_cli::update),
         )
         .route("/api/workspaces/{id}/detail", get(api::workspace_detail))
+        .route("/api/workspaces/{id}/shell", post(api::workspace_shell))
         .route("/api/search", get(api::search))
         .route("/api/workspaces/{id}/terminal/ws", get(api::terminal_ws))
         .route("/api/ws", get(api::ws_handler))

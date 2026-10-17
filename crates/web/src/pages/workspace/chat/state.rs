@@ -72,6 +72,8 @@ pub struct Chat {
 
     pub prompt: RwSignal<String>,
     pub attach: RwSignal<Vec<Attach>>,
+    pub shells: RwSignal<Vec<ShellRun>>,
+    pub shell_busy: RwSignal<bool>,
     pub fresh: RwSignal<bool>,
     pub agent: RwSignal<String>,
     pub perm: RwSignal<String>,
@@ -140,6 +142,8 @@ impl Chat {
                 storage::load_raw(&format!("blazar.draft.{ws}")).unwrap_or_default(),
             ),
             attach: RwSignal::new(Vec::new()),
+            shells: RwSignal::new(Vec::new()),
+            shell_busy: RwSignal::new(false),
             fresh: RwSignal::new(false),
             agent: RwSignal::new(
                 storage::load_raw(&format!("blazar.agent.{ws}")).unwrap_or_default(),

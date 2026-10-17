@@ -8,9 +8,9 @@ use crate::chat_model::Row;
 use crate::components::toast::toast;
 use crate::storage;
 
-use super::delivery::take_composer;
+use super::delivery::{steer_request, take_composer};
 use super::send_context::SendContext;
-use super::{ACC_RUNTIMES, CONTINUE_TEXT, Chat, Comment, PendingMsg, Queued};
+use super::{ACC_RUNTIMES, CONTINUE_TEXT, Chat, Comment, PendingMsg, Queued, ShellRun};
 
 const PROMPT_HISTORY_MAX: usize = 200;
 
@@ -257,7 +257,43 @@ impl Chat {
         storage::save(&format!("blazar.history.{}", self.ws_id()), &history);
     }
 
+    pub fn run_shell(self, command: String) {
+        if self.shell_busy.get_untracked() {
+            return;
+        }
+        let Some(ws) = self.ws.try_get_value() else {
+            return;
+        };
+        self.remember_prompt(&format!("!{command}"));
+        self.prompt.set(String::new());
+        self.shell_busy.set(true);
+        self.spawn(async move {
+            match api::send::<ShellRun>(
+                "POST",
+                &format!("/api/workspaces/{ws}/shell"),
+                &json!({ "command": command }),
+            )
+            .await
+            {
+                Ok(run) => {
+                    let _ = self.shells.try_update(|s| s.push(run));
+                }
+                Err(e) => toast(format!("Command failed: {e}")),
+            }
+            let _ = self.shell_busy.try_set(false);
+        });
+    }
+
     pub fn send(self) {
+        if self.attach.with_untracked(Vec::is_empty)
+            && let Some(command) = self
+                .prompt
+                .with_untracked(|p| p.trim().strip_prefix('!').map(|c| c.trim().to_owned()))
+                .filter(|c| !c.is_empty())
+        {
+            self.run_shell(command);
+            return;
+        }
         let reviews = self.diff.comments.get_untracked();
         if self.prompt.with_untracked(|p| p.trim().is_empty())
             && self.attach.with_untracked(Vec::is_empty)
@@ -277,7 +313,15 @@ impl Chat {
         } else {
             text.trim().to_owned()
         };
-        let wire = format!("{text}{}", Self::review_block(&reviews));
+        let shells = self.shells.get_untracked();
+        let shell_block: String = shells
+            .iter()
+            .map(|r| format!("{}\n\n", r.context()))
+            .collect();
+        if !shells.is_empty() {
+            self.shells.set(Vec::new());
+        }
+        let wire = format!("{shell_block}{text}{}", Self::review_block(&reviews));
         let mut body = self.send_options();
         body.insert("text".into(), json!(wire));
         body.insert("resume_session".into(), json!(self.view.get_untracked()));
@@ -328,6 +372,26 @@ impl Chat {
             let _ = self.busy.try_update(|n| *n = n.saturating_sub(1));
             match r {
                 Ok(r) if r["admitted"] == json!(false) => {
+                    let running = r["running_session_id"].as_str().map(str::to_owned);
+                    let same_turn = r["running_interactive"] == json!(true)
+                        && running.is_some()
+                        && self.transcript.with_untracked(|t| t.last_session.clone()) == running
+                        && self.context_is_current(&context);
+                    if let (true, Some(sid)) = (same_turn, running) {
+                        let i = api::send::<Value>(
+                            "POST",
+                            &format!("/api/sessions/{sid}/input"),
+                            &steer_request(&body),
+                        )
+                        .await;
+                        if let Ok(i) = &i
+                            && i["accepted"] == json!(true)
+                        {
+                            self.drop_pending(pid);
+                            self.deliveries.update(|d| d.finish(pid, true));
+                            return;
+                        }
+                    }
                     let q = api::send::<Vec<Queued>>(
                         "PUT",
                         &format!("/api/workspaces/{ws}/queue"),

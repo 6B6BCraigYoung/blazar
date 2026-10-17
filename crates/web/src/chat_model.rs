@@ -283,6 +283,46 @@ pub fn command_of(input: &Value) -> String {
     }
 }
 
+pub fn shell_display(text: &str) -> String {
+    if !text.contains("<bash-input>") {
+        return text.to_owned();
+    }
+    let mut out = String::new();
+    let mut rest = text;
+    while let Some(at) = rest.find("<bash-input>") {
+        out.push_str(&rest[..at]);
+        let after = &rest[at + "<bash-input>".len()..];
+        let Some(end) = after.find("</bash-input>") else {
+            out.push_str(&rest[at..]);
+            return out;
+        };
+        let lines = |tag: &str, s: &str| -> usize {
+            let open = format!("<{tag}>");
+            let close = format!("</{tag}>");
+            s.find(&open)
+                .and_then(|a| {
+                    s[a + open.len()..]
+                        .find(&close)
+                        .map(|b| s[a + open.len()..a + open.len() + b].lines().count())
+                })
+                .unwrap_or(0)
+        };
+        let tail = &after[end + "</bash-input>".len()..];
+        let stop = tail
+            .find("</bash-stderr>")
+            .map(|i| i + "</bash-stderr>".len())
+            .unwrap_or(0);
+        let n = lines("bash-stdout", &tail[..stop]) + lines("bash-stderr", &tail[..stop]);
+        out.push_str(&format!("! {} ({n} lines of output)", after[..end].trim()));
+        rest = tail[stop..].trim_start_matches('\n');
+        if !rest.is_empty() {
+            out.push('\n');
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
 pub fn tool_title(name: &str, input: &Value, root: &str) -> (String, String) {
     let rp = |k: &str| rel_path(s(input, k), root);
     let arg = if SHELL_TOOLS.contains(&name) {
@@ -782,6 +822,7 @@ impl Builder<'_> {
 
         match r.kind {
             EntryKind::UserMessage { text } => {
+                let text = shell_display(&text);
                 self.turn_tokens.clear();
                 self.turn_est = 0;
                 let first = !self.user_seen.contains(&r.session_id) && !r.rewound;
@@ -1332,6 +1373,18 @@ pub fn always_rule(request: &Value) -> (String, String) {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn shell_context_is_shown_as_a_command_line() {
+        let text = "<bash-input>ls -la</bash-input>\n\n<bash-stdout>a\nb</bash-stdout><bash-stderr></bash-stderr>\n\nwhat is in here?";
+        assert_eq!(
+            shell_display(text),
+            "! ls -la (2 lines of output)\nwhat is in here?"
+        );
+        assert_eq!(shell_display("plain"), "plain");
+        assert_eq!(shell_display("<bash-input>broken"), "<bash-input>broken");
+    }
+
     use super::*;
     use serde_json::json;
 

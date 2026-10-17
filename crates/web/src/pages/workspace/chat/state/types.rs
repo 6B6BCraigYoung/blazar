@@ -100,6 +100,30 @@ pub struct Catalog {
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct ShellRun {
+    pub command: String,
+    #[serde(default)]
+    pub stdout: String,
+    #[serde(default)]
+    pub stderr: String,
+    #[serde(default)]
+    pub code: i32,
+    #[serde(default)]
+    pub truncated: bool,
+}
+
+impl ShellRun {
+    pub fn context(&self) -> String {
+        format!(
+            "<bash-input>{}</bash-input>\n\n<bash-stdout>{}</bash-stdout><bash-stderr>{}</bash-stderr>",
+            self.command,
+            self.stdout.trim_end(),
+            self.stderr.trim_end()
+        )
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct Snippet {
     pub id: String,
     pub name: String,

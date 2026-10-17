@@ -782,7 +782,7 @@ fn wrap_with_watchdog(inner: &str) -> String {
     format!(
         "set -m; {{ {inner}; }} </dev/null & C=$!; \
          {{ cat >/dev/null; {tree} kill -TERM -$C $T 2>/dev/null; sleep 2; kill -KILL -$C $T 2>/dev/null; }} & W=$!; \
-         wait $C; E=$?; kill $W 2>/dev/null; exit $E",
+         wait $C; E=$?; exec 2>/dev/null; kill $W; exit $E",
         tree = COLLECT_TREE,
     )
 }

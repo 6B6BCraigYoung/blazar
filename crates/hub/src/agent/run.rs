@@ -37,6 +37,80 @@ pub struct LiveState {
 
     pub bg: std::collections::HashSet<String>,
     pub idle: bool,
+
+    pub app: AppTurn,
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct AppTurn {
+    pub enabled: bool,
+    pub thread: Option<String>,
+    pub turn: Option<String>,
+    pub first: Option<(String, Vec<ImageInput>)>,
+    pub steers: std::collections::HashMap<String, (String, Vec<ImageInput>)>,
+}
+
+pub fn apply_ids(app: &mut AppTurn, ids: &blazar_runtime::codex_app::Ids) {
+    if let Some(t) = &ids.thread {
+        app.thread = Some(t.clone());
+    }
+    if let Some(t) = &ids.turn {
+        app.turn = Some(t.clone());
+    }
+    if ids.turn_ended {
+        app.turn = None;
+    }
+}
+
+async fn retry_steer(ctx: &Ctx, line: &str) {
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else {
+        return;
+    };
+    let Some(cid) = v
+        .get("id")
+        .and_then(serde_json::Value::as_str)
+        .and_then(|id| id.strip_prefix("blazar-steer-"))
+    else {
+        return;
+    };
+    let retry = {
+        let mut s = ctx.live.state.lock().await;
+        let pending = s.app.steers.remove(cid);
+        match (v.get("error").is_some(), pending, s.app.thread.clone()) {
+            (true, Some(p), Some(thread)) => Some((thread, p)),
+            _ => None,
+        }
+    };
+    if let Some((thread, (text, images))) = retry {
+        let json = blazar_runtime::codex_app::turn_start(&thread, &text, &images, cid);
+        if let Err(e) = ctx.live.run.append(&format!("t-{cid}"), &json).await {
+            tracing::warn!(target: "blazar::run", "插话没赶上这一轮，另起一轮也失败了：{e}");
+        }
+    }
+}
+
+async fn drive_app(ctx: &Ctx, line: &str) {
+    if line.contains("\"blazar-steer-") {
+        retry_steer(ctx, line).await;
+    }
+    let ids = blazar_runtime::codex_app::ids(line);
+    if ids == blazar_runtime::codex_app::Ids::default() {
+        return;
+    }
+    let first = {
+        let mut s = ctx.live.state.lock().await;
+        apply_ids(&mut s.app, &ids);
+        match (s.app.thread.clone(), ids.thread.is_some()) {
+            (Some(thread), true) => s.app.first.take().map(|f| (thread, f)),
+            _ => None,
+        }
+    };
+    if let Some((thread, (text, images))) = first {
+        let json = blazar_runtime::codex_app::first_turn(&thread, &text, &images, "u-1");
+        if let Err(e) = ctx.live.run.append("u-1", &json).await {
+            tracing::warn!(target: "blazar::run", "发不出第一轮：{e}");
+        }
+    }
 }
 
 #[must_use]
@@ -173,6 +247,9 @@ async fn process_line(ctx: &Ctx, line: &str, at: u64, p: &mut Progress) -> Line 
         tracing::warn!(target: "blazar::run", "偏移 {at} 处的行反复解析失败，跳过");
     }
 
+    if ctx.runtime.app_server() {
+        drive_app(ctx, t).await;
+    }
     let parsed = ctx.runtime.parse_line(line);
     let mut entries = Vec::with_capacity(parsed.len());
     let mut approvals = Vec::new();
@@ -615,10 +692,23 @@ pub async fn interject(
         s.user_no += 1;
         let id = format!("u-{}", s.user_no);
 
-        let line = user_input_line_with_images(&id, sent, images);
-        let json = line.split_once('\t').map_or("", |x| x.1);
+        let json = if s.app.enabled {
+            if crate::api::is_slash_command(text) {
+                return Err("Codex 不能在一轮中途执行斜杠命令，等这一轮结束再发".into());
+            }
+            let (Some(thread), Some(turn)) = (s.app.thread.clone(), s.app.turn.clone()) else {
+                return Err("Codex 这一轮还没开始，稍等再发".into());
+            };
+            s.app
+                .steers
+                .insert(id.clone(), (sent.to_owned(), images.to_vec()));
+            blazar_runtime::codex_app::steer(&thread, &turn, sent, images, &id)
+        } else {
+            let line = user_input_line_with_images(&id, sent, images);
+            line.split_once('\t').map_or("", |x| x.1).to_owned()
+        };
         live.run
-            .append(&id, json)
+            .append(&id, &json)
             .await
             .map_err(|e| format!("写入失败: {e}"))?;
         if !crate::api::is_slash_command(text) {
@@ -705,18 +795,27 @@ pub(crate) async fn deliver_saved_approval(
         .map_err(|e| format!("取原始请求失败: {e}"))?
         .ok_or("原始请求已经不在节点上了")?;
     let v: serde_json::Value = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
-    let rid = v["request_id"].as_str().ok_or("原始请求缺 request_id")?;
-    if a.provider_request_id.as_deref() != Some(rid) {
-        return Err("原始审批请求已改变，请中断会话后重新提出请求".into());
-    }
-    let mut input = v["request"]["input"].clone();
-    if let (true, Some(ans)) = (allow, response.answers.as_ref()) {
-        let obj = input
-            .as_object_mut()
-            .ok_or("原始审批输入不完整，无法写入答复")?;
-        obj.insert("answers".into(), ans.clone());
-    }
-    let msg = approval_response_json(rid, allow, Some(&input), &response.message);
+    let msg = if v.get("request_id").is_none() && v.get("method").is_some() && v.get("id").is_some()
+    {
+        let rid = blazar_runtime::codex_app::request_id_text(&v).ok_or("原始请求缺 id")?;
+        if a.provider_request_id.as_deref() != Some(rid.as_str()) {
+            return Err("原始审批请求已改变，请中断会话后重新提出请求".into());
+        }
+        blazar_runtime::codex_app::approval_reply(&raw, allow).ok_or("这不是 Codex 的审批请求")?
+    } else {
+        let rid = v["request_id"].as_str().ok_or("原始请求缺 request_id")?;
+        if a.provider_request_id.as_deref() != Some(rid) {
+            return Err("原始审批请求已改变，请中断会话后重新提出请求".into());
+        }
+        let mut input = v["request"]["input"].clone();
+        if let (true, Some(ans)) = (allow, response.answers.as_ref()) {
+            let obj = input
+                .as_object_mut()
+                .ok_or("原始审批输入不完整，无法写入答复")?;
+            obj.insert("answers".into(), ans.clone());
+        }
+        approval_response_json(rid, allow, Some(&input), &response.message)
+    };
     let mut state = live.state.lock().await;
     live.run
         .append(&format!("a-{}", a.id), &msg)
@@ -876,6 +975,9 @@ pub async fn control(
     if s.eof_sent {
         return Err("这一轮已经收尾".into());
     }
+    if s.app.enabled {
+        return Err("Codex 这一轮里不能切换，下一条消息会用新的设置".into());
+    }
     let id = format!("c-{}", uuid::Uuid::now_v7());
     live.run
         .append(&id, &control_json(&id, request))
@@ -890,7 +992,21 @@ pub async fn interrupt(st: &Shared, live: Arc<Live>, sid: SessionId) {
         s.interrupt_requested = true;
         if live.interactive && !s.eof_sent {
             let id = format!("i-{}", uuid::Uuid::now_v7());
-            live.run.append(&id, &interrupt_json(&id)).await.is_ok()
+            if s.app.enabled {
+                match (s.app.thread.clone(), s.app.turn.clone()) {
+                    (Some(thread), Some(turn)) => live
+                        .run
+                        .append(
+                            &id,
+                            &blazar_runtime::codex_app::interrupt(&thread, &turn, &id),
+                        )
+                        .await
+                        .is_ok(),
+                    _ => false,
+                }
+            } else {
+                live.run.append(&id, &interrupt_json(&id)).await.is_ok()
+            }
         } else {
             false
         }
@@ -933,6 +1049,15 @@ pub async fn reattach_all(st: Shared) {
         };
         let run = DetachedRun::attach(t, dir, sid.to_string());
         let next_seq = st.db.max_seq(sid).await.unwrap_or(0) + 1;
+        let mut recovered = AppTurn {
+            enabled: runtime.app_server(),
+            ..AppTurn::default()
+        };
+        if recovered.enabled {
+            for line in run.drain(0).await.unwrap_or_default().lines() {
+                apply_ids(&mut recovered, &blazar_runtime::codex_app::ids(line));
+            }
+        }
 
         let count = |pat: &'static str| {
             let st = st.clone();
@@ -983,6 +1108,7 @@ pub async fn reattach_all(st: Shared) {
                 interrupt_requested: false,
                 bg,
                 idle: false,
+                app: recovered,
             }),
         });
         let hook = blazar_hooks::HookContext {

@@ -7,6 +7,7 @@ use futures::stream::BoxStream;
 pub mod claude;
 pub mod cli_runtime;
 pub mod codex;
+pub mod codex_app;
 pub mod discover;
 pub mod spec;
 

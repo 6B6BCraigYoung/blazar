@@ -154,6 +154,7 @@ async fn fixture(log: String) -> (tempfile::TempDir, Ctx, Arc<FakeTransport>) {
             interrupt_requested: false,
             bg: Default::default(),
             idle: false,
+            app: Default::default(),
         }),
     });
     let ctx = Ctx {

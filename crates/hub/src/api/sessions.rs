@@ -564,6 +564,9 @@ async fn prompt_inner(
             && ensure_installed(&st, &run_node, agent_id).await?;
 
         let interactive = runtime.interactive();
+        let app_server = runtime.app_server();
+        let first_text = spec.prompt.clone();
+        let first_images = spec.images.clone();
         let resume_pid = resume_id.clone().map(ProviderSessionId);
         let new_pid = resume_pid
             .is_none()
@@ -630,6 +633,11 @@ async fn prompt_inner(
                 interrupt_requested: false,
                 bg: std::collections::HashSet::new(),
                 idle: false,
+                app: crate::run::AppTurn {
+                    enabled: app_server,
+                    first: app_server.then(|| (first_text.clone(), first_images.clone())),
+                    ..crate::run::AppTurn::default()
+                },
             }),
         });
 

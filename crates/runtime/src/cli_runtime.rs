@@ -381,7 +381,36 @@ impl CliRuntime {
 
     #[must_use]
     pub fn interactive(&self) -> bool {
-        self.spec.interactive
+        self.spec.interactive || self.app_server()
+    }
+
+    #[must_use]
+    pub fn app_server(&self) -> bool {
+        self.spec.id == "codex"
+    }
+
+    fn app_server_plan(
+        &self,
+        session: &SessionSpec,
+        resume: Option<&ProviderSessionId>,
+    ) -> DetachedPlan {
+        let (args, sandbox) = crate::codex_app::launch_args(&self.extra_args(session));
+        let mut spec = self.program_exec().args(args).cwd(&session.cwd);
+        for (k, v) in &session.env {
+            spec = spec.env(k, v);
+        }
+        for (k, p) in &session.env_files {
+            spec = spec.env_file(k, p);
+        }
+        DetachedPlan {
+            spec,
+            mode: RunMode::Relay,
+            first_input: Some(crate::codex_app::first_input(
+                session,
+                resume.map(|r| r.0.as_str()),
+                sandbox.as_deref(),
+            )),
+        }
     }
 
     #[must_use]
@@ -391,6 +420,9 @@ impl CliRuntime {
         resume: Option<&ProviderSessionId>,
         new_session_id: Option<&str>,
     ) -> DetachedPlan {
+        if self.app_server() {
+            return self.app_server_plan(session, resume);
+        }
         if !self.spec.interactive {
             return DetachedPlan {
                 spec: self.exec_spec(session, resume),
@@ -438,6 +470,12 @@ impl CliRuntime {
 
     #[must_use]
     pub fn parse_line(&self, line: &str) -> Vec<(EntryKind, Option<blazar_core_types::ToolId>)> {
+        if self.app_server() {
+            return crate::codex_app::parse_line(line)
+                .into_iter()
+                .map(|k| (k, None))
+                .collect();
+        }
         parse_by_format(self.spec.output, line)
     }
 }
@@ -1255,12 +1293,35 @@ mod tests {
 
     #[test]
     fn non_interactive_agents_keep_the_positional_prompt_and_a_closed_stdin() {
-        let r = rt("codex");
+        let r = rt("gemini");
         assert!(!r.interactive());
-        let p = r.detached_plan(&SessionSpec::new("/w", "hi codex"), None, None);
+        let p = r.detached_plan(&SessionSpec::new("/w", "hi gemini"), None, None);
         assert_eq!(p.mode, RunMode::Null);
         assert!(p.first_input.is_none());
-        assert_eq!(p.spec.args.last().map(String::as_str), Some("hi codex"));
+        assert!(p.spec.args.iter().any(|a| a == "hi gemini"));
+    }
+
+    #[test]
+    fn codex_runs_as_a_resident_app_server() {
+        let r = rt("codex");
+        assert!(r.interactive() && r.app_server());
+        let mut s = SessionSpec::new("/w", "hi codex");
+        s.permission_mode = Some("read-only".into());
+        s.effort = Some("high".into());
+        let p = r.detached_plan(&s, Some(&ProviderSessionId("thr-9".into())), None);
+        assert_eq!(p.mode, RunMode::Relay);
+        assert_eq!(p.spec.args.first().map(String::as_str), Some("app-server"));
+        assert!(!p.spec.args.iter().any(|a| a == "exec" || a == "hi codex"));
+        assert!(
+            p.spec
+                .args
+                .iter()
+                .any(|a| a == "model_reasoning_effort=\"high\"")
+        );
+        let first = p.first_input.unwrap();
+        assert!(first.contains("\"thread/resume\""));
+        assert!(first.contains("\"thr-9\""));
+        assert!(first.contains("\"read-only\""));
     }
 
     #[test]

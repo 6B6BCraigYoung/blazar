@@ -165,6 +165,14 @@
 .cc-box { border: 1px solid var(--border); border-radius: var(--r-md); background: var(--bg-panel); box-shadow: 0 1px 2px rgba(0,0,0,.1); padding: 0; display: flex; flex-direction: column; min-width: 0; }
 .cc-box .prompt { display: block; width: 100%; min-height: calc(1.5em + 20px); max-height: 200px; resize: none; border: 0; outline: none; background: transparent; color: var(--fg); font: var(--font-size-body)/1.5 var(--font-sans); padding: 10px 14px; box-sizing: border-box; }
 .cc-box .prompt::placeholder { color: var(--fg-4); }
+.cc-box[data-bash="true"] .prompt { color: var(--clay); font-family: var(--font-mono); }
+.cc-shells { display: flex; flex-direction: column; gap: var(--space-xs); }
+.cc-shell summary { display: flex; align-items: center; gap: var(--space-sm); cursor: pointer; list-style: none; }
+.cc-shell summary::-webkit-details-marker { display: none; }
+.cc-shell summary code { font: var(--font-size-label) var(--font-mono); color: var(--clay); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cc-shell summary .x { margin-left: auto; }
+.cc-shell pre { margin: var(--space-xs) 0 0; max-height: 220px; overflow: auto; padding: var(--space-sm) var(--space-md); border-radius: var(--r-sm); background: var(--bg-canvas); font: var(--font-size-label) var(--font-mono); white-space: pre-wrap; word-break: break-word; }
+.cc-shell-run { font-size: var(--font-size-label); }
 .cb-atts { display: flex; gap: var(--space-sm); flex-wrap: wrap; padding: 10px 14px 0; }
 .cb-att { position: relative; }
 .cb-att img { width: 52px; height: 52px; object-fit: cover; border-radius: var(--r-sm); border: 1px solid var(--border); }

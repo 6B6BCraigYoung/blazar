@@ -166,9 +166,6 @@ impl Chat {
                             toast("This message's settings can't be sent mid-turn; it stays queued");
                             return Ok(());
                         };
-                        if dialog::ask("Send now?", "Attachments and file context are sent too. Model, account and permissions follow the current turn.", vec![Choice::plain("Cancel"), Choice::plain("Send now")]).await != Some(1) {
-                            return Ok(());
-                        }
                         if !self.context_is_current(&context) {
                             toast("Conversation changed; the message stays queued");
                             return Ok(());
