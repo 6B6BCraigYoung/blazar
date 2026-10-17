@@ -308,7 +308,8 @@ fn NewBotForm(on_close: Callback<()>) -> impl IntoView {
         <Modal label="新建 bot" on_close=Callback::new(move |_| on_close.run(()))>
             <h3>"新建 bot"</h3>
             <label class="field">"handle"
-                <input data-modal-initial-focus="" maxlength="32" placeholder="trainer" aria-describedby="new-bot-handle-rule" prop:value=move || handle.get() on:input=move |e| handle.set(event_target_value(&e))/>
+                <input data-modal-initial-focus="" maxlength="32" placeholder="trainer" aria-label="handle"
+                    aria-describedby="new-bot-handle-rule" prop:value=move || handle.get() on:input=move |e| handle.set(event_target_value(&e))/>
                 <small id="new-bot-handle-rule" class="muted" class:bad=move || !handle.get().is_empty() && !handle_ok()>"小写字母、数字和连字符，1–32 个字符，不能以连字符开头或结尾"</small>
             </label>
             <label class="field">{move || if agent.get().is_empty() { "它负责什么" } else { "它负责什么（已选档案，可以不写）" }}
