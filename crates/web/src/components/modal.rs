@@ -62,7 +62,15 @@ pub fn Modal(
     });
     view! {
         <div class=mask_class data-modal-mask="">
-            <div class=class node_ref=root role="dialog" aria-modal="true" aria-label=label tabindex="-1" data-modal-root="">
+            <div
+                class=class
+                node_ref=root
+                role="dialog"
+                aria-modal="true"
+                aria-label=label
+                tabindex="-1"
+                data-modal-root=""
+            >
                 {children()}
             </div>
         </div>

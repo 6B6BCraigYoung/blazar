@@ -64,9 +64,9 @@ pub fn Dock(chat: Chat) -> impl IntoView {
     move || {
         top.get().map(|p| {
             if p.ask {
-                view! { <AskCard chat p/> }.into_any()
+                view! { <AskCard chat p /> }.into_any()
             } else {
-                view! { <ApprovalCard chat p/> }.into_any()
+                view! { <ApprovalCard chat p /> }.into_any()
             }
         })
     }
@@ -208,7 +208,12 @@ fn ApprovalCard(chat: Chat, p: Pending) -> impl IntoView {
 
     let body = if plan {
         let plan_text = input["plan"].as_str().unwrap_or("").to_owned();
-        view! { <div class="aplan"><Md text=plan_text ws/></div> }.into_any()
+        view! {
+            <div class="aplan">
+                <Md text=plan_text ws />
+            </div>
+        }
+        .into_any()
     } else {
         let what = chat_model::approval_what(&r, &root_path);
         let diff = match tn.as_str() {
@@ -227,32 +232,85 @@ fn ApprovalCard(chat: Chat, p: Pending) -> impl IntoView {
         view! {
             <pre class="acmd">{what}</pre>
             {match diff {
-                Extra::Diff { rows, more } => Some(view! {
-                    <div class="cc-diff">
-                        {rows.into_iter().map(|(c, l)| view! { <div class=match c { '+' => "dadd", '-' => "ddel", _ => "dgap" }><span class="dm">{c.to_string()}</span>{l}</div> }).collect_view()}
-                        {(more > 0).then(|| view! { <div class="dgap">{format!("… {more} more lines")}</div> })}
-                    </div>
-                }),
+                Extra::Diff { rows, more } => {
+                    Some(
+                        view! {
+                            <div class="cc-diff">
+                                {rows
+                                    .into_iter()
+                                    .map(|(c, l)| {
+                                        view! {
+                                            <div class=match c {
+                                                '+' => "dadd",
+                                                '-' => "ddel",
+                                                _ => "dgap",
+                                            }>
+                                                <span class="dm">{c.to_string()}</span>
+                                                {l}
+                                            </div>
+                                        }
+                                    })
+                                    .collect_view()}
+                                {(more > 0)
+                                    .then(|| {
+                                        view! {
+                                            <div class="dgap">{format!("… {more} more lines")}</div>
+                                        }
+                                    })}
+                            </div>
+                        },
+                    )
+                }
                 _ => None,
             }}
             {desc.map(|d| view! { <div class="adesc">{d}</div> })}
             {blocked.map(|b| view! { <div class="adesc">{format!("Path: {b}")}</div> })}
-        }.into_any()
+        }
+        .into_any()
     };
 
     view! {
-        <div class="cc-appr" data-ui-guard="" node_ref=root tabindex="0" data-folded=move || folded.get().to_string() on:keydown=keys>
+        <div
+            class="cc-appr"
+            data-ui-guard=""
+            node_ref=root
+            tabindex="0"
+            data-folded=move || folded.get().to_string()
+            on:keydown=keys
+        >
             <div class="ahd">
                 <span class="ah">{title}</span>
-                <button class="afold" aria-label="Collapse or expand" aria-expanded=move || (!folded.get()).to_string() title="Collapse or expand" inner_html=CHEVRON on:click=move |_| folded.update(|f| *f = !*f)></button>
+                <button
+                    class="afold"
+                    aria-label="Collapse or expand"
+                    aria-expanded=move || (!folded.get()).to_string()
+                    title="Collapse or expand"
+                    inner_html=CHEVRON
+                    on:click=move |_| folded.update(|f| *f = !*f)
+                ></button>
             </div>
             <div class="abody">{body}</div>
             <div class="aopts">
-                {labels.into_iter().enumerate().map(|(i, l)| {
-                    let pick = pick.clone();
-                    view! { <button class="aopt" class:primary={i == 0} on:click=move |_| pick(i)><span class="ak">{i + 1}</span>{l}</button> }
-                }).collect_view()}
-                <input class="areject" aria-label="Tell Claude what to do differently" placeholder=ph prop:value=move || reject.get() on:input=move |e| reject.set(event_target_value(&e))/>
+                {labels
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, l)| {
+                        let pick = pick.clone();
+                        view! {
+                            <button class="aopt" class:primary={i == 0} on:click=move |_| pick(i)>
+                                <span class="ak">{i + 1}</span>
+                                {l}
+                            </button>
+                        }
+                    })
+                    .collect_view()}
+                <input
+                    class="areject"
+                    aria-label="Tell Claude what to do differently"
+                    placeholder=ph
+                    prop:value=move || reject.get()
+                    on:input=move |e| reject.set(event_target_value(&e))
+                />
             </div>
             <div class="ahint">"Esc to cancel · ↑↓ to move · Enter to select"</div>
         </div>
@@ -471,44 +529,123 @@ fn AskCard(chat: Chat, p: Pending) -> impl IntoView {
     focus_first_later(root, ".askopt");
 
     view! {
-        <div class="cc-appr cc-ask" node_ref=root tabindex="0" data-folded=move || folded.get().to_string() on:keydown=keys>
+        <div
+            class="cc-appr cc-ask"
+            node_ref=root
+            tabindex="0"
+            data-folded=move || folded.get().to_string()
+            on:keydown=keys
+        >
             <div class="anav">
-                {(0..n).map(|qi| {
-                    let h = qs.with_value(|q| q[qi].header.clone());
-                    view! {
-                        <button class="atab" data-on=move || (cur.get() == qi).to_string()
-                            data-done=move || picked.with(|p| !p[qi].is_empty()).to_string()
-                            on:click=move |_| { folded.set(false); go(qi); }>{h}</button>
-                    }
-                }).collect_view()}
-                <span class="grow"></span>
-                <button class="afold" aria-label="Collapse or expand" aria-expanded=move || (!folded.get()).to_string() title="Collapse or expand" inner_html=CHEVRON on:click=move |_| folded.update(|f| *f = !*f)></button>
-                <button class="afold" aria-label="Skip" title="Skip (Esc)" on:click=move |_| skip()>"×"</button>
-            </div>
-            {(0..n).map(|qi| {
-                let q = qs.with_value(|q| q[qi].clone());
-                let n_opts = q.options.len();
-                view! {
-                    <div class="askq" hidden=move || cur.get() != qi>
-                        <div class="askh">{q.question.clone()}{q.multi.then(|| view! { <span class="muted">" (select all that apply)"</span> })}</div>
-                        <div class="askopts">
-                            {q.options.iter().cloned().enumerate().map(|(oi, (label, desc))| view! {
-                                <button class="askopt" aria-pressed=move || picked.with(|p| p[qi].contains(&oi)).to_string() on:click=move |_| pick(qi, oi)>
-                                    <span class="ak">{oi + 1}</span><span class="ck"></span>
-                                    <span class="at"><b>{label}</b>{(!desc.is_empty()).then(|| view! { <span>{desc}</span> })}</span>
-                                </button>
-                            }).collect_view()}
-                            <button class="askopt" aria-pressed=move || picked.with(|p| p[qi].contains(&n_opts)).to_string() on:click=move |_| pick(qi, n_opts)>
-                                <span class="ak">{n_opts + 1}</span><span class="ck"></span><span class="at"><b>"Other"</b></span>
+                {(0..n)
+                    .map(|qi| {
+                        let h = qs.with_value(|q| q[qi].header.clone());
+                        view! {
+                            <button
+                                class="atab"
+                                data-on=move || (cur.get() == qi).to_string()
+                                data-done=move || picked.with(|p| !p[qi].is_empty()).to_string()
+                                on:click=move |_| {
+                                    folded.set(false);
+                                    go(qi);
+                                }
+                            >
+                                {h}
                             </button>
-                            <input class="askother" aria-label="Other answer" placeholder="Type your answer…" hidden=move || !picked.with(|p| p[qi].contains(&n_opts))
-                                prop:value=move || other.with(|o| o[qi].clone()) on:input=move |e| { let v = event_target_value(&e); other.update(|o| o[qi] = v); }/>
+                        }
+                    })
+                    .collect_view()} <span class="grow"></span>
+                <button
+                    class="afold"
+                    aria-label="Collapse or expand"
+                    aria-expanded=move || (!folded.get()).to_string()
+                    title="Collapse or expand"
+                    inner_html=CHEVRON
+                    on:click=move |_| folded.update(|f| *f = !*f)
+                ></button>
+                <button class="afold" aria-label="Skip" title="Skip (Esc)" on:click=move |_| skip()>
+                    "×"
+                </button>
+            </div>
+            {(0..n)
+                .map(|qi| {
+                    let q = qs.with_value(|q| q[qi].clone());
+                    let n_opts = q.options.len();
+                    view! {
+                        <div class="askq" hidden=move || cur.get() != qi>
+                            <div class="askh">
+                                {q.question.clone()}
+                                {q
+                                    .multi
+                                    .then(|| {
+                                        view! {
+                                            <span class="muted">" (select all that apply)"</span>
+                                        }
+                                    })}
+                            </div>
+                            <div class="askopts">
+                                {q
+                                    .options
+                                    .iter()
+                                    .cloned()
+                                    .enumerate()
+                                    .map(|(oi, (label, desc))| {
+                                        view! {
+                                            <button
+                                                class="askopt"
+                                                aria-pressed=move || {
+                                                    picked.with(|p| p[qi].contains(&oi)).to_string()
+                                                }
+                                                on:click=move |_| pick(qi, oi)
+                                            >
+                                                <span class="ak">{oi + 1}</span>
+                                                <span class="ck"></span>
+                                                <span class="at">
+                                                    <b>{label}</b>
+                                                    {(!desc.is_empty()).then(|| view! { <span>{desc}</span> })}
+                                                </span>
+                                            </button>
+                                        }
+                                    })
+                                    .collect_view()}
+                                <button
+                                    class="askopt"
+                                    aria-pressed=move || {
+                                        picked.with(|p| p[qi].contains(&n_opts)).to_string()
+                                    }
+                                    on:click=move |_| pick(qi, n_opts)
+                                >
+                                    <span class="ak">{n_opts + 1}</span>
+                                    <span class="ck"></span>
+                                    <span class="at">
+                                        <b>"Other"</b>
+                                    </span>
+                                </button>
+                                <input
+                                    class="askother"
+                                    aria-label="Other answer"
+                                    placeholder="Type your answer…"
+                                    hidden=move || !picked.with(|p| p[qi].contains(&n_opts))
+                                    prop:value=move || other.with(|o| o[qi].clone())
+                                    on:input=move |e| {
+                                        let v = event_target_value(&e);
+                                        other.update(|o| o[qi] = v);
+                                    }
+                                />
+                            </div>
                         </div>
-                    </div>
-                }
-            }).collect_view()}
-            <div class="aopts"><button class="aopt primary" data-ask-ok on:click=move |_| submit()><span class="ak">"⏎"</span>"Submit"</button></div>
-            <div class="ahint">"←→ switch question · number to pick · Enter to submit · Esc to skip"</div>
+                    }
+                })
+                .collect_view()}
+            <div class="aopts">
+                <button class="aopt primary" data-ask-ok on:click=move |_| submit()>
+                    <span class="ak">"⏎"</span>
+                    "Submit"
+                </button>
+            </div>
+            <div class="ahint">
+                "←→ switch question · number to pick · Enter to submit · Esc to skip"
+            </div>
         </div>
     }
 }

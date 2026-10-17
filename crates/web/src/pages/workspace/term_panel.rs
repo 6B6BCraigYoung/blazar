@@ -55,27 +55,62 @@ pub fn TermTabs(ws: String, terms: Terms) -> impl IntoView {
             {move || {
                 let list = terms.tabs.get();
                 let many = list.len() > 1;
-                list.into_iter().enumerate().map(|(i, n)| {
-                    let save = save2.clone();
-                    view! {
-                        <span class="term-tab" data-on=move || (terms.cur.get() == n).to_string()>
-                            <button type="button" class="term-select" aria-pressed=move || (terms.cur.get() == n).to_string() on:click=move |_| if terms.cur.get_untracked() != n { terms.cur.set(n) }>
-                            {format!("终端 {}", i + 1)}</button>
-                            {many.then(|| view! {
-                                <button type="button" class="x" aria-label=format!("关闭终端 {} 标签", i + 1) title="关闭标签，保留远端会话" on:click=move |e| {
-                                    e.stop_propagation();
-                                    terms.tabs.update(|t| t.retain(|x| *x != n));
-                                    if terms.cur.get_untracked() == n {
-                                        terms.cur.set(terms.tabs.with_untracked(|t| t[0]));
+                list.into_iter()
+                    .enumerate()
+                    .map(|(i, n)| {
+                        let save = save2.clone();
+                        view! {
+                            <span
+                                class="term-tab"
+                                data-on=move || (terms.cur.get() == n).to_string()
+                            >
+                                <button
+                                    type="button"
+                                    class="term-select"
+                                    aria-pressed=move || (terms.cur.get() == n).to_string()
+                                    on:click=move |_| {
+                                        if terms.cur.get_untracked() != n {
+                                            terms.cur.set(n)
+                                        }
                                     }
-                                    save();
-                                }>"×"</button>
-                            })}
-                        </span>
-                    }
-                }).collect_view()
+                                >
+                                    {format!("终端 {}", i + 1)}
+                                </button>
+                                {many
+                                    .then(|| {
+                                        view! {
+                                            <button
+                                                type="button"
+                                                class="x"
+                                                aria-label=format!("关闭终端 {} 标签", i + 1)
+                                                title="关闭标签，保留远端会话"
+                                                on:click=move |e| {
+                                                    e.stop_propagation();
+                                                    terms.tabs.update(|t| t.retain(|x| *x != n));
+                                                    if terms.cur.get_untracked() == n {
+                                                        terms.cur.set(terms.tabs.with_untracked(|t| t[0]));
+                                                    }
+                                                    save();
+                                                }
+                                            >
+                                                "×"
+                                            </button>
+                                        }
+                                    })}
+                            </span>
+                        }
+                    })
+                    .collect_view()
             }}
-            <button type="button" class="term-tab" aria-label="新建终端" title="新建终端" on:click=add>"＋"</button>
+            <button
+                type="button"
+                class="term-tab"
+                aria-label="新建终端"
+                title="新建终端"
+                on:click=add
+            >
+                "＋"
+            </button>
         </div>
     }
 }
@@ -123,5 +158,13 @@ pub fn TermPane(ws: String, terms: Terms, active: Signal<bool>) -> impl IntoView
         }
     });
     on_cleanup(move || live.set_value(None));
-    view! { <div class="term-host" data-ui-guard="" role="region" aria-label="终端" node_ref=host></div> }
+    view! {
+        <div
+            class="term-host"
+            data-ui-guard=""
+            role="region"
+            aria-label="终端"
+            node_ref=host
+        ></div>
+    }
 }

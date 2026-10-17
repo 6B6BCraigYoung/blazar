@@ -122,16 +122,20 @@ pub fn DialogHost() -> impl IntoView {
                     .map(|(i, c)| {
                         let cls = if c.danger { "btn danger" } else { "btn" };
                         let label = c.label.clone();
-                        view! { <button type="button" class=cls on:click=move |_| answer(d, Some(i))>{label}</button> }
+                        view! {
+                            <button type="button" class=cls on:click=move |_| answer(d, Some(i))>
+                                {label}
+                            </button>
+                        }
                     })
                     .collect_view();
                 let title = o.title.clone();
                 let body = o.body.clone();
                 view! {
                     <Modal label=title.clone() on_close=Callback::new(move |_| answer(d, None))>
-                            <h3>{title}</h3>
-                            <div class="dlg-body">{body}</div>
-                            <div class="dlg-foot">{buttons}</div>
+                        <h3>{title}</h3>
+                        <div class="dlg-body">{body}</div>
+                        <div class="dlg-foot">{buttons}</div>
                     </Modal>
                 }
             })
@@ -152,17 +156,37 @@ pub fn DialogHost() -> impl IntoView {
                 };
                 view! {
                     <Modal label=title.clone() on_close=Callback::new(move |_| finish(d, None))>
-                            <h3>{title}</h3>
-                            <label class="field">{label}
-                                <input data-modal-initial-focus="" maxlength="200" autocomplete="off" spellcheck="false"
-                                    prop:value=move || value.get()
-                                    on:input=move |e| value.set(event_target_value(&e))
-                                    on:keydown=move |e| if e.key() == "Enter" { e.prevent_default(); submit() }/>
-                            </label>
-                            <div class="dlg-foot">
-                                <button type="button" class="btn" on:click=move |_| finish(d, None)>"取消"</button>
-                                <button type="button" class="btn primary" disabled=empty on:click=move |_| submit()>{ok}</button>
-                            </div>
+                        <h3>{title}</h3>
+                        <label class="field">
+                            {label}
+                            <input
+                                data-modal-initial-focus=""
+                                maxlength="200"
+                                autocomplete="off"
+                                spellcheck="false"
+                                prop:value=move || value.get()
+                                on:input=move |e| value.set(event_target_value(&e))
+                                on:keydown=move |e| {
+                                    if e.key() == "Enter" {
+                                        e.prevent_default();
+                                        submit()
+                                    }
+                                }
+                            />
+                        </label>
+                        <div class="dlg-foot">
+                            <button type="button" class="btn" on:click=move |_| finish(d, None)>
+                                "取消"
+                            </button>
+                            <button
+                                type="button"
+                                class="btn primary"
+                                disabled=empty
+                                on:click=move |_| submit()
+                            >
+                                {ok}
+                            </button>
+                        </div>
                     </Modal>
                 }
             })

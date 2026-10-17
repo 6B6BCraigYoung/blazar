@@ -73,26 +73,64 @@ pub(super) fn GlobalSync(
     };
     view! {
         <details class="card pad global-sync runtime-details">
-            <summary>"终端与 Cursor"<span class=move || if on() { "state ok" } else { "state muted" }>{move || match state.get() { None => "加载中", Some(Err(_)) => "待重试", Some(Ok(_)) if on() => "已同步", Some(Ok(_)) => "未同步" }}</span></summary>
+            <summary>
+                "终端与 Cursor"
+                <span class=move || {
+                    if on() { "state ok" } else { "state muted" }
+                }>
+                    {move || match state.get() {
+                        None => "加载中",
+                        Some(Err(_)) => "待重试",
+                        Some(Ok(_)) if on() => "已同步",
+                        Some(Ok(_)) => "未同步",
+                    }}
+                </span>
+            </summary>
             <div class="card-title">
                 <h3>"同步账号选择"</h3>
                 <span class="grow"></span>
-                <button class="btn" disabled=move || busy.get() || !matches!(state.get(), Some(Ok(_))) on:click=toggle>
-                    {move || if busy.get() { "切换中…" } else if on() { "停止同步" } else { "开启同步" }}
+                <button
+                    class="btn"
+                    disabled=move || busy.get() || !matches!(state.get(), Some(Ok(_)))
+                    on:click=toggle
+                >
+                    {move || {
+                        if busy.get() {
+                            "切换中…"
+                        } else if on() {
+                            "停止同步"
+                        } else {
+                            "开启同步"
+                        }
+                    }}
                 </button>
             </div>
             {move || match state.get() {
-                None => view! { <LoadingState text="正在加载同步设置…"/> }.into_any(),
-                Some(Err(error)) => view! { <InlineError message=format!("无法加载同步设置：{error}") retry=Callback::new(move |_| state.refetch())/> }.into_any(),
+                None => view! { <LoadingState text="正在加载同步设置…" /> }.into_any(),
+                Some(Err(error)) => {
+                    view! {
+                        <InlineError
+                            message=format!("无法加载同步设置：{error}")
+                            retry=Callback::new(move |_| state.refetch())
+                        />
+                    }
+                        .into_any()
+                }
                 Some(Ok(_)) => ().into_any(),
             }}
             <div class="muted small">
-                {move || if on() {
-                    let v = state.get().and_then(Result::ok).unwrap_or(Value::Null);
-                    format!("终端里的 claude 和 Cursor 插件现在用「{}」，codex 用「{}」。在下面点「使用」会一起换。",
-                        label_of(v["current"]["claude"].as_str()), label_of(v["current"]["codex"].as_str()))
-                } else {
-                    "现在只换 Blazar 自己的对话。打开后，终端里的 claude / codex 和 Cursor 插件也跟着这里选的账号走。".to_owned()
+                {move || {
+                    if on() {
+                        let v = state.get().and_then(Result::ok).unwrap_or(Value::Null);
+                        format!(
+                            "终端里的 claude 和 Cursor 插件现在用「{}」，codex 用「{}」。在下面点「使用」会一起换。",
+                            label_of(v["current"]["claude"].as_str()),
+                            label_of(v["current"]["codex"].as_str()),
+                        )
+                    } else {
+                        "现在只换 Blazar 自己的对话。打开后，终端里的 claude / codex 和 Cursor 插件也跟着这里选的账号走。"
+                            .to_owned()
+                    }
                 }}
             </div>
         </details>

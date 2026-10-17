@@ -25,19 +25,19 @@ pub enum Kind {
 
 #[component]
 pub fn WorkspacesPage() -> impl IntoView {
-    view! { <List kind=Kind::All/> }
+    view! { <List kind=Kind::All /> }
 }
 #[component]
 pub fn RunningPage() -> impl IntoView {
-    view! { <List kind=Kind::Running/> }
+    view! { <List kind=Kind::Running /> }
 }
 #[component]
 pub fn WaitingPage() -> impl IntoView {
-    view! { <List kind=Kind::Waiting/> }
+    view! { <List kind=Kind::Waiting /> }
 }
 #[component]
 pub fn ProjectPage() -> impl IntoView {
-    view! { <List kind=Kind::Project/> }
+    view! { <List kind=Kind::Project /> }
 }
 
 #[component]
@@ -76,11 +76,15 @@ fn List(kind: Kind) -> impl IntoView {
             _ => "/",
         };
         view! {
-            <SectionTabs label="工作区" current tabs=vec![
-                Tab::counted("全部", "/", count(None)),
-                Tab::counted("运行中", "/running", count(Some("running"))),
-                Tab::counted("等我审批", "/waiting", count(Some("awaiting_approval"))),
-            ]/>
+            <SectionTabs
+                label="工作区"
+                current
+                tabs=vec![
+                    Tab::counted("全部", "/", count(None)),
+                    Tab::counted("运行中", "/running", count(Some("running"))),
+                    Tab::counted("等我审批", "/waiting", count(Some("awaiting_approval"))),
+                ]
+            />
         }
     };
     let list = move || {
@@ -123,20 +127,42 @@ fn List(kind: Kind) -> impl IntoView {
                     tabs().into_any()
                 }}
                 <span class="grow"></span>
-                <input class="page-filter" aria-label="筛选工作区" placeholder="搜索工作区…" prop:value=move || q.get() on:input=move |e| q.set(event_target_value(&e))/>
-                <button type="button" class=if matches!(kind, Kind::Running | Kind::Waiting) { "btn" } else { "btn primary" } on:click=move |_| app.new_ws.set(true)>"新建工作区"</button>
+                <input
+                    class="page-filter"
+                    aria-label="筛选工作区"
+                    placeholder="搜索工作区…"
+                    prop:value=move || q.get()
+                    on:input=move |e| q.set(event_target_value(&e))
+                />
+                <button
+                    type="button"
+                    class=if matches!(kind, Kind::Running | Kind::Waiting) {
+                        "btn"
+                    } else {
+                        "btn primary"
+                    }
+                    on:click=move |_| app.new_ws.set(true)
+                >
+                    "新建工作区"
+                </button>
             </div>
-            {move || app.state_error.get().map(|message| view! {
-                <InlineError message retry=Callback::new(move |_| app.load_state())/>
-            })}
-            {(kind == Kind::Waiting).then(|| view! { <PendingApprovals/> })}
+            {move || {
+                app.state_error
+                    .get()
+                    .map(|message| {
+                        view! {
+                            <InlineError message retry=Callback::new(move |_| app.load_state()) />
+                        }
+                    })
+            }}
+            {(kind == Kind::Waiting).then(|| view! { <PendingApprovals /> })}
             {move || {
                 let r = rows();
                 if app.state.with(Option::is_none) {
                     return if app.state_error.with(Option::is_some) {
                         ().into_any()
                     } else {
-                        view! { <LoadingState text="加载工作区…"/> }.into_any()
+                        view! { <LoadingState text="加载工作区…" /> }.into_any()
                     };
                 }
                 if r.is_empty() {
@@ -148,18 +174,27 @@ fn List(kind: Kind) -> impl IntoView {
                     } else if kind == Kind::All || kind == Kind::Project {
                         ("打开第一个工作区", "选择一个代码目录，开始工作。")
                     } else if kind == Kind::Running {
-                        ("暂无运行中的工作区", "开始一段对话后，可以在这里查看进展。")
+                        (
+                            "暂无运行中的工作区",
+                            "开始一段对话后，可以在这里查看进展。",
+                        )
                     } else {
                         ("还没有工作区", "点右上角新建工作区。")
                     };
-                    return view! { <EmptyState title detail/> }.into_any();
+                    return view! { <EmptyState title detail /> }.into_any();
                 }
                 view! {
-                    {(kind == Kind::Waiting).then(|| view! { <h2 class="workspaces-section-title">"相关工作区"</h2> })}
+                    {(kind == Kind::Waiting)
+                        .then(|| {
+                            view! { <h2 class="workspaces-section-title">"相关工作区"</h2> }
+                        })}
                     <div class="ws-list">{r.into_iter().map(|w| card(w, insp)).collect_view()}</div>
-                }.into_any()
+                }
+                    .into_any()
             }}
-            {move || insp.get().map(|id| view! { <Inspector id on_close=move || insp.set(None)/> })}
+            {move || {
+                insp.get().map(|id| view! { <Inspector id on_close=move || insp.set(None) /> })
+            }}
         </div>
     }
 }
@@ -168,7 +203,14 @@ pub fn diff_badge(w: &WorkspaceView) -> AnyView {
     match w.diff {
         None => view! { <span class="muted">"—"</span> }.into_any(),
         Some(d) if d.files == 0 => view! { <span class="muted">"无改动"</span> }.into_any(),
-        Some(d) => view! { <span class="diffst" title=format!("{} 个文件", d.files)><i class="ok">{format!("+{}", d.added)}</i>" "<i class="bad">{format!("−{}", d.removed)}</i></span> }.into_any(),
+        Some(d) => view! {
+            <span class="diffst" title=format!("{} 个文件", d.files)>
+                <i class="ok">{format!("+{}", d.added)}</i>
+                " "
+                <i class="bad">{format!("−{}", d.removed)}</i>
+            </span>
+        }
+        .into_any(),
     }
 }
 
@@ -185,19 +227,60 @@ fn card(w: WorkspaceView, insp: RwSignal<Option<String>>) -> impl IntoView {
             <a class="ws-card-main" href=href.clone() title=location>
                 <div class="top">
                     <b class:strong=unseen>{w.name.clone()}</b>
-                    <span class="state-pill" data-act=shown.clone()>{activity_label(&shown).to_owned()}</span>
+                    <span class="state-pill" data-act=shown.clone()>
+                        {activity_label(&shown).to_owned()}
+                    </span>
                 </div>
                 <div class="meta">
                     {w.project.clone().map(|p| view! { <span title="项目">{p}</span> })}
-                    {w.parent.as_ref().map(|p| { let parent_name = app.workspaces().into_iter().find(|x| &x.id == p).map(|x| x.name).unwrap_or_else(|| "父工作区".into()); view! { <span class="gchip" title="子工作区">{format!("↳ {parent_name}")}</span> } })}
-                    {{ let n = app.workspaces().iter().filter(|x| x.parent.as_deref() == Some(w.id.as_str())).count(); (n > 0).then(|| view! { <span class="gchip" title="子工作区">{format!("{n} 个子工作区")}</span> }) }}
-                    {diff_badge(&w)}
-                    <span class="muted">{w.last_active_at.as_deref().map(fmt::ago).unwrap_or_default()}</span>
+                    {w
+                        .parent
+                        .as_ref()
+                        .map(|p| {
+                            let parent_name = app
+                                .workspaces()
+                                .into_iter()
+                                .find(|x| &x.id == p)
+                                .map(|x| x.name)
+                                .unwrap_or_else(|| "父工作区".into());
+                            view! {
+                                <span class="gchip" title="子工作区">
+                                    {format!("↳ {parent_name}")}
+                                </span>
+                            }
+                        })}
+                    {{
+                        let n = app
+                            .workspaces()
+                            .iter()
+                            .filter(|x| x.parent.as_deref() == Some(w.id.as_str()))
+                            .count();
+                        (n > 0)
+                            .then(|| {
+                                view! {
+                                    <span class="gchip" title="子工作区">
+                                        {format!("{n} 个子工作区")}
+                                    </span>
+                                }
+                            })
+                    }} {diff_badge(&w)}
+                    <span class="muted">
+                        {w.last_active_at.as_deref().map(fmt::ago).unwrap_or_default()}
+                    </span>
                 </div>
             </a>
             <div class="act">
-                <button type="button" class="btn small ghost" aria-label=details_label on:click=move |_| insp.set(Some(id.clone()))>"详情"</button>
-                <a class="btn small" href=href>"打开"</a>
+                <button
+                    type="button"
+                    class="btn small ghost"
+                    aria-label=details_label
+                    on:click=move |_| insp.set(Some(id.clone()))
+                >
+                    "详情"
+                </button>
+                <a class="btn small" href=href>
+                    "打开"
+                </a>
             </div>
         </article>
     }
@@ -240,40 +323,104 @@ fn PendingApprovals() -> impl IntoView {
     view! {
         <section class="appr-all" aria-label="待处理的请求">
             {move || match list.get() {
-                None => view! { <LoadingState text="读取待处理请求…"/> }.into_any(),
-                Some(Err(e)) => view! { <InlineError message=e.to_string() retry=Callback::new(move |_| rev.update(|n| *n += 1))/> }.into_any(),
-                Some(Ok(l)) if l.is_empty() => view! { <EmptyState title="暂无待处理的请求" detail="需要审批或回答的问题会显示在这里。"/> }.into_any(),
-                Some(Ok(l)) => l.into_iter().map(|a| {
-                    let id = a["id"].as_str().unwrap_or("").to_owned();
-                    let wid = a["workspace_id"].as_str().unwrap_or("").to_owned();
-                    let w = app.workspaces().into_iter().find(|w| w.id == wid);
-                    let root = w.as_ref().map(|w| w.path.clone()).unwrap_or_default();
-                    let ask = chat_model::tool_name(a["request"]["tool_name"].as_str().unwrap_or("")) == "AskUserQuestion";
-                    let title = if ask { "需要你回答的问题".to_owned() } else { chat_model::approval_title(&a["request"], &root, None) };
-                    let what = if ask { String::new() } else { chat_model::approval_what(&a["request"], &root) };
-                    let (i1, i2, i3, i4) = (id.clone(), id.clone(), id.clone(), id.clone());
+                None => view! { <LoadingState text="读取待处理请求…" /> }.into_any(),
+                Some(Err(e)) => {
                     view! {
-                        <div class="cc-appr static" data-ui-guard="">
-                            <div class="muted small">
-                                <a href=format!("/w/{wid}") title=w.as_ref().map(|w| w.node.clone()).unwrap_or_default()>{w.as_ref().map_or("工作区".to_owned(), |w| w.name.clone())}</a>
-                                {format!(" · {}", fmt::ago(a["created_at"].as_str().unwrap_or("")))}
-                            </div>
-                            <div class="ahd"><span class="ah">{title}</span></div>
-                            {(!what.is_empty()).then(|| view! { <pre class="acmd">{what}</pre> })}
-                            <div class="row-actions">
-                                {if ask {
-                                    view! { <a class="btn small primary" href=format!("/w/{wid}")>"去回答"</a> }.into_any()
-                                } else {
-                                    view! {
-                                        <button class="btn small primary" disabled=move || gate.with(|g| g.busy(&i3)) on:click=move |_| decide(i1.clone(), true)>"允许"</button>
-                                        <button class="btn small" disabled=move || gate.with(|g| g.busy(&i4)) on:click=move |_| decide(i2.clone(), false)>"拒绝"</button>
-                                        <a class="linkbtn" href=format!("/w/{wid}")>"打开工作区"</a>
-                                    }.into_any()
-                                }}
-                            </div>
-                        </div>
+                        <InlineError
+                            message=e.to_string()
+                            retry=Callback::new(move |_| rev.update(|n| *n += 1))
+                        />
                     }
-                }).collect_view().into_any(),
+                        .into_any()
+                }
+                Some(Ok(l)) if l.is_empty() => {
+                    view! {
+                        <EmptyState
+                            title="暂无待处理的请求"
+                            detail="需要审批或回答的问题会显示在这里。"
+                        />
+                    }
+                        .into_any()
+                }
+                Some(Ok(l)) => {
+                    l.into_iter()
+                        .map(|a| {
+                            let id = a["id"].as_str().unwrap_or("").to_owned();
+                            let wid = a["workspace_id"].as_str().unwrap_or("").to_owned();
+                            let w = app.workspaces().into_iter().find(|w| w.id == wid);
+                            let root = w.as_ref().map(|w| w.path.clone()).unwrap_or_default();
+                            let ask = chat_model::tool_name(
+                                a["request"]["tool_name"].as_str().unwrap_or(""),
+                            ) == "AskUserQuestion";
+                            let title = if ask {
+                                "需要你回答的问题".to_owned()
+                            } else {
+                                chat_model::approval_title(&a["request"], &root, None)
+                            };
+                            let what = if ask {
+                                String::new()
+                            } else {
+                                chat_model::approval_what(&a["request"], &root)
+                            };
+                            let (i1, i2, i3, i4) = (id.clone(), id.clone(), id.clone(), id.clone());
+                            view! {
+                                <div class="cc-appr static" data-ui-guard="">
+                                    <div class="muted small">
+                                        <a
+                                            href=format!("/w/{wid}")
+                                            title=w.as_ref().map(|w| w.node.clone()).unwrap_or_default()
+                                        >
+                                            {w
+                                                .as_ref()
+                                                .map_or("工作区".to_owned(), |w| w.name.clone())}
+                                        </a>
+                                        {format!(
+                                            " · {}",
+                                            fmt::ago(a["created_at"].as_str().unwrap_or("")),
+                                        )}
+                                    </div>
+                                    <div class="ahd">
+                                        <span class="ah">{title}</span>
+                                    </div>
+                                    {(!what.is_empty())
+                                        .then(|| view! { <pre class="acmd">{what}</pre> })}
+                                    <div class="row-actions">
+                                        {if ask {
+                                            view! {
+                                                <a class="btn small primary" href=format!("/w/{wid}")>
+                                                    "去回答"
+                                                </a>
+                                            }
+                                                .into_any()
+                                        } else {
+                                            view! {
+                                                <button
+                                                    class="btn small primary"
+                                                    disabled=move || gate.with(|g| g.busy(&i3))
+                                                    on:click=move |_| decide(i1.clone(), true)
+                                                >
+                                                    "允许"
+                                                </button>
+                                                <button
+                                                    class="btn small"
+                                                    disabled=move || gate.with(|g| g.busy(&i4))
+                                                    on:click=move |_| decide(i2.clone(), false)
+                                                >
+                                                    "拒绝"
+                                                </button>
+                                                <a class="linkbtn" href=format!("/w/{wid}")>
+                                                    "打开工作区"
+                                                </a>
+                                            }
+                                                .into_any()
+                                        }}
+                                    </div>
+                                </div>
+                            }
+                        })
+                        .collect_view()
+                        .into_any()
+                }
             }}
         </section>
     }
@@ -432,67 +579,210 @@ pub fn Inspector(id: String, on_close: impl Fn() + Copy + Send + Sync + 'static)
     let act = move |d: Value, a: &'static str| act.with_value(|f| f(d, a));
     view! {
         <Modal label="工作区详情" class="dlg wide" on_close=Callback::new(move |_| close())>
-                {move || match detail.get() {
-                    None => view! { <LoadingState text="读取详情…"/> }.into_any(),
-                    Some(Err(e)) => view! { <InlineError message=e.to_string() retry=Callback::new(move |_| rev.update(|n| *n += 1))/>
-                        <div class="dlg-foot"><button type="button" class="btn" on:click=move |_| close()>"关闭"</button></div>
-                    }.into_any(),
-                    Some(Ok(d)) => {
-                        let s = |k: &str| d[k].as_str().unwrap_or("").to_owned();
-                        let isolated = d["isolated"].as_bool().unwrap_or(false);
-                        let paused = s("status") == "paused";
-                        let kv = |k: &'static str, v: String, mono: bool| view! { <div class="kv"><span class="k">{k}</span><span class="v" class:mono=mono>{v}</span></div> };
-                        let sessions: Vec<Value> = d["sessions"].as_array().cloned().unwrap_or_default();
-                        let (d1, d2, d3, d4, d5) = (d.clone(), d.clone(), d.clone(), d.clone(), d.clone());
-                        view! {
-                            <h3>{s("name")}</h3>
-                            <div class="insp">
-                                <h4>"工作区信息"</h4>
-                                {kv("机器", s("node"), false)}
-                                {kv("路径", s("path"), true)}
-                                {kv("项目", d["project"].as_str().unwrap_or("—").to_owned(), false)}
-                                {isolated.then(|| kv("分支", s("branch"), true))}
-                                {isolated.then(|| kv("基线", s("base_commit").chars().take(10).collect(), true))}
-                                {kv("来源", if s("origin") == "task" { "批量派发".into() } else { "手动创建".into() }, false)}
-                                {kv("状态", if paused { "已冻结".into() } else { "活跃".into() }, false)}
-                                {kv("创建", fmt::ago(&s("created_at")), false)}
-                            </div>
-                            <div class="insp">
-                                <h4>"操作"</h4>
-                                <div class="row-actions">
-                                    {isolated.then(|| if paused {
-                                        view! { <button class="btn small" disabled=move || busy.get().is_some() on:click=move |_| act(d1.clone(), "resume")>"解冻"</button> }.into_any()
-                                    } else {
-                                        view! { <button class="btn small" title="提交→删 worktree→保留分支" disabled=move || busy.get().is_some() on:click=move |_| act(d1.clone(), "pause")>"冻结"</button> }.into_any()
-                                    })}
-                                    {isolated.then(|| view! { <button class="btn small" disabled=move || busy.get().is_some() on:click=move |_| act(d2.clone(), "commit")>"提交"</button> })}
-                                    {(isolated && !paused).then(|| view! {
-                                        <button class="btn small primary" title="先提交没提交的改动，再推到 origin" disabled=move || busy.get().is_some() on:click=move |_| act(d3.clone(), "push")>
-                                            {move || if busy.get() == Some("push") { "推送中…" } else { "推送分支" }}
-                                        </button>
-                                    })}
-                                    <button class="btn small danger" disabled=move || busy.get().is_some() on:click=move |_| act(d4.clone(), "destroy")>{if isolated { "销毁" } else { "移除" }}</button>
-                                </div>
-                                {(!isolated).then(|| view! { <div class="muted small">"非隔离工作区：移除只删记录，不动你的目录"</div> })}
-                            </div>
-                            <div class="insp">
-                                <h4>{format!("会话 {}", if sessions.is_empty() { String::new() } else { sessions.len().to_string() })}</h4>
-                                {if sessions.is_empty() {
-                                    view! { <div class="muted small">"还没有会话"</div> }.into_any()
-                                } else {
-                                    sessions.into_iter().take(8).map(|x| view! {
-                                        <div class="kv"><span class="k">{x["runtime"].as_str().unwrap_or("").to_owned()}</span>
-                                            <span class="v muted small">{format!("{} · {} 条事件 · {}", x["status"].as_str().unwrap_or(""), x["events"].as_i64().unwrap_or(0), fmt::ago(x["created_at"].as_str().unwrap_or("")))}</span></div>
-                                    }).collect_view().into_any()
-                                }}
-                            </div>
-                            <div class="dlg-foot">
-                                <a class="btn" href=format!("/w/{}", d5["id"].as_str().unwrap_or(""))>"打开"</a>
-                                <button class="btn" disabled=move || busy.get().is_some() on:click=move |_| close()>"关闭"</button>
-                            </div>
-                        }.into_any()
+            {move || match detail.get() {
+                None => view! { <LoadingState text="读取详情…" /> }.into_any(),
+                Some(Err(e)) => {
+                    view! {
+                        <InlineError
+                            message=e.to_string()
+                            retry=Callback::new(move |_| rev.update(|n| *n += 1))
+                        />
+                        <div class="dlg-foot">
+                            <button type="button" class="btn" on:click=move |_| close()>
+                                "关闭"
+                            </button>
+                        </div>
                     }
-                }}
+                        .into_any()
+                }
+                Some(Ok(d)) => {
+                    let s = |k: &str| d[k].as_str().unwrap_or("").to_owned();
+                    let isolated = d["isolated"].as_bool().unwrap_or(false);
+                    let paused = s("status") == "paused";
+                    let kv = |k: &'static str, v: String, mono: bool| {
+                        view! {
+                            <div class="kv">
+                                <span class="k">{k}</span>
+                                <span class="v" class:mono=mono>
+                                    {v}
+                                </span>
+                            </div>
+                        }
+                    };
+                    let sessions: Vec<Value> = d["sessions"]
+                        .as_array()
+                        .cloned()
+                        .unwrap_or_default();
+                    let (d1, d2, d3, d4, d5) = (
+                        d.clone(),
+                        d.clone(),
+                        d.clone(),
+                        d.clone(),
+                        d.clone(),
+                    );
+                    view! {
+                        <h3>{s("name")}</h3>
+                        <div class="insp">
+                            <h4>"工作区信息"</h4>
+                            {kv("机器", s("node"), false)}
+                            {kv("路径", s("path"), true)}
+                            {kv("项目", d["project"].as_str().unwrap_or("—").to_owned(), false)}
+                            {isolated.then(|| kv("分支", s("branch"), true))}
+                            {isolated
+                                .then(|| kv(
+                                    "基线",
+                                    s("base_commit").chars().take(10).collect(),
+                                    true,
+                                ))}
+                            {kv(
+                                "来源",
+                                if s("origin") == "task" {
+                                    "批量派发".into()
+                                } else {
+                                    "手动创建".into()
+                                },
+                                false,
+                            )}
+                            {kv(
+                                "状态",
+                                if paused { "已冻结".into() } else { "活跃".into() },
+                                false,
+                            )}
+                            {kv("创建", fmt::ago(&s("created_at")), false)}
+                        </div>
+                        <div class="insp">
+                            <h4>"操作"</h4>
+                            <div class="row-actions">
+                                {isolated
+                                    .then(|| {
+                                        if paused {
+                                            view! {
+                                                <button
+                                                    class="btn small"
+                                                    disabled=move || busy.get().is_some()
+                                                    on:click=move |_| act(d1.clone(), "resume")
+                                                >
+                                                    "解冻"
+                                                </button>
+                                            }
+                                                .into_any()
+                                        } else {
+                                            view! {
+                                                <button
+                                                    class="btn small"
+                                                    title="提交→删 worktree→保留分支"
+                                                    disabled=move || busy.get().is_some()
+                                                    on:click=move |_| act(d1.clone(), "pause")
+                                                >
+                                                    "冻结"
+                                                </button>
+                                            }
+                                                .into_any()
+                                        }
+                                    })}
+                                {isolated
+                                    .then(|| {
+                                        view! {
+                                            <button
+                                                class="btn small"
+                                                disabled=move || busy.get().is_some()
+                                                on:click=move |_| act(d2.clone(), "commit")
+                                            >
+                                                "提交"
+                                            </button>
+                                        }
+                                    })}
+                                {(isolated && !paused)
+                                    .then(|| {
+                                        view! {
+                                            <button
+                                                class="btn small primary"
+                                                title="先提交没提交的改动，再推到 origin"
+                                                disabled=move || busy.get().is_some()
+                                                on:click=move |_| act(d3.clone(), "push")
+                                            >
+                                                {move || {
+                                                    if busy.get() == Some("push") {
+                                                        "推送中…"
+                                                    } else {
+                                                        "推送分支"
+                                                    }
+                                                }}
+                                            </button>
+                                        }
+                                    })}
+                                <button
+                                    class="btn small danger"
+                                    disabled=move || busy.get().is_some()
+                                    on:click=move |_| act(d4.clone(), "destroy")
+                                >
+                                    {if isolated { "销毁" } else { "移除" }}
+                                </button>
+                            </div>
+                            {(!isolated)
+                                .then(|| {
+                                    view! {
+                                        <div class="muted small">
+                                            "非隔离工作区：移除只删记录，不动你的目录"
+                                        </div>
+                                    }
+                                })}
+                        </div>
+                        <div class="insp">
+                            <h4>
+                                {format!(
+                                    "会话 {}",
+                                    if sessions.is_empty() {
+                                        String::new()
+                                    } else {
+                                        sessions.len().to_string()
+                                    },
+                                )}
+                            </h4>
+                            {if sessions.is_empty() {
+                                view! { <div class="muted small">"还没有会话"</div> }
+                                    .into_any()
+                            } else {
+                                sessions
+                                    .into_iter()
+                                    .take(8)
+                                    .map(|x| {
+                                        view! {
+                                            <div class="kv">
+                                                <span class="k">
+                                                    {x["runtime"].as_str().unwrap_or("").to_owned()}
+                                                </span>
+                                                <span class="v muted small">
+                                                    {format!(
+                                                        "{} · {} 条事件 · {}",
+                                                        x["status"].as_str().unwrap_or(""),
+                                                        x["events"].as_i64().unwrap_or(0),
+                                                        fmt::ago(x["created_at"].as_str().unwrap_or("")),
+                                                    )}
+                                                </span>
+                                            </div>
+                                        }
+                                    })
+                                    .collect_view()
+                                    .into_any()
+                            }}
+                        </div>
+                        <div class="dlg-foot">
+                            <a class="btn" href=format!("/w/{}", d5["id"].as_str().unwrap_or(""))>
+                                "打开"
+                            </a>
+                            <button
+                                class="btn"
+                                disabled=move || busy.get().is_some()
+                                on:click=move |_| close()
+                            >
+                                "关闭"
+                            </button>
+                        </div>
+                    }
+                        .into_any()
+                }
+            }}
         </Modal>
     }
 }

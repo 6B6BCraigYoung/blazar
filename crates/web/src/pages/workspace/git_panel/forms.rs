@@ -17,7 +17,7 @@ pub(super) fn GitForm(f: Form, git: Git, form: RwSignal<Option<Form>>) -> impl I
                 .status
                 .with_untracked(|s| s.as_ref().is_some_and(|s| s.gh)))
     {
-        return view! { <GitFormReady f git form prefs=GitPreferences::from_values(None, None)/> }
+        return view! { <GitFormReady f git form prefs=GitPreferences::from_values(None, None) /> }
             .into_any();
     }
     let revision = RwSignal::new(0u32);
@@ -31,21 +31,42 @@ pub(super) fn GitForm(f: Form, git: Git, form: RwSignal<Option<Form>>) -> impl I
                 value["git"]["pr_draft"].as_bool(),
                 value["git"]["ai_draft"].as_bool(),
             );
-            view! { <GitFormReady f=f.clone() git form prefs/> }.into_any()
+            view! { <GitFormReady f=f.clone() git form prefs /> }.into_any()
         }
         state => view! {
-            <Modal label="读取 Git 设置" class="dlg wide" on_close=Callback::new(move |_| form.set(None))>
-                    <h3>"读取 Git 设置"</h3>
-                    {match state {
-                        Some(Err(error)) => view! {
-                            <InlineError message=error.to_string() retry=Callback::new(move |_| revision.update(|n| *n = n.wrapping_add(1)))/>
-                        }.into_any(),
-                        _ => view! { <LoadingState text="读取 Git 设置…" class="muted"/> }.into_any(),
-                    }}
-                    <div class="dlg-foot"><button class="btn" on:click=move |_| form.set(None)>"取消"</button></div>
+            <Modal
+                label="读取 Git 设置"
+                class="dlg wide"
+                on_close=Callback::new(move |_| form.set(None))
+            >
+                <h3>"读取 Git 设置"</h3>
+                {match state {
+                    Some(Err(error)) => {
+                        view! {
+                            <InlineError
+                                message=error.to_string()
+                                retry=Callback::new(move |_| {
+                                    revision.update(|n| *n = n.wrapping_add(1))
+                                })
+                            />
+                        }
+                            .into_any()
+                    }
+                    _ => {
+                        view! { <LoadingState text="读取 Git 设置…" class="muted" /> }
+                            .into_any()
+                    }
+                }}
+                <div class="dlg-foot">
+                    <button class="btn" on:click=move |_| form.set(None)>
+                        "取消"
+                    </button>
+                </div>
             </Modal>
-        }.into_any(),
-    }).into_any()
+        }
+        .into_any(),
+    })
+    .into_any()
 }
 
 #[component]
@@ -225,27 +246,91 @@ fn GitFormReady(
     };
     let fields = match f {
         Form::Commit => view! {
-            <div class="dlg-body small">{format!("{} 个文件的改动会全部提交到 {}（含未跟踪的新文件）", g.uncommitted, if g.branch.is_empty() { &g.head } else { &g.branch })}</div>
-            <label class="field">"提交信息"
-                <textarea disabled=move || gate.with(|g| g.busy("form")) rows="5" placeholder="改了什么、为什么" prop:value=move || body.get() on:input=move |e| body.set(event_target_value(&e))
-                    on:keydown=move |e| if e.key() == "Enter" && (e.meta_key() || e.ctrl_key()) { e.prevent_default(); submit2(); }></textarea>
+            <div class="dlg-body small">
+                {format!(
+                    "{} 个文件的改动会全部提交到 {}（含未跟踪的新文件）",
+                    g.uncommitted,
+                    if g.branch.is_empty() { &g.head } else { &g.branch },
+                )}
+            </div>
+            <label class="field">
+                "提交信息"
+                <textarea
+                    disabled=move || gate.with(|g| g.busy("form"))
+                    rows="5"
+                    placeholder="改了什么、为什么"
+                    prop:value=move || body.get()
+                    on:input=move |e| body.set(event_target_value(&e))
+                    on:keydown=move |e| {
+                        if e.key() == "Enter" && (e.meta_key() || e.ctrl_key()) {
+                            e.prevent_default();
+                            submit2();
+                        }
+                    }
+                ></textarea>
             </label>
         }.into_any(),
         Form::Pr if !g.gh => view! {
-            <div class="dlg-body">"工作区所在的机器上没有装 GitHub CLI（gh），没法直接创建 PR。可以先把分支推上去，再到网页上开。"</div>
+            <div class="dlg-body">
+                "工作区所在的机器上没有装 GitHub CLI（gh），没法直接创建 PR。可以先把分支推上去，再到网页上开。"
+            </div>
         }.into_any(),
         Form::Pr => view! {
             <div class="dlg-body small">
                 {format!("{} → {} · {} 个提交", g.branch, base, g.ahead)}
-                {(g.uncommitted > 0).then(|| view! { <span class="warn-tx">{format!(" · 还有 {} 个没提交的改动不会进 PR", g.uncommitted)}</span> })}
+                {(g.uncommitted > 0)
+                    .then(|| {
+                        view! {
+                            <span class="warn-tx">
+                                {format!(
+                                    " · 还有 {} 个没提交的改动不会进 PR",
+                                    g.uncommitted,
+                                )}
+                            </span>
+                        }
+                    })}
             </div>
-            <label class="field">"标题"<input disabled=move || gate.with(|g| g.busy("form")) prop:value=move || title.get() on:input=move |e| title.set(event_target_value(&e)) placeholder="这个 PR 做了什么"/></label>
-            <label class="field">"描述（Markdown）"<textarea disabled=move || gate.with(|g| g.busy("form")) rows="9" prop:value=move || body.get() on:input=move |e| body.set(event_target_value(&e)) placeholder="改了什么、为什么、怎么验证"></textarea></label>
-            <label class="chk"><input disabled=move || gate.with(|g| g.busy("form")) type="checkbox" prop:checked=move || draft.get() on:change=move |_| draft.update(|d| *d = !*d)/>"作为草稿创建"</label>
-            <div class="muted small">"会先把分支推到 origin，再用那台机器上 gh 的登录态创建 PR。"</div>
+            <label class="field">
+                "标题"
+                <input
+                    disabled=move || gate.with(|g| g.busy("form"))
+                    prop:value=move || title.get()
+                    on:input=move |e| title.set(event_target_value(&e))
+                    placeholder="这个 PR 做了什么"
+                />
+            </label>
+            <label class="field">
+                "描述（Markdown）"
+                <textarea
+                    disabled=move || gate.with(|g| g.busy("form"))
+                    rows="9"
+                    prop:value=move || body.get()
+                    on:input=move |e| body.set(event_target_value(&e))
+                    placeholder="改了什么、为什么、怎么验证"
+                ></textarea>
+            </label>
+            <label class="chk">
+                <input
+                    disabled=move || gate.with(|g| g.busy("form"))
+                    type="checkbox"
+                    prop:checked=move || draft.get()
+                    on:change=move |_| draft.update(|d| *d = !*d)
+                />
+                "作为草稿创建"
+            </label>
+            <div class="muted small">
+                "会先把分支推到 origin，再用那台机器上 gh 的登录态创建 PR。"
+            </div>
         }.into_any(),
         Form::Rename => view! {
-            <label class="field">"分支名称"<input disabled=move || gate.with(|g| g.busy("form")) prop:value=move || title.get() on:input=move |e| title.set(event_target_value(&e))/></label>
+            <label class="field">
+                "分支名称"
+                <input
+                    disabled=move || gate.with(|g| g.busy("form"))
+                    prop:value=move || title.get()
+                    on:input=move |e| title.set(event_target_value(&e))
+                />
+            </label>
         }.into_any(),
     };
     let show_ai = prefs.show_ai
@@ -256,18 +341,37 @@ fn GitFormReady(
         };
     view! {
         <Modal label=head_title class="dlg wide" on_close=Callback::new(move |_| close())>
-                <h3>{head_title}</h3>
-                {fields}
-                <div class="dlg-foot">
-                    {show_ai.then(|| view! {
-                        <button class="btn" disabled=move || drafting.get() || gate.with(|g| g.busy("form")) title="让本机的 Claude（Haiku）看一眼改动，替你起草" on:click=ai.clone()>
-                            {move || if drafting.get() { "起草中…" } else { "AI 起草" }}
-                        </button>
-                    })}
-                    <span class="grow"></span>
-                    <button class="btn" disabled=move || gate.with(|g| g.busy("form")) on:click=move |_| close()>"取消"</button>
-                    <button class="btn primary" disabled=move || gate.with(|g| g.busy("form")) on:click=move |_| submit()>{move || if gate.with(|g| g.busy("form")) { "处理中…" } else { ok_label }}</button>
-                </div>
+            <h3>{head_title}</h3>
+            {fields}
+            <div class="dlg-foot">
+                {show_ai
+                    .then(|| {
+                        view! {
+                            <button
+                                class="btn"
+                                disabled=move || drafting.get() || gate.with(|g| g.busy("form"))
+                                title="让本机的 Claude（Haiku）看一眼改动，替你起草"
+                                on:click=ai.clone()
+                            >
+                                {move || if drafting.get() { "起草中…" } else { "AI 起草" }}
+                            </button>
+                        }
+                    })} <span class="grow"></span>
+                <button
+                    class="btn"
+                    disabled=move || gate.with(|g| g.busy("form"))
+                    on:click=move |_| close()
+                >
+                    "取消"
+                </button>
+                <button
+                    class="btn primary"
+                    disabled=move || gate.with(|g| g.busy("form"))
+                    on:click=move |_| submit()
+                >
+                    {move || if gate.with(|g| g.busy("form")) { "处理中…" } else { ok_label }}
+                </button>
+            </div>
         </Modal>
     }
 }

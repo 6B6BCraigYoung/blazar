@@ -172,64 +172,200 @@ pub fn PreviewBar(
 
     view! {
         <div class="diffbar pvbar">
-            <button class="btn small" class:primary=move || !running() disabled=move || busy.get().is_some()
-                on:click=move |_| start_stop(if running() { "stop" } else { "start" })>
-                {move || match busy.get() { Some("start") => "启动中…", Some("stop") => "停止中…", _ if running() => "停止", _ => "启动预览" }}
+            <button
+                class="btn small"
+                class:primary=move || !running()
+                disabled=move || busy.get().is_some()
+                on:click=move |_| start_stop(if running() { "stop" } else { "start" })
+            >
+                {move || match busy.get() {
+                    Some("start") => "启动中…",
+                    Some("stop") => "停止中…",
+                    _ if running() => "停止",
+                    _ => "启动预览",
+                }}
             </button>
-            <input class="pv-url" aria-label="预览地址" title="输入地址后按 Enter 打开" spellcheck="false" prop:value=url
-                placeholder=move || if running() { "输入预览地址…" } else { "启动后自动填入地址" }
-                on:keydown=move |e| if e.key() == "Enter" && !e.is_composing() { url_override.set(event_target_value(&e).trim().to_owned()); reload.update(|n| *n += 1); }/>
-            <button class="laybtn" aria-label="刷新预览" title="刷新页面" inner_html=super::ICON_REFRESH on:click=move |_| { reload.update(|n| *n += 1); load(); }></button>
+            <input
+                class="pv-url"
+                aria-label="预览地址"
+                title="输入地址后按 Enter 打开"
+                spellcheck="false"
+                prop:value=url
+                placeholder=move || {
+                    if running() { "输入预览地址…" } else { "启动后自动填入地址" }
+                }
+                on:keydown=move |e| {
+                    if e.key() == "Enter" && !e.is_composing() {
+                        url_override.set(event_target_value(&e).trim().to_owned());
+                        reload.update(|n| *n += 1);
+                    }
+                }
+            />
+            <button
+                class="laybtn"
+                aria-label="刷新预览"
+                title="刷新页面"
+                inner_html=super::ICON_REFRESH
+                on:click=move |_| {
+                    reload.update(|n| *n += 1);
+                    load();
+                }
+            ></button>
             <span class="seg">
-                {DEVICES.iter().map(|&(k, label, _, _)| view! {
-                    <button aria-pressed=move || (prefs.get().device == k).to_string() data-on=move || (prefs.get().device == k).to_string() on:click=move |_| set_prefs(&|p| p.device = k.into())>{label}</button>
-                }).collect_view()}
+                {DEVICES
+                    .iter()
+                    .map(|&(k, label, _, _)| {
+                        view! {
+                            <button
+                                aria-pressed=move || (prefs.get().device == k).to_string()
+                                data-on=move || (prefs.get().device == k).to_string()
+                                on:click=move |_| set_prefs(&|p| p.device = k.into())
+                            >
+                                {label}
+                            </button>
+                        }
+                    })
+                    .collect_view()}
             </span>
             <span class="grow"></span>
-            {move || dev.get().and_then(|d| d.tunnel.clone().map(|t| view! {
-                <span class="gchip info" title=format!("远端工作区：hub 起了一条 ssh 隧道，把 {} 的 {} 端口接到本机 {t}", d.node, d.port.unwrap_or(0))>"远端已连接"</span>
-            }))}
-            {move || dev.get().and_then(|d| d.tunnel_error.map(|e| view! { <span class="gchip bad" title=e>"连接失败"</span> }))}
-            <button class="btn small" aria-pressed=move || prefs.get().log.to_string() on:click=move |_| { set_prefs(&|p| p.log = !p.log); load(); }>"日志"</button>
-            <button class="btn small" disabled=move || url().is_empty() on:click=move |_| { let _ = window().open_with_url_and_target(&url(), "_blank"); }>"在浏览器打开"</button>
-            <button class="btn small" aria-haspopup="dialog" on:click=move |_| scripts_open.set(true)>"脚本设置"</button>
-            <button class="laybtn" title=move || if panel_max.get() { "还原面板" } else { "最大化面板" } aria-pressed=move || panel_max.get().to_string()
-                on:click=move |_| panel_max.update(|m| *m = !*m)>"⤢"</button>
+            {move || {
+                dev.get()
+                    .and_then(|d| {
+                        d.tunnel
+                            .clone()
+                            .map(|t| {
+                                view! {
+                                    <span
+                                        class="gchip info"
+                                        title=format!(
+                                            "远端工作区：hub 起了一条 ssh 隧道，把 {} 的 {} 端口接到本机 {t}",
+                                            d.node,
+                                            d.port.unwrap_or(0),
+                                        )
+                                    >
+                                        "远端已连接"
+                                    </span>
+                                }
+                            })
+                    })
+            }}
+            {move || {
+                dev.get()
+                    .and_then(|d| {
+                        d.tunnel_error
+                            .map(|e| {
+                                view! {
+                                    <span class="gchip bad" title=e>
+                                        "连接失败"
+                                    </span>
+                                }
+                            })
+                    })
+            }}
+            <button
+                class="btn small"
+                aria-pressed=move || prefs.get().log.to_string()
+                on:click=move |_| {
+                    set_prefs(&|p| p.log = !p.log);
+                    load();
+                }
+            >
+                "日志"
+            </button>
+            <button
+                class="btn small"
+                disabled=move || url().is_empty()
+                on:click=move |_| {
+                    let _ = window().open_with_url_and_target(&url(), "_blank");
+                }
+            >
+                "在浏览器打开"
+            </button>
+            <button
+                class="btn small"
+                aria-haspopup="dialog"
+                on:click=move |_| scripts_open.set(true)
+            >
+                "脚本设置"
+            </button>
+            <button
+                class="laybtn"
+                title=move || if panel_max.get() { "还原面板" } else { "最大化面板" }
+                aria-pressed=move || panel_max.get().to_string()
+                on:click=move |_| panel_max.update(|m| *m = !*m)
+            >
+                "⤢"
+            </button>
         </div>
         <div class="pvbody">
             {move || {
                 let u = url();
                 let p = prefs.get();
-                if dev.get().is_none() && u.is_empty() { return view! { <LoadingState text="读取预览状态…"/> }.into_any(); }
+                if dev.get().is_none() && u.is_empty() {
+                    return view! { <LoadingState text="读取预览状态…" /> }.into_any();
+                }
                 let d = dev.get().unwrap_or_default();
-                let log = (p.log && !d.log.is_empty()).then(|| {
-                    let tail: String = d.log.chars().rev().take(6000).collect::<Vec<_>>().into_iter().rev().collect();
-                    view! { <pre class="pv-log">{tail}</pre> }
-                });
+                let log = (p.log && !d.log.is_empty())
+                    .then(|| {
+                        let tail: String = d
+                            .log
+                            .chars()
+                            .rev()
+                            .take(6000)
+                            .collect::<Vec<_>>()
+                            .into_iter()
+                            .rev()
+                            .collect();
+                        view! { <pre class="pv-log">{tail}</pre> }
+                    });
                 if u.is_empty() {
-                    if let Some(error) = load_error.get() { return view! { <InlineError message=error class="empty" retry=Callback::new(move |_| load())/>{log} }.into_any(); }
+                    if let Some(error) = load_error.get() {
+                        return view! {
+                            <InlineError
+                                message=error
+                                class="empty"
+                                retry=Callback::new(move |_| load())
+                            />
+                            {log}
+                        }
+                            .into_any();
+                    }
                     let msg = if d.running {
                         "预览已启动。查看日志，或在上方输入地址。".to_owned()
                     } else if !d.reason.is_empty() {
                         d.reason.clone()
                     } else {
-                        "在「脚本设置」中填写启动命令，然后启动预览。".to_owned()
+                        "在「脚本设置」中填写启动命令，然后启动预览。"
+                            .to_owned()
                     };
-                    return view! { <EmptyState title=msg/>{log} }.into_any();
+                    return view! {
+                        <EmptyState title=msg />
+                        {log}
+                    }
+                        .into_any();
                 }
-                let (_, _, w, h) = DEVICES.iter().find(|x| x.0 == p.device).copied().unwrap_or(DEVICES[0]);
+                let (_, _, w, h) = DEVICES
+                    .iter()
+                    .find(|x| x.0 == p.device)
+                    .copied()
+                    .unwrap_or(DEVICES[0]);
                 reload.track();
                 view! {
                     <div class="pv-stage" data-device=p.device.clone()>
-                        <iframe src=u title="预览" style=format!("width:{w};height:{h}")
-                            sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads"></iframe>
+                        <iframe
+                            src=u
+                            title="预览"
+                            style=format!("width:{w};height:{h}")
+                            sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads"
+                        ></iframe>
                     </div>
                     {log}
-                }.into_any()
+                }
+                    .into_any()
             }}
         </div>
         <Show when=move || scripts_open.get()>
-            <ScriptsDialog ws=ws.get_value() isolated on_close=move || scripts_open.set(false)/>
+            <ScriptsDialog ws=ws.get_value() isolated on_close=move || scripts_open.set(false) />
         </Show>
     }
 }
@@ -284,8 +420,19 @@ fn ScriptsDialog(
                       get: fn(&Scripts) -> String,
                       set: fn(&mut Scripts, String)| {
         view! {
-            <label class="field" title=hint>{label}
-                <textarea class="mono" rows=rows placeholder=ph disabled=blocked prop:value=move || cfg.with(|draft| draft.value().map(get).unwrap_or_default()) on:input=move |e| { let v = event_target_value(&e); cfg.update(|draft| draft.edit(|c| set(c, v))); }></textarea>
+            <label class="field" title=hint>
+                {label}
+                <textarea
+                    class="mono"
+                    rows=rows
+                    placeholder=ph
+                    disabled=blocked
+                    prop:value=move || cfg.with(|draft| draft.value().map(get).unwrap_or_default())
+                    on:input=move |e| {
+                        let v = event_target_value(&e);
+                        cfg.update(|draft| draft.edit(|c| set(c, v)));
+                    }
+                ></textarea>
             </label>
         }
     };
@@ -325,66 +472,178 @@ fn ScriptsDialog(
     };
     view! {
         <Modal label="脚本设置" class="dlg wide" on_close=Callback::new(move |_| on_close())>
-                <h3>"脚本设置"</h3>
-                <div class="dlg-body small">"脚本在工作区所在机器执行。同一仓库的独立工作区共用配置。"</div>
-                {move || cfg.with(|draft| {
+            <h3>"脚本设置"</h3>
+            <div class="dlg-body small">
+                "脚本在工作区所在机器执行。同一仓库的独立工作区共用配置。"
+            </div>
+            {move || {
+                cfg.with(|draft| {
                     if let Some(error) = &draft.error {
                         view! {
-                            <InlineError message=format!("读取脚本设置失败：{error}")/>
-                            <button class="btn" disabled=move || busy.get() on:click=move |_| load_config()>"重试"</button>
-                        }.into_any()
+                            <InlineError message=format!("读取脚本设置失败：{error}") />
+                            <button
+                                class="btn"
+                                disabled=move || busy.get()
+                                on:click=move |_| load_config()
+                            >
+                                "重试"
+                            </button>
+                        }
+                            .into_any()
                     } else if !draft.ready() {
-                        view! { <LoadingState text="读取脚本设置…" class="muted"/> }.into_any()
+                        view! { <LoadingState text="读取脚本设置…" class="muted" /> }
+                            .into_any()
                     } else {
                         ().into_any()
                     }
-                })}
-                {field("准备脚本（Setup）", "独立工作区创建后、智能体开始前执行一次，例如安装依赖、生成代码。", "npm ci", "3", |c| c.setup.clone(), |c, v| c.setup = v)}
-                {field("收尾脚本（Cleanup）", "每轮正常结束且有改动时执行，例如格式化、lint --fix。", "npm run format", "3", |c| c.cleanup.clone(), |c, v| c.cleanup = v)}
-                {field("预览启动命令", "在预览面板启动服务时执行。", "npm run dev", "2", |c| c.dev.clone(), |c, v| c.dev = v)}
-                {field("复制文件", "创建独立工作区时从源仓库复制被 Git 忽略的文件；每行一个路径，支持 glob。", ".env\nconfig/*.local.json", "3", |c| c.copy_files.clone(), |c, v| c.copy_files = v)}
-                <div class="row-actions">
-                    <span class="muted small">"保存并测试："</span>
-                    <button class="btn small" disabled=blocked on:click=move |_| run("setup")>"Setup"</button>
-                    <button class="btn small" disabled=blocked on:click=move |_| run("cleanup")>"Cleanup"</button>
-                    <button class="btn small" disabled=move || blocked() || !isolated.get() title=move || if isolated.get() { "" } else { "只有隔离工作区才有源仓库可拷" } on:click=move |_| run("copy")>"拷贝文件"</button>
-                </div>
-                <h5 class="sub-h">"最近的运行"</h5>
-                <div class="sc-runs">
-                    {move || {
-                        let r = runs.get();
-                        if r.is_empty() {
-                            return view! { <EmptyState title="暂无运行记录" class="muted small"/> }.into_any();
+                })
+            }}
+            {field(
+                "准备脚本（Setup）",
+                "独立工作区创建后、智能体开始前执行一次，例如安装依赖、生成代码。",
+                "npm ci",
+                "3",
+                |c| c.setup.clone(),
+                |c, v| c.setup = v,
+            )}
+            {field(
+                "收尾脚本（Cleanup）",
+                "每轮正常结束且有改动时执行，例如格式化、lint --fix。",
+                "npm run format",
+                "3",
+                |c| c.cleanup.clone(),
+                |c, v| c.cleanup = v,
+            )}
+            {field(
+                "预览启动命令",
+                "在预览面板启动服务时执行。",
+                "npm run dev",
+                "2",
+                |c| c.dev.clone(),
+                |c, v| c.dev = v,
+            )}
+            {field(
+                "复制文件",
+                "创建独立工作区时从源仓库复制被 Git 忽略的文件；每行一个路径，支持 glob。",
+                ".env\nconfig/*.local.json",
+                "3",
+                |c| c.copy_files.clone(),
+                |c, v| c.copy_files = v,
+            )}
+            <div class="row-actions">
+                <span class="muted small">"保存并测试："</span>
+                <button class="btn small" disabled=blocked on:click=move |_| run("setup")>
+                    "Setup"
+                </button>
+                <button class="btn small" disabled=blocked on:click=move |_| run("cleanup")>
+                    "Cleanup"
+                </button>
+                <button
+                    class="btn small"
+                    disabled=move || blocked() || !isolated.get()
+                    title=move || {
+                        if isolated.get() {
+                            ""
+                        } else {
+                            "只有隔离工作区才有源仓库可拷"
                         }
-                        r.into_iter().map(|r| {
-                            let (t, tone) = match r.status.as_str() { "ok" => ("成功", "ok"), "failed" => ("失败", "bad"), "timeout" => ("超时", "bad"), "running" => ("运行中", "info"), s => (s, "") };
-                            let kind = match r.kind.as_str() { "setup" => "Setup", "cleanup" => "Cleanup", "copy" => "拷贝文件", k => k }.to_owned();
-                            let trig = match r.trigger.as_str() { "manual" => "手动", "create" => "建工作区时", "turn_end" => "一轮结束后", t => t }.to_owned();
-                            let code = r.exit_code.filter(|c| *c != 0).map(|c| format!(" · 退出码 {c}")).unwrap_or_default();
+                    }
+                    on:click=move |_| run("copy")
+                >
+                    "拷贝文件"
+                </button>
+            </div>
+            <h5 class="sub-h">"最近的运行"</h5>
+            <div class="sc-runs">
+                {move || {
+                    let r = runs.get();
+                    if r.is_empty() {
+                        return view! {
+                            <EmptyState title="暂无运行记录" class="muted small" />
+                        }
+                            .into_any();
+                    }
+                    r.into_iter()
+                        .map(|r| {
+                            let (t, tone) = match r.status.as_str() {
+                                "ok" => ("成功", "ok"),
+                                "failed" => ("失败", "bad"),
+                                "timeout" => ("超时", "bad"),
+                                "running" => ("运行中", "info"),
+                                s => (s, ""),
+                            };
+                            let kind = match r.kind.as_str() {
+                                "setup" => "Setup",
+                                "cleanup" => "Cleanup",
+                                "copy" => "拷贝文件",
+                                k => k,
+                            }
+                                .to_owned();
+                            let trig = match r.trigger.as_str() {
+                                "manual" => "手动",
+                                "create" => "建工作区时",
+                                "turn_end" => "一轮结束后",
+                                t => t,
+                            }
+                                .to_owned();
+                            let code = r
+                                .exit_code
+                                .filter(|c| *c != 0)
+                                .map(|c| format!(" · 退出码 {c}"))
+                                .unwrap_or_default();
                             view! {
                                 <details class="sc-run">
-                                    <summary><span class=format!("gchip {tone}")>{t.to_owned()}</span><b>{kind}</b><span class="muted">{format!("{trig}{code}")}</span><span class="grow"></span><span class="muted small">{fmt::ago(&r.started_at)}</span></summary>
-                                    <pre>{if r.output.is_empty() { "（没有输出）".to_owned() } else { r.output }}</pre>
+                                    <summary>
+                                        <span class=format!("gchip {tone}")>{t.to_owned()}</span>
+                                        <b>{kind}</b>
+                                        <span class="muted">{format!("{trig}{code}")}</span>
+                                        <span class="grow"></span>
+                                        <span class="muted small">{fmt::ago(&r.started_at)}</span>
+                                    </summary>
+                                    <pre>
+                                        {if r.output.is_empty() {
+                                            "（没有输出）".to_owned()
+                                        } else {
+                                            r.output
+                                        }}
+                                    </pre>
                                 </details>
                             }
-                        }).collect_view().into_any()
-                    }}
-                </div>
-                <div class="dlg-foot">
-                    <button class="btn" on:click=move |_| on_close()>"关闭"</button>
-                    <button class="btn primary" disabled=blocked on:click=move |_| {
-                        if busy.get_untracked() || !cfg.with_untracked(ScriptDraft::ready) { return; }
+                        })
+                        .collect_view()
+                        .into_any()
+                }}
+            </div>
+            <div class="dlg-foot">
+                <button class="btn" on:click=move |_| on_close()>
+                    "关闭"
+                </button>
+                <button
+                    class="btn primary"
+                    disabled=blocked
+                    on:click=move |_| {
+                        if busy.get_untracked() || !cfg.with_untracked(ScriptDraft::ready) {
+                            return;
+                        }
                         busy.set(true);
                         let saved = save();
                         spawn_local(async move {
                             match saved.await {
-                                Ok(_) => { toast("已保存"); if !busy.is_disposed() { on_close(); } }
+                                Ok(_) => {
+                                    toast("已保存");
+                                    if !busy.is_disposed() {
+                                        on_close();
+                                    }
+                                }
                                 Err(e) => toast(e.to_string()),
                             }
                             let _ = busy.try_set(false);
                         });
-                    }>"保存"</button>
-                </div>
+                    }
+                >
+                    "保存"
+                </button>
+            </div>
         </Modal>
     }
 }

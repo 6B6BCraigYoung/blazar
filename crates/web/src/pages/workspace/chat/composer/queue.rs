@@ -26,22 +26,76 @@ pub(super) fn QueueBand(chat: Chat) -> impl IntoView {
                         <div class="cq-h">
                             <span class="cq-dot" data-held=m.held.is_some().to_string()></span>
                             <b>{if m.held.is_some() { "Paused" } else { "Queued" }}</b>
-                            <span class="muted">{m.held.clone().unwrap_or_else(|| "Sends after this turn".into())}</span>
+                            <span class="muted">
+                                {m.held.clone().unwrap_or_else(|| "Sends after this turn".into())}
+                            </span>
                             <span class="grow"></span>
                             {if running {
-                                view! { <button class="linkbtn" title="Add to the current turn now" on:click=move |_| chat.queue_act("steer", m1.clone())>"Send now"</button> }.into_any()
+                                view! {
+                                    <button
+                                        class="linkbtn"
+                                        title="Add to the current turn now"
+                                        on:click=move |_| chat.queue_act("steer", m1.clone())
+                                    >
+                                        "Send now"
+                                    </button>
+                                }
+                                    .into_any()
                             } else {
-                                view! { <button class="linkbtn" on:click=move |_| chat.queue_act("send", m1.clone())>"Send"</button> }.into_any()
+                                view! {
+                                    <button
+                                        class="linkbtn"
+                                        on:click=move |_| chat.queue_act("send", m1.clone())
+                                    >
+                                        "Send"
+                                    </button>
+                                }
+                                    .into_any()
                             }}
-                            <button class="linkbtn" on:click=move |_| chat.queue_act("edit", m2.clone())>"Edit"</button>
-                            <button class="linkbtn" on:click=move |_| chat.queue_act("drop", m3.clone())>"Remove"</button>
+                            <button
+                                class="linkbtn"
+                                on:click=move |_| chat.queue_act("edit", m2.clone())
+                            >
+                                "Edit"
+                            </button>
+                            <button
+                                class="linkbtn"
+                                on:click=move |_| chat.queue_act("drop", m3.clone())
+                            >
+                                "Remove"
+                            </button>
                         </div>
-                        <div class="cq-t">{m.text.clone()}{(m.images > 0).then(|| view! { <span class="muted">{format!(" · {} attachments", m.images)}</span> })}</div>
-                        {(others > 0).then(|| view! { <div class="cq-o muted">{format!("{others} more queued in other conversations")}</div> })}
+                        <div class="cq-t">
+                            {m.text.clone()}
+                            {(m.images > 0)
+                                .then(|| {
+                                    view! {
+                                        <span class="muted">
+                                            {format!(" · {} attachments", m.images)}
+                                        </span>
+                                    }
+                                })}
+                        </div>
+                        {(others > 0)
+                            .then(|| {
+                                view! {
+                                    <div class="cq-o muted">
+                                        {format!("{others} more queued in other conversations")}
+                                    </div>
+                                }
+                            })}
                     </div>
-                }.into_any()
+                }
+                .into_any()
             }
-            None => view! { <div class="cb-band queue"><div class="cq-o muted">{format!("{others} queued in other conversations")}</div></div> }.into_any(),
+            None => view! {
+                <div class="cb-band queue">
+                    <div class="cq-o muted">
+                        {format!("{others} queued in other conversations")}
+                    </div>
+                </div>
+            }
+            .into_any(),
         })
     }
 }
@@ -97,11 +151,26 @@ pub(super) fn QueueEditor(chat: Chat, queued: Queued) -> impl IntoView {
     };
     view! {
         <Modal label="Edit queued message" on_close=Callback::new(move |_| close())>
-                <h3>"Edit queued message"</h3>
-                <textarea data-modal-initial-focus="" aria-label="Message" prop:value=move || text.get() disabled=move || busy.get() on:input=move |e| text.set(event_target_value(&e))></textarea>
-                <p class="muted">"Attachments, file context and send settings are kept."</p>
-                <Show when=move || !error.get().is_empty()>{move || view! { <InlineError message=error.get()/> }}</Show>
-                <div class="dlg-foot"><button class="btn" disabled=move || busy.get() on:click=move |_| close()>"Cancel"</button><button class="btn primary" disabled=move || busy.get() on:click=save>{move || if busy.get() { "Saving…" } else { "Save" }}</button></div>
+            <h3>"Edit queued message"</h3>
+            <textarea
+                data-modal-initial-focus=""
+                aria-label="Message"
+                prop:value=move || text.get()
+                disabled=move || busy.get()
+                on:input=move |e| text.set(event_target_value(&e))
+            ></textarea>
+            <p class="muted">"Attachments, file context and send settings are kept."</p>
+            <Show when=move || {
+                !error.get().is_empty()
+            }>{move || view! { <InlineError message=error.get() /> }}</Show>
+            <div class="dlg-foot">
+                <button class="btn" disabled=move || busy.get() on:click=move |_| close()>
+                    "Cancel"
+                </button>
+                <button class="btn primary" disabled=move || busy.get() on:click=save>
+                    {move || if busy.get() { "Saving…" } else { "Save" }}
+                </button>
+            </div>
         </Modal>
     }
 }
@@ -134,14 +203,52 @@ pub(super) fn FailedEditor(
     };
     view! {
         <Modal label="Edit unsent message" on_close>
-                <h3>"Edit unsent message"</h3>
-                <textarea data-modal-initial-focus="" aria-label="Message" prop:value=move || text.get() on:input=move |e| text.set(event_target_value(&e))></textarea>
-                {move || images.get().iter().enumerate().map(|(index, _)| view! {
-                    <div class="row"><span>{format!("Attachment {}", index + 1)}</span><button class="linkbtn" on:click=move |_| images.update(|images| { if index < images.len() { images.remove(index); } })>"Remove"</button></div>
-                }).collect_view()}
-                <p class="muted">"File context and send settings are kept. Retry after saving."</p>
-                <Show when=move || !error.get().is_empty()>{move || view! { <InlineError message=error.get()/> }}</Show>
-                <div class="dlg-foot"><button class="btn" on:click=move |_| on_close.run(())>"Cancel"</button><button class="btn primary" on:click=save>"Save"</button></div>
+            <h3>"Edit unsent message"</h3>
+            <textarea
+                data-modal-initial-focus=""
+                aria-label="Message"
+                prop:value=move || text.get()
+                on:input=move |e| text.set(event_target_value(&e))
+            ></textarea>
+            {move || {
+                images
+                    .get()
+                    .iter()
+                    .enumerate()
+                    .map(|(index, _)| {
+                        view! {
+                            <div class="row">
+                                <span>{format!("Attachment {}", index + 1)}</span>
+                                <button
+                                    class="linkbtn"
+                                    on:click=move |_| {
+                                        images
+                                            .update(|images| {
+                                                if index < images.len() {
+                                                    images.remove(index);
+                                                }
+                                            })
+                                    }
+                                >
+                                    "Remove"
+                                </button>
+                            </div>
+                        }
+                    })
+                    .collect_view()
+            }}
+            <p class="muted">"File context and send settings are kept. Retry after saving."</p>
+            <Show when=move || {
+                !error.get().is_empty()
+            }>{move || view! { <InlineError message=error.get() /> }}</Show>
+            <div class="dlg-foot">
+                <button class="btn" on:click=move |_| on_close.run(())>
+                    "Cancel"
+                </button>
+                <button class="btn primary" on:click=save>
+                    "Save"
+                </button>
+            </div>
         </Modal>
     }
 }

@@ -5,7 +5,11 @@ pub fn LoadingState(
     #[prop(into)] text: String,
     #[prop(default = "empty")] class: &'static str,
 ) -> impl IntoView {
-    view! { <div class=format!("ui-state {class}") role="status" aria-live="polite" aria-busy="true">{text}</div> }
+    view! {
+        <div class=format!("ui-state {class}") role="status" aria-live="polite" aria-busy="true">
+            {text}
+        </div>
+    }
 }
 
 #[component]
@@ -31,7 +35,14 @@ pub fn InlineError(
     view! {
         <div class=format!("ui-state ui-error {class}") role="alert">
             <span>{message}</span>
-            {retry.map(|retry| view! { <button type="button" class="btn small" on:click=move |_| retry.run(())>"重试"</button> })}
+            {retry
+                .map(|retry| {
+                    view! {
+                        <button type="button" class="btn small" on:click=move |_| retry.run(())>
+                            "重试"
+                        </button>
+                    }
+                })}
         </div>
     }
 }

@@ -43,10 +43,17 @@ fn details(
 ) -> impl IntoView {
     let k = key.clone();
     view! {
-        <details class=class open=opened.is(&key) on:toggle=move |e| {
-            let open = e.target().and_then(|t| t.dyn_into::<web_sys::HtmlDetailsElement>().ok()).is_some_and(|d| d.open());
-            opened.set(&k, open);
-        }>
+        <details
+            class=class
+            open=opened.is(&key)
+            on:toggle=move |e| {
+                let open = e
+                    .target()
+                    .and_then(|t| t.dyn_into::<web_sys::HtmlDetailsElement>().ok())
+                    .is_some_and(|d| d.open());
+                opened.set(&k, open);
+            }
+        >
             <summary>{summary}</summary>
             {body()}
         </details>
@@ -102,10 +109,23 @@ fn result_view(r: Res, key: String, opened: Opened) -> impl IntoView {
             <span class="cc-elbow">"⎿"</span>
             <div class="cc-pre">
                 {move || if show.get() { all.clone() } else { shown.clone() }}
-                {move || (more > 0 && !show.get()).then(|| {
-                    let k = key.clone();
-                    view! { <button class="cc-more" on:click=move |_| { show.set(true); opened.set(&k, true); }>{format!("Show {more} more lines")}</button> }
-                })}
+                {move || {
+                    (more > 0 && !show.get())
+                        .then(|| {
+                            let k = key.clone();
+                            view! {
+                                <button
+                                    class="cc-more"
+                                    on:click=move |_| {
+                                        show.set(true);
+                                        opened.set(&k, true);
+                                    }
+                                >
+                                    {format!("Show {more} more lines")}
+                                </button>
+                            }
+                        })
+                }}
             </div>
         </div>
     }
@@ -114,22 +134,54 @@ fn result_view(r: Res, key: String, opened: Opened) -> impl IntoView {
 fn extra_view(e: &Extra, opened: Opened, key: &str, ws: &str) -> AnyView {
     match e {
         Extra::None => ().into_any(),
-        Extra::Cmd(c) => view! { <div class="cc-io"><span class="lb">"IN"</span><div class="cc-pre">{c.clone()}</div></div> }.into_any(),
+        Extra::Cmd(c) => view! {
+            <div class="cc-io">
+                <span class="lb">"IN"</span>
+                <div class="cc-pre">{c.clone()}</div>
+            </div>
+        }
+        .into_any(),
         Extra::Todos(list) => todo_list(list).into_any(),
         Extra::Diff { rows, more } => view! {
             <div class="cc-diff">
-                {rows.iter().map(|(c, l)| {
-                    let cls = match c { '+' => "dadd", '-' => "ddel", _ => "dgap" };
-                    view! { <div class=cls><span class="dm">{if *c == '⋯' { ' ' } else { *c }}</span>{if *c == '⋯' { "⋯".to_owned() } else { l.clone() }}</div> }
-                }).collect_view()}
-                {(*more > 0).then(|| view! { <div class="dgap">{format!("… {more} more lines")}</div> })}
+                {rows
+                    .iter()
+                    .map(|(c, l)| {
+                        let cls = match c {
+                            '+' => "dadd",
+                            '-' => "ddel",
+                            _ => "dgap",
+                        };
+                        view! {
+                            <div class=cls>
+                                <span class="dm">{if *c == '⋯' { ' ' } else { *c }}</span>
+                                {if *c == '⋯' { "⋯".to_owned() } else { l.clone() }}
+                            </div>
+                        }
+                    })
+                    .collect_view()}
+                {(*more > 0)
+                    .then(|| view! { <div class="dgap">{format!("… {more} more lines")}</div> })}
             </div>
-        }.into_any(),
-        Extra::Files(f) => view! { <div class="cc-diff">{f.iter().map(|x| view! { <div class="dh">{x.clone()}</div> }).collect_view()}</div> }.into_any(),
+        }
+        .into_any(),
+        Extra::Files(f) => view! {
+            <div class="cc-diff">
+                {f.iter().map(|x| view! { <div class="dh">{x.clone()}</div> }).collect_view()}
+            </div>
+        }
+        .into_any(),
         Extra::Plan(p) => {
             let p = p.clone();
             let ws = ws.to_owned();
-            details(opened, format!("plan:{key}"), "cc-planbody", view! { "Plan" }.into_any(), move || view! { <Md text=p ws/> }.into_any()).into_any()
+            details(
+                opened,
+                format!("plan:{key}"),
+                "cc-planbody",
+                view! { "Plan" }.into_any(),
+                move || view! { <Md text=p ws /> }.into_any(),
+            )
+            .into_any()
         }
     }
 }
@@ -137,56 +189,118 @@ fn extra_view(e: &Extra, opened: Opened, key: &str, ws: &str) -> AnyView {
 pub fn todo_list(list: &[crate::chat_model::Todo]) -> impl IntoView + use<> {
     view! {
         <div class="cc-todos">
-            {list.iter().map(|t| view! {
-                <div class=format!("cc-todo {}", t.status)>
-                    <span>{if t.status == "completed" { "☒" } else { "☐" }}</span>
-                    <span>{t.content.clone()}</span>
-                </div>
-            }).collect_view()}
+            {list
+                .iter()
+                .map(|t| {
+                    view! {
+                        <div class=format!("cc-todo {}", t.status)>
+                            <span>{if t.status == "completed" { "☒" } else { "☐" }}</span>
+                            <span>{t.content.clone()}</span>
+                        </div>
+                    }
+                })
+                .collect_view()}
         </div>
     }
 }
 
 fn tool_view(t: Tool, opened: Opened, ws: String) -> AnyView {
     let sub = (!t.sub.is_empty() || t.sub_calls > 0).then(|| {
-        let summary = if t.sub_calls > 0 { format!("{} tool calls · latest: {}", t.sub_calls, t.sub_last) } else { "Subagent working…".to_owned() };
+        let summary = if t.sub_calls > 0 {
+            format!("{} tool calls · latest: {}", t.sub_calls, t.sub_last)
+        } else {
+            "Subagent working…".to_owned()
+        };
         let steps = t.sub.clone();
         let ws = ws.clone();
-        details(opened, format!("sub:{}", t.id), "cc-sub", view! { {summary} }.into_any(), move || {
-            view! { <div class="cc-subl">{steps.into_iter().map(|s| step_view(s, opened, ws.clone())).collect_view()}</div> }.into_any()
-        })
+        details(
+            opened,
+            format!("sub:{}", t.id),
+            "cc-sub",
+            view! { {summary} }.into_any(),
+            move || {
+                view! {
+                    <div class="cc-subl">
+                        {steps.into_iter().map(|s| step_view(s, opened, ws.clone())).collect_view()}
+                    </div>
+                }
+                .into_any()
+            },
+        )
     });
     view! {
         <div class="cc-row cc-tool" data-st=t.state.as_str() data-name=t.name.clone()>
             <span class="cc-dot"></span>
             <div class="cc-main">
-                <div class="cc-head"><b>{t.label.clone()}</b>{(!t.arg.is_empty()).then(|| view! { <span class="cc-arg">{t.arg.clone()}</span> })}</div>
+                <div class="cc-head">
+                    <b>{t.label.clone()}</b>
+                    {(!t.arg.is_empty())
+                        .then(|| view! { <span class="cc-arg">{t.arg.clone()}</span> })}
+                </div>
                 {extra_view(&t.extra, opened, &t.id, &ws)}
                 {sub}
-                <div class="cc-res">{t.result.map(|r| result_view(r, format!("res:{}", t.id), opened))}</div>
+                <div class="cc-res">
+                    {t.result.map(|r| result_view(r, format!("res:{}", t.id), opened))}
+                </div>
             </div>
         </div>
-    }.into_any()
+    }
+    .into_any()
 }
 
 fn step_view(s: Step, opened: Opened, ws: String) -> AnyView {
     match s {
         Step::Thinking { text, secs } => {
-            let head = if secs > 0 { format!("✻ Thought for {secs}s") } else { "✻ Thinking".to_owned() };
+            let head = if secs > 0 {
+                format!("✻ Thought for {secs}s")
+            } else {
+                "✻ Thinking".to_owned()
+            };
             if text.trim().is_empty() {
                 view! { <div class="cc-thinkmark">{head}</div> }.into_any()
             } else {
-                let key = format!("think:{secs}:{}:{}", text.len(), text.chars().take(24).collect::<String>());
-                details(opened, key, "cc-think", view! { {head} }.into_any(), move || view! { <Md text ws/> }.into_any()).into_any()
+                let key = format!(
+                    "think:{secs}:{}:{}",
+                    text.len(),
+                    text.chars().take(24).collect::<String>()
+                );
+                details(
+                    opened,
+                    key,
+                    "cc-think",
+                    view! { {head} }.into_any(),
+                    move || view! { <Md text ws /> }.into_any(),
+                )
+                .into_any()
             }
         }
         Step::Tool(t) => tool_view(*t, opened, ws),
-        Step::Text(t) => view! { <div class="cc-row cc-msg sub"><span class="cc-dot"></span><div class="cc-main"><Md text=t ws/></div></div> }.into_any(),
+        Step::Text(t) => view! {
+            <div class="cc-row cc-msg sub">
+                <span class="cc-dot"></span>
+                <div class="cc-main">
+                    <Md text=t ws />
+                </div>
+            </div>
+        }
+        .into_any(),
         Step::Bg(t) => view! {
-            <div class="cc-row cc-bg"><span class="cc-dot"></span><div class="cc-main"><div class="cc-head"><b>"Background task"</b><span class="cc-arg">{t}</span></div></div></div>
-        }.into_any(),
+            <div class="cc-row cc-bg">
+                <span class="cc-dot"></span>
+                <div class="cc-main">
+                    <div class="cc-head">
+                        <b>"Background task"</b>
+                        <span class="cc-arg">{t}</span>
+                    </div>
+                </div>
+            </div>
+        }
+        .into_any(),
         Step::Note(t) => view! { <div class="cc-meta">{t}</div> }.into_any(),
-        Step::Orphan(r) => view! { <div class="cc-row cc-orphan">{result_view(r, String::new(), opened)}</div> }.into_any(),
+        Step::Orphan(r) => {
+            view! { <div class="cc-row cc-orphan">{result_view(r, String::new(), opened)}</div> }
+                .into_any()
+        }
     }
 }
 
@@ -201,12 +315,31 @@ fn fold_view(key: String, f: Fold, opened: Opened, ws: String) -> AnyView {
         <div class="cc-row cc-fold" data-st=state.as_str() data-live=live.to_string()>
             <span class="cc-dot"></span>
             <div class="cc-main">
-                {details(opened, format!("fold:{key}"), "cc-fd",
-                    view! { <span class="cc-fl">{summary}</span><span inner_html=CHEVRON></span> }.into_any(),
-                    move || view! { <div class="cc-fb">{steps.into_iter().map(|s| step_view(s, opened, ws.clone())).collect_view()}</div> }.into_any())}
+                {details(
+                    opened,
+                    format!("fold:{key}"),
+                    "cc-fd",
+                    view! {
+                        <span class="cc-fl">{summary}</span>
+                        <span inner_html=CHEVRON></span>
+                    }
+                        .into_any(),
+                    move || {
+                        view! {
+                            <div class="cc-fb">
+                                {steps
+                                    .into_iter()
+                                    .map(|s| step_view(s, opened, ws.clone()))
+                                    .collect_view()}
+                            </div>
+                        }
+                            .into_any()
+                    },
+                )}
             </div>
         </div>
-    }.into_any()
+    }
+    .into_any()
 }
 
 fn copy(text: String, done: RwSignal<bool>) {
@@ -299,50 +432,129 @@ fn UserMsg(
         }
     });
     view! {
-        <div class="cc-user" on:contextmenu=move |e: leptos::ev::MouseEvent| {
+        <div
+            class="cc-user"
+            on:contextmenu=move |e: leptos::ev::MouseEvent| {
                 if editing.get_untracked() || (!first && cp.get_untracked().is_none()) {
                     return;
                 }
                 e.prevent_default();
                 menu.set(Some((e.client_x(), e.client_y())));
-            } data-first=first.to_string() data-long=long.to_string() data-open=move || open.get().to_string()>
-            <Show when=move || !editing.get() fallback=move || {
-                let go = do_retry.clone();
-                let go2 = do_retry2.clone();
-                view! {
-                    <div class="cc-edit">
-                        <textarea rows="3" aria-label="Edit message and retry" prop:value=move || draft.get() on:input=move |e| draft.set(event_target_value(&e))
-                            on:keydown=move |e| {
-                                if e.key() == "Escape" { e.prevent_default(); e.stop_propagation(); editing.set(false); }
-                                if e.key() == "Enter" && (e.meta_key() || e.ctrl_key()) { e.prevent_default(); go(); }
-                            }></textarea>
-                        <div class="row">
-                            <span class="muted small">"Retrying restores files and removes this message and everything after it from context."</span><span class="grow"></span>
-                            <button class="btn small" on:click=move |_| editing.set(false)>"Cancel"</button>
-                            <button class="btn small primary" on:click=move |_| go2()>"Retry"</button>
+            }
+            data-first=first.to_string()
+            data-long=long.to_string()
+            data-open=move || open.get().to_string()
+        >
+            <Show
+                when=move || !editing.get()
+                fallback=move || {
+                    let go = do_retry.clone();
+                    let go2 = do_retry2.clone();
+                    view! {
+                        <div class="cc-edit">
+                            <textarea
+                                rows="3"
+                                aria-label="Edit message and retry"
+                                prop:value=move || draft.get()
+                                on:input=move |e| draft.set(event_target_value(&e))
+                                on:keydown=move |e| {
+                                    if e.key() == "Escape" {
+                                        e.prevent_default();
+                                        e.stop_propagation();
+                                        editing.set(false);
+                                    }
+                                    if e.key() == "Enter" && (e.meta_key() || e.ctrl_key()) {
+                                        e.prevent_default();
+                                        go();
+                                    }
+                                }
+                            ></textarea>
+                            <div class="row">
+                                <span class="muted small">
+                                    "Retrying restores files and removes this message and everything after it from context."
+                                </span>
+                                <span class="grow"></span>
+                                <button class="btn small" on:click=move |_| editing.set(false)>
+                                    "Cancel"
+                                </button>
+                                <button class="btn small primary" on:click=move |_| go2()>
+                                    "Retry"
+                                </button>
+                            </div>
                         </div>
-                    </div>
+                    }
                 }
-            }>
+            >
                 <div class="cc-uline">
                     <div class="cc-ut">{text.clone()}</div>
-                    {move || (latest.get() && !editing.get()).then(|| view! {
-                        <span class="cc-acts">
-                            {first.then(|| view! {
-                                <button class="cc-rw" title="Edit and continue from here" on:click=move |_| edit.run(())>"✎ Edit"</button>
-                                <button class="cc-rw" title="Retry with the same message" on:click=move |_| retry.run(())>"⟳ Retry"</button>
-                            })}
-                            {move || cp.get().map(|_| view! {
-                                <button class="cc-rw" title="Rewind code to here" on:click=move |_| rewind.run(())>"↺ Rewind"</button>
-                            })}
-                        </span>
-                    })}
+                    {move || {
+                        (latest.get() && !editing.get())
+                            .then(|| {
+                                view! {
+                                    <span class="cc-acts">
+                                        {first
+                                            .then(|| {
+                                                view! {
+                                                    <button
+                                                        class="cc-rw"
+                                                        title="Edit and continue from here"
+                                                        on:click=move |_| edit.run(())
+                                                    >
+                                                        "✎ Edit"
+                                                    </button>
+                                                    <button
+                                                        class="cc-rw"
+                                                        title="Retry with the same message"
+                                                        on:click=move |_| retry.run(())
+                                                    >
+                                                        "⟳ Retry"
+                                                    </button>
+                                                }
+                                            })}
+                                        {move || {
+                                            cp.get()
+                                                .map(|_| {
+                                                    view! {
+                                                        <button
+                                                            class="cc-rw"
+                                                            title="Rewind code to here"
+                                                            on:click=move |_| rewind.run(())
+                                                        >
+                                                            "↺ Rewind"
+                                                        </button>
+                                                    }
+                                                })
+                                        }}
+                                    </span>
+                                }
+                            })
+                    }}
                 </div>
             </Show>
-            {long.then(|| view! {
-                <button class="cc-xp" on:click=move |_| open.update(|o| *o = !*o)>{move || if open.get() { "Show less" } else { "Show more" }}</button>
-            })}
-            {move || menu.get().map(|(x, y)| view! { <MsgMenu menu x y first edit retry rewind=cp.get().is_some().then_some(rewind)/> })}
+            {long
+                .then(|| {
+                    view! {
+                        <button class="cc-xp" on:click=move |_| open.update(|o| *o = !*o)>
+                            {move || if open.get() { "Show less" } else { "Show more" }}
+                        </button>
+                    }
+                })}
+            {move || {
+                menu.get()
+                    .map(|(x, y)| {
+                        view! {
+                            <MsgMenu
+                                menu
+                                x
+                                y
+                                first
+                                edit
+                                retry
+                                rewind=cp.get().is_some().then_some(rewind)
+                            />
+                        }
+                    })
+            }}
         </div>
     }
 }
@@ -391,13 +603,25 @@ fn MsgMenu(
     };
     view! {
         <div class="ctx-menu" role="menu" style=format!("left:{x}px;top:{y}px")>
-            {first.then(|| view! {
-                <button type="button" role="menuitem" class="ctx-item" on:click=pick(edit)>"Edit"</button>
-                <button type="button" role="menuitem" class="ctx-item" on:click=pick(retry)>"Retry"</button>
-            })}
-            {rewind.map(|r| view! {
-                <button type="button" role="menuitem" class="ctx-item" on:click=pick(r)>"Rewind code to here"</button>
-            })}
+            {first
+                .then(|| {
+                    view! {
+                        <button type="button" role="menuitem" class="ctx-item" on:click=pick(edit)>
+                            "Edit"
+                        </button>
+                        <button type="button" role="menuitem" class="ctx-item" on:click=pick(retry)>
+                            "Retry"
+                        </button>
+                    }
+                })}
+            {rewind
+                .map(|r| {
+                    view! {
+                        <button type="button" role="menuitem" class="ctx-item" on:click=pick(r)>
+                            "Rewind code to here"
+                        </button>
+                    }
+                })}
         </div>
     }
 }
@@ -445,42 +669,84 @@ fn error_view(chat: Chat, text: String, by_account: bool) -> AnyView {
     let can = by_account
         && super::state::ACC_RUNTIMES.contains(&untrack(move || chat.runtime()).as_str());
     view! {
-        <div class="cc-row cc-err"><span class="cc-dot"></span><div class="cc-main">
-            {text}
-            {can.then(|| view! { <div><button class="linkbtn" on:click=switch>"Continue with another account"</button></div> })}
-        </div></div>
-    }.into_any()
+        <div class="cc-row cc-err">
+            <span class="cc-dot"></span>
+            <div class="cc-main">
+                {text}
+                {can
+                    .then(|| {
+                        view! {
+                            <div>
+                                <button class="linkbtn" on:click=switch>
+                                    "Continue with another account"
+                                </button>
+                            </div>
+                        }
+                    })}
+            </div>
+        </div>
+    }
+    .into_any()
 }
 
 fn item_view(it: Item, chat: Chat, opened: Opened, ws: String) -> AnyView {
     let key = it.key.clone();
     match it.body {
-        Body::User { sid, seq, text, first, long } => view! { <UserMsg chat sid seq text first long/> }.into_any(),
+        Body::User { sid, seq, text, first, long } => view! { <UserMsg chat sid seq text first long /> }.into_any(),
         Body::Assistant { text } => {
             let done = RwSignal::new(false);
             let t = text.clone();
             view! {
-                <div class="cc-row cc-msg"><span class="cc-dot"></span><div class="cc-main">
-                    <Md text ws/>
-                    <div class="cc-acts2">
-                        <button class="cc-copy" aria-label="Copy response" title="Copy" data-done=move || done.get().to_string() inner_html=COPY on:click=move |_| copy(t.clone(), done)></button>
+                <div class="cc-row cc-msg">
+                    <span class="cc-dot"></span>
+                    <div class="cc-main">
+                        <Md text ws />
+                        <div class="cc-acts2">
+                            <button
+                                class="cc-copy"
+                                aria-label="Copy response"
+                                title="Copy"
+                                data-done=move || done.get().to_string()
+                                inner_html=COPY
+                                on:click=move |_| copy(t.clone(), done)
+                            ></button>
+                        </div>
                     </div>
-                </div></div>
+                </div>
             }.into_any()
         }
         Body::Fold(f) => fold_view(key, f, opened, ws),
         Body::Error { text, by_account } => error_view(chat, text, by_account),
         Body::Warn { denied } => view! {
-            <div class="cc-row cc-warn"><span class="cc-dot"></span><div class="cc-main">
-                {format!("{} actions were denied and not run:", denied.len())}
-                {denied.into_iter().map(|d| view! { <div class="muted">{format!("· {d}")}</div> }).collect_view()}
-                <div class="muted small">"The current mode denies these actions. Switch to Edit automatically or Auto and retry."</div>
-            </div></div>
+            <div class="cc-row cc-warn">
+                <span class="cc-dot"></span>
+                <div class="cc-main">
+                    {format!("{} actions were denied and not run:", denied.len())}
+                    {denied
+                        .into_iter()
+                        .map(|d| view! { <div class="muted">{format!("· {d}")}</div> })
+                        .collect_view()}
+                    <div class="muted small">
+                        "The current mode denies these actions. Switch to Edit automatically or Auto and retry."
+                    </div>
+                </div>
+            </div>
         }.into_any(),
-        Body::Meta { text, bad } => view! { <div class="cc-meta" class:bad=bad>{text}</div> }.into_any(),
+        Body::Meta { text, bad } => view! {
+            <div class="cc-meta" class:bad=bad>
+                {text}
+            </div>
+        }.into_any(),
         Body::Rewound { turns, items } => details(opened, format!("rw:{key}"), "cc-rewound",
             view! { {format!("Rewound · {turns} messages removed from context")} }.into_any(),
-            move || view! { <div class="cc-rwl">{items.into_iter().map(|i| item_view(i, chat, opened, ws.clone())).collect_view()}</div> }.into_any()).into_any(),
+            move || view! {
+                <div class="cc-rwl">
+                    {items
+                        .into_iter()
+                        .map(|i| item_view(i, chat, opened, ws.clone()))
+                        .collect_view()}
+                </div>
+            }.into_any()).into_any(),
     }
 }
 
@@ -517,18 +783,30 @@ fn fold_slot(key: String, chat: Chat, opened: Opened, ws: String) -> AnyView {
         <div class="cc-row cc-fold" data-st=state data-live=live>
             <span class="cc-dot"></span>
             <div class="cc-main">
-                {details(opened, format!("fold:{key}"), "cc-fd",
-                    view! { <span class="cc-fl">{summary}</span><span inner_html=CHEVRON></span> }.into_any(),
-                    move || view! {
-                        <div class="cc-fb">
-                            <For each=steps key=|(i, sig, _)| (*i, *sig) let:step>
-                                {step_view(step.2, opened, ws.clone())}
-                            </For>
-                        </div>
-                    }.into_any())}
+                {details(
+                    opened,
+                    format!("fold:{key}"),
+                    "cc-fd",
+                    view! {
+                        <span class="cc-fl">{summary}</span>
+                        <span inner_html=CHEVRON></span>
+                    }
+                        .into_any(),
+                    move || {
+                        view! {
+                            <div class="cc-fb">
+                                <For each=steps key=|(i, sig, _)| (*i, *sig) let:step>
+                                    {step_view(step.2, opened, ws.clone())}
+                                </For>
+                            </div>
+                        }
+                            .into_any()
+                    },
+                )}
             </div>
         </div>
-    }.into_any()
+    }
+    .into_any()
 }
 
 fn item_slot(key: String, chat: Chat, opened: Opened, ws: String) -> AnyView {
@@ -670,27 +948,52 @@ pub fn Log(chat: Chat, tick: RwSignal<u32>) -> impl IntoView {
             && chat.pending.with(Vec::is_empty)
     };
     view! {
-        <div class="cc-log" node_ref=el data-dim=move || dim().to_string()
-            on:scroll=move |_| if let Some(e) = el.try_get_untracked().flatten() {
-                at_bottom.set_value(e.scroll_height() - e.scroll_top() - e.client_height() < 80);
-            }>
-            <Show when=move || chat.loading.get()><LoadingState text="Loading conversation…" class="cc-load"/></Show>
+        <div
+            class="cc-log"
+            node_ref=el
+            data-dim=move || dim().to_string()
+            on:scroll=move |_| {
+                if let Some(e) = el.try_get_untracked().flatten() {
+                    at_bottom
+                        .set_value(e.scroll_height() - e.scroll_top() - e.client_height() < 80);
+                }
+            }
+        >
+            <Show when=move || chat.loading.get()>
+                <LoadingState text="Loading conversation…" class="cc-load" />
+            </Show>
             <Show when=empty>
-                <Empty chat/>
+                <Empty chat />
             </Show>
             <For each=keys key=|k| k.clone() let:k>
                 {item_slot(k, chat, opened, ws.clone())}
             </For>
             <For each=move || chat.pending.get() key=|p| p.id let:p>
                 <div class="cc-user pending">
-                    <div class="cc-ut">{p.text.clone()}{(p.images > 0).then(|| format!("\n[{} attachments]", p.images))}</div>
+                    <div class="cc-ut">
+                        {p.text.clone()}
+                        {(p.images > 0).then(|| format!("\n[{} attachments]", p.images))}
+                    </div>
                 </div>
             </For>
-            {move || chat.local_errors.get().into_iter().map(|e| view! {
-                <div class="cc-row cc-err"><span class="cc-dot" aria-hidden="true"></span><div class="cc-main"><InlineError message=e/></div></div>
-            }).collect_view()}
+            {move || {
+                chat.local_errors
+                    .get()
+                    .into_iter()
+                    .map(|e| {
+                        view! {
+                            <div class="cc-row cc-err">
+                                <span class="cc-dot" aria-hidden="true"></span>
+                                <div class="cc-main">
+                                    <InlineError message=e />
+                                </div>
+                            </div>
+                        }
+                    })
+                    .collect_view()
+            }}
             <Show when=busy>
-                <Spinner chat tick/>
+                <Spinner chat tick />
             </Show>
         </div>
     }
@@ -704,26 +1007,64 @@ fn Empty(chat: Chat) -> impl IntoView {
         view! {
             <div class="cc-empty">
                 {match &p {
-                    Some(p) => view! {
-                        <div class="who"><b>{format!("Chat with {}", p.name)}</b><div class="muted small">{p.description.clone().unwrap_or_default()}</div></div>
-                    }.into_any(),
+                    Some(p) => {
+                        view! {
+                            <div class="who">
+                                <b>{format!("Chat with {}", p.name)}</b>
+                                <div class="muted small">
+                                    {p.description.clone().unwrap_or_default()}
+                                </div>
+                            </div>
+                        }
+                            .into_any()
+                    }
                     None => {
                         let rt = chat.runtime();
-                        let name = match rt.as_str() { "claude" => "Claude Code", "codex" => "Codex", other => other }.to_owned();
+                        let name = match rt.as_str() {
+                            "claude" => "Claude Code",
+                            "codex" => "Codex",
+                            other => other,
+                        }
+                            .to_owned();
                         view! {
-                            <div class="cc-hero"><span class="cc-hero-mark" inner_html=crate::rt_logo::mark(&rt)></span><span>{name}</span></div>
-                            <div class="cc-tip">"Press "<kbd>"Shift"</kbd>" "<kbd>"Tab"</kbd>" to cycle permission modes, or type "<code>"/"</code>" for commands."</div>
-                        }.into_any()
+                            <div class="cc-hero">
+                                <span
+                                    class="cc-hero-mark"
+                                    inner_html=crate::rt_logo::mark(&rt)
+                                ></span>
+                                <span>{name}</span>
+                            </div>
+                            <div class="cc-tip">
+                                "Press "<kbd>"Shift"</kbd>" "<kbd>"Tab"</kbd>
+                                " to cycle permission modes, or type "<code>"/"</code>
+                                " for commands."
+                            </div>
+                        }
+                            .into_any()
                     }
                 }}
-                {(!starters.is_empty()).then(|| view! {
-                    <div class="starters">
-                        {starters.into_iter().map(|s| {
-                            let pr = s.prompt.clone();
-                            view! { <button class="starter" on:click=move |_| chat.prompt.set(pr.clone())><b>{s.label}</b><span>{s.prompt}</span></button> }
-                        }).collect_view()}
-                    </div>
-                })}
+                {(!starters.is_empty())
+                    .then(|| {
+                        view! {
+                            <div class="starters">
+                                {starters
+                                    .into_iter()
+                                    .map(|s| {
+                                        let pr = s.prompt.clone();
+                                        view! {
+                                            <button
+                                                class="starter"
+                                                on:click=move |_| chat.prompt.set(pr.clone())
+                                            >
+                                                <b>{s.label}</b>
+                                                <span>{s.prompt}</span>
+                                            </button>
+                                        }
+                                    })
+                                    .collect_view()}
+                            </div>
+                        }
+                    })}
             </div>
         }
     }

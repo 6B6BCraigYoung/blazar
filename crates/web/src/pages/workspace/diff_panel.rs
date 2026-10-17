@@ -194,42 +194,137 @@ pub fn DiffBar(
     };
     view! {
         <div class="diffbar">
-            <button class="laybtn" aria-label="切换改动文件列表" title="改动文件列表" aria-pressed=move || p().tree.to_string()
-                on:click=move |_| d.set_prefs(|p| p.tree = !p.tree) inner_html=super::ICON_LEFT></button>
+            <button
+                class="laybtn"
+                aria-label="切换改动文件列表"
+                title="改动文件列表"
+                aria-pressed=move || p().tree.to_string()
+                on:click=move |_| d.set_prefs(|p| p.tree = !p.tree)
+                inner_html=super::ICON_LEFT
+            ></button>
             <span class="seg" title="和谁比">
-                <button data-on=move || (p().base == "head").to_string() title="还没提交的改动（相对 HEAD）"
-                    on:click=move |_| d.set_prefs(|p| p.base = "head".into())>"未提交"</button>
-                <button data-on=move || (p().base == "target").to_string() title="这条分支相对目标分支一共改了什么"
-                    on:click=move |_| d.set_prefs(|p| p.base = "target".into())>
-                    {move || target().map_or_else(|| "整条分支".to_owned(), |t| format!("整条分支 · {t}"))}
+                <button
+                    data-on=move || (p().base == "head").to_string()
+                    title="还没提交的改动（相对 HEAD）"
+                    on:click=move |_| d.set_prefs(|p| p.base = "head".into())
+                >
+                    "未提交"
+                </button>
+                <button
+                    data-on=move || (p().base == "target").to_string()
+                    title="这条分支相对目标分支一共改了什么"
+                    on:click=move |_| d.set_prefs(|p| p.base = "target".into())
+                >
+                    {move || {
+                        target()
+                            .map_or_else(
+                                || "整条分支".to_owned(),
+                                |t| format!("整条分支 · {t}"),
+                            )
+                    }}
                 </button>
             </span>
             <span class="seg">
-                <button data-on=move || (p().view == "unified").to_string() on:click=move |_| d.set_prefs(|p| p.view = "unified".into())>"统一"</button>
-                <button data-on=move || (p().view == "split").to_string() on:click=move |_| d.set_prefs(|p| p.view = "split".into())>"并排"</button>
+                <button
+                    data-on=move || (p().view == "unified").to_string()
+                    on:click=move |_| d.set_prefs(|p| p.view = "unified".into())
+                >
+                    "统一"
+                </button>
+                <button
+                    data-on=move || (p().view == "split").to_string()
+                    on:click=move |_| d.set_prefs(|p| p.view = "split".into())
+                >
+                    "并排"
+                </button>
             </span>
-            <label class="chk"><input type="checkbox" prop:checked=move || p().w on:change=move |_| d.set_prefs(|p| p.w = !p.w)/>"忽略空白"</label>
-            <label class="chk"><input type="checkbox" prop:checked=move || p().wrap on:change=move |_| d.set_prefs(|p| p.wrap = !p.wrap)/>"自动换行"</label>
+            <label class="chk">
+                <input
+                    type="checkbox"
+                    prop:checked=move || p().w
+                    on:change=move |_| d.set_prefs(|p| p.w = !p.w)
+                />
+                "忽略空白"
+            </label>
+            <label class="chk">
+                <input
+                    type="checkbox"
+                    prop:checked=move || p().wrap
+                    on:change=move |_| d.set_prefs(|p| p.wrap = !p.wrap)
+                />
+                "自动换行"
+            </label>
             <span class="sum">
-                {move || { let (n, a, r) = sums(); view! { {format!("{n} 个文件 ")}<b class="ok">{format!("+{a}")}</b>" "<b class="bad">{format!("−{r}")}</b> } }}
+                {move || {
+                    let (n, a, r) = sums();
+                    view! {
+                        {format!("{n} 个文件 ")}
+                        <b class="ok">{format!("+{a}")}</b>
+                        " "
+                        <b class="bad">{format!("−{r}")}</b>
+                    }
+                }}
             </span>
             <span class="grow"></span>
             {move || {
                 let n = d.comments.with(Vec::len);
-                (n > 0).then(|| view! { <span class="pill-note" title="随下一条消息一起发给 agent">{format!("{n} 条意见待发")}</span> })
+                (n > 0)
+                    .then(|| {
+                        view! {
+                            <span class="pill-note" title="随下一条消息一起发给 agent">
+                                {format!("{n} 条意见待发")}
+                            </span>
+                        }
+                    })
             }}
-            <button class="btn small" disabled=move || d.files.with(Vec::is_empty)
+            <button
+                class="btn small"
+                disabled=move || d.files.with(Vec::is_empty)
                 on:click=move |_| {
-                    let all = d.files.with_untracked(|f| f.iter().map(|x| x.path.clone()).collect::<HashSet<_>>());
+                    let all = d
+                        .files
+                        .with_untracked(|f| {
+                            f.iter().map(|x| x.path.clone()).collect::<HashSet<_>>()
+                        });
                     collapsed.update(|c| if c.len() >= all.len() { c.clear() } else { *c = all });
-                }>
-                {move || if !d.files.with(Vec::is_empty) && collapsed.with(HashSet::len) >= d.files.with(Vec::len) { "全部展开" } else { "全部折叠" }}
+                }
+            >
+                {move || {
+                    if !d.files.with(Vec::is_empty)
+                        && collapsed.with(HashSet::len) >= d.files.with(Vec::len)
+                    {
+                        "全部展开"
+                    } else {
+                        "全部折叠"
+                    }
+                }}
             </button>
-            <button class="btn small" disabled=move || d.files.with(Vec::is_empty) title="开一个新对话，让 agent 只审阅不改代码" on:click=review>"审阅改动"</button>
-            <button class="laybtn" aria-label="刷新差异" title="刷新" inner_html=super::ICON_REFRESH
-                on:click=move |_| { d.reload.update(|n| *n += 1); git.reload.update(|n| *n += 1); }></button>
-            <button class="laybtn" title=move || if panel_max.get() { "还原面板" } else { "最大化面板" }
-                aria-pressed=move || panel_max.get().to_string() on:click=move |_| panel_max.update(|m| *m = !*m)>"⤢"</button>
+            <button
+                class="btn small"
+                disabled=move || d.files.with(Vec::is_empty)
+                title="开一个新对话，让 agent 只审阅不改代码"
+                on:click=review
+            >
+                "审阅改动"
+            </button>
+            <button
+                class="laybtn"
+                aria-label="刷新差异"
+                title="刷新"
+                inner_html=super::ICON_REFRESH
+                on:click=move |_| {
+                    d.reload.update(|n| *n += 1);
+                    git.reload.update(|n| *n += 1);
+                }
+            ></button>
+            <button
+                class="laybtn"
+                title=move || if panel_max.get() { "还原面板" } else { "最大化面板" }
+                aria-pressed=move || panel_max.get().to_string()
+                on:click=move |_| panel_max.update(|m| *m = !*m)
+            >
+                "⤢"
+            </button>
         </div>
     }
 }
@@ -266,10 +361,17 @@ pub fn DiffView(
 
     let body = move || {
         if d.loading.get() && d.files.with(Vec::is_empty) {
-            return view! { <LoadingState text="读取差异…"/> }.into_any();
+            return view! { <LoadingState text="读取差异…" /> }.into_any();
         }
         if let Some(error) = d.error.get() {
-            return view! { <InlineError message=error class="empty" retry=Callback::new(move |_| d.reload.update(|n| *n += 1))/> }.into_any();
+            return view! {
+                <InlineError
+                    message=error
+                    class="empty"
+                    retry=Callback::new(move |_| d.reload.update(|n| *n += 1))
+                />
+            }
+            .into_any();
         }
         let list = d.files.get();
         if list.is_empty() {
@@ -286,46 +388,92 @@ pub fn DiffView(
             } else {
                 "没有未提交的改动".to_owned()
             };
-            return view! { <EmptyState title=msg/> }.into_any();
+            return view! { <EmptyState title=msg /> }.into_any();
         }
         let split = p().view == "split";
         view! {
-            {move || d.truncated.get().then(|| view! { <div class="df-note warn">"差异较大，仅显示前 3MB"</div> })}
-            {list.into_iter().enumerate().map(|(i, f)| file_view(i, f, split, collapsed, expanded, editing, d, files, ws_c)).collect_view()}
-        }.into_any()
+            {move || {
+                d.truncated
+                    .get()
+                    .then(|| {
+                        view! { <div class="df-note warn">"差异较大，仅显示前 3MB"</div> }
+                    })
+            }}
+            {list
+                .into_iter()
+                .enumerate()
+                .map(|(i, f)| file_view(i, f, split, collapsed, expanded, editing, d, files, ws_c))
+                .collect_view()}
+        }
+        .into_any()
     };
 
     let tree = move || {
         let q = filter.get().to_lowercase();
-        d.files.with(|fs| fs.iter().enumerate().filter(|(_, f)| q.is_empty() || f.path.to_lowercase().contains(&q)).map(|(i, f)| {
-            let (mk, cls) = f.status.mark();
-            let (name, dir) = f.path.rsplit_once('/').map_or((f.path.clone(), String::new()), |(d, n)| (n.to_owned(), d.to_owned()));
-            let n = d.comments.with(|c| c.iter().filter(|c| c.file == f.path).count());
-            let path = f.path.clone();
-            view! {
-                <button class="dt-row" title=f.path.clone() on:click=move |_| {
-                    collapsed.update(|c| { c.remove(&path); });
-                    if let Some(el) = document().get_element_by_id(&format!("df-{i}")) { el.scroll_into_view(); }
-                }>
-                    <b class=format!("mk {cls}")>{mk}</b>
-                    <span class="nm">{name}<span class="dir">{dir}</span></span>
-                    {(n > 0).then(|| view! { <span class="cm">{n}</span> })}
-                    <span class="st"><i class="ok">{format!("+{}", f.added)}</i>" "<i class="bad">{format!("−{}", f.removed)}</i></span>
-                </button>
-            }
-        }).collect_view())
+        d.files.with(|fs| {
+            fs.iter()
+                .enumerate()
+                .filter(|(_, f)| q.is_empty() || f.path.to_lowercase().contains(&q))
+                .map(|(i, f)| {
+                    let (mk, cls) = f.status.mark();
+                    let (name, dir) = f
+                        .path
+                        .rsplit_once('/')
+                        .map_or((f.path.clone(), String::new()), |(d, n)| {
+                            (n.to_owned(), d.to_owned())
+                        });
+                    let n = d
+                        .comments
+                        .with(|c| c.iter().filter(|c| c.file == f.path).count());
+                    let path = f.path.clone();
+                    view! {
+                        <button
+                            class="dt-row"
+                            title=f.path.clone()
+                            on:click=move |_| {
+                                collapsed
+                                    .update(|c| {
+                                        c.remove(&path);
+                                    });
+                                if let Some(el) = document().get_element_by_id(&format!("df-{i}")) {
+                                    el.scroll_into_view();
+                                }
+                            }
+                        >
+                            <b class=format!("mk {cls}")>{mk}</b>
+                            <span class="nm">{name}<span class="dir">{dir}</span></span>
+                            {(n > 0).then(|| view! { <span class="cm">{n}</span> })}
+                            <span class="st">
+                                <i class="ok">{format!("+{}", f.added)}</i>
+                                " "
+                                <i class="bad">{format!("−{}", f.removed)}</i>
+                            </span>
+                        </button>
+                    }
+                })
+                .collect_view()
+        })
     };
 
     view! {
         <div class="diffwrap">
             <Show when=move || p().tree && !d.files.with(Vec::is_empty)>
                 <div class="difftree">
-                    <input class="tree-filter" aria-label="筛选改动文件" placeholder="筛选文件…" prop:value=move || filter.get()
-                        on:input=move |e| filter.set(event_target_value(&e))/>
+                    <input
+                        class="tree-filter"
+                        aria-label="筛选改动文件"
+                        placeholder="筛选文件…"
+                        prop:value=move || filter.get()
+                        on:input=move |e| filter.set(event_target_value(&e))
+                    />
                     {tree}
                 </div>
             </Show>
-            <div class="diffview" data-wrap=move || (p().wrap || p().view == "split").to_string() data-view=move || p().view>
+            <div
+                class="diffview"
+                data-wrap=move || (p().wrap || p().view == "split").to_string()
+                data-view=move || p().view
+            >
                 {body}
             </div>
         </div>
@@ -360,33 +508,81 @@ fn file_view(
     let f = StoredValue::new(f);
     view! {
         <section class="df" id=format!("df-{i}") data-folded=move || folded.get().to_string()>
-            <header class="df-head" on:click=move |_| collapsed.update(|c| if !c.remove(&p_toggle) { c.insert(p_toggle.clone()); })>
-                <button type="button" class="df-toggle" aria-expanded=move || (!folded.get()).to_string() aria-label=title.clone()>
-                <span class="caret">"▾"</span>
-                <b class=format!("mk {cls}")>{mk}</b>
-                <span class="path">{title.clone()}</span>
-                <span class="st">
-                    <i class="ok">{format!("+{}", f.with_value(|f| f.added))}</i>" "
-                    <i class="bad">{format!("−{}", f.with_value(|f| f.removed))}</i>
-                </span>
-                </button>
-                {(!deleted).then(|| view! {
-                    <button class="linkbtn" title="在编辑器里打开" on:click=move |e| { e.stop_propagation(); files.open(p_open.clone(), 0); }>"打开"</button>
-                })}
-            </header>
-            {move || (!folded.get()).then(|| {
-                let big = f.with_value(|f| f.lines > BIG) && !expanded.with(|e| e.contains(&p_exp));
-                if big {
-                    let p = p_exp.clone();
-                    let n = f.with_value(|f| f.lines);
-                    return view! {
-                        <div class="df-body"><button class="df-more" on:click=move |_| expanded.update(|e| { e.insert(p.clone()); })>
-                            {format!("展开 {n} 行改动")}
-                        </button></div>
-                    }.into_any();
+            <header
+                class="df-head"
+                on:click=move |_| {
+                    collapsed
+                        .update(|c| {
+                            if !c.remove(&p_toggle) {
+                                c.insert(p_toggle.clone());
+                            }
+                        })
                 }
-                view! { <div class="df-body">{f.with_value(|f| file_body(f, split, editing, d, ws))}</div> }.into_any()
-            })}
+            >
+                <button
+                    type="button"
+                    class="df-toggle"
+                    aria-expanded=move || (!folded.get()).to_string()
+                    aria-label=title.clone()
+                >
+                    <span class="caret">"▾"</span>
+                    <b class=format!("mk {cls}")>{mk}</b>
+                    <span class="path">{title.clone()}</span>
+                    <span class="st">
+                        <i class="ok">{format!("+{}", f.with_value(|f| f.added))}</i>
+                        " "
+                        <i class="bad">{format!("−{}", f.with_value(|f| f.removed))}</i>
+                    </span>
+                </button>
+                {(!deleted)
+                    .then(|| {
+                        view! {
+                            <button
+                                class="linkbtn"
+                                title="在编辑器里打开"
+                                on:click=move |e| {
+                                    e.stop_propagation();
+                                    files.open(p_open.clone(), 0);
+                                }
+                            >
+                                "打开"
+                            </button>
+                        }
+                    })}
+            </header>
+            {move || {
+                (!folded.get())
+                    .then(|| {
+                        let big = f.with_value(|f| f.lines > BIG)
+                            && !expanded.with(|e| e.contains(&p_exp));
+                        if big {
+                            let p = p_exp.clone();
+                            let n = f.with_value(|f| f.lines);
+                            return view! {
+                                <div class="df-body">
+                                    <button
+                                        class="df-more"
+                                        on:click=move |_| {
+                                            expanded
+                                                .update(|e| {
+                                                    e.insert(p.clone());
+                                                })
+                                        }
+                                    >
+                                        {format!("展开 {n} 行改动")}
+                                    </button>
+                                </div>
+                            }
+                                .into_any();
+                        }
+                        view! {
+                            <div class="df-body">
+                                {f.with_value(|f| file_body(f, split, editing, d, ws))}
+                            </div>
+                        }
+                            .into_any()
+                    })
+            }}
         </section>
     }
 }
@@ -412,7 +608,14 @@ fn file_body(
     let path = f.path.clone();
     let mut out: Vec<AnyView> = Vec::new();
     for h in &f.hunks {
-        out.push(view! { <div class="dh">{format!("@@ −{} +{} @@ ", h.old, h.new)}<span>{h.ctx.clone()}</span></div> }.into_any());
+        out.push(
+            view! {
+                <div class="dh">
+                    {format!("@@ −{} +{} @@ ", h.old, h.new)}<span>{h.ctx.clone()}</span>
+                </div>
+            }
+            .into_any(),
+        );
         if split {
             let mut i = 0;
             let ls = &h.lines;
@@ -423,7 +626,15 @@ fn file_body(
                         i += 1;
                     }
                     Kind::Ctx => {
-                        out.push(view! { <div class="dr2">{half(Some(l), "old", &path, editing)}{half(Some(l), "new", &path, editing)}</div> }.into_any());
+                        out.push(
+                            view! {
+                                <div class="dr2">
+                                    {half(Some(l), "old", &path, editing)}
+                                    {half(Some(l), "new", &path, editing)}
+                                </div>
+                            }
+                            .into_any(),
+                        );
                         out.push(
                             comments_at(&path, "new", l.new.unwrap_or(0), editing, d, ws)
                                 .into_any(),
@@ -464,7 +675,17 @@ fn file_body(
         } else {
             for l in &h.lines {
                 if l.kind == Kind::Note {
-                    out.push(view! { <div class="dr" data-t="n"><span class="ln"></span><span class="ln"></span><span class="dg"></span><span class="dc muted">{l.text.clone()}</span></div> }.into_any());
+                    out.push(
+                        view! {
+                            <div class="dr" data-t="n">
+                                <span class="ln"></span>
+                                <span class="ln"></span>
+                                <span class="dg"></span>
+                                <span class="dc muted">{l.text.clone()}</span>
+                            </div>
+                        }
+                        .into_any(),
+                    );
                     continue;
                 }
                 let (side, line) = if l.kind == Kind::Del {
@@ -486,7 +707,10 @@ fn file_body(
                 out.push(view! {
                     <div class="dr" data-t=t>
                         <span class="ln">{l.old.map(|n| n.to_string()).unwrap_or_default()}</span>
-                        <span class="ln">{l.new.map(|n| n.to_string()).unwrap_or_default()}{add_btn(&path, side, line, &code, editing)}</span>
+                        <span class="ln">
+                            {l.new.map(|n| n.to_string()).unwrap_or_default()}
+                            {add_btn(&path, side, line, &code, editing)}
+                        </span>
                         <span class="dg">{g}</span>
                         <span class="dc">{code.clone()}</span>
                     </div>
@@ -512,7 +736,14 @@ fn add_btn(
         code: code.to_owned(),
         id: None,
     };
-    view! { <button class="dcm" aria-label="添加行级意见" title="点行号对这一行写意见" on:click=move |_| editing.set(Some(e.clone()))></button> }
+    view! {
+        <button
+            class="dcm"
+            aria-label="添加行级意见"
+            title="点行号对这一行写意见"
+            on:click=move |_| editing.set(Some(e.clone()))
+        ></button>
+    }
 }
 
 fn half(
@@ -562,26 +793,58 @@ fn comments_at(
             .get()
             .filter(|e| e.file == path2 && e.side == side && e.line == line);
         let edit_id = ed.as_ref().and_then(|e| e.id.clone());
-        let boxes = mine.into_iter().map(|c| {
-            if edit_id.as_deref() == Some(c.id.as_str()) {
-                return ().into_any();
-            }
-            let id_edit = c.id.clone();
-            let id_del = c.id.clone();
-            let c2 = c.clone();
-            view! {
-                <div class="dcmt">
-                    <div class="tx">{c.text.clone()}</div>
-                    <div class="ft">
-                        <span class="muted">"随下一条消息发送"</span><span class="grow"></span>
-                        <button class="linkbtn" on:click=move |_| editing.set(Some(Editing { file: c2.file.clone(), side: c2.side.clone(), line: c2.line, code: c2.code.clone(), id: Some(id_edit.clone()) }))>"编辑"</button>
-                        <button class="linkbtn" on:click=move |_| { d.comments.update(|l| l.retain(|x| x.id != id_del)); d.save_comments(&ws.get_value()); }>"删除"</button>
+        let boxes = mine
+            .into_iter()
+            .map(|c| {
+                if edit_id.as_deref() == Some(c.id.as_str()) {
+                    return ().into_any();
+                }
+                let id_edit = c.id.clone();
+                let id_del = c.id.clone();
+                let c2 = c.clone();
+                view! {
+                    <div class="dcmt">
+                        <div class="tx">{c.text.clone()}</div>
+                        <div class="ft">
+                            <span class="muted">"随下一条消息发送"</span>
+                            <span class="grow"></span>
+                            <button
+                                class="linkbtn"
+                                on:click=move |_| {
+                                    editing
+                                        .set(
+                                            Some(Editing {
+                                                file: c2.file.clone(),
+                                                side: c2.side.clone(),
+                                                line: c2.line,
+                                                code: c2.code.clone(),
+                                                id: Some(id_edit.clone()),
+                                            }),
+                                        )
+                                }
+                            >
+                                "编辑"
+                            </button>
+                            <button
+                                class="linkbtn"
+                                on:click=move |_| {
+                                    d.comments.update(|l| l.retain(|x| x.id != id_del));
+                                    d.save_comments(&ws.get_value());
+                                }
+                            >
+                                "删除"
+                            </button>
+                        </div>
                     </div>
-                </div>
-            }.into_any()
-        }).collect_view();
-        let editor = ed.map(|e| view! { <CommentEditor e d editing ws/> });
-        view! { {boxes}{editor} }
+                }
+                .into_any()
+            })
+            .collect_view();
+        let editor = ed.map(|e| view! { <CommentEditor e d editing ws /> });
+        view! {
+            {boxes}
+            {editor}
+        }
     }
 }
 
@@ -634,16 +897,35 @@ fn CommentEditor(
     let done3 = done.clone();
     view! {
         <div class="dcmt-edit">
-            <textarea node_ref=ta rows="3" aria-label="行级审阅意见" title="⌘↩ 保存" placeholder="写下意见…"
-                prop:value=move || text.get() on:input=move |ev| text.set(event_target_value(&ev))
+            <textarea
+                node_ref=ta
+                rows="3"
+                aria-label="行级审阅意见"
+                title="⌘↩ 保存"
+                placeholder="写下意见…"
+                prop:value=move || text.get()
+                on:input=move |ev| text.set(event_target_value(&ev))
                 on:keydown=move |ev| {
-                    if ev.key() == "Escape" { ev.prevent_default(); ev.stop_propagation(); done(false); }
-                    if ev.key() == "Enter" && (ev.meta_key() || ev.ctrl_key()) { ev.prevent_default(); done(true); }
-                }></textarea>
+                    if ev.key() == "Escape" {
+                        ev.prevent_default();
+                        ev.stop_propagation();
+                        done(false);
+                    }
+                    if ev.key() == "Enter" && (ev.meta_key() || ev.ctrl_key()) {
+                        ev.prevent_default();
+                        done(true);
+                    }
+                }
+            ></textarea>
             <div class="row">
-                <span class="muted">"随下一条消息发送给智能体"</span><span class="grow"></span>
-                <button class="btn small" on:click=move |_| done2(false)>"取消"</button>
-                <button class="btn small primary" on:click=move |_| done3(true)>{if is_edit { "保存" } else { "添加意见" }}</button>
+                <span class="muted">"随下一条消息发送给智能体"</span>
+                <span class="grow"></span>
+                <button class="btn small" on:click=move |_| done2(false)>
+                    "取消"
+                </button>
+                <button class="btn small primary" on:click=move |_| done3(true)>
+                    {if is_edit { "保存" } else { "添加意见" }}
+                </button>
             </div>
         </div>
     }

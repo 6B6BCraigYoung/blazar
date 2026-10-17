@@ -87,30 +87,97 @@ pub fn RuntimesPage() -> impl IntoView {
                 <h1>"智能体"</h1>
                 {crate::components::section::agents("/runtimes")}
                 <span class="grow"></span>
-                <button class="btn" disabled=move || refreshing.get() on:click=refresh_quota title="一次刷新所有运行时账号的额度">{move || if refreshing.get() { "刷新中…" } else { "刷新额度" }}</button>
-                <button class="btn" disabled=move || runtimes.get().is_none() on:click=move |_| rescan.update(|n| *n += 1)>"重新扫描"</button>
+                <button
+                    class="btn"
+                    disabled=move || refreshing.get()
+                    on:click=refresh_quota
+                    title="一次刷新所有运行时账号的额度"
+                >
+                    {move || if refreshing.get() { "刷新中…" } else { "刷新额度" }}
+                </button>
+                <button
+                    class="btn"
+                    disabled=move || runtimes.get().is_none()
+                    on:click=move |_| rescan.update(|n| *n += 1)
+                >
+                    "重新扫描"
+                </button>
             </div>
             {move || match runtimes.get() {
-                None => view! { <LoadingState text="正在查找运行时…"/> }.into_any(),
-                Some(Err(e)) => view! { <InlineError message=format!("无法加载运行时：{e}") retry=Callback::new(move |_| rescan.update(|n| *n += 1))/> }.into_any(),
+                None => view! { <LoadingState text="正在查找运行时…" /> }.into_any(),
+                Some(Err(e)) => {
+                    view! {
+                        <InlineError
+                            message=format!("无法加载运行时：{e}")
+                            retry=Callback::new(move |_| rescan.update(|n| *n += 1))
+                        />
+                    }
+                        .into_any()
+                }
                 Some(Ok(r)) => {
-                    let (inst, missing): (Vec<Runtime>, Vec<Runtime>) = r.runtimes.into_iter().partition(|x| x.installed);
+                    let (inst, missing): (Vec<Runtime>, Vec<Runtime>) = r
+                        .runtimes
+                        .into_iter()
+                        .partition(|x| x.installed);
                     let brains = inst.iter().any(|x| x.remote_hands && x.authed != Some(false));
                     let empty = inst.is_empty();
                     view! {
-                        {empty.then(|| view! { <EmptyState title="添加第一个运行时" detail="安装 Claude Code 或 Codex 后，重新扫描即可添加账号。"/> })}
-                        {inst.into_iter().map(|rt| view! { <RuntimeCard rt accounts/> }).collect_view()}
-                        {(!brains && !empty).then(|| view! {
-                            <div class="card notice">"添加或登录一个 Claude Code / Codex 账号，即可开始对话。"</div>
-                        })}
-                        {(!missing.is_empty()).then(|| view! {
-                            <details class="runtime-details"><summary>"其他支持的运行时"</summary><p class="muted small">{format!("尚未安装：{}", missing.iter().map(|x| x.label.as_str()).collect::<Vec<_>>().join("、"))}</p></details>
-                        })}
-                        <details class="runtime-details"><summary>"本机信息"</summary><p class="muted small">{format!("{} · Blazar v{} · {} {}", r.machine.hostname, r.machine.blazar_version, r.machine.os, r.machine.arch)}</p></details>
-                    }.into_any()
+                        {empty
+                            .then(|| {
+                                view! {
+                                    <EmptyState
+                                        title="添加第一个运行时"
+                                        detail="安装 Claude Code 或 Codex 后，重新扫描即可添加账号。"
+                                    />
+                                }
+                            })}
+                        {inst
+                            .into_iter()
+                            .map(|rt| view! { <RuntimeCard rt accounts /> })
+                            .collect_view()}
+                        {(!brains && !empty)
+                            .then(|| {
+                                view! {
+                                    <div class="card notice">
+                                        "添加或登录一个 Claude Code / Codex 账号，即可开始对话。"
+                                    </div>
+                                }
+                            })}
+                        {(!missing.is_empty())
+                            .then(|| {
+                                view! {
+                                    <details class="runtime-details">
+                                        <summary>"其他支持的运行时"</summary>
+                                        <p class="muted small">
+                                            {format!(
+                                                "尚未安装：{}",
+                                                missing
+                                                    .iter()
+                                                    .map(|x| x.label.as_str())
+                                                    .collect::<Vec<_>>()
+                                                    .join("、"),
+                                            )}
+                                        </p>
+                                    </details>
+                                }
+                            })}
+                        <details class="runtime-details">
+                            <summary>"本机信息"</summary>
+                            <p class="muted small">
+                                {format!(
+                                    "{} · Blazar v{} · {} {}",
+                                    r.machine.hostname,
+                                    r.machine.blazar_version,
+                                    r.machine.os,
+                                    r.machine.arch,
+                                )}
+                            </p>
+                        </details>
+                    }
+                        .into_any()
                 }
             }}
-            <GlobalSync accounts/>
+            <GlobalSync accounts />
         </div>
     }
 }
@@ -132,31 +199,57 @@ pub fn AccountsSection(
     let p2 = provider.clone();
     view! {
         <div class="acc-row head">
-            <span>"账号"</span><span>"状态"</span><span>"额度"</span><span>"最近使用"</span>
-            <span class="runtime-row-action"><button class="btn small primary" on:click=move |_| form.set(Some(Form::Add))>"添加账号"</button></span>
+            <span>"账号"</span>
+            <span>"状态"</span>
+            <span>"额度"</span>
+            <span>"最近使用"</span>
+            <span class="runtime-row-action">
+                <button class="btn small primary" on:click=move |_| form.set(Some(Form::Add))>
+                    "添加账号"
+                </button>
+            </span>
         </div>
         {move || {
             let a = match accounts.get() {
-                None => return view! { <LoadingState text="正在加载账号…"/> }.into_any(),
-                Some(Err(error)) => return view! { <InlineError message=format!("无法加载账号：{error}") retry=Callback::new(move |_| accounts.refetch())/> }.into_any(),
+                None => return view! { <LoadingState text="正在加载账号…" /> }.into_any(),
+                Some(Err(error)) => {
+                    return view! {
+                        <InlineError
+                            message=format!("无法加载账号：{error}")
+                            retry=Callback::new(move |_| accounts.refetch())
+                        />
+                    }
+                        .into_any();
+                }
                 Some(Ok(a)) => a,
             };
             let on = a.active(&p2);
-            let list = a.accounts.into_iter()
-                .filter(|x| x.provider == p2)
-                .collect::<Vec<_>>();
+            let list = a.accounts.into_iter().filter(|x| x.provider == p2).collect::<Vec<_>>();
             if list.is_empty() {
-                return view! { <EmptyState title="还没有账号" detail="添加账号后，可在这里切换使用。"/> }.into_any();
+                return view! {
+                    <EmptyState
+                        title="还没有账号"
+                        detail="添加账号后，可在这里切换使用。"
+                    />
+                }
+                    .into_any();
             }
             list.into_iter()
                 .map(|x| {
                     let active = on.as_deref() == Some(x.id.as_str());
-                    view! { <AccountRow a=x active menu form/> }
+                    view! { <AccountRow a=x active menu form /> }
                 })
                 .collect_view()
                 .into_any()
         }}
-        {move || form.get().map(|f| view! { <AccountForm f provider=provider.clone() on_close=move || form.set(None)/> })}
+        {move || {
+            form.get()
+                .map(|f| {
+                    view! {
+                        <AccountForm f provider=provider.clone() on_close=move || form.set(None) />
+                    }
+                })
+        }}
     }
 }
 
@@ -232,6 +325,6 @@ pub fn RuntimeDetailPage() -> impl IntoView {
     let id = move || params.read().get("id").unwrap_or_default();
     move || {
         let id = id();
-        view! { <RuntimeDetail id/> }
+        view! { <RuntimeDetail id /> }
     }
 }

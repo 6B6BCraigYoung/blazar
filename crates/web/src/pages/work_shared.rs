@@ -75,7 +75,12 @@ pub fn badge(v: &str) -> AnyView {
         "bad" => "errored",
         _ => "idle",
     };
-    view! {<span class="state-pill" data-act=activity>{label.to_owned()}</span>}.into_any()
+    view! {
+        <span class="state-pill" data-act=activity>
+            {label.to_owned()}
+        </span>
+    }
+    .into_any()
 }
 pub fn work_revision(topic: &'static str) -> RwSignal<u32> {
     let rev = RwSignal::new(0u32);
@@ -102,9 +107,30 @@ pub fn refresh(rev: RwSignal<u32>) {
 }
 pub fn text_field(label: &'static str, value: RwSignal<String>, rows: u32) -> AnyView {
     if rows > 0 {
-        view!{<label class="work-field"><span>{label}</span><textarea class="input" rows=rows prop:value=move || value.get() on:input=move |e| value.set(event_target_value(&e))></textarea></label>}.into_any()
+        view! {
+            <label class="work-field">
+                <span>{label}</span>
+                <textarea
+                    class="input"
+                    rows=rows
+                    prop:value=move || value.get()
+                    on:input=move |e| value.set(event_target_value(&e))
+                ></textarea>
+            </label>
+        }
+        .into_any()
     } else {
-        view!{<label class="work-field"><span>{label}</span><input class="input" prop:value=move || value.get() on:input=move |e| value.set(event_target_value(&e))/></label>}.into_any()
+        view! {
+            <label class="work-field">
+                <span>{label}</span>
+                <input
+                    class="input"
+                    prop:value=move || value.get()
+                    on:input=move |e| value.set(event_target_value(&e))
+                />
+            </label>
+        }
+        .into_any()
     }
 }
 pub fn select_field(
@@ -116,7 +142,30 @@ pub fn select_field(
         .iter()
         .map(|(k, v)| (k.to_string(), v.to_string()))
         .collect::<Vec<_>>();
-    view!{<label class="work-field"><span>{label}</span><select class="input" data-ui-guard=(label == "权限模式").then_some("") prop:value=move || value.get() on:change=move |e| value.set(event_target_value(&e))>{options.into_iter().map(|(k,v)|{let selected=k.clone();view!{<option value=k selected=move ||value.get()==selected>{v}</option>}}).collect_view()}</select></label>}.into_any()
+    view! {
+        <label class="work-field">
+            <span>{label}</span>
+            <select
+                class="input"
+                data-ui-guard=(label == "权限模式").then_some("")
+                prop:value=move || value.get()
+                on:change=move |e| value.set(event_target_value(&e))
+            >
+                {options
+                    .into_iter()
+                    .map(|(k, v)| {
+                        let selected = k.clone();
+                        view! {
+                            <option value=k selected=move || value.get() == selected>
+                                {v}
+                            </option>
+                        }
+                    })
+                    .collect_view()}
+            </select>
+        </label>
+    }
+    .into_any()
 }
 #[component]
 pub fn WorkspaceField(
@@ -124,7 +173,38 @@ pub fn WorkspaceField(
     #[prop(default = false)] locked: bool,
 ) -> impl IntoView {
     let app = use_app();
-    view! {<label class="work-field"><span>"工作区"</span><select class="input" disabled=locked prop:value=move || value.get() on:change=move |e| value.set(event_target_value(&e))><option value="" selected=move ||value.get().is_empty()>"未选择"</option>{move || app.workspaces().into_iter().map(|w|{let selected=w.id.clone();view!{<option value=w.id selected=move ||value.get()==selected>{format!("{} · {}",w.name,w.node)}</option>}}).collect_view()}</select>{locked.then(||view!{<small class="muted">"已开始的任务不能更换工作区"</small>})}</label>}
+    view! {
+        <label class="work-field">
+            <span>"工作区"</span>
+            <select
+                class="input"
+                disabled=locked
+                prop:value=move || value.get()
+                on:change=move |e| value.set(event_target_value(&e))
+            >
+                <option value="" selected=move || value.get().is_empty()>
+                    "未选择"
+                </option>
+                {move || {
+                    app.workspaces()
+                        .into_iter()
+                        .map(|w| {
+                            let selected = w.id.clone();
+                            view! {
+                                <option value=w.id selected=move || value.get() == selected>
+                                    {format!("{} · {}", w.name, w.node)}
+                                </option>
+                            }
+                        })
+                        .collect_view()
+                }}
+            </select>
+            {locked
+                .then(|| {
+                    view! { <small class="muted">"已开始的任务不能更换工作区"</small> }
+                })}
+        </label>
+    }
 }
 #[component]
 pub fn AssigneeField(value: RwSignal<String>) -> impl IntoView {
@@ -135,8 +215,77 @@ pub fn AssigneeField(value: RwSignal<String>) -> impl IntoView {
         );
         (profiles, runtimes)
     });
-    view! {<label class="work-field"><span>"指派给"</span><select class="input" prop:value=move || value.get() on:change=move |e| value.set(event_target_value(&e))><option value="" selected=move ||value.get().is_empty()>"未指派"</option>{move || opts.get().map(|o| { let mut choices=Vec::<(String,String)>::new(); if let Ok(p)=&o.0 {for a in p {choices.push((format!("p:{}",s(a,"id")),format!("{} {}",s(a,"avatar"),s(a,"name"))));}}
-    if let Ok(r)=&o.1 {for a in &r.runtimes { if a.installed {choices.push((format!("r:{}",a.id),a.label.clone()));} }} let current=value.get_untracked(); if !current.is_empty() && !choices.iter().any(|(k,_)|k==&current) {choices.push((current.clone(),format!("{current}（当前指派）")));} choices.into_iter().map(|(k,v)|{let selected=k.clone();view!{<option value=k selected=move ||value.get()==selected>{v}</option>}}).collect_view() })}</select>{move || opts.get().and_then(|o| o.0.as_ref().err().or_else(||o.1.as_ref().err()).map(|e|view!{<small class="bad">{format!("指派列表加载失败：{e}")}</small>}))}</label>}
+    view! {
+        <label class="work-field">
+            <span>"指派给"</span>
+            <select
+                class="input"
+                prop:value=move || value.get()
+                on:change=move |e| value.set(event_target_value(&e))
+            >
+                <option value="" selected=move || value.get().is_empty()>
+                    "未指派"
+                </option>
+                {move || {
+                    opts.get()
+                        .map(|o| {
+                            let mut choices = Vec::<(String, String)>::new();
+                            if let Ok(p) = &o.0 {
+                                for a in p {
+                                    choices
+                                        .push((
+                                            format!("p:{}", s(a, "id")),
+                                            format!("{} {}", s(a, "avatar"), s(a, "name")),
+                                        ));
+                                }
+                            }
+                            if let Ok(r) = &o.1 {
+                                for a in &r.runtimes {
+                                    if a.installed {
+                                        choices.push((format!("r:{}", a.id), a.label.clone()));
+                                    }
+                                }
+                            }
+                            let current = value.get_untracked();
+                            if !current.is_empty() && !choices.iter().any(|(k, _)| k == &current) {
+                                choices
+                                    .push((
+                                        current.clone(),
+                                        format!("{current}（当前指派）"),
+                                    ));
+                            }
+                            choices
+                                .into_iter()
+                                .map(|(k, v)| {
+                                    let selected = k.clone();
+                                    view! {
+                                        <option value=k selected=move || value.get() == selected>
+                                            {v}
+                                        </option>
+                                    }
+                                })
+                                .collect_view()
+                        })
+                }}
+            </select>
+            {move || {
+                opts.get()
+                    .and_then(|o| {
+                        o.0
+                            .as_ref()
+                            .err()
+                            .or_else(|| o.1.as_ref().err())
+                            .map(|e| {
+                                view! {
+                                    <small class="bad">
+                                        {format!("指派列表加载失败：{e}")}
+                                    </small>
+                                }
+                            })
+                    })
+            }}
+        </label>
+    }
 }
 pub async fn copy(text: String) {
     match wasm_bindgen_futures::JsFuture::from(window().navigator().clipboard().write_text(&text))

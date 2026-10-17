@@ -153,49 +153,139 @@ pub(super) fn AccountForm(
     };
     let body = match f {
         Form::Add => view! {
-            <label class="field">"账号名称"<input data-modal-initial-focus="" disabled=move || gate.with(|g| g.busy("form")) maxlength="40" placeholder="例如：工作账号" prop:value=move || name.get() on:input=move |e| name.set(event_target_value(&e))/></label>
-            {claude.then(|| view! {
-                <label class="field">"接入方式"
-                    <select disabled=move || gate.with(|g| g.busy("form")) on:change=move |e| how.set(event_target_value(&e))>
-                        <option value="token" selected=true>"粘贴长期 token（claude setup-token）"</option>
-                        <option value="login">"在浏览器里登录"</option>
-                    </select>
-                </label>
-            })}
-            <Show when=move || claude && how.get() == "token" fallback=|| view! { <div class="muted small">"创建后会打开一个终端运行官方登录命令，按提示在浏览器里登录这个账号即可。"</div> }>
-                <label class="field">"长期 token"
-                    <input disabled=move || gate.with(|g| g.busy("form")) class="mono" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-oat01-…" prop:value=move || token.get() on:input=move |e| token.set(event_target_value(&e))/>
+            <label class="field">
+                "账号名称"
+                <input
+                    data-modal-initial-focus=""
+                    disabled=move || gate.with(|g| g.busy("form"))
+                    maxlength="40"
+                    placeholder="例如：工作账号"
+                    prop:value=move || name.get()
+                    on:input=move |e| name.set(event_target_value(&e))
+                />
+            </label>
+            {claude
+                .then(|| {
+                    view! {
+                        <label class="field">
+                            "接入方式"
+                            <select
+                                disabled=move || gate.with(|g| g.busy("form"))
+                                on:change=move |e| how.set(event_target_value(&e))
+                            >
+                                <option value="token" selected=true>
+                                    "粘贴长期 token（claude setup-token）"
+                                </option>
+                                <option value="login">"在浏览器里登录"</option>
+                            </select>
+                        </label>
+                    }
+                })}
+            <Show
+                when=move || claude && how.get() == "token"
+                fallback=|| {
+                    view! {
+                        <div class="muted small">
+                            "创建后会打开一个终端运行官方登录命令，按提示在浏览器里登录这个账号即可。"
+                        </div>
+                    }
+                }
+            >
+                <label class="field">
+                    "长期 token"
+                    <input
+                        disabled=move || gate.with(|g| g.busy("form"))
+                        class="mono"
+                        type="password"
+                        autocomplete="off"
+                        spellcheck="false"
+                        placeholder="sk-ant-oat01-…"
+                        prop:value=move || token.get()
+                        on:input=move |e| token.set(event_target_value(&e))
+                    />
                 </label>
                 <div class="muted small" inner_html=TOKEN_HELP></div>
             </Show>
         }.into_any(),
         Form::Token(_) => view! {
-            <label class="field">"长期 token"<input data-modal-initial-focus="" disabled=move || gate.with(|g| g.busy("form")) class="mono" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-oat01-…"
-                prop:value=move || token.get() on:input=move |e| token.set(event_target_value(&e))
-                on:keydown=move |e| if e.key() == "Enter" { submit2() }/></label>
+            <label class="field">
+                "长期 token"
+                <input
+                    data-modal-initial-focus=""
+                    disabled=move || gate.with(|g| g.busy("form"))
+                    class="mono"
+                    type="password"
+                    autocomplete="off"
+                    spellcheck="false"
+                    placeholder="sk-ant-oat01-…"
+                    prop:value=move || token.get()
+                    on:input=move |e| token.set(event_target_value(&e))
+                    on:keydown=move |e| {
+                        if e.key() == "Enter" {
+                            submit2()
+                        }
+                    }
+                />
+            </label>
             <div class="muted small" inner_html=format!("{TOKEN_HELP}{token_note}")></div>
         }.into_any(),
         Form::Plan(_) => view! {
-            <label class="field">"订阅类型"
-                <select data-modal-initial-focus="" disabled=move || gate.with(|g| g.busy("form")) on:change=move |e| plan.set(event_target_value(&e))>
-                    <option value="" selected=move || plan.get().is_empty()>"不标"</option>
-                    {["pro", "max5x", "max20x", "team", "enterprise"].into_iter().map(|x| view! { <option value=x selected=move || plan.get() == x>{plan_label(x)}</option> }).collect_view()}
+            <label class="field">
+                "订阅类型"
+                <select
+                    data-modal-initial-focus=""
+                    disabled=move || gate.with(|g| g.busy("form"))
+                    on:change=move |e| plan.set(event_target_value(&e))
+                >
+                    <option value="" selected=move || plan.get().is_empty()>
+                        "不标"
+                    </option>
+                    {["pro", "max5x", "max20x", "team", "enterprise"]
+                        .into_iter()
+                        .map(|x| {
+                            view! {
+                                <option value=x selected=move || plan.get() == x>
+                                    {plan_label(x)}
+                                </option>
+                            }
+                        })
+                        .collect_view()}
                 </select>
             </label>
-            <div class="muted small">"只用于展示；能用哪些模型以实际运行结果为准。"</div>
+            <div class="muted small">
+                "只用于展示；能用哪些模型以实际运行结果为准。"
+            </div>
         }.into_any(),
     };
     view! {
         <Modal label=title.clone() on_close=Callback::new(move |_| close())>
-                <h3>{title}</h3>
-                {body}
-                {move || form_error.get().map(|message| view! { <InlineError message/> })}
-                <div class="dlg-foot">
-                    <button class="btn" disabled=move || gate.with(|g| g.busy("form")) on:click=move |_| close()>"取消"</button>
-                    <button class="btn primary" disabled=move || gate.with(|g| g.busy("form")) on:click=move |_| submit()>
-                        {move || if gate.with(|g| g.busy("form")) { "保存中…".to_owned() } else if ok == "创建" && !(claude && how.get() == "token") { "创建并登录".to_owned() } else { ok.clone() }}
-                    </button>
-                </div>
+            <h3>{title}</h3>
+            {body}
+            {move || form_error.get().map(|message| view! { <InlineError message /> })}
+            <div class="dlg-foot">
+                <button
+                    class="btn"
+                    disabled=move || gate.with(|g| g.busy("form"))
+                    on:click=move |_| close()
+                >
+                    "取消"
+                </button>
+                <button
+                    class="btn primary"
+                    disabled=move || gate.with(|g| g.busy("form"))
+                    on:click=move |_| submit()
+                >
+                    {move || {
+                        if gate.with(|g| g.busy("form")) {
+                            "保存中…".to_owned()
+                        } else if ok == "创建" && !(claude && how.get() == "token") {
+                            "创建并登录".to_owned()
+                        } else {
+                            ok.clone()
+                        }
+                    }}
+                </button>
+            </div>
         </Modal>
     }
 }

@@ -613,7 +613,18 @@ pub fn Composer(chat: Chat, tick: RwSignal<u32>, tree_files: Signal<Vec<String>>
                 <div class="cb-pop">
                     {move || match pop.get() {
                         Some(Pop::Slash) => slash_pop(slash_items(), sel, run_slash).into_any(),
-                        Some(Pop::Files) => view! { <FilesPop chat tree_files insert_ref=Callback::new(insert_ref) insert_at_caret=Callback::new(insert_at_caret) pop/> }.into_any(),
+                        Some(Pop::Files) => {
+                            view! {
+                                <FilesPop
+                                    chat
+                                    tree_files
+                                    insert_ref=Callback::new(insert_ref)
+                                    insert_at_caret=Callback::new(insert_at_caret)
+                                    pop
+                                />
+                            }
+                                .into_any()
+                        }
                         Some(Pop::Plus) => plus_pop(chat, pop, file_in).into_any(),
                         Some(Pop::Mode) => mode_pop(chat, pop).into_any(),
                         Some(Pop::Model) => model_pop(chat, pop).into_any(),
@@ -624,155 +635,541 @@ pub fn Composer(chat: Chat, tick: RwSignal<u32>, tree_files: Signal<Vec<String>>
                     }}
                 </div>
             </Show>
-            <Todos chat/>
-            <RateBanner chat/>
-            {move || (review_n() > 0).then(|| view! {
-                <div class="cb-band review">
-                    <span><b>{review_n()}</b>" review comments attached"</span><span class="grow"></span>
-                    <button class="linkbtn" on:click=move |_| chat.show_diff.run(())>"View"</button>
-                    <button class="linkbtn" on:click=move |_| {
-                        let n = review_n();
-                        chat.spawn(async move {
-                            if dialog::ask("Discard review comments", &format!("Discard {n} unsent review comments?"), vec![Choice::plain("Cancel"), Choice::danger("Discard")]).await == Some(1) {
-                                chat.clear_review();
-                            }
-                        });
-                    }>"Clear"</button>
-                </div>
-            })}
+            <Todos chat />
+            <RateBanner chat />
+            {move || {
+                (review_n() > 0)
+                    .then(|| {
+                        view! {
+                            <div class="cb-band review">
+                                <span>
+                                    <b>{review_n()}</b>
+                                    " review comments attached"
+                                </span>
+                                <span class="grow"></span>
+                                <button class="linkbtn" on:click=move |_| chat.show_diff.run(())>
+                                    "View"
+                                </button>
+                                <button
+                                    class="linkbtn"
+                                    on:click=move |_| {
+                                        let n = review_n();
+                                        chat.spawn(async move {
+                                            if dialog::ask(
+                                                    "Discard review comments",
+                                                    &format!("Discard {n} unsent review comments?"),
+                                                    vec![Choice::plain("Cancel"), Choice::danger("Discard")],
+                                                )
+                                                .await == Some(1)
+                                            {
+                                                chat.clear_review();
+                                            }
+                                        });
+                                    }
+                                >
+                                    "Clear"
+                                </button>
+                            </div>
+                        }
+                    })
+            }}
             {move || {
                 let list = chat.shells.get();
                 let busy = chat.shell_busy.get();
-                (!list.is_empty() || busy).then(|| view! {
-                    <div class="cb-band queue cc-shells">
-                        <div class="cq-h"><b>"Shell"</b><span class="muted">" · included with your next message"</span><span class="grow"></span>
-                            {(!list.is_empty()).then(|| view! { <button class="linkbtn" on:click=move |_| chat.shells.set(Vec::new())>"Clear"</button> })}
-                        </div>
-                        {list.into_iter().enumerate().map(|(i, r)| {
-                            let lines = r.stdout.lines().count() + r.stderr.lines().count();
-                            let body = format!("{}{}{}", r.stdout.trim_end(), if r.stderr.trim().is_empty() || r.stdout.trim().is_empty() { "" } else { "\n" }, r.stderr.trim_end());
-                            view! {
-                                <details class="cc-shell">
-                                    <summary><code>{format!("! {}", r.command)}</code><span class="muted">{format!(" · exit {} · {lines} lines{}", r.code, if r.truncated { " · truncated" } else { "" })}</span>
-                                        <button class="x" title="Remove" on:click=move |e| { e.prevent_default(); chat.shells.update(|s| { if i < s.len() { s.remove(i); } }); }>"×"</button></summary>
-                                    <pre>{if body.is_empty() { "(no output)".to_owned() } else { body }}</pre>
-                                </details>
-                            }
-                        }).collect_view()}
-                        {busy.then(|| view! { <div class="muted cc-shell-run">"Running…"</div> })}
-                    </div>
-                })
+                (!list.is_empty() || busy)
+                    .then(|| {
+                        view! {
+                            <div class="cb-band queue cc-shells">
+                                <div class="cq-h">
+                                    <b>"Shell"</b>
+                                    <span class="muted">" · included with your next message"</span>
+                                    <span class="grow"></span>
+                                    {(!list.is_empty())
+                                        .then(|| {
+                                            view! {
+                                                <button
+                                                    class="linkbtn"
+                                                    on:click=move |_| chat.shells.set(Vec::new())
+                                                >
+                                                    "Clear"
+                                                </button>
+                                            }
+                                        })}
+                                </div>
+                                {list
+                                    .into_iter()
+                                    .enumerate()
+                                    .map(|(i, r)| {
+                                        let lines = r.stdout.lines().count()
+                                            + r.stderr.lines().count();
+                                        let body = format!(
+                                            "{}{}{}",
+                                            r.stdout.trim_end(),
+                                            if r.stderr.trim().is_empty() || r.stdout.trim().is_empty()
+                                            {
+                                                ""
+                                            } else {
+                                                "\n"
+                                            },
+                                            r.stderr.trim_end(),
+                                        );
+                                        view! {
+                                            <details class="cc-shell">
+                                                <summary>
+                                                    <code>{format!("! {}", r.command)}</code>
+                                                    <span class="muted">
+                                                        {format!(
+                                                            " · exit {} · {lines} lines{}",
+                                                            r.code,
+                                                            if r.truncated { " · truncated" } else { "" },
+                                                        )}
+                                                    </span>
+                                                    <button
+                                                        class="x"
+                                                        title="Remove"
+                                                        on:click=move |e| {
+                                                            e.prevent_default();
+                                                            chat.shells
+                                                                .update(|s| {
+                                                                    if i < s.len() {
+                                                                        s.remove(i);
+                                                                    }
+                                                                });
+                                                        }
+                                                    >
+                                                        "×"
+                                                    </button>
+                                                </summary>
+                                                <pre>
+                                                    {if body.is_empty() {
+                                                        "(no output)".to_owned()
+                                                    } else {
+                                                        body
+                                                    }}
+                                                </pre>
+                                            </details>
+                                        }
+                                    })
+                                    .collect_view()}
+                                {busy
+                                    .then(|| {
+                                        view! { <div class="muted cc-shell-run">"Running…"</div> }
+                                    })}
+                            </div>
+                        }
+                    })
             }}
-            <QueueBand chat/>
+            <QueueBand chat />
             {move || {
                 let thread = chat.view.get();
-                chat.deliveries.with(|d| d.failed()).into_iter().filter(|(_, request)| request["resume_session"].as_str() == thread.as_deref()).map(|(id, request)| {
-                let text = request["text"].as_str().unwrap_or_default().to_owned();
-                let images = request["images"].as_array().map_or(0, Vec::len);
-                view! { <div class="cb-band queue"><div class="cq-h"><b>"Failed to send"</b><span class="grow"></span><button class="linkbtn" on:click=move |_| chat.retry_failed(id)>"Retry"</button><button class="linkbtn" on:click=move |_| failed_edit.set(Some((id, request.clone())))>"Edit"</button><button class="linkbtn" on:click=move |_| chat.spawn(async move {
-                    if dialog::ask("Discard message?", "This message was not sent. Discarding it cannot be undone.", vec![Choice::plain("Cancel"), Choice::danger("Discard")]).await == Some(1) {
-                        let _ = chat.deliveries.try_update(|deliveries| deliveries.take_failed(id));
+                chat.deliveries
+                    .with(|d| d.failed())
+                    .into_iter()
+                    .filter(|(_, request)| request["resume_session"].as_str() == thread.as_deref())
+                    .map(|(id, request)| {
+                        let text = request["text"].as_str().unwrap_or_default().to_owned();
+                        let images = request["images"].as_array().map_or(0, Vec::len);
+                        view! {
+                            <div class="cb-band queue">
+                                <div class="cq-h">
+                                    <b>"Failed to send"</b>
+                                    <span class="grow"></span>
+                                    <button class="linkbtn" on:click=move |_| chat.retry_failed(id)>
+                                        "Retry"
+                                    </button>
+                                    <button
+                                        class="linkbtn"
+                                        on:click=move |_| {
+                                            failed_edit.set(Some((id, request.clone())))
+                                        }
+                                    >
+                                        "Edit"
+                                    </button>
+                                    <button
+                                        class="linkbtn"
+                                        on:click=move |_| {
+                                            chat.spawn(async move {
+                                                if dialog::ask(
+                                                        "Discard message?",
+                                                        "This message was not sent. Discarding it cannot be undone.",
+                                                        vec![Choice::plain("Cancel"), Choice::danger("Discard")],
+                                                    )
+                                                    .await == Some(1)
+                                                {
+                                                    let _ = chat
+                                                        .deliveries
+                                                        .try_update(|deliveries| deliveries.take_failed(id));
+                                                }
+                                            })
+                                        }
+                                    >
+                                        "Discard"
+                                    </button>
+                                </div>
+                                <div class="cq-t">
+                                    {text}
+                                    {(images > 0).then(|| format!(" · {images} attachments"))}
+                                </div>
+                            </div>
+                        }
+                    })
+                    .collect_view()
+            }}
+            {move || chat.editing_queue.get().map(|queued| view! { <QueueEditor chat queued /> })}
+            {move || {
+                failed_edit
+                    .get()
+                    .map(|(id, request)| {
+                        view! {
+                            <FailedEditor
+                                chat
+                                id
+                                request
+                                on_close=Callback::new(move |_| failed_edit.set(None))
+                            />
+                        }
+                    })
+            }}
+            <Dock chat />
+            <div
+                class="cc-box"
+                data-bash=move || chat.prompt.with(|p| p.trim_start().starts_with('!')).to_string()
+                on:dragover=move |e: ev::DragEvent| {
+                    if e
+                        .data_transfer()
+                        .is_some_and(|d| {
+                            (0..d.items().length())
+                                .any(|i| {
+                                    d.items()
+                                        .get(i)
+                                        .is_some_and(|x| x.type_().starts_with("image/"))
+                                })
+                        })
+                    {
+                        e.prevent_default();
                     }
-                })>"Discard"</button></div><div class="cq-t">{text}{(images > 0).then(|| format!(" · {images} attachments"))}</div></div> }
-            }).collect_view()}}
-            {move || chat.editing_queue.get().map(|queued| view! { <QueueEditor chat queued/> })}
-            {move || failed_edit.get().map(|(id, request)| view! { <FailedEditor chat id request on_close=Callback::new(move |_| failed_edit.set(None))/> })}
-            <Dock chat/>
-            <div class="cc-box" data-bash=move || chat.prompt.with(|p| p.trim_start().starts_with('!')).to_string() on:dragover=move |e: ev::DragEvent| {
-                    if e.data_transfer().is_some_and(|d| (0..d.items().length()).any(|i| d.items().get(i).is_some_and(|x| x.type_().starts_with("image/")))) { e.prevent_default(); }
                 }
                 on:drop=move |e: ev::DragEvent| {
                     let imgs = files_of(e.data_transfer().and_then(|d| d.files()));
-                    if !imgs.is_empty() { e.prevent_default(); e.stop_propagation(); imgs.into_iter().for_each(add_image); }
-                }>
+                    if !imgs.is_empty() {
+                        e.prevent_default();
+                        e.stop_propagation();
+                        imgs.into_iter().for_each(add_image);
+                    }
+                }
+            >
                 {move || {
                     let list = chat.attach.get();
-                    (!list.is_empty()).then(|| view! {
-                        <div class="cb-atts">
-                            {list.into_iter().enumerate().map(|(i, a)| view! {
-                                <span class="cb-att"><img src=a.url alt=""/>
-                                    <button aria-label="Remove" on:click=move |_| chat.attach.update(|l| { l.remove(i); })>"×"</button>
-                                </span>
-                            }).collect_view()}
-                        </div>
-                    })
+                    (!list.is_empty())
+                        .then(|| {
+                            view! {
+                                <div class="cb-atts">
+                                    {list
+                                        .into_iter()
+                                        .enumerate()
+                                        .map(|(i, a)| {
+                                            view! {
+                                                <span class="cb-att">
+                                                    <img src=a.url alt="" />
+                                                    <button
+                                                        aria-label="Remove"
+                                                        on:click=move |_| {
+                                                            chat.attach
+                                                                .update(|l| {
+                                                                    l.remove(i);
+                                                                })
+                                                        }
+                                                    >
+                                                        "×"
+                                                    </button>
+                                                </span>
+                                            }
+                                        })
+                                        .collect_view()}
+                                </div>
+                            }
+                        })
                 }}
-                <textarea node_ref=ta rows="1" class="prompt" aria-label="Message"
-                    placeholder=move || if running.get() { if matches!(chat.runtime().as_str(), "claude" | "codex") { "Message the agent while it works…" } else { "Queue another message…" } } else { "⌘ Esc to focus or unfocus Claude" }
+                <textarea
+                    node_ref=ta
+                    rows="1"
+                    class="prompt"
+                    aria-label="Message"
+                    placeholder=move || {
+                        if running.get() {
+                            if matches!(chat.runtime().as_str(), "claude" | "codex") {
+                                "Message the agent while it works…"
+                            } else {
+                                "Queue another message…"
+                            }
+                        } else {
+                            "⌘ Esc to focus or unfocus Claude"
+                        }
+                    }
                     prop:value=move || chat.prompt.get()
-                    on:input=on_input on:keydown=on_key
+                    on:input=on_input
+                    on:keydown=on_key
                     on:paste=move |e: ev::ClipboardEvent| {
                         let imgs = files_of(e.clipboard_data().and_then(|d| d.files()));
-                        if !imgs.is_empty() { e.prevent_default(); imgs.into_iter().for_each(add_image); }
-                    }></textarea>
-                <div class="cb-bar">
-                    <button class="cb-ic cb-trigger" aria-label="Add context" title="Add context" inner_html=icon("plus") on:click=move |_| pop.update(|p| *p = if *p == Some(Pop::Plus) { None } else { Some(Pop::Plus) })></button>
-                    <button class="cb-ic cb-trigger" aria-label="Slash commands" title="Slash commands (/)" inner_html=icon("slash") on:click=move |_| {
-                        if !chat.prompt.get_untracked().starts_with('/') { chat.prompt.set("/".into()); }
-                        sel.set(0);
-                        pop.set(Some(Pop::Slash));
-                        focus();
-                    }></button>
-                    {move || (chat.runtime() == "claude").then(|| {
-                        let (n, bad) = chat.transcript.with(|t| t.mcp.clone()).iter().fold((0, 0), |(n, b), m| (n + 1, b + usize::from(m.status == "failed")));
-                        view! { <button class="cb-ic cb-trigger" data-bad=(bad > 0).to_string() aria-label="MCP servers" title=format!("MCP servers{}", if n > 0 { format!(" ({n})") } else { String::new() })
-                            inner_html=icon("plug") on:click=move |_| { chat.load_catalog(); pop.update(|p| *p = if *p == Some(Pop::Mcp) { None } else { Some(Pop::Mcp) }); }></button> }
-                    })}
-                    <button class="cb-chip cb-trigger cb-model" title="Switch model" on:click=move |_| pop.update(|p| *p = if *p == Some(Pop::Model) { None } else { Some(Pop::Model) })>
-                        <span class="cb-tx">{move || { let (n, e) = model_label(); view! { {n}{e.map(|e| view! { " "<span class="muted">{e}</span> })} } }}</span>
-                    </button>
-                {move || chat.ctx_file().map(|f| {
-                    let name = f.rsplit('/').next().unwrap_or(&f).to_owned();
-                    let f2 = f.clone();
-                    view! {
-                        <span class="cb-chip cb-ctx" title=format!("Current file: {f}")>
-                            <span inner_html=icon("file")></span><span class="nm cb-tx">{name}</span>
-                            <button class="x" aria-label="Remove current file" title="Remove current file" on:click=move |e| { e.stop_propagation(); chat.ctx_off.set(Some(f2.clone())); }>"×"</button>
-                        </span>
+                        if !imgs.is_empty() {
+                            e.prevent_default();
+                            imgs.into_iter().for_each(add_image);
+                        }
                     }
-                })}
-                <Show when=move || chat.fresh.get() && chat.view.get().is_some()>
-                    <button type="button" class="cb-chip cb-fresh" aria-label="Keep the current conversation" title="The next message starts a new conversation" on:click=move |_| chat.fresh.set(false)>"New conversation ×"</button>
-                </Show>
-                    {move || { let (st, title, empty) = ring(); view! { <span class="cb-ring" data-empty=empty.to_string() data-run=running.get().to_string() style=st title=title></span> } }}
+                ></textarea>
+                <div class="cb-bar">
+                    <button
+                        class="cb-ic cb-trigger"
+                        aria-label="Add context"
+                        title="Add context"
+                        inner_html=icon("plus")
+                        on:click=move |_| {
+                            pop.update(|p| {
+                                *p = if *p == Some(Pop::Plus) { None } else { Some(Pop::Plus) };
+                            })
+                        }
+                    ></button>
+                    <button
+                        class="cb-ic cb-trigger"
+                        aria-label="Slash commands"
+                        title="Slash commands (/)"
+                        inner_html=icon("slash")
+                        on:click=move |_| {
+                            if !chat.prompt.get_untracked().starts_with('/') {
+                                chat.prompt.set("/".into());
+                            }
+                            sel.set(0);
+                            pop.set(Some(Pop::Slash));
+                            focus();
+                        }
+                    ></button>
+                    {move || {
+                        (chat.runtime() == "claude")
+                            .then(|| {
+                                let (n, bad) = chat
+                                    .transcript
+                                    .with(|t| t.mcp.clone())
+                                    .iter()
+                                    .fold(
+                                        (0, 0),
+                                        |(n, b), m| (n + 1, b + usize::from(m.status == "failed")),
+                                    );
+                                view! {
+                                    <button
+                                        class="cb-ic cb-trigger"
+                                        data-bad=(bad > 0).to_string()
+                                        aria-label="MCP servers"
+                                        title=format!(
+                                            "MCP servers{}",
+                                            if n > 0 { format!(" ({n})") } else { String::new() },
+                                        )
+                                        inner_html=icon("plug")
+                                        on:click=move |_| {
+                                            chat.load_catalog();
+                                            pop.update(|p| {
+                                                *p = if *p == Some(Pop::Mcp) {
+                                                    None
+                                                } else {
+                                                    Some(Pop::Mcp)
+                                                };
+                                            });
+                                        }
+                                    ></button>
+                                }
+                            })
+                    }}
+                    <button
+                        class="cb-chip cb-trigger cb-model"
+                        title="Switch model"
+                        on:click=move |_| {
+                            pop.update(|p| {
+                                *p = if *p == Some(Pop::Model) { None } else { Some(Pop::Model) };
+                            })
+                        }
+                    >
+                        <span class="cb-tx">
+                            {move || {
+                                let (n, e) = model_label();
+                                view! {
+                                    {n}
+                                    {e
+                                        .map(|e| {
+                                            view! {
+                                                " "
+                                                <span class="muted">{e}</span>
+                                            }
+                                        })}
+                                }
+                            }}
+                        </span>
+                    </button>
+                    {move || {
+                        chat.ctx_file()
+                            .map(|f| {
+                                let name = f.rsplit('/').next().unwrap_or(&f).to_owned();
+                                let f2 = f.clone();
+                                view! {
+                                    <span class="cb-chip cb-ctx" title=format!("Current file: {f}")>
+                                        <span inner_html=icon("file")></span>
+                                        <span class="nm cb-tx">{name}</span>
+                                        <button
+                                            class="x"
+                                            aria-label="Remove current file"
+                                            title="Remove current file"
+                                            on:click=move |e| {
+                                                e.stop_propagation();
+                                                chat.ctx_off.set(Some(f2.clone()));
+                                            }
+                                        >
+                                            "×"
+                                        </button>
+                                    </span>
+                                }
+                            })
+                    }}
+                    <Show when=move || chat.fresh.get() && chat.view.get().is_some()>
+                        <button
+                            type="button"
+                            class="cb-chip cb-fresh"
+                            aria-label="Keep the current conversation"
+                            title="The next message starts a new conversation"
+                            on:click=move |_| chat.fresh.set(false)
+                        >
+                            "New conversation ×"
+                        </button>
+                    </Show>
+                    {move || {
+                        let (st, title, empty) = ring();
+                        view! {
+                            <span
+                                class="cb-ring"
+                                data-empty=empty.to_string()
+                                data-run=running.get().to_string()
+                                style=st
+                                title=title
+                            ></span>
+                        }
+                    }}
                     <span class="cb-time">{timer}</span>
                     <span class="cb-grow"></span>
                     <span class="cb-right">
-                    <button class="cb-chip cb-plain cb-trigger cb-agent" title="Switch agent or account, keeping the conversation"
-                        on:click=move |_| pop.update(|p| *p = if *p == Some(Pop::Agent) { None } else { Some(Pop::Agent) })>
-                        <span class="rt-dot" data-rt=move || chat.runtime()></span>
-                        <span class="cb-tx">{move || chat.agent_label()}
+                        <button
+                            class="cb-chip cb-plain cb-trigger cb-agent"
+                            title="Switch agent or account, keeping the conversation"
+                            on:click=move |_| {
+                                pop.update(|p| {
+                                    *p = if *p == Some(Pop::Agent) {
+                                        None
+                                    } else {
+                                        Some(Pop::Agent)
+                                    };
+                                })
+                            }
+                        >
+                            <span class="rt-dot" data-rt=move || chat.runtime()></span>
+                            <span class="cb-tx">
+                                {move || chat.agent_label()}
+                                {move || {
+                                    let rt = chat.runtime();
+                                    (ACC_RUNTIMES.contains(&rt.as_str())
+                                        && chat.agent.get().starts_with("r:"))
+                                        .then(|| {
+                                            chat.current_account(&rt)
+                                                .and_then(|id| chat.account(&id))
+                                                .map(|a| {
+                                                    view! {
+                                                        <span class="muted">{format!(" · {}", a.label)}</span>
+                                                    }
+                                                })
+                                        })
+                                        .flatten()
+                                }}
+                            </span>
+                        </button>
                         {move || {
-                            let rt = chat.runtime();
-                            (ACC_RUNTIMES.contains(&rt.as_str()) && chat.agent.get().starts_with("r:")).then(|| {
-                                chat.current_account(&rt).and_then(|id| chat.account(&id)).map(|a| view! { <span class="muted">{format!(" · {}", a.label)}</span> })
-                            }).flatten()
-                        }}</span>
-                    </button>
-                    {move || chat.effective_mode().map(|m| {
-                        let from = if !chat.perm.get().is_empty() { "" } else if chat.profile().and_then(|p| p.permission_mode).is_some() { " (from agent)" } else { " (default)" };
-                        view! {
-                            <button class="cb-chip cb-plain cb-trigger cb-mode" data-ui-guard="" data-mode=m.0 title=format!("{}{from}", m.2)
-                                on:click=move |_| pop.update(|p| *p = if *p == Some(Pop::Mode) { None } else { Some(Pop::Mode) })>
-                                <span inner_html=icon(m.3)></span><span>{m.1}</span>
-                            </button>
-                        }
-                    })}
-                    <button class="cb-send" data-mode=move || if stop_mode() { "stop" } else { "send" } data-busy=move || (chat.busy.get() > 0).to_string()
-                        data-pmode=move || chat.effective_mode().map(|m| m.0).unwrap_or("")
-                        aria-label=move || if stop_mode() { "Stop" } else if running.get() && !matches!(chat.runtime().as_str(), "claude" | "codex") { "Queue" } else { "Send" }
-                        title=move || if stop_mode() { "Stop (Esc)" } else if running.get() && !matches!(chat.runtime().as_str(), "claude" | "codex") { "Queue (Enter)" } else { "Send (Enter)" }
-                        on:click=move |_| if stop_mode() { chat.stop() } else { chat.send() }>
-                        <span class="i-send" inner_html=svg(r#"<path d="M12 19V5M5.5 11.5 12 5l6.5 6.5"/>"#)></span>
-                        <span class="i-stop"></span>
-                    </button>
+                            chat.effective_mode()
+                                .map(|m| {
+                                    let from = if !chat.perm.get().is_empty() {
+                                        ""
+                                    } else if chat
+                                        .profile()
+                                        .and_then(|p| p.permission_mode)
+                                        .is_some()
+                                    {
+                                        " (from agent)"
+                                    } else {
+                                        " (default)"
+                                    };
+                                    view! {
+                                        <button
+                                            class="cb-chip cb-plain cb-trigger cb-mode"
+                                            data-ui-guard=""
+                                            data-mode=m.0
+                                            title=format!("{}{from}", m.2)
+                                            on:click=move |_| {
+                                                pop.update(|p| {
+                                                    *p = if *p == Some(Pop::Mode) {
+                                                        None
+                                                    } else {
+                                                        Some(Pop::Mode)
+                                                    };
+                                                })
+                                            }
+                                        >
+                                            <span inner_html=icon(m.3)></span>
+                                            <span>{m.1}</span>
+                                        </button>
+                                    }
+                                })
+                        }}
+                        <button
+                            class="cb-send"
+                            data-mode=move || if stop_mode() { "stop" } else { "send" }
+                            data-busy=move || (chat.busy.get() > 0).to_string()
+                            data-pmode=move || chat.effective_mode().map(|m| m.0).unwrap_or("")
+                            aria-label=move || {
+                                if stop_mode() {
+                                    "Stop"
+                                } else if running.get()
+                                    && !matches!(chat.runtime().as_str(), "claude" | "codex")
+                                {
+                                    "Queue"
+                                } else {
+                                    "Send"
+                                }
+                            }
+                            title=move || {
+                                if stop_mode() {
+                                    "Stop (Esc)"
+                                } else if running.get()
+                                    && !matches!(chat.runtime().as_str(), "claude" | "codex")
+                                {
+                                    "Queue (Enter)"
+                                } else {
+                                    "Send (Enter)"
+                                }
+                            }
+                            on:click=move |_| if stop_mode() { chat.stop() } else { chat.send() }
+                        >
+                            <span
+                                class="i-send"
+                                inner_html=svg(r#"<path d="M12 19V5M5.5 11.5 12 5l6.5 6.5"/>"#)
+                            ></span>
+                            <span class="i-stop"></span>
+                        </button>
                     </span>
-                    <input type="file" node_ref=file_in accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden
+                    <input
+                        type="file"
+                        node_ref=file_in
+                        accept="image/png,image/jpeg,image/gif,image/webp"
+                        multiple
+                        hidden
                         on:change=move |e| {
                             let input: web_sys::HtmlInputElement = event_target(&e);
                             files_of(input.files()).into_iter().for_each(add_image);
                             input.set_value("");
-                        }/>
+                        }
+                    />
                 </div>
             </div>
         </div>

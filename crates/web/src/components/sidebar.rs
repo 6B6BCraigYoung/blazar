@@ -132,46 +132,143 @@ pub fn Sidebar() -> impl IntoView {
     const LOGO: &str = r##"<svg viewBox="100 100 824 824" aria-hidden="true"><rect x="100" y="100" width="824" height="824" rx="185" fill="#0b0f19"/><g fill="none" stroke-linecap="round" transform="translate(0 24)"><path d="M365 616 A208 208 0 1 1 659 616" stroke="#e5e7f0" stroke-width="46"/><path d="M471 478 L449 690 M553 478 L575 690" stroke="#5ee6f0" stroke-width="54"/></g></svg>"##;
     view! {
         <nav class="side" aria-label="主导航">
-            <div class="brand"><span class="logo" inner_html=LOGO></span>"Blazar"<span class="grow"></span><button type="button" class="linkbtn" aria-label="收起侧栏" title="收起侧栏" on:click=move |_| app.side_collapsed.set(true)>"«"</button></div>
-            <button type="button" class="nav search" aria-haspopup="dialog" aria-expanded=move || app.palette.get().to_string() on:click=move |_| app.palette.set(true)>
-                <span class="ic" inner_html=icon(I_SEARCH)></span><span class="nm muted">"搜索…"</span><span class="n">{palette_key}</span>
+            <div class="brand">
+                <span class="logo" inner_html=LOGO></span>
+                "Blazar"
+                <span class="grow"></span>
+                <button
+                    type="button"
+                    class="linkbtn"
+                    aria-label="收起侧栏"
+                    title="收起侧栏"
+                    on:click=move |_| app.side_collapsed.set(true)
+                >
+                    "«"
+                </button>
+            </div>
+            <button
+                type="button"
+                class="nav search"
+                aria-haspopup="dialog"
+                aria-expanded=move || app.palette.get().to_string()
+                on:click=move |_| app.palette.set(true)
+            >
+                <span class="ic" inner_html=icon(I_SEARCH)></span>
+                <span class="nm muted">"搜索…"</span>
+                <span class="n">{palette_key}</span>
             </button>
-            <button type="button" class="btn primary new-ws" aria-haspopup="dialog" aria-expanded=move || app.new_ws.get().to_string() on:click=move |_| app.new_ws.set(true)>"＋ 新建工作区"</button>
+            <button
+                type="button"
+                class="btn primary new-ws"
+                aria-haspopup="dialog"
+                aria-expanded=move || app.new_ws.get().to_string()
+                on:click=move |_| app.new_ws.set(true)
+            >
+                "＋ 新建工作区"
+            </button>
             <div class="grp">
-                {nav("/inbox", I_INBOX, "收件箱", Signal::derive(move || { let u = app.inbox_unread.get(); if u > 0 { u.to_string() } else { String::new() } }), false)}
-                {section("/", I_FOLDER, "工作区", all, &["/", "/running", "/waiting", "/workspaces"])}
-                {section("/bots", I_BOT, "bot", Signal::derive(move || n(app.bots.with(|b| b.len()))), &["/bots"])}
-                {section("/tasks", I_TASKS, "任务", Signal::derive(move || n(app.tasks_open.get())), &["/tasks", "/autopilots"])}
+                {nav(
+                    "/inbox",
+                    I_INBOX,
+                    "收件箱",
+                    Signal::derive(move || {
+                        let u = app.inbox_unread.get();
+                        if u > 0 { u.to_string() } else { String::new() }
+                    }),
+                    false,
+                )}
+                {section(
+                    "/",
+                    I_FOLDER,
+                    "工作区",
+                    all,
+                    &["/", "/running", "/waiting", "/workspaces"],
+                )}
+                {section(
+                    "/bots",
+                    I_BOT,
+                    "bot",
+                    Signal::derive(move || n(app.bots.with(|b| b.len()))),
+                    &["/bots"],
+                )}
+                {section(
+                    "/tasks",
+                    I_TASKS,
+                    "任务",
+                    Signal::derive(move || n(app.tasks_open.get())),
+                    &["/tasks", "/autopilots"],
+                )}
             </div>
             {move || {
                 let p = projects();
-                (!p.is_empty()).then(|| view! {
-                    <div class="grp">
-                        <span>"项目"</span>
-                        {p.into_iter().map(|(name, c)| {
-                            let href = format!("/project/{}", js_sys::encode_uri_component(&name));
-                            let title = name.clone();
-                            view! {
-                                <A href=href attr:class="nav" attr:title=title>
-                                    <span class="ic" inner_html=icon(I_FOLDER)></span><span class="nm">{name}</span><span class="n">{c}</span>
-                                </A>
-                            }
-                        }).collect_view()}
-                    </div>
-                })
+                (!p.is_empty())
+                    .then(|| {
+                        view! {
+                            <div class="grp">
+                                <span>"项目"</span>
+                                {p
+                                    .into_iter()
+                                    .map(|(name, c)| {
+                                        let href = format!(
+                                            "/project/{}",
+                                            js_sys::encode_uri_component(&name),
+                                        );
+                                        let title = name.clone();
+                                        view! {
+                                            <A href=href attr:class="nav" attr:title=title>
+                                                <span class="ic" inner_html=icon(I_FOLDER)></span>
+                                                <span class="nm">{name}</span>
+                                                <span class="n">{c}</span>
+                                            </A>
+                                        }
+                                    })
+                                    .collect_view()}
+                            </div>
+                        }
+                    })
             }}
             <div class="grp">
                 <span>"管理"</span>
-                {section("/agents", I_AGENT, "智能体", none, &["/agents", "/agent", "/skills", "/library", "/runtimes", "/accounts", "/usage"])}
+                {section(
+                    "/agents",
+                    I_AGENT,
+                    "智能体",
+                    none,
+                    &[
+                        "/agents",
+                        "/agent",
+                        "/skills",
+                        "/library",
+                        "/runtimes",
+                        "/accounts",
+                        "/usage",
+                    ],
+                )}
                 {nav("/apps", I_APPS, "接入的软件", none, false)}
-                {section("/nodes", I_NODES, "机器与组网", Signal::derive(move || { let (a, b) = nodes(); format!("{a}/{b}") }), &["/nodes", "/mesh"])}
+                {section(
+                    "/nodes",
+                    I_NODES,
+                    "机器与组网",
+                    Signal::derive(move || {
+                        let (a, b) = nodes();
+                        format!("{a}/{b}")
+                    }),
+                    &["/nodes", "/mesh"],
+                )}
             </div>
             <div class="foot">
                 {nav("/settings", I_GEAR, "设置", none, false)}
                 <div class="status">
                     {status}
-                    <button type="button" class="linkbtn" aria-haspopup="dialog" aria-expanded=move || app.alerts_open.get().to_string() on:click=move |_| app.alerts_open.set(true)>
-                        <span class="ic-inline" inner_html=icon(I_BELL)></span>{move || if alerts_on() { " 提醒已开" } else { " 开启提醒" }}
+                    <button
+                        type="button"
+                        class="linkbtn"
+                        aria-haspopup="dialog"
+                        aria-expanded=move || app.alerts_open.get().to_string()
+                        on:click=move |_| app.alerts_open.set(true)
+                    >
+                        <span class="ic-inline" inner_html=icon(I_BELL)></span>
+                        {move || if alerts_on() { " 提醒已开" } else { " 开启提醒" }}
                     </button>
                 </div>
                 <span class="conn" role="status" data-up=move || bus.connected.get().to_string()>

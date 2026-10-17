@@ -24,8 +24,18 @@ pub(super) fn Todos(chat: Chat) -> impl IntoView {
             .map(|t| t.content.clone());
         Some(view! {
             <div class="cc-todobar">
-                <button class="td-h" on:click=move |_| { open.update(|o| *o = !*o); storage::save_raw("blazar.todosOpen", if open.get_untracked() { "1" } else { "0" }); }>
-                    {move || if open.get() { "▾ " } else { "▸ " }}<b>{format!("Tasks {done}/{}", todos.len())}</b>
+                <button
+                    class="td-h"
+                    on:click=move |_| {
+                        open.update(|o| *o = !*o);
+                        storage::save_raw(
+                            "blazar.todosOpen",
+                            if open.get_untracked() { "1" } else { "0" },
+                        );
+                    }
+                >
+                    {move || if open.get() { "▾ " } else { "▸ " }}
+                    <b>{format!("Tasks {done}/{}", todos.len())}</b>
                     {cur.map(|c| view! { <span class="td-cur">{c}</span> })}
                 </button>
                 {move || open.get().then(|| todo_list(&todos))}
@@ -85,9 +95,20 @@ pub(super) fn RateBanner(chat: Chat) -> impl IntoView {
             .unwrap_or_default();
         Some(view! {
             <div class="cb-band rate">
-                <span>{format!("{short} limit {}% used{reset}", (hot.utilization * 100.0).round())}</span>
+                <span>
+                    {format!("{short} limit {}% used{reset}", (hot.utilization * 100.0).round())}
+                </span>
                 <span class="grow"></span>
-                <button class="x" aria-label="Dismiss" on:click=move |_| { storage::save_raw("blazar.rate.off", &key); off.set(key.clone()); }>"×"</button>
+                <button
+                    class="x"
+                    aria-label="Dismiss"
+                    on:click=move |_| {
+                        storage::save_raw("blazar.rate.off", &key);
+                        off.set(key.clone());
+                    }
+                >
+                    "×"
+                </button>
             </div>
         })
     }

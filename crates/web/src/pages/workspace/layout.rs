@@ -197,11 +197,16 @@ pub fn Splitter(edge: Edge, state: LayoutState) -> impl IntoView {
         }
     };
     view! {
-        <div class="split" data-dir=if horizontal { "x" } else { "y" }
+        <div
+            class="split"
+            data-dir=if horizontal { "x" } else { "y" }
             data-collapsed=move || hidden().to_string()
             title="拖动调整大小，双击收起"
-            on:pointerdown=down on:pointermove=mv on:pointerup=up on:pointercancel=up
-            on:dblclick=move |_| state.toggle(region)>
-        </div>
+            on:pointerdown=down
+            on:pointermove=mv
+            on:pointerup=up
+            on:pointercancel=up
+            on:dblclick=move |_| state.toggle(region)
+        ></div>
     }
 }

@@ -54,7 +54,7 @@ pub fn WorkspacePage() -> impl IntoView {
     let id = move || params.read().get("id").unwrap_or_default();
     move || {
         let id = id();
-        view! { <Workspace id/> }
+        view! { <Workspace id /> }
     }
 }
 
@@ -284,7 +284,7 @@ fn Workspace(id: String) -> impl IntoView {
                 let c = chat::Chat::new(
                     &chat_id, &path, &node, files, diff, git, running, show_aux, show_diff,
                 );
-                view! { <chat::ChatPane chat=c tree_files on_hide=hide_aux draft/> }
+                view! { <chat::ChatPane chat=c tree_files on_hide=hide_aux draft /> }
             })
     };
     let chat_once = Memo::new(move |was: Option<&bool>| {
@@ -374,58 +374,137 @@ fn Workspace(id: String) -> impl IntoView {
             <Show when=move || gone.get()>
                 <div class="ws-gone" role="alert">
                     <h2>"这个工作区已被删除"</h2>
-                    <p class="muted">"它在别处被删除了，这里的文件、终端和对话都不再可用。"</p>
-                    <a class="btn primary" href="/">"回到全部工作区"</a>
+                    <p class="muted">
+                        "它在别处被删除了，这里的文件、终端和对话都不再可用。"
+                    </p>
+                    <a class="btn primary" href="/">
+                        "回到全部工作区"
+                    </a>
                 </div>
             </Show>
             <div class="ws-head" inert=move || gone.get()>
-                {move || detail.get().and_then(|d| d.err()).filter(|e| !e.not_found()).map(|e| view! { <InlineError message=e.to_string()/> })}
+                {move || {
+                    detail
+                        .get()
+                        .and_then(|d| d.err())
+                        .filter(|e| !e.not_found())
+                        .map(|e| view! { <InlineError message=e.to_string() /> })
+                }}
                 <span class="grow"></span>
-                <Children id=id.clone()/>
-                <button class="btn small" on:click=move |_| insp.set(true)>"属性"</button>
-                <button class="laybtn" aria-label="切换资源管理器" title=crate::shortcuts::titled("资源管理器", "explorer") aria-pressed=move || (!lay().hide_ex).to_string()
-                    on:click=move |_| state.toggle(Region::Explorer) inner_html=ICON_LEFT></button>
-                <button class="laybtn" aria-label="切换底部面板" title=crate::shortcuts::titled("面板", "panel") aria-pressed=move || (!lay().hide_panel).to_string()
-                    on:click=move |_| state.toggle(Region::Panel) inner_html=ICON_BOTTOM></button>
-                <button class="laybtn" aria-label="切换对话面板" title=crate::shortcuts::titled("对话", "chat") aria-pressed=move || (!lay().hide_aux).to_string()
-                    on:click=move |_| state.toggle(Region::Aux) inner_html=ICON_RIGHT></button>
+                <Children id=id.clone() />
+                <button class="btn small" on:click=move |_| insp.set(true)>
+                    "属性"
+                </button>
+                <button
+                    class="laybtn"
+                    aria-label="切换资源管理器"
+                    title=crate::shortcuts::titled("资源管理器", "explorer")
+                    aria-pressed=move || (!lay().hide_ex).to_string()
+                    on:click=move |_| state.toggle(Region::Explorer)
+                    inner_html=ICON_LEFT
+                ></button>
+                <button
+                    class="laybtn"
+                    aria-label="切换底部面板"
+                    title=crate::shortcuts::titled("面板", "panel")
+                    aria-pressed=move || (!lay().hide_panel).to_string()
+                    on:click=move |_| state.toggle(Region::Panel)
+                    inner_html=ICON_BOTTOM
+                ></button>
+                <button
+                    class="laybtn"
+                    aria-label="切换对话面板"
+                    title=crate::shortcuts::titled("对话", "chat")
+                    aria-pressed=move || (!lay().hide_aux).to_string()
+                    on:click=move |_| state.toggle(Region::Aux)
+                    inner_html=ICON_RIGHT
+                ></button>
             </div>
             {
                 let id = id.clone();
-                move || insp.get().then(|| view! { <crate::pages::workspaces::Inspector id=id.clone() on_close=move || insp.set(false)/> })
+                move || {
+                    insp.get()
+                        .then(|| {
+                            view! {
+                                <crate::pages::workspaces::Inspector
+                                    id=id.clone()
+                                    on_close=move || insp.set(false)
+                                />
+                            }
+                        })
+                }
             }
-            {move || files.error.get().map(|e| view! {
-                <div class="ws-error"><InlineError message=e/><button type="button" class="btn ghost" aria-label="关闭文件错误提示" on:click=move |_| files.error.set(None)>"×"</button></div>
-            })}
+            {move || {
+                files
+                    .error
+                    .get()
+                    .map(|e| {
+                        view! {
+                            <div class="ws-error">
+                                <InlineError message=e />
+                                <button
+                                    type="button"
+                                    class="btn ghost"
+                                    aria-label="关闭文件错误提示"
+                                    on:click=move |_| files.error.set(None)
+                                >
+                                    "×"
+                                </button>
+                            </div>
+                        }
+                    })
+            }}
             <div class="ws-grid" node_ref=grid style=grid_style inert=move || gone.get()>
-                <section class="region explorer" aria-label="资源管理器" data-collapsed=move || lay().hide_ex.to_string()>
+                <section
+                    class="region explorer"
+                    aria-label="资源管理器"
+                    data-collapsed=move || lay().hide_ex.to_string()
+                >
                     <div class="rhead">
                         <span class="grow"></span>
                         <span class="count">{tree_count}</span>
-                        <button class="laybtn" aria-label="刷新文件树" title="重新扫描" inner_html=ICON_REFRESH
-                            on:click=move |_| tree_rev.update(|n| *n += 1)></button>
+                        <button
+                            class="laybtn"
+                            aria-label="刷新文件树"
+                            title="重新扫描"
+                            inner_html=ICON_REFRESH
+                            on:click=move |_| tree_rev.update(|n| *n += 1)
+                        ></button>
                     </div>
-                    <FileTree root opened files root_name=root_name reload=tree_reload/>
+                    <FileTree root opened files root_name=root_name reload=tree_reload />
                 </section>
-                <Splitter edge=Edge::Explorer state/>
+                <Splitter edge=Edge::Explorer state />
                 <section class="region center" data-max=move || lay().panel_max.to_string()>
                     <div class="editor-area">
-                        <Tabs files changes/>
-                        <EdBar files preview=md_preview/>
+                        <Tabs files changes />
+                        <EdBar files preview=md_preview />
                         <div class="editor-stack">
-                            <div class="editor-host" node_ref=host aria-label="代码编辑器"></div>
-                            <MdView files preview=md_preview/>
+                            <div
+                                class="editor-host"
+                                node_ref=host
+                                aria-label="代码编辑器"
+                            ></div>
+                            <MdView files preview=md_preview />
                             <Show when=move || files.open_tabs.with(Vec::is_empty)>
-                                <div class="welcome"><EmptyState title="选择文件开始编辑" detail="⌘B 资源管理器 · ⌘J 面板 · ⌘⌥B 对话" class="editor-empty"/></div>
+                                <div class="welcome">
+                                    <EmptyState
+                                        title="选择文件开始编辑"
+                                        detail="⌘B 资源管理器 · ⌘J 面板 · ⌘⌥B 对话"
+                                        class="editor-empty"
+                                    />
+                                </div>
                             </Show>
                         </div>
                     </div>
-                    <Splitter edge=Edge::Panel state/>
-                    <section class="region panel" data-collapsed=move || lay().hide_panel.to_string()>
-                        <Panel ws=id.clone() files git diff state tab=panel_tab draft isolated/>
+                    <Splitter edge=Edge::Panel state />
+                    <section
+                        class="region panel"
+                        data-collapsed=move || lay().hide_panel.to_string()
+                    >
+                        <Panel ws=id.clone() files git diff state tab=panel_tab draft isolated />
                     </section>
                 </section>
-                <Splitter edge=Edge::Aux state/>
+                <Splitter edge=Edge::Aux state />
                 <aside class="region aux" data-collapsed=move || lay().hide_aux.to_string()>
                     {move || chat_once.get().then(|| untrack(chat_view.clone()))}
                 </aside>
@@ -450,19 +529,52 @@ fn Tabs(
                     let active = move || files.current.with(|c| c.as_deref() == Some(p.as_str()));
                     let active_button = active.clone();
                     let dirty = move || files.dirty.with(|d| d.contains(&p2));
-                    let mark = Memo::new(move |_| change_mark(changes.with(|c| c.get(&p3).copied())));
+                    let mark = Memo::new(move |_| change_mark(
+                        changes.with(|c| c.get(&p3).copied()),
+                    ));
                     view! {
-                        <div class="etab" data-active=move || active().to_string() data-dirty=move || dirty().to_string()
+                        <div
+                            class="etab"
+                            data-active=move || active().to_string()
+                            data-dirty=move || dirty().to_string()
                             title=path.clone()
-                            on:click=move |_| if !files.current.with_untracked(|c| c.as_deref() == Some(p4.as_str())) { files.open(p4.clone(), 0) }>
-                            <button type="button" class="etab-select" aria-pressed=move || active_button().to_string() aria-label=path.clone()>
-                            <span class=move || format!("ch {}", mark.get().1)>{move || mark.get().0}</span>
-                            <span class="nm">{path.rsplit('/').next().unwrap_or(&path).to_owned()}</span>
+                            on:click=move |_| {
+                                if !files
+                                    .current
+                                    .with_untracked(|c| c.as_deref() == Some(p4.as_str()))
+                                {
+                                    files.open(p4.clone(), 0)
+                                }
+                            }
+                        >
+                            <button
+                                type="button"
+                                class="etab-select"
+                                aria-pressed=move || active_button().to_string()
+                                aria-label=path.clone()
+                            >
+                                <span class=move || {
+                                    format!("ch {}", mark.get().1)
+                                }>{move || mark.get().0}</span>
+                                <span class="nm">
+                                    {path.rsplit('/').next().unwrap_or(&path).to_owned()}
+                                </span>
                             </button>
-                            <button type="button" class="x" aria-label=format!("关闭 {path}") title="关闭文件" on:click={
-                                let p = path.clone();
-                                move |e| { e.stop_propagation(); files.close(p.clone()); }
-                            }>"×"</button>
+                            <button
+                                type="button"
+                                class="x"
+                                aria-label=format!("关闭 {path}")
+                                title="关闭文件"
+                                on:click={
+                                    let p = path.clone();
+                                    move |e| {
+                                        e.stop_propagation();
+                                        files.close(p.clone());
+                                    }
+                                }
+                            >
+                                "×"
+                            </button>
                         </div>
                     }
                 }
@@ -474,41 +586,88 @@ fn Tabs(
 #[component]
 fn EdBar(files: Files, preview: RwSignal<bool>) -> impl IntoView {
     view! {
-        {move || files.current.get().map(|p| {
-            let crumbs = p.split('/').map(str::to_owned).collect::<Vec<_>>();
-            let last = crumbs.len().saturating_sub(1);
-            let p_dirty = p.clone();
-            let p_save = p.clone();
-            let is_md = Files::is_md(&p);
-            let ro = files.readonly(&p);
-            view! {
-                <div class="edbar">
-                    <span class="crumbs">
-                        {crumbs.into_iter().enumerate().map(|(i, c)| view! {
-                            {(i > 0).then_some(view! { <i>"›"</i> })}
-                            <span class:cur=i == last>{c}</span>
-                        }).collect_view()}
-                    </span>
-                    <span class="grow"></span>
-                    {move || if ro {
-                        view! { <span class="muted">"只读"</span> }.into_any()
-                    } else if files.dirty.with(|d| d.contains(&p_dirty)) {
-                        let p = p_save.clone();
-                        view! { <button class="linkbtn" title="保存（⌘S）" on:click=move |_| files.save(p.clone(), false)>"保存改动"</button> }.into_any()
-                    } else {
-                        view! { <span class="muted">"已保存"</span> }.into_any()
-                    }}
-                    {is_md.then(|| view! {
-                        <span class="seg">
-                            <button type="button" aria-pressed=move || preview.get().to_string() data-on=move || preview.get().to_string()
-                                on:click=move |_| { preview.set(true); crate::markdown_mode::save(crate::markdown_mode::MarkdownMode::Preview); }>"预览"</button>
-                            <button type="button" aria-pressed=move || (!preview.get()).to_string() data-on=move || (!preview.get()).to_string()
-                                on:click=move |_| { preview.set(false); crate::markdown_mode::save(crate::markdown_mode::MarkdownMode::Source); }>"源码"</button>
-                        </span>
-                    })}
-                </div>
-            }
-        })}
+        {move || {
+            files
+                .current
+                .get()
+                .map(|p| {
+                    let crumbs = p.split('/').map(str::to_owned).collect::<Vec<_>>();
+                    let last = crumbs.len().saturating_sub(1);
+                    let p_dirty = p.clone();
+                    let p_save = p.clone();
+                    let is_md = Files::is_md(&p);
+                    let ro = files.readonly(&p);
+                    view! {
+                        <div class="edbar">
+                            <span class="crumbs">
+                                {crumbs
+                                    .into_iter()
+                                    .enumerate()
+                                    .map(|(i, c)| {
+                                        view! {
+                                            {(i > 0).then_some(view! { <i>"›"</i> })}
+                                            <span class:cur=i == last>{c}</span>
+                                        }
+                                    })
+                                    .collect_view()}
+                            </span>
+                            <span class="grow"></span>
+                            {move || {
+                                if ro {
+                                    view! { <span class="muted">"只读"</span> }.into_any()
+                                } else if files.dirty.with(|d| d.contains(&p_dirty)) {
+                                    let p = p_save.clone();
+                                    view! {
+                                        <button
+                                            class="linkbtn"
+                                            title="保存（⌘S）"
+                                            on:click=move |_| files.save(p.clone(), false)
+                                        >
+                                            "保存改动"
+                                        </button>
+                                    }
+                                        .into_any()
+                                } else {
+                                    view! { <span class="muted">"已保存"</span> }.into_any()
+                                }
+                            }}
+                            {is_md
+                                .then(|| {
+                                    view! {
+                                        <span class="seg">
+                                            <button
+                                                type="button"
+                                                aria-pressed=move || preview.get().to_string()
+                                                data-on=move || preview.get().to_string()
+                                                on:click=move |_| {
+                                                    preview.set(true);
+                                                    crate::markdown_mode::save(
+                                                        crate::markdown_mode::MarkdownMode::Preview,
+                                                    );
+                                                }
+                                            >
+                                                "预览"
+                                            </button>
+                                            <button
+                                                type="button"
+                                                aria-pressed=move || (!preview.get()).to_string()
+                                                data-on=move || (!preview.get()).to_string()
+                                                on:click=move |_| {
+                                                    preview.set(false);
+                                                    crate::markdown_mode::save(
+                                                        crate::markdown_mode::MarkdownMode::Source,
+                                                    );
+                                                }
+                                            >
+                                                "源码"
+                                            </button>
+                                        </span>
+                                    }
+                                })}
+                        </div>
+                    }
+                })
+        }}
     }
 }
 
@@ -589,7 +748,15 @@ fn MdView(files: Files, preview: RwSignal<bool>) -> impl IntoView {
         }
     };
     view! {
-        <div class="mdview" role="region" aria-label="Markdown 预览" tabindex="0" node_ref=el hidden=move || !show() on:click=click>
+        <div
+            class="mdview"
+            role="region"
+            aria-label="Markdown 预览"
+            tabindex="0"
+            node_ref=el
+            hidden=move || !show()
+            on:click=click
+        >
             <article class="md-body" inner_html=move || html.get()></article>
         </div>
     }
@@ -650,42 +817,88 @@ fn Panel(
     view! {
         <div class="rhead">
             <div class="rtabs">
-                <button class="rtab" data-active=move || (tab.get() == "term").to_string() on:click=move |_| pick("term")
-                    title="会话常驻（断线重连回到原处）">"终端"</button>
-                <button class="rtab" data-active=move || (tab.get() == "diff").to_string() on:click=move |_| pick("diff")>
-                    "差异"{move || (diff_n() > 0).then(|| view! { <span class="tabn">{diff_n()}</span> })}
+                <button
+                    class="rtab"
+                    data-active=move || (tab.get() == "term").to_string()
+                    on:click=move |_| pick("term")
+                    title="会话常驻（断线重连回到原处）"
+                >
+                    "终端"
                 </button>
-                <button class="rtab" data-active=move || (tab.get() == "git").to_string() on:click=move |_| pick("git")>
-                    "Git"{move || git_mark().map(|(c, t)| view! { <span class=format!("tabn {c}")>{t}</span> })}
+                <button
+                    class="rtab"
+                    data-active=move || (tab.get() == "diff").to_string()
+                    on:click=move |_| pick("diff")
+                >
+                    "差异"
+                    {move || (diff_n() > 0).then(|| view! { <span class="tabn">{diff_n()}</span> })}
                 </button>
-                <button class="rtab" data-active=move || (tab.get() == "preview").to_string() on:click=move |_| pick("preview")>"预览"</button>
+                <button
+                    class="rtab"
+                    data-active=move || (tab.get() == "git").to_string()
+                    on:click=move |_| pick("git")
+                >
+                    "Git"
+                    {move || {
+                        git_mark()
+                            .map(|(c, t)| view! { <span class=format!("tabn {c}")>{t}</span> })
+                    }}
+                </button>
+                <button
+                    class="rtab"
+                    data-active=move || (tab.get() == "preview").to_string()
+                    on:click=move |_| pick("preview")
+                >
+                    "预览"
+                </button>
             </div>
             <Show when=move || tab.get() == "term">
-                <TermTabs ws=tws.clone() terms/>
+                <TermTabs ws=tws.clone() terms />
             </Show>
             <span class="grow"></span>
             <Show when=move || tab.get() == "term">
-                <span class="term-state" role="status" aria-live="polite" data-s=move || terms.state.get()>
-                    {move || match terms.state.get() { "open" => "", "closed" => "已断开", _ => "连接中…" }}
+                <span
+                    class="term-state"
+                    role="status"
+                    aria-live="polite"
+                    data-s=move || terms.state.get()
+                >
+                    {move || match terms.state.get() {
+                        "open" => "",
+                        "closed" => "已断开",
+                        _ => "连接中…",
+                    }}
                 </span>
-                <button class="laybtn" aria-label="重新连接终端" title="重新连接；远端会话仍在时会回到原处" inner_html=ICON_REFRESH
-                    on:click=move |_| terms.reconnect.update(|n| *n += 1)></button>
+                <button
+                    class="laybtn"
+                    aria-label="重新连接终端"
+                    title="重新连接；远端会话仍在时会回到原处"
+                    inner_html=ICON_REFRESH
+                    on:click=move |_| terms.reconnect.update(|n| *n += 1)
+                ></button>
             </Show>
-            <button class="laybtn" aria-label="收起底部面板" title=crate::shortcuts::titled("收起面板", "panel") on:click=move |_| state.toggle(Region::Panel)>"▾"</button>
+            <button
+                class="laybtn"
+                aria-label="收起底部面板"
+                title=crate::shortcuts::titled("收起面板", "panel")
+                on:click=move |_| state.toggle(Region::Panel)
+            >
+                "▾"
+            </button>
         </div>
         <div class="panelbody">
             <div class="ppane" data-active=move || (tab.get() == "term").to_string()>
-                <TermPane ws=ws.clone() terms active=shown("term")/>
+                <TermPane ws=ws.clone() terms active=shown("term") />
             </div>
             <div class="ppane col" data-active=move || (tab.get() == "diff").to_string()>
-                <DiffBar d=diff git collapsed panel_max draft/>
-                <DiffView ws=ws.clone() d=diff files collapsed/>
+                <DiffBar d=diff git collapsed panel_max draft />
+                <DiffView ws=ws.clone() d=diff files collapsed />
             </div>
             <div class="ppane" data-active=move || (tab.get() == "git").to_string()>
-                <GitView git files draft/>
+                <GitView git files draft />
             </div>
             <div class="ppane col" data-active=move || (tab.get() == "preview").to_string()>
-                <PreviewBar ws=ws.clone() active=shown("preview") panel_max isolated/>
+                <PreviewBar ws=ws.clone() active=shown("preview") panel_max isolated />
             </div>
         </div>
     }

@@ -36,7 +36,7 @@ pub fn TermDialogHost() -> impl IntoView {
     let open = OPEN.get().expect("term_dialog::provide 还没调用");
     move || {
         open.get()
-            .map(|t| view! { <Dialog t on_close=Callback::new(move |_| open.set(None))/> })
+            .map(|t| view! { <Dialog t on_close=Callback::new(move |_| open.set(None)) /> })
     }
 }
 
@@ -102,14 +102,21 @@ fn Dialog(t: TermLogin, on_close: Callback<()>) -> impl IntoView {
         live.set_value(Some(Rc::new(o)));
     });
     view! {
-        <Modal label=t.title.clone() class="dlg wide" close_on_backdrop=false on_close=Callback::new(move |_| finish())>
-                <h3>{t.title.clone()}</h3>
-                <div class="muted small">{t.hint.clone()}</div>
-                <div class="login-term" data-ui-guard="" node_ref=host></div>
-                <div class="dlg-foot">
-                    <span class="muted small grow">{move || state.get()}</span>
-                    <button type="button" class="btn primary" on:click=move |_| finish()>"完成"</button>
-                </div>
+        <Modal
+            label=t.title.clone()
+            class="dlg wide"
+            close_on_backdrop=false
+            on_close=Callback::new(move |_| finish())
+        >
+            <h3>{t.title.clone()}</h3>
+            <div class="muted small">{t.hint.clone()}</div>
+            <div class="login-term" data-ui-guard="" node_ref=host></div>
+            <div class="dlg-foot">
+                <span class="muted small grow">{move || state.get()}</span>
+                <button type="button" class="btn primary" on:click=move |_| finish()>
+                    "完成"
+                </button>
+            </div>
         </Modal>
     }
 }

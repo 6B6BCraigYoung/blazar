@@ -69,7 +69,11 @@ fn status(a: &Account) -> impl IntoView + use<> {
     } else {
         ("state muted", "待检查", "暂未获取登录状态")
     };
-    view! { <span class=cls title=title>{text}</span> }
+    view! {
+        <span class=cls title=title>
+            {text}
+        </span>
+    }
 }
 
 fn quota(a: &Account) -> AnyView {
@@ -79,7 +83,12 @@ fn quota(a: &Account) -> AnyView {
         } else {
             "还没有数据 —— 用它跑一次会话就有了"
         };
-        return view! { <span class="muted small" title=hint>"暂无数据"</span> }.into_any();
+        return view! {
+            <span class="muted small" title=hint>
+                "暂无数据"
+            </span>
+        }
+        .into_any();
     }
     let bars = a
         .windows
@@ -96,7 +105,9 @@ fn quota(a: &Account) -> AnyView {
             view! {
                 <div class="qbar" data-lvl=lvl>
                     <span class="l">{fmt::window_label(&w.name)}</span>
-                    <span class="t"><i style=format!("width:{pct}%")></i></span>
+                    <span class="t">
+                        <i style=format!("width:{pct}%")></i>
+                    </span>
                     <span class="v">{format!("{pct}%")}</span>
                     <span class="r">{fmt::resets(w.resets_at.as_deref())}</span>
                 </div>
@@ -192,40 +203,84 @@ pub(super) fn AccountRow(
     let a_menu = StoredValue::new(a.clone());
     let item = move |label: &'static str, danger: bool, act: &'static str| {
         view! {
-            <button role="menuitem" class:danger=danger disabled=move || busy.get() on:click=move |_| {
-                if busy.get_untracked() { return; }
-                close_menu.run(());
-                let a = a_menu.get_value();
-                match act {
-                    "login" => login(&a),
-                    "token" => form.set(Some(Form::Token(a))),
-                    "plan" => form.set(Some(Form::Plan(a))),
-                    _ => { busy.set(true); spawn_local(async move {
-                        let r: Result<(), api::ApiError> = async {
-                            match act {
-                                "quota" => { api::refresh_quota(&a.id).await?; }
-                                "rename" => {
-                                    let Some(n) = dialog::prompt("重命名账号", "新的名字", &a.label).await else { return Ok(()) };
-                                    patch(&a, json!({ "label": n })).await?;
-                                }
-                                "toggle" => { patch(&a, json!({ "disabled": !a.disabled })).await?; }
-                                "delete" => {
-                                    let how = if a.kind == "token" { "会删掉保存的 token 和它的配置目录。token 本身在 Anthropic 那边仍然有效，不用了请到 claude.ai 的设置里吊销。" } else { "会先让 CLI 退出登录，再删掉它的配置目录。" };
-                                    if dialog::ask("删除账号", &format!("删除账号「{}」？\n{how}共享的设置和会话历史不受影响。", a.label), vec![Choice::plain("取消"), Choice::danger("删除")]).await != Some(1) {
-                                        return Ok(());
+            <button
+                role="menuitem"
+                class:danger=danger
+                disabled=move || busy.get()
+                on:click=move |_| {
+                    if busy.get_untracked() {
+                        return;
+                    }
+                    close_menu.run(());
+                    let a = a_menu.get_value();
+                    match act {
+                        "login" => login(&a),
+                        "token" => form.set(Some(Form::Token(a))),
+                        "plan" => form.set(Some(Form::Plan(a))),
+                        _ => {
+                            busy.set(true);
+                            spawn_local(async move {
+                                let r: Result<(), api::ApiError> = async {
+                                    match act {
+                                        "quota" => {
+                                            api::refresh_quota(&a.id).await?;
+                                        }
+                                        "rename" => {
+                                            let Some(n) = dialog::prompt(
+                                                    "重命名账号",
+                                                    "新的名字",
+                                                    &a.label,
+                                                )
+                                                .await else { return Ok(()) };
+                                            patch(&a, json!({ "label": n })).await?;
+                                        }
+                                        "toggle" => {
+                                            patch(&a, json!({ "disabled": !a.disabled })).await?;
+                                        }
+                                        "delete" => {
+                                            let how = if a.kind == "token" {
+                                                "会删掉保存的 token 和它的配置目录。token 本身在 Anthropic 那边仍然有效，不用了请到 claude.ai 的设置里吊销。"
+                                            } else {
+                                                "会先让 CLI 退出登录，再删掉它的配置目录。"
+                                            };
+                                            if dialog::ask(
+                                                    "删除账号",
+                                                    &format!(
+                                                        "删除账号「{}」？\n{how}共享的设置和会话历史不受影响。",
+                                                        a.label,
+                                                    ),
+                                                    vec![Choice::plain("取消"), Choice::danger("删除")],
+                                                )
+                                                .await != Some(1)
+                                            {
+                                                return Ok(());
+                                            }
+                                            api::send::<
+                                                Value,
+                                            >(
+                                                    "DELETE",
+                                                    &format!("/api/accounts/{}", api::enc(&a.id)),
+                                                    &json!({}),
+                                                )
+                                                .await?;
+                                            toast("已删除");
+                                        }
+                                        _ => {}
                                     }
-                                    api::send::<Value>("DELETE", &format!("/api/accounts/{}", api::enc(&a.id)), &json!({})).await?;
-                                    toast("已删除");
+                                    Ok(())
                                 }
-                                _ => {}
-                            }
-                            Ok(())
-                        }.await;
-                        if let Err(e) = r { toast(e.to_string()); }
-                        let _ = busy.try_set(false);
-                    }); },
+                                    .await;
+                                if let Err(e) = r {
+                                    toast(e.to_string());
+                                }
+                                let _ = busy.try_set(false);
+                            });
+                        }
+                    }
                 }
-            }>{label}</button>
+            >
+                {label}
+            </button>
         }
     };
     let blocks = a.model_blocks.clone();
@@ -234,44 +289,118 @@ pub(super) fn AccountRow(
         <div class="acc-row" class:on=active>
             <span class="name">
                 <b title=title>{a.label.clone()}</b>
-                {(!blocks.is_empty()).then(|| view! {
-                    <div class="acc-mb">"用不了："
-                        {blocks.into_iter().map(|b| {
-                            let id = aid.clone();
-                            let m = b.model.clone();
-                            view! {
-                                <span class="gchip warn" title=format!("{}被拒，7 天后自动重试", fmt::ago(&b.observed_at))>{model_label(&b.model)}
-                                    <button class="x" title="清除，下次照常尝试" aria-label=format!("重新尝试 {}", model_label(&b.model)) on:click=move |_| {
-                                        let (id, m) = (id.clone(), m.clone());
-                                        spawn_local(async move {
-                                            if let Err(e) = api::send::<Value>("DELETE", &format!("/api/accounts/{}/models/{}", api::enc(&id), api::enc(&m)), &json!({})).await { toast(e.to_string()); }
-                                        });
-                                    }>"×"</button>
-                                </span>
-                            }
-                        }).collect_view()}
-                    </div>
-                })}
+                {(!blocks.is_empty())
+                    .then(|| {
+                        view! {
+                            <div class="acc-mb">
+                                "用不了："
+                                {blocks
+                                    .into_iter()
+                                    .map(|b| {
+                                        let id = aid.clone();
+                                        let m = b.model.clone();
+                                        view! {
+                                            <span
+                                                class="gchip warn"
+                                                title=format!(
+                                                    "{}被拒，7 天后自动重试",
+                                                    fmt::ago(&b.observed_at),
+                                                )
+                                            >
+                                                {model_label(&b.model)}
+                                                <button
+                                                    class="x"
+                                                    title="清除，下次照常尝试"
+                                                    aria-label=format!("重新尝试 {}", model_label(&b.model))
+                                                    on:click=move |_| {
+                                                        let (id, m) = (id.clone(), m.clone());
+                                                        spawn_local(async move {
+                                                            if let Err(e) = api::send::<
+                                                                Value,
+                                                            >(
+                                                                    "DELETE",
+                                                                    &format!(
+                                                                        "/api/accounts/{}/models/{}",
+                                                                        api::enc(&id),
+                                                                        api::enc(&m),
+                                                                    ),
+                                                                    &json!({}),
+                                                                )
+                                                                .await
+                                                            {
+                                                                toast(e.to_string());
+                                                            }
+                                                        });
+                                                    }
+                                                >
+                                                    "×"
+                                                </button>
+                                            </span>
+                                        }
+                                    })
+                                    .collect_view()}
+                            </div>
+                        }
+                    })}
             </span>
             {status(&a)}
             <div class="quota">{quota(&a)}</div>
-            <span class="last">{a.last_used_at.as_deref().map_or_else(|| "—".to_owned(), fmt::ago)}</span>
+            <span class="last">
+                {a.last_used_at.as_deref().map_or_else(|| "—".to_owned(), fmt::ago)}
+            </span>
             <span class="act">
                 {if active {
                     view! { <span class="pill-on">"使用中"</span> }.into_any()
                 } else {
                     view! {
-                        <button class="btn small" on:click=on_use disabled=move || busy.get() || !usable
-                            title=(!usable).then_some("请先登录或更新账号凭据")>{move || if busy.get() { "切换中…" } else { "使用" }}</button>
-                    }.into_any()
-                }}
-                <span class="more">
-                    <button class="btn ghost" node_ref=menu_button aria-label=format!("{}的更多操作", a.label) aria-haspopup="menu" aria-expanded=mine.clone() disabled=move || busy.get() on:click=open_menu>"⋯"</button>
+                        <button
+                            class="btn small"
+                            on:click=on_use
+                            disabled=move || busy.get() || !usable
+                            title=(!usable).then_some("请先登录或更新账号凭据")
+                        >
+                            {move || if busy.get() { "切换中…" } else { "使用" }}
+                        </button>
+                    }
+                        .into_any()
+                }} <span class="more">
+                    <button
+                        class="btn ghost"
+                        node_ref=menu_button
+                        aria-label=format!("{}的更多操作", a.label)
+                        aria-haspopup="menu"
+                        aria-expanded=mine.clone()
+                        disabled=move || busy.get()
+                        on:click=open_menu
+                    >
+                        "⋯"
+                    </button>
                     <Show when=mine.clone()>
-                        <div class="menu" node_ref=menu_root role="menu" aria-label="账号操作" on:keydown=move |event| { if let Some(root) = menu_root.get_untracked() { menu_keydown(&event, root.unchecked_ref(), close_menu); } }>
-                            {(!tok).then(|| item(if a.status == "ok" { "重新登录" } else { "登录" }, false, "login"))}
-                            {(tok || a.provider == "codex").then(|| item("刷新额度", false, "quota"))}
-                            {(a.provider == "claude").then(|| item(if tok { "更换 token" } else { "改用长期 token" }, false, "token"))}
+                        <div
+                            class="menu"
+                            node_ref=menu_root
+                            role="menu"
+                            aria-label="账号操作"
+                            on:keydown=move |event| {
+                                if let Some(root) = menu_root.get_untracked() {
+                                    menu_keydown(&event, root.unchecked_ref(), close_menu);
+                                }
+                            }
+                        >
+                            {(!tok)
+                                .then(|| item(
+                                    if a.status == "ok" { "重新登录" } else { "登录" },
+                                    false,
+                                    "login",
+                                ))}
+                            {(tok || a.provider == "codex")
+                                .then(|| item("刷新额度", false, "quota"))}
+                            {(a.provider == "claude")
+                                .then(|| item(
+                                    if tok { "更换 token" } else { "改用长期 token" },
+                                    false,
+                                    "token",
+                                ))}
                             {tok.then(|| item("订阅类型", false, "plan"))}
                             {item("重命名", false, "rename")}
                             {item(if a.disabled { "启用" } else { "停用" }, false, "toggle")}

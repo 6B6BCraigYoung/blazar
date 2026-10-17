@@ -120,7 +120,14 @@ pub fn ChatPane(
                             let Some(id) = t4.clone() else { return };
                             let cur = chat.thread_title(Some(&id));
                             chat.spawn(async move {
-                                if let Some(name) = crate::components::dialog::prompt_with("Rename conversation", "Conversation name", &cur, "Rename").await {
+                                if let Some(name) = crate::components::dialog::prompt_with(
+                                        "Rename conversation",
+                                        "Conversation name",
+                                        &cur,
+                                        "Rename",
+                                    )
+                                    .await
+                                {
                                     chat.rename(id, name);
                                 }
                             });
@@ -128,51 +135,194 @@ pub fn ChatPane(
                         let rename_click = rename.clone();
                         let active_button = active.clone();
                         view! {
-                            <span class="ctab" data-active=move || active().to_string() title=move || format!("{} (double-click to rename)", title.get())
-                                on:click={ let t = t.clone(); move |_| if chat.view.get_untracked() != t { chat.activate(t.clone()) } }
-                                on:dblclick=move |_| rename()>
-                                <button type="button" class="ctab-select" aria-pressed=move || active_button().to_string()>
+                            <span
+                                class="ctab"
+                                data-active=move || active().to_string()
+                                title=move || format!("{} (double-click to rename)", title.get())
+                                on:click={
+                                    let t = t.clone();
+                                    move |_| {
+                                        if chat.view.get_untracked() != t {
+                                            chat.activate(t.clone())
+                                        }
+                                    }
+                                }
+                                on:dblclick=move |_| rename()
+                            >
+                                <button
+                                    type="button"
+                                    class="ctab-select"
+                                    aria-pressed=move || active_button().to_string()
+                                >
                                     <span class="t">{move || title.get()}</span>
-                                    {move || live().then(|| view! { <span class="live" aria-label="Running"></span> })}
+                                    {move || {
+                                        live()
+                                            .then(|| {
+                                                view! { <span class="live" aria-label="Running"></span> }
+                                            })
+                                    }}
                                 </button>
-                                {t.is_some().then(|| view! { <button type="button" class="ctab-rename" title="Rename" aria-label="Rename" on:dblclick=|event| event.stop_propagation() on:click=move |event| { event.stop_propagation(); rename_click(); }>"✎"</button> })}
-                                <button type="button" class="x" title="Close" aria-label="Close" on:click={ let t = t.clone(); move |e| { e.stop_propagation(); chat.close_tab(t.clone()); } }>"×"</button>
+                                {t
+                                    .is_some()
+                                    .then(|| {
+                                        view! {
+                                            <button
+                                                type="button"
+                                                class="ctab-rename"
+                                                title="Rename"
+                                                aria-label="Rename"
+                                                on:dblclick=|event| event.stop_propagation()
+                                                on:click=move |event| {
+                                                    event.stop_propagation();
+                                                    rename_click();
+                                                }
+                                            >
+                                                "✎"
+                                            </button>
+                                        }
+                                    })}
+                                <button
+                                    type="button"
+                                    class="x"
+                                    title="Close"
+                                    aria-label="Close"
+                                    on:click={
+                                        let t = t.clone();
+                                        move |e| {
+                                            e.stop_propagation();
+                                            chat.close_tab(t.clone());
+                                        }
+                                    }
+                                >
+                                    "×"
+                                </button>
                             </span>
                         }
                     }
                 </For>
-                <button class="ctab add" aria-label="New conversation" title="New conversation" on:click=move |_| chat.new_chat()>"＋"</button>
+                <button
+                    class="ctab add"
+                    aria-label="New conversation"
+                    title="New conversation"
+                    on:click=move |_| chat.new_chat()
+                >
+                    "＋"
+                </button>
             </div>
             <span class="more">
-                <button class="laybtn" node_ref=history_trigger aria-label="Past conversations" aria-haspopup="menu" aria-expanded=move || hist.get().to_string() title="Past conversations" on:click=move |_| {
-                    hist.update(|h| *h = !*h);
-                    if hist.get_untracked() { chat.spawn(async move { chat.load_threads().await }); }
-                } inner_html=r#"<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7M3 4v4h4"/><path d="M12 7v5l3 2"/></svg>"#></button>
+                <button
+                    class="laybtn"
+                    node_ref=history_trigger
+                    aria-label="Past conversations"
+                    aria-haspopup="menu"
+                    aria-expanded=move || hist.get().to_string()
+                    title="Past conversations"
+                    on:click=move |_| {
+                        hist.update(|h| *h = !*h);
+                        if hist.get_untracked() {
+                            chat.spawn(async move { chat.load_threads().await });
+                        }
+                    }
+                    inner_html=r#"<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7M3 4v4h4"/><path d="M12 7v5l3 2"/></svg>"#
+                ></button>
                 <Show when=move || hist.get()>
-                    <div class="menu hist" role="menu" aria-label="Past conversations" node_ref=history_menu on:keydown=move |event| { if let Some(root) = history_menu.get_untracked() { menu_keydown(&event, root.unchecked_ref(), Callback::new(move |_| { hist.set(false); if let Some(trigger) = history_trigger.get_untracked() { let _ = trigger.focus(); } })); } } on:mouseleave=move |_| hist.set(false)>
-                        <button role="menuitem" on:click=move |_| { hist.set(false); chat.new_chat(); }><b>"＋ New conversation"</b></button>
-                        <div class="menu-sep"></div>
-                        {move || chat.threads.get().into_iter().map(|t| {
-                            let id = t.id.clone();
-                            let on = chat.view.get().as_deref() == Some(id.as_str());
-                            let when = t.last_at.clone().unwrap_or_else(|| t.created_at.clone());
-                            let sub = format!("{} · {}{}", t.runtime, crate::fmt::ago_en(&when), if t.status.as_deref() == Some("running") { " · running" } else { "" });
-                            view! {
-                                <button role="menuitem" class="hist-row" data-sel=on.to_string() on:click=move |_| { hist.set(false); chat.activate(Some(id.clone())); }>
-                                    <b>{t.title.clone().filter(|x| !x.is_empty()).unwrap_or_else(|| "Untitled".into())}</b>
-                                    <span class="muted small">{sub}</span>
-                                </button>
+                    <div
+                        class="menu hist"
+                        role="menu"
+                        aria-label="Past conversations"
+                        node_ref=history_menu
+                        on:keydown=move |event| {
+                            if let Some(root) = history_menu.get_untracked() {
+                                menu_keydown(
+                                    &event,
+                                    root.unchecked_ref(),
+                                    Callback::new(move |_| {
+                                        hist.set(false);
+                                        if let Some(trigger) = history_trigger.get_untracked() {
+                                            let _ = trigger.focus();
+                                        }
+                                    }),
+                                );
                             }
-                        }).collect_view()}
+                        }
+                        on:mouseleave=move |_| hist.set(false)
+                    >
+                        <button
+                            role="menuitem"
+                            on:click=move |_| {
+                                hist.set(false);
+                                chat.new_chat();
+                            }
+                        >
+                            <b>"＋ New conversation"</b>
+                        </button>
+                        <div class="menu-sep"></div>
+                        {move || {
+                            chat.threads
+                                .get()
+                                .into_iter()
+                                .map(|t| {
+                                    let id = t.id.clone();
+                                    let on = chat.view.get().as_deref() == Some(id.as_str());
+                                    let when = t
+                                        .last_at
+                                        .clone()
+                                        .unwrap_or_else(|| t.created_at.clone());
+                                    let sub = format!(
+                                        "{} · {}{}",
+                                        t.runtime,
+                                        crate::fmt::ago_en(&when),
+                                        if t.status.as_deref() == Some("running") {
+                                            " · running"
+                                        } else {
+                                            ""
+                                        },
+                                    );
+                                    view! {
+                                        <button
+                                            role="menuitem"
+                                            class="hist-row"
+                                            data-sel=on.to_string()
+                                            on:click=move |_| {
+                                                hist.set(false);
+                                                chat.activate(Some(id.clone()));
+                                            }
+                                        >
+                                            <b>
+                                                {t
+                                                    .title
+                                                    .clone()
+                                                    .filter(|x| !x.is_empty())
+                                                    .unwrap_or_else(|| "Untitled".into())}
+                                            </b>
+                                            <span class="muted small">{sub}</span>
+                                        </button>
+                                    }
+                                })
+                                .collect_view()
+                        }}
                     </div>
                 </Show>
             </span>
-            <button class="laybtn" aria-label="New conversation" title="New conversation" on:click=move |_| chat.new_chat() inner_html=r#"<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>"#></button>
-            <button class="laybtn" aria-label="Hide" title="Hide ⌘⌥B" on:click=move |_| on_hide.run(())>"×"</button>
+            <button
+                class="laybtn"
+                aria-label="New conversation"
+                title="New conversation"
+                on:click=move |_| chat.new_chat()
+                inner_html=r#"<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>"#
+            ></button>
+            <button
+                class="laybtn"
+                aria-label="Hide"
+                title="Hide ⌘⌥B"
+                on:click=move |_| on_hide.run(())
+            >
+                "×"
+            </button>
         </div>
         <div class="chat-body">
-            <Log chat tick/>
-            <Composer chat tick tree_files/>
+            <Log chat tick />
+            <Composer chat tick tree_files />
         </div>
     }
 }
