@@ -227,3 +227,33 @@ async fn successful_updates_persist_all_requested_fields_and_schedules() {
     assert_eq!(automation.0, "changed");
     assert!(automation.1.is_some());
 }
+
+#[tokio::test]
+async fn a_missing_workspace_is_a_readable_404() {
+    let (_dir, _state, app) = fixture().await;
+    for path in ["detail", "tree", "ls"] {
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!(
+                        "/api/workspaces/01a14852-0e3c-724d-aca2-f7b69792f355/{path}"
+                    ))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::NOT_FOUND, "{path}");
+        let body = http_body_util::BodyExt::collect(res.into_body())
+            .await
+            .unwrap()
+            .to_bytes();
+        let error = serde_json::from_slice::<Value>(&body).unwrap()["error"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned();
+        assert!(!error.contains("no rows"), "{path}: {error}");
+        assert!(error.contains("不存在"), "{path}: {error}");
+    }
+}

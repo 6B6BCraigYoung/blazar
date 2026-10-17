@@ -29,6 +29,17 @@ impl std::fmt::Display for InvalidRequest {
 
 impl std::error::Error for InvalidRequest {}
 
+#[derive(Debug)]
+pub(crate) struct NotFound(pub(crate) String);
+
+impl std::fmt::Display for NotFound {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for NotFound {}
+
 impl ApiError {
     pub(crate) fn bad_request(message: impl Into<String>) -> Self {
         Self(anyhow::Error::new(InvalidRequest(message.into())))
@@ -48,6 +59,23 @@ impl<E: Into<anyhow::Error>> From<E> for ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
+        if let Some(missing) = self.0.downcast_ref::<NotFound>() {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({ "error": missing.0 })),
+            )
+                .into_response();
+        }
+        if matches!(
+            self.0.downcast_ref::<sqlx::Error>(),
+            Some(sqlx::Error::RowNotFound)
+        ) {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({ "error": "要找的内容不存在，可能已被删除" })),
+            )
+                .into_response();
+        }
         if self.0.is::<InvalidRequest>()
             || matches!(
                 self.0.downcast_ref::<blazar_vfs::VfsError>(),

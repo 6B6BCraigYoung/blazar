@@ -121,8 +121,9 @@ pub(crate) async fn locate(st: &AppState, id: &str) -> anyhow::Result<(String, S
          JOIN nodes n ON n.id = w.node_id WHERE w.id = ?1",
     )
     .bind(id)
-    .fetch_one(st.db.pool())
-    .await?;
+    .fetch_optional(st.db.pool())
+    .await?
+    .ok_or_else(|| NotFound("这个工作区不存在，可能已被删除".into()))?;
     Ok((row.try_get("node")?, row.try_get("path")?))
 }
 
