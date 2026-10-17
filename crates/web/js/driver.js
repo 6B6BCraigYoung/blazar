@@ -102,11 +102,20 @@ function find(command) {
   }
   if (command.text) {
     const want = command.text.trim();
-    const pick = pool => pool.find(e => label(e) === want) || pool.find(e => label(e).includes(want));
+    const pick = pool => {
+      const exact = pool.find(e => label(e) === want);
+      if (exact) return exact;
+      const partial = pool.filter(e => label(e).includes(want));
+      if (partial.length > 1) {
+        const names = partial.slice(0, 5).map(e => `「${label(e)}」`).join('、');
+        throw new Error(`「${want}」同时匹配 ${partial.length} 个元素：${names}，请写完整文字或用 ref`);
+      }
+      return partial[0];
+    };
     const all = [...document.querySelectorAll(command.selector || INTERACTIVE)];
     const el = pick(all.filter(visible));
     if (el) return el;
-    if (pick(all.filter(e => e.closest('[inert]')))) throw new Error(`「${want}」被上层弹窗挡住了，先处理最上面的弹窗`);
+    if (all.some(e => e.closest('[inert]') && label(e).includes(want))) throw new Error(`「${want}」被上层弹窗挡住了，先处理最上面的弹窗`);
     throw new Error(`没有文字为「${want}」的${command.selector ? `、匹配 ${command.selector} 的` : '可交互'}元素`);
   }
   throw new Error('需要 ref、selector 或 text');
