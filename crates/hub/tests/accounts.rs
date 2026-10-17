@@ -143,6 +143,26 @@ async fn agent_profiles_remember_their_account() {
 }
 
 #[tokio::test]
+async fn costs_without_runs_are_a_plain_zero() {
+    let (app, _dir) = app().await;
+    let (s, v) = call(
+        &app,
+        "POST",
+        "/api/agent-profiles",
+        Some(json!({ "name": "空闲", "runtime": "claude" })),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    let id = v["id"].as_str().unwrap().to_owned();
+    let (s, v) = call(&app, "GET", &format!("/api/agent-profiles/{id}"), None).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["cost_30d"].to_string(), "0.0");
+    let (s, v) = call(&app, "GET", "/api/analytics", None).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["totals"]["cost"].to_string(), "0.0");
+}
+
+#[tokio::test]
 async fn the_default_login_can_switch_to_a_setup_token() {
     let (app, _dir) = app().await;
     let (s, _) = call(

@@ -308,7 +308,7 @@ async fn activity(st: &Shared, id: &str) -> Activity {
     .iter()
     .filter_map(|p| serde_json::from_str::<serde_json::Value>(p).ok())
     .filter_map(|v| v.get("cost_usd").and_then(serde_json::Value::as_f64))
-    .sum();
+    .fold(0.0, |total, cost| total + cost);
     let get = |k: &str| {
         row.as_ref()
             .and_then(|r| r.try_get::<Option<i64>, _>(k).ok().flatten())

@@ -113,7 +113,7 @@ pub async fn overview(State(st): State<Shared>, Query(q): Query<RangeQuery>) -> 
     let cost: f64 = daily
         .iter()
         .map(|d| d["cost"].as_f64().unwrap_or(0.0))
-        .sum();
+        .fold(0.0, |total, cost| total + cost);
     Json(json!({
         "days": days,
         "totals": { "runs": total_runs, "done": done, "failed": failed, "cost": cost,
