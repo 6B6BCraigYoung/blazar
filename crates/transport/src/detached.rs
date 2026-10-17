@@ -4,12 +4,12 @@ use crate::{ExecSpec, LineStream, NodeTransport, Result, TransportError, shell_q
 
 pub const RUNS_ROOT: &str = "$HOME/.blazar/runs";
 
-const IDENTITY_FNS: &str = r#"boot_of() { cat /proc/sys/kernel/random/boot_id 2>/dev/null || sysctl -n kern.boottime 2>/dev/null | sed 's/.*sec = \([0-9]*\).*/\1/'; }
+const IDENTITY_FNS: &str = r#"boot_of() { cat /proc/sys/kernel/random/boot_id 2>/dev/null || sysctl -n kern.boottime 2>/dev/null | sed 's/^{ sec = \([0-9]*\),.*/\1/'; }
 start_of() { awk '{print $22}' "/proc/$1/stat" 2>/dev/null || ps -o lstart= -p "$1" 2>/dev/null | tr -s ' ' '_'; }
 alive() {
   read -r P B S < pid 2>/dev/null || return 1
   kill -0 "$P" 2>/dev/null || return 1
-  [ "$(boot_of)" = "$B" ] || return 1
+  case $S in *_*) ;; *) [ "$(boot_of)" = "$B" ] || return 1 ;; esac
   [ "$(start_of "$P")" = "$S" ] || return 1
 }
 "#;
@@ -1043,6 +1043,32 @@ mod tests {
         assert!(check_run_id("01a0b1f2-bc2a-7172").is_ok());
         for bad in ["", "../x", "a b", "a;rm -rf ~", "A", "a/b", "$HOME"] {
             assert!(check_run_id(bad).is_err(), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn a_shifted_boot_clock_does_not_lose_a_live_run() {
+        let dir = tempfile::tempdir().unwrap();
+        let script = format!(
+            "{IDENTITY_FNS}\ncd {}\nS=$(start_of $$)\nprintf '%s wrong-boot %s\\n' $$ \"$S\" > pid\nalive && echo alive || echo lost\necho \"$S\"",
+            dir.path().display()
+        );
+        let out = std::process::Command::new("bash")
+            .arg("-c")
+            .arg(script)
+            .output()
+            .unwrap();
+        let out = String::from_utf8_lossy(&out.stdout);
+        let mut lines = out.lines();
+        let verdict = lines.next().unwrap();
+        let start = lines.next().unwrap();
+        if start.contains('_') {
+            assert_eq!(
+                verdict, "alive",
+                "带日期的启动时间足以认出进程，开机时钟漂移不能判死"
+            );
+        } else {
+            assert_eq!(verdict, "lost", "相对开机的启动时间必须核对开机标识");
         }
     }
 
