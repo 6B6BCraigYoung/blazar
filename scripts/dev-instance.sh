@@ -3,9 +3,9 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SRC="$ROOT/target/release/bundle/macos/Blazar.app"
-DEV="$ROOT/target/dev-instance/Blazar Dev.app"
-BIN="$DEV/Contents/MacOS/blazar-desktop"
 PROFILE="${BLAZAR_DEV_PROFILE:-dev}"
+DEV="$ROOT/target/dev-instance/$PROFILE/Blazar Dev.app"
+BIN="$DEV/Contents/MacOS/blazar-desktop"
 DATA="$HOME/Library/Application Support/ai.blazar.Blazar/profiles/$PROFILE"
 LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
 
@@ -76,7 +76,7 @@ status() {
 }
 
 shot() {
-  local out="${1:-$ROOT/target/dev-instance/shot.png}" p id
+  local out="${1:-$ROOT/target/dev-instance/$PROFILE/shot.png}" p id
   p=$(pid)
   [ -z "$p" ] && { echo "开发实例没有运行" >&2; return 1; }
   id=$(swift - "$p" <<'EOF'
