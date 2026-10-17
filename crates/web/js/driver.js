@@ -10,6 +10,7 @@ function guarded(el) {
 
 function guard(el) {
   if (guarded(el)) throw new Error('受保护的区域：界面驱动不能操作终端、审批和权限控件');
+  if (el.closest('[inert]')) throw new Error('被上层弹窗挡住了，先处理最上面的弹窗');
   return el;
 }
 
@@ -26,6 +27,7 @@ function install() {
 }
 
 function visible(el) {
+  if (el.closest('[inert]')) return false;
   const r = el.getBoundingClientRect();
   if (r.width < 1 || r.height < 1) return false;
   if (r.bottom < 0 || r.right < 0 || r.top > innerHeight || r.left > innerWidth) return false;
