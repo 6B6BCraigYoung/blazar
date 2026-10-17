@@ -364,15 +364,21 @@ fn Workspace(id: String) -> impl IntoView {
         )
     };
 
+    let gone = Memo::new(move |_| {
+        detail
+            .get()
+            .is_some_and(|d| d.as_ref().is_err_and(api::ApiError::not_found))
+    });
     view! {
         <div class="ws">
-            <Show when=move || detail.get().is_some_and(|d| d.as_ref().is_err_and(api::ApiError::not_found))>
+            <Show when=move || gone.get()>
                 <div class="ws-gone" role="alert">
-                    <EmptyState title="这个工作区已被删除" detail="它在别处被删除了，这里的文件、终端和对话都不再可用。"/>
+                    <h2>"这个工作区已被删除"</h2>
+                    <p class="muted">"它在别处被删除了，这里的文件、终端和对话都不再可用。"</p>
                     <a class="btn primary" href="/">"回到全部工作区"</a>
                 </div>
             </Show>
-            <div class="ws-head">
+            <div class="ws-head" inert=move || gone.get()>
                 {move || detail.get().and_then(|d| d.err()).filter(|e| !e.not_found()).map(|e| view! { <InlineError message=e.to_string()/> })}
                 <span class="grow"></span>
                 <Children id=id.clone()/>
@@ -391,7 +397,7 @@ fn Workspace(id: String) -> impl IntoView {
             {move || files.error.get().map(|e| view! {
                 <div class="ws-error"><InlineError message=e/><button type="button" class="btn ghost" aria-label="关闭文件错误提示" on:click=move |_| files.error.set(None)>"×"</button></div>
             })}
-            <div class="ws-grid" node_ref=grid style=grid_style>
+            <div class="ws-grid" node_ref=grid style=grid_style inert=move || gone.get()>
                 <section class="region explorer" aria-label="资源管理器" data-collapsed=move || lay().hide_ex.to_string()>
                     <div class="rhead">
                         <span class="grow"></span>
