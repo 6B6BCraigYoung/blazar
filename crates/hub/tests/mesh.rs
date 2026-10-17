@@ -415,3 +415,17 @@ proto = "tcp"
         assert_eq!(code, StatusCode::FORBIDDEN, "{method} 应拒绝远端调用");
     }
 }
+
+#[tokio::test]
+async fn a_fresh_hub_already_knows_this_machine() {
+    let h = Harness::new().await;
+    let (code, state) = h.call("GET", "/api/state", None).await;
+    assert_eq!(code, StatusCode::OK);
+    let nodes = state["nodes"].as_array().unwrap();
+    assert!(
+        nodes
+            .iter()
+            .any(|n| n["name"] == "local" && n["status"] == "online"),
+        "{nodes:?}"
+    );
+}

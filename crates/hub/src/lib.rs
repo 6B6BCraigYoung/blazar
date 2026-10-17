@@ -77,6 +77,7 @@ pub async fn build_state_with_services(
 ) -> Result<Arc<AppState>> {
     let db = open_db(&cfg.db_path).await?;
     reconcile_after_restart(&db).await?;
+    ensure_local_node(&db).await?;
     let staging = cfg
         .db_path
         .parent()
@@ -108,6 +109,18 @@ pub async fn build_state_with_services(
     services.spawn(bots::dispatch::scheduler(st.clone()));
     services.spawn(fleet::watchdog(st.clone()));
     Ok(st)
+}
+
+async fn ensure_local_node(db: &Db) -> Result<()> {
+    sqlx::query(
+        "INSERT INTO nodes (id, name, transport, status, created_at)
+         VALUES (?1, 'local', 'local', 'online', ?2) ON CONFLICT (name) DO NOTHING",
+    )
+    .bind(blazar_core_types::NodeId::new().to_string())
+    .bind(chrono::Utc::now().to_rfc3339())
+    .execute(db.pool())
+    .await?;
+    Ok(())
 }
 
 async fn reconcile_after_restart(db: &Db) -> Result<()> {
