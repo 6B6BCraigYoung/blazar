@@ -243,7 +243,21 @@ pub async fn remove_ssh_node(
     }
 }
 
+async fn sync_ssh_endpoints(st: &AppState, hosts: &[SshHost]) {
+    for h in hosts {
+        let _ = sqlx::query(
+            "UPDATE nodes SET endpoint = ?1
+             WHERE name = ?2 AND network = 'ssh' AND endpoint IS NOT ?1",
+        )
+        .bind(h.hostname.as_deref().unwrap_or(&h.alias))
+        .bind(&h.alias)
+        .execute(st.db.pool())
+        .await;
+    }
+}
+
 pub async fn probe_ssh_nodes(st: &Shared) {
+    sync_ssh_endpoints(st, &parse_config(&config_path())).await;
     let Ok(names) = sqlx::query_scalar::<_, String>("SELECT name FROM nodes WHERE network = 'ssh'")
         .fetch_all(st.db.pool())
         .await
@@ -298,6 +312,53 @@ pub async fn probe_ssh_nodes(st: &Shared) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn stale_endpoints_follow_the_current_ssh_config() {
+        let dir = tempfile::tempdir().unwrap();
+        let st = crate::state::AppState::with_services(
+            blazar_db::Db::open_in_memory().await.unwrap(),
+            "local".into(),
+            None,
+            crate::mesh::MeshCtx::new(None, dir.path().join("mesh")),
+            crate::services::Services::Isolated,
+        );
+        for (name, endpoint, network) in [
+            ("lab", "10.0.0.7  # easytier; public 203.0.113.9", "ssh"),
+            ("gpu", "10.126.0.3", "easytier"),
+        ] {
+            sqlx::query(
+                "INSERT INTO nodes (id, name, transport, endpoint, network, created_at)
+                 VALUES (?1, ?1, 'ssh', ?2, ?3, '0')",
+            )
+            .bind(name)
+            .bind(endpoint)
+            .bind(network)
+            .execute(st.db.pool())
+            .await
+            .unwrap();
+        }
+        let host = |alias: &str, hostname: &str| SshHost {
+            alias: alias.into(),
+            hostname: Some(hostname.into()),
+            user: None,
+            port: None,
+            file: String::new(),
+        };
+        sync_ssh_endpoints(&st, &[host("lab", "10.0.0.7"), host("gpu", "10.0.0.99")]).await;
+        let endpoint = |name: &'static str| {
+            let st = st.clone();
+            async move {
+                sqlx::query_scalar::<_, String>("SELECT endpoint FROM nodes WHERE name = ?1")
+                    .bind(name)
+                    .fetch_one(st.db.pool())
+                    .await
+                    .unwrap()
+            }
+        };
+        assert_eq!(endpoint("lab").await, "10.0.0.7");
+        assert_eq!(endpoint("gpu").await, "10.126.0.3");
+    }
 
     #[test]
     fn parses_hosts_includes_and_skips_patterns() {
