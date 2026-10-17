@@ -117,7 +117,7 @@ pub fn Sidebar() -> impl IntoView {
         <nav class="side" aria-label="主导航">
             <div class="brand"><span class="logo" inner_html=LOGO></span>"Blazar"<span class="grow"></span><button type="button" class="linkbtn" aria-label="收起侧栏" title="收起侧栏" on:click=move |_| app.side_collapsed.set(true)>"«"</button></div>
             <button type="button" class="nav search" aria-haspopup="dialog" aria-expanded=move || app.palette.get().to_string() on:click=move |_| app.palette.set(true)>
-                <span class="ic" inner_html=icon(I_SEARCH)></span><span class="nm muted">"搜索…"</span><span class="n">"⌘K"</span>
+                <span class="ic" inner_html=icon(I_SEARCH)></span><span class="nm muted">"搜索…"</span><span class="n">{crate::shortcuts::label(&crate::shortcuts::current("palette"))}</span>
             </button>
             <button type="button" class="btn primary new-ws" aria-haspopup="dialog" aria-expanded=move || app.new_ws.get().to_string() on:click=move |_| app.new_ws.set(true)>"＋ 新建工作区"</button>
             <div class="grp">

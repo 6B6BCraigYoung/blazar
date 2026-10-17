@@ -383,11 +383,11 @@ fn Workspace(id: String) -> impl IntoView {
                 <span class="grow"></span>
                 <Children id=id.clone()/>
                 <button class="btn small" on:click=move |_| insp.set(true)>"属性"</button>
-                <button class="laybtn" aria-label="切换资源管理器" title="资源管理器 ⌘B" aria-pressed=move || (!lay().hide_ex).to_string()
+                <button class="laybtn" aria-label="切换资源管理器" title=crate::shortcuts::titled("资源管理器", "explorer") aria-pressed=move || (!lay().hide_ex).to_string()
                     on:click=move |_| state.toggle(Region::Explorer) inner_html=ICON_LEFT></button>
-                <button class="laybtn" aria-label="切换底部面板" title="面板 ⌘J" aria-pressed=move || (!lay().hide_panel).to_string()
+                <button class="laybtn" aria-label="切换底部面板" title=crate::shortcuts::titled("面板", "panel") aria-pressed=move || (!lay().hide_panel).to_string()
                     on:click=move |_| state.toggle(Region::Panel) inner_html=ICON_BOTTOM></button>
-                <button class="laybtn" aria-label="切换对话面板" title="对话 ⌘⌥B" aria-pressed=move || (!lay().hide_aux).to_string()
+                <button class="laybtn" aria-label="切换对话面板" title=crate::shortcuts::titled("对话", "chat") aria-pressed=move || (!lay().hide_aux).to_string()
                     on:click=move |_| state.toggle(Region::Aux) inner_html=ICON_RIGHT></button>
             </div>
             {
@@ -671,7 +671,7 @@ fn Panel(
                 <button class="laybtn" aria-label="重新连接终端" title="重新连接；远端会话仍在时会回到原处" inner_html=ICON_REFRESH
                     on:click=move |_| terms.reconnect.update(|n| *n += 1)></button>
             </Show>
-            <button class="laybtn" aria-label="收起底部面板" title="收起面板 ⌘J" on:click=move |_| state.toggle(Region::Panel)>"▾"</button>
+            <button class="laybtn" aria-label="收起底部面板" title=crate::shortcuts::titled("收起面板", "panel") on:click=move |_| state.toggle(Region::Panel)>"▾"</button>
         </div>
         <div class="panelbody">
             <div class="ppane" data-active=move || (tab.get() == "term").to_string()>

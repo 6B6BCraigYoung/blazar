@@ -72,6 +72,55 @@ pub fn action(e: &web_sys::KeyboardEvent) -> Option<&'static str> {
         .map(|(id, _)| *id)
 }
 
+pub fn current(id: &str) -> String {
+    let saved: HashMap<String, String> =
+        crate::storage::load("blazar.shortcuts").unwrap_or_default();
+    saved.get(id).cloned().unwrap_or_else(|| {
+        DEFAULTS
+            .iter()
+            .find(|(i, _)| *i == id)
+            .map(|(_, d)| (*d).to_owned())
+            .unwrap_or_default()
+    })
+}
+
+fn mac() -> bool {
+    web_sys::window()
+        .and_then(|w| w.navigator().platform().ok())
+        .is_some_and(|p| p.starts_with("Mac"))
+}
+
+pub fn label(combo: &str) -> String {
+    let parts: Vec<&str> = combo.split('+').filter(|p| !p.is_empty()).collect();
+    let Some((key, mods)) = parts.split_last() else {
+        return String::new();
+    };
+    if mac() {
+        let mut out: String = [("Alt", "⌥"), ("Shift", "⇧"), ("Mod", "⌘")]
+            .iter()
+            .filter(|(name, _)| mods.contains(name))
+            .map(|(_, symbol)| *symbol)
+            .collect();
+        out.push_str(if *key == "Enter" { "↩" } else { key });
+        out
+    } else {
+        mods.iter()
+            .map(|m| if *m == "Mod" { "Ctrl" } else { m })
+            .chain([*key])
+            .collect::<Vec<_>>()
+            .join("+")
+    }
+}
+
+pub fn titled(name: &str, id: &str) -> String {
+    let hint = label(&current(id));
+    if hint.is_empty() {
+        name.to_owned()
+    } else {
+        format!("{name} {hint}")
+    }
+}
+
 pub fn on_menu(f: impl Fn(&str) + 'static) -> leptos::prelude::WindowListenerHandle {
     leptos::prelude::window_event_listener_untyped("blazar-menu", move |e| {
         if let Some(id) = js_sys::Reflect::get(&e, &"detail".into())
