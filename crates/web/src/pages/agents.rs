@@ -254,7 +254,7 @@ pub fn AgentCreatePage() -> impl IntoView {
         }
     });
     view! { <div class="page agent-page"><div class="page-head"><a class="crumb" href="/agents">"智能体"</a><span>"/"</span><h1>"创建智能体"</h1></div>{move || match data.get() {
-        None=>view!{<LoadingState text="正在加载配置…"/>}.into_any(), Some(Err(e))=>view!{<InlineError message=format!("无法加载配置：{e}") retry=Callback::new(move |_| data.refetch())/>}.into_any(), Some(Ok(a))=>view!{<AgentEditor initial=a create=true on_saved=Callback::new(|_|{})/>}.into_any()
+        None=>view!{<LoadingState text="正在加载配置…"/>}.into_any(), Some(Err(e))=>view!{<InlineError message=format!("无法加载配置：{e}") retry=Callback::new(move |_| data.refetch())/>}.into_any(), Some(Ok(a))=>{let copied=query.with_untracked(|q|q.get("template").is_some());view!{<AgentEditor initial=a create=true copied on_saved=Callback::new(|_|{})/>}.into_any()}
     }}</div> }
 }
 
@@ -435,6 +435,7 @@ fn AgentCapabilities(agent: Value, kind: &'static str) -> impl IntoView {
 fn AgentEditor(
     initial: Value,
     create: bool,
+    #[prop(optional)] copied: bool,
     on_saved: Callback<Value>,
     #[prop(optional)] dirty: Option<RwSignal<bool>>,
     #[prop(default = "all")] section: &'static str,
@@ -574,14 +575,14 @@ fn AgentEditor(
         });
     };
     view! {<div class="agent-editor">
-        {create.then(||view!{<p class="muted">"复制时会保留指令、开场建议和参数；环境变量需要重新填写。"</p>})}
+        {copied.then(||view!{<p class="muted">"复制时会保留指令、开场建议和参数；环境变量需要重新填写。"</p>})}
         {move || rts.get().and_then(Result::err).map(|e| view! { <InlineError message=format!("无法加载运行时：{e}") retry=Callback::new(move |_| rts.refetch())/> })}
         {move || accounts.get().and_then(Result::err).map(|e| view! { <InlineError message=format!("无法加载账号：{e}") retry=Callback::new(move |_| accounts.refetch())/> })}
         <fieldset disabled=move||busy.get()||closed>
             <div class="card pad" hidden=section=="instructions"><h3>"身份"</h3><AgentField draft key="avatar" label="头像"/><AgentField draft key="name" label="名称（1–40 字）"/><AgentField draft key="description" label="描述（最多 255 字）" multiline=true/></div>
             <div class="card pad" hidden=section=="settings"><h3>"指令与开场建议"</h3><AgentField draft key="instructions" label="工作指令（最多 8000 字）" multiline=true/>
                 {move||(0..starter_count.get()).map(|i|view!{<div class="agent-starter"><label>"标题"<input prop:value=move||draft.with(|d|text(&d["starters"][i],"label")) maxlength="80" on:input=move|e|draft.update(|d|d["starters"][i]["label"]=json!(event_target_value(&e)))/></label><label>"提示词"<textarea rows="3" maxlength="4000" prop:value=move||draft.with(|d|text(&d["starters"][i],"prompt")) on:input=move|e|draft.update(|d|d["starters"][i]["prompt"]=json!(event_target_value(&e)))/></label><button class="btn" on:click=move |_|draft.update(|d|{if let Some(s)=d["starters"].as_array_mut(){s.remove(i);}})>"移除"</button></div>}).collect_view()}
-                <button class="btn" disabled=move||list(&draft.get(),"starters").len()>=3 on:click=move |_|draft.update(|d|{let mut starters=list(d,"starters");starters.push(json!({"label":"","prompt":""}));d["starters"]=json!(starters);})>"添加开场建议（最多 3 条）"</button>
+                <button class="btn" disabled=move||{list(&draft.get(),"starters").len()>=3} on:click=move |_|draft.update(|d|{let mut starters=list(d,"starters");starters.push(json!({"label":"","prompt":""}));d["starters"]=json!(starters);})>"添加开场建议（最多 3 条）"</button>
             </div>
             <div class="card pad" hidden=section=="instructions"><h3>"执行配置"</h3><label class="field">"运行时"<select prop:value=move||text(&draft.get(),"runtime") on:change=move|e|draft.update(|d|{d["runtime"]=json!(event_target_value(&e));for k in ["model","thinking_level","permission_mode","account"]{d[k]=Value::Null;}})><option value="" prop:selected=move||runtime.get().is_empty()>"选择运行时"</option>{move||rts.get().and_then(Result::ok).map(|r|r.runtimes.into_iter().map(|r|{let id=r.id.clone();view!{<option value=r.id prop:selected=move||runtime.get()==id>{format!("{}{}",r.label,if r.installed{""}else{"（未安装）"})}</option>}}).collect_view())}</select></label>
                 <label class="field">"账号"<select prop:value=move||text(&draft.get(),"account") on:change=move|e|draft.update(|d|{let v=event_target_value(&e);d["account"]=if v.is_empty(){Value::Null}else{json!(v)};})><option value="" prop:selected=move||text(&draft.get(),"account").is_empty()>"跟随运行时"</option><option value="auto" prop:selected=move||text(&draft.get(),"account")=="auto">"自动选择"</option>{move||accounts.get().and_then(Result::ok).map(|a|a.accounts.into_iter().filter(|a|a.provider==runtime.get()).map(|a|{let id=a.id.clone();view!{<option value=a.id prop:selected=move||text(&draft.get(),"account")==id>{format!("{}{}",a.label,if a.disabled{"（已停用）"}else{""})}</option>}}).collect_view())}</select></label>
