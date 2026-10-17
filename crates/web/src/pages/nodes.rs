@@ -347,8 +347,8 @@ fn PendingMachines(nodes: Signal<Vec<blazar_core_types::api::NodeView>>) -> impl
                                     <span class="muted small mono">{n.ipv4.clone().unwrap_or_default()}</span>
                                     <span class="muted small">{latency(n.latency_ms)}</span>
                                     <span class="grow"></span>
-                                    <button class="btn small primary" on:click=move |_| set_roles(vec![(dev.clone(), Some("dev"))])>"开发机"</button>
-                                    <button class="btn small" on:click=move |_| set_roles(vec![(personal.clone(), Some("personal"))])>"个人电脑"</button>
+                                    <button class="btn small primary" aria-label=format!("把 {} 设为开发机", n.name) on:click=move |_| set_roles(vec![(dev.clone(), Some("dev"))])>"开发机"</button>
+                                    <button class="btn small" aria-label=format!("把 {} 设为个人电脑", n.name) on:click=move |_| set_roles(vec![(personal.clone(), Some("personal"))])>"个人电脑"</button>
                                 </div>
                             }
                         }).collect_view()}
@@ -382,7 +382,7 @@ fn PersonalMachines(nodes: Signal<Vec<blazar_core_types::api::NodeView>>) -> imp
                                     <span class="pending-name">{n.name.clone()}</span>
                                     <span class="muted small mono">{n.ipv4.clone().unwrap_or_default()}</span>
                                     <span class="grow"></span>
-                                    <button class="btn small" on:click=move |_| set_roles(vec![(dev.clone(), Some("dev"))])>"改为开发机"</button>
+                                    <button class="btn small" aria-label=format!("把 {} 改为开发机", n.name) on:click=move |_| set_roles(vec![(dev.clone(), Some("dev"))])>"改为开发机"</button>
                                     {(n.network.as_deref() == Some("easytier")).then(|| view! { <button class="btn small ghost" title="放回待确认" on:click=move |_| set_roles(vec![(reset.clone(), None)])>"重新确认"</button> })}
                                 </div>
                             }
