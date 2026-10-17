@@ -134,6 +134,31 @@ fn settle_later(live: Arc<Live>) {
     });
 }
 
+pub async fn release_idle(st: &Shared, sid: SessionId) -> bool {
+    let live = {
+        let r = st.running.read().await;
+        r.get(&sid).and_then(|x| x.live.clone())
+    };
+    let Some(live) = live else {
+        return false;
+    };
+    let mut s = live.state.lock().await;
+    if !live.interactive || !s.idle || s.eof_sent || !s.bg.is_empty() || s.pending_user > 0 {
+        return false;
+    }
+    match live.run.eof().await {
+        Ok(_) => {
+            s.eof_sent = true;
+            s.idle = false;
+            true
+        }
+        Err(e) => {
+            tracing::warn!(target: "blazar::run", "发 EOF 失败: {e}");
+            false
+        }
+    }
+}
+
 pub async fn send_to_idle(
     st: &Shared,
     ws: WorkspaceId,
@@ -378,9 +403,10 @@ async fn process_line(ctx: &Ctx, line: &str, at: u64, p: &mut Progress) -> Line 
 
     if finished {
         if ctx.live.interactive {
+            let hot = crate::bots::is_hot(&ctx.st, ctx.ws).await;
             let mut s = ctx.live.state.lock().await;
             if s.pending_user == 0 && !s.eof_sent {
-                if s.bg.is_empty() {
+                if s.bg.is_empty() && !hot {
                     match ctx.live.run.eof().await {
                         Ok(_) => s.eof_sent = true,
                         Err(e) => tracing::warn!(target: "blazar::run", "发 EOF 失败: {e}"),
@@ -643,6 +669,11 @@ async fn finalize(ctx: &Ctx, code: Option<i32>, p: &mut Progress) -> Result<(), 
     ));
 
     ctx.st.fleet.revoke(ctx.sid).await;
+    ctx.st.services.spawn(crate::bots::on_run_finished(
+        ctx.st.clone(),
+        ctx.sid,
+        status,
+    ));
     ctx.st.services.spawn(crate::accounts::on_run_finished(
         ctx.st.clone(),
         ctx.sid,

@@ -4,9 +4,9 @@ use axum::Router;
 use axum::routing::{delete, get, post, put};
 
 use super::{
-    AppState, accounts, agents, analytics, api, asset, auth, autopilot, catalog, chat, checkpoint,
-    git, inbox, library, mesh, office, remote_cli, rules, scripts, sims, skillhub, snippets, tasks,
-    titles, v2_redirect, web,
+    AppState, accounts, agents, analytics, api, asset, auth, autopilot, bots, catalog, chat,
+    checkpoint, git, inbox, library, mesh, office, remote_cli, rules, scripts, sims, skillhub,
+    snippets, tasks, titles, v2_redirect, web,
 };
 
 pub fn build_router(st: Arc<AppState>) -> Router {
@@ -314,6 +314,60 @@ pub fn build_router(st: Arc<AppState>) -> Router {
         )
         .route("/api/workspaces/{id}/detail", get(api::workspace_detail))
         .route("/api/workspaces/{id}/shell", post(api::workspace_shell))
+        .route("/api/bots/spawn", post(bots::api::spawn_bot))
+        .route(
+            "/api/bots",
+            get(bots::api::list_bots).post(bots::api::create_bot),
+        )
+        .route(
+            "/api/bots/{id}",
+            get(bots::api::get_bot)
+                .put(bots::api::update_bot)
+                .delete(bots::api::archive_bot),
+        )
+        .route("/api/bots/{id}/status", get(bots::api::bot_status))
+        .route("/api/bots/{id}/pause", post(bots::api::pause_bot))
+        .route("/api/bots/{id}/promote", post(bots::api::promote_bot))
+        .route("/api/bots/{id}/restore", post(bots::api::restore_bot))
+        .route("/api/bots/{id}/resume", post(bots::api::resume_bot))
+        .route(
+            "/api/bots/{id}/mail",
+            get(bots::api::mailbox).post(bots::api::send_mail),
+        )
+        .route("/api/bots/{id}/threads", post(bots::api::open_thread))
+        .route(
+            "/api/bots/{id}/threads/{tid}/close",
+            post(bots::api::close_thread),
+        )
+        .route("/api/fleet/status", get(bots::api::fleet_status))
+        .route("/api/mail/{id}", get(bots::api::get_mail))
+        .route("/api/mail/{id}/reply", post(bots::api::reply_mail))
+        .route("/api/mail/{id}/wait", get(bots::api::wait_mail))
+        .route("/api/facts", get(bots::api::list_facts))
+        .route("/api/facts/report", post(bots::api::report_facts))
+        .route(
+            "/api/facts/token",
+            get(bots::api::get_report_token).post(bots::api::rotate_report_token),
+        )
+        .route(
+            "/api/facts/{*key}",
+            get(bots::api::get_fact)
+                .put(bots::api::put_fact)
+                .delete(bots::api::delete_fact),
+        )
+        .route(
+            "/api/claims",
+            get(bots::api::list_claims).post(bots::api::create_claim),
+        )
+        .route("/api/claims/{id}", delete(bots::api::release_claim))
+        .route(
+            "/api/memories",
+            get(bots::api::list_memories).post(bots::api::write_memory),
+        )
+        .route(
+            "/api/memories/{id}",
+            get(bots::api::get_memory).delete(bots::api::archive_memory),
+        )
         .route("/api/search", get(api::search))
         .route("/api/workspaces/{id}/terminal/ws", get(api::terminal_ws))
         .route("/api/ws", get(api::ws_handler))

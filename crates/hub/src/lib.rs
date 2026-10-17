@@ -10,6 +10,7 @@ pub use blazar_db::ensure_private_dir;
 mod agent;
 pub mod api;
 pub mod auth;
+pub mod bots;
 pub mod fleet;
 pub mod git;
 pub mod mesh;
@@ -103,6 +104,8 @@ pub async fn build_state_with_services(
     services.spawn(async move { mesh::MeshCtx::warm(&warm).await });
     services.spawn(git::poll_prs(st.clone()));
     services.spawn(autopilot::scheduler(st.clone()));
+    services.spawn(bots::dispatch::scheduler(st.clone()));
+    services.spawn(fleet::watchdog(st.clone()));
     Ok(st)
 }
 

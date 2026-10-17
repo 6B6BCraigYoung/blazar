@@ -17,6 +17,8 @@ pub const KINDS: &[&str] = &[
     "question",
     "autopilot_paused",
     "rate_limit",
+    "alert",
+    "bot_reply",
 ];
 
 #[derive(Debug, Default, Clone)]

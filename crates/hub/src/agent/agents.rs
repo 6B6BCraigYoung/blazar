@@ -532,6 +532,39 @@ async fn save(st: &Shared, a: &Agent, create: bool) -> Result<(), Response> {
     }
 }
 
+pub(crate) async fn ensure_profile(
+    st: &Shared,
+    name: &str,
+    runtime: &str,
+    description: &str,
+    instructions: &str,
+) -> Result<Agent, String> {
+    let existing: Option<String> = sqlx::query_scalar("SELECT id FROM agents WHERE name = ?1")
+        .bind(name)
+        .fetch_optional(st.db.pool())
+        .await
+        .map_err(|e| e.to_string())?;
+    if let Some(id) = existing {
+        let _ = sqlx::query("UPDATE agents SET archived_at = NULL WHERE id = ?1")
+            .bind(&id)
+            .execute(st.db.pool())
+            .await;
+        return get(st, &id).await.ok_or_else(|| "档案读不回来".into());
+    }
+    let a: Agent = serde_json::from_value(serde_json::json!({
+        "name": name, "runtime": runtime, "description": description, "instructions": instructions,
+    }))
+    .map_err(|e| e.to_string())?;
+    let mut a = normalize(a);
+    validate(&a)?;
+    a.id = uuid::Uuid::now_v7().to_string();
+    a.archived_at = None;
+    save(st, &a, true)
+        .await
+        .map_err(|_| "保存智能体档案失败".to_owned())?;
+    get(st, &a.id).await.ok_or_else(|| "档案读不回来".into())
+}
+
 pub async fn create(State(st): State<Shared>, Json(a): Json<Agent>) -> Response {
     let mut a = normalize(a);
     if let Err(e) = validate(&a) {

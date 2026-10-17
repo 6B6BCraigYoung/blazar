@@ -433,6 +433,30 @@ async fn tunnel_works(st: &Shared, node: &str, port: u16) -> bool {
     }
 }
 
+fn reclaim_script(port: u16) -> String {
+    format!(
+        r#"for P in $( (lsof -nP -t -iTCP:{port} -sTCP:LISTEN 2>/dev/null; ss -Hltnp "sport = :{port}" 2>/dev/null | grep -o 'pid=[0-9]*' | cut -d= -f2) | sort -u); do
+  case "$(ps -o comm= -p "$P" 2>/dev/null)" in *sshd*) kill "$P" 2>/dev/null && echo "reclaimed $P" ;; esac
+done"#
+    )
+}
+
+async fn reclaim(st: &Shared, node: &str, port: u16) -> bool {
+    if tunnel_works(st, node, port).await {
+        return false;
+    }
+    let out = st
+        .transport(node)
+        .exec(ExecSpec::new("bash").arg("-lc").arg(reclaim_script(port)))
+        .await;
+    let freed = out.is_ok_and(|o| o.stdout.contains("reclaimed"));
+    if freed {
+        tracing::info!(target: "blazar::proxy", "{node} 上端口 {port} 被断掉的旧隧道占着，已释放");
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+    freed
+}
+
 pub async fn ensure_tunnel(st: &Shared, node: &str) -> Result<u16, String> {
     let local = proxy(st).await?.port;
     let mut tunnels = st.proxy.tunnels.lock().await;
@@ -453,7 +477,11 @@ pub async fn ensure_tunnel(st: &Shared, node: &str) -> Result<u16, String> {
         .take(4)
         .enumerate()
     {
-        match open_tunnel(node, port, local).await {
+        let mut opened = open_tunnel(node, port, local).await;
+        if opened.is_err() && i == 0 && saved == Some(port) && reclaim(st, node, port).await {
+            opened = open_tunnel(node, port, local).await;
+        }
+        match opened {
             Ok(child) => {
                 if !tunnel_works(st, node, port).await {
                     last = "隧道建好了但在远端访问不到".into();
@@ -572,6 +600,67 @@ mod tests {
         let env = parse_net_env(dump);
         let keys: Vec<&str> = env.iter().map(|(k, _)| k.as_str()).collect();
         assert_eq!(keys, ["HTTPS_PROXY", "https_proxy", "no_proxy"]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn reclaim_frees_only_ports_held_by_sshd() {
+        let Some(nc) = ["/usr/bin/nc", "/bin/nc"]
+            .into_iter()
+            .find(|p| std::path::Path::new(p).exists())
+        else {
+            return;
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let fake = dir.path().join("sshd-stale");
+        std::fs::copy(nc, &fake).unwrap();
+        let port = std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let mut stale = std::process::Command::new(&fake)
+            .args(["-l", "127.0.0.1", &port.to_string()])
+            .spawn()
+            .unwrap();
+        let up = (0..50).any(|_| {
+            std::thread::sleep(Duration::from_millis(100));
+            std::process::Command::new("bash")
+                .arg("-c")
+                .arg(format!(
+                    "lsof -nP -t -iTCP:{port} -sTCP:LISTEN >/dev/null 2>&1 || ss -Hltn \"sport = :{port}\" 2>/dev/null | grep -q ."
+                ))
+                .status()
+                .is_ok_and(|s| s.success())
+        });
+        if !up {
+            let _ = stale.kill();
+            let _ = stale.wait();
+            return;
+        }
+        let out = std::process::Command::new("bash")
+            .arg("-c")
+            .arg(reclaim_script(port))
+            .output()
+            .unwrap();
+        assert!(String::from_utf8_lossy(&out.stdout).contains("reclaimed"));
+        let reaped = (0..30).any(|_| {
+            std::thread::sleep(Duration::from_millis(100));
+            matches!(stale.try_wait(), Ok(Some(_)))
+        });
+        let _ = stale.kill();
+        let _ = stale.wait();
+        assert!(reaped, "残留的 sshd 监听必须被结束");
+
+        let mine = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let mine_port = mine.local_addr().unwrap().port();
+        let out = std::process::Command::new("bash")
+            .arg("-c")
+            .arg(reclaim_script(mine_port))
+            .output()
+            .unwrap();
+        assert!(!String::from_utf8_lossy(&out.stdout).contains("reclaimed"));
+        assert!(std::net::TcpStream::connect(("127.0.0.1", mine_port)).is_ok());
     }
 
     #[test]

@@ -209,20 +209,301 @@ pub const TOOLS: &[Tool] = &[
     },
     Tool {
         name: "get_history",
-        description: "读取工作区的完整对话与执行记录。",
+        description: "读取工作区的对话与执行记录。默认只给最近 200 条；带 after 从某条之后往后翻，mode=summary 只看消息和工具名。",
         schema: || {
             obj(
-                json!({ "workspace_id": s("string", "工作区 id") }),
+                json!({
+                    "workspace_id": s("string", "工作区 id"),
+                    "session": s("string", "只看这个对话（thread id）"),
+                    "after": s("string", "上一页最后一条的 cursor，从它之后开始"),
+                    "limit": s("integer", "最多几条，默认 200，上限 5000"),
+                    "mode": s("string", "summary（只要消息、工具名和审批）或 full"),
+                }),
                 &["workspace_id"],
+            )
+        },
+        build: |v| {
+            let mut qs = Vec::new();
+            for k in ["session", "after", "mode"] {
+                if let Some(x) = v.get(k).and_then(Value::as_str).filter(|x| !x.is_empty()) {
+                    qs.push(format!("{k}={}", enc(x)));
+                }
+            }
+            qs.push(format!(
+                "limit={}",
+                v.get("limit")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(200)
+                    .clamp(1, 5000)
+            ));
+            Ok((
+                "GET",
+                format!(
+                    "/api/workspaces/{}/history?{}",
+                    enc(arg(v, "workspace_id")?),
+                    qs.join("&")
+                ),
+                None,
+            ))
+        },
+    },
+    Tool {
+        name: "list_bots",
+        description: "列出 hub 里的常驻 bot：handle、职责、状态、认领摘要、待处理邮件数。",
+        schema: || obj(json!({}), &[]),
+        build: |_| Ok(("GET", "/api/bots".into(), None)),
+    },
+    Tool {
+        name: "spawn_bot",
+        description: "临时拉一个 bot 来干一件事：给一句职责和第一条指令，它会在 hub 上醒来处理，闲置超过 idle_ttl_secs（默认 1 天）自动归档；干得久了可以转成固定 bot。总控专用。",
+        schema: || {
+            obj(
+                json!({
+                    "duty": s("string", "它负责什么，一句话到几行都行"),
+                    "text": s("string", "第一条指令"),
+                    "handle": s("string", "想固定一个名字就填，留空自动生成 tmp-xxxx"),
+                    "runtime": s("string", "claude（默认）/ codex"),
+                    "idle_ttl_secs": s("integer", "闲置多少秒后归档，默认 86400"),
+                    "priority": s("string", "P0 / P1（默认）/ P2"),
+                }),
+                &["duty", "text"],
+            )
+        },
+        build: |v| {
+            arg(v, "duty")?;
+            arg(v, "text")?;
+            Ok(("POST", "/api/bots/spawn".into(), Some(v.clone())))
+        },
+    },
+    Tool {
+        name: "bot_status",
+        description: "看一个 bot 的现状：状态、当前线程、最后一条指令、最近几步操作、待处理邮件、认领的资源。",
+        schema: || {
+            obj(
+                json!({ "bot": s("string", "bot 的 handle 或 id") }),
+                &["bot"],
             )
         },
         build: |v| {
             Ok((
                 "GET",
-                format!("/api/workspaces/{}/history", enc(arg(v, "workspace_id")?)),
+                format!("/api/bots/{}/status", enc(arg(v, "bot")?)),
                 None,
             ))
         },
+    },
+    Tool {
+        name: "fleet_status",
+        description: "一次拿到所有 bot 的现状，加上机器在线情况、账号额度、最近告警、失联的事实。总控看全局用这个。",
+        schema: || obj(json!({}), &[]),
+        build: |_| Ok(("GET", "/api/fleet/status".into(), None)),
+    },
+    Tool {
+        name: "send_message",
+        description: "给另一个 bot 发一封邮件。对方空闲时会被唤醒处理；urgent 会打断它正在跑的一轮。返回邮件 id，可用 wait_reply 等回复。",
+        schema: || {
+            obj(
+                json!({
+                    "to": s("string", "对方 bot 的 handle"),
+                    "body": s("string", "正文"),
+                    "subject": s("string", "主题，可省"),
+                    "thread": s("string", "投到对方的哪个线程（bot_threads id），省略投到 main"),
+                    "priority": s("string", "normal（默认）或 urgent"),
+                    "expires_in_secs": s("integer", "多少秒内没处理就作废"),
+                }),
+                &["to", "body"],
+            )
+        },
+        build: |v| {
+            let mut body = v.clone();
+            body.as_object_mut().map(|m| m.remove("to"));
+            Ok((
+                "POST",
+                format!("/api/bots/{}/mail", enc(arg(v, "to")?)),
+                Some(body),
+            ))
+        },
+    },
+    Tool {
+        name: "reply",
+        description: "回复一封收到的邮件。回复自动投到发件人的同一线程；发件人是用户时进用户的收件箱。",
+        schema: || {
+            obj(
+                json!({ "mail_id": s("string", "邮件 id"), "body": s("string", "回复正文") }),
+                &["mail_id", "body"],
+            )
+        },
+        build: |v| {
+            Ok((
+                "POST",
+                format!("/api/mail/{}/reply", enc(arg(v, "mail_id")?)),
+                Some(json!({ "body": arg(v, "body")? })),
+            ))
+        },
+    },
+    Tool {
+        name: "wait_reply",
+        description: "等一封邮件得到回复，或者对方处理完它。超时返回 timed_out。",
+        schema: || {
+            obj(
+                json!({
+                    "mail_id": s("string", "邮件 id"),
+                    "timeout_secs": s("integer", "最多等多少秒，默认 120，上限 3600"),
+                }),
+                &["mail_id"],
+            )
+        },
+        build: |v| {
+            let t = v
+                .get("timeout_secs")
+                .and_then(Value::as_u64)
+                .unwrap_or(120)
+                .clamp(1, 3600);
+            Ok((
+                "GET",
+                format!("/api/mail/{}/wait?timeout={t}", enc(arg(v, "mail_id")?)),
+                None,
+            ))
+        },
+    },
+    Tool {
+        name: "facts_get",
+        description: "读一条事实（含状态 ok/stale/lost 和负责人）。",
+        schema: || {
+            obj(
+                json!({ "key": s("string", "如 run/q01"), "history": { "type": "boolean", "description": "带上历史值" } }),
+                &["key"],
+            )
+        },
+        build: |v| {
+            let h = v.get("history").and_then(Value::as_bool).unwrap_or(false);
+            Ok((
+                "GET",
+                format!("/api/facts/{}?history={h}", enc(arg(v, "key")?)),
+                None,
+            ))
+        },
+    },
+    Tool {
+        name: "facts_list",
+        description: "按前缀列出事实，比如 run/ 或 gpu/gpu-1/。",
+        schema: || obj(json!({ "prefix": s("string", "key 前缀，留空全部") }), &[]),
+        build: |v| {
+            let p = v.get("prefix").and_then(Value::as_str).unwrap_or("");
+            Ok(("GET", format!("/api/facts?prefix={}", enc(p)), None))
+        },
+    },
+    Tool {
+        name: "facts_put",
+        description: "写一条你负责的事实。给了 ttl_secs 就要按这个间隔更新，超过 2 倍标 stale、5 倍标 lost 并告警。别人负责的事实写不了。",
+        schema: || {
+            obj(
+                json!({
+                    "key": s("string", "如 run/q01、gpu/gpu-1/0、node/robot-1/online"),
+                    "value": { "description": "任意 JSON" },
+                    "kind": s("string", "run / gpu / node / dataset / custom，省略按 key 前缀猜"),
+                    "ttl_secs": s("integer", "心跳间隔秒数"),
+                }),
+                &["key", "value"],
+            )
+        },
+        build: |v| {
+            let mut body = v.clone();
+            body.as_object_mut().map(|m| m.remove("key"));
+            Ok((
+                "PUT",
+                format!("/api/facts/{}", enc(arg(v, "key")?)),
+                Some(body),
+            ))
+        },
+    },
+    Tool {
+        name: "claim",
+        description: "认领一台机器上的资源：gpu:0,1 / dir:/data/queue / repo / port:8766 / device:can1。和别人独占的范围重叠会被拒，并告诉你找谁。",
+        schema: || {
+            obj(
+                json!({
+                    "scope": s("string", "范围"),
+                    "node": s("string", "机器名；给了 workspace_id 就不用"),
+                    "workspace_id": s("string", "认领整个工作区时填，会给你挂一个对应的远程手"),
+                    "mode": s("string", "exclusive（默认）/ shared / read"),
+                    "note": s("string", "用途"),
+                    "expires_in_secs": s("integer", "多久后自动过期"),
+                }),
+                &["scope"],
+            )
+        },
+        build: |v| Ok(("POST", "/api/claims".into(), Some(v.clone()))),
+    },
+    Tool {
+        name: "release",
+        description: "释放一条自己的认领。",
+        schema: || obj(json!({ "claim_id": s("string", "认领 id") }), &["claim_id"]),
+        build: |v| {
+            Ok((
+                "DELETE",
+                format!("/api/claims/{}", enc(arg(v, "claim_id")?)),
+                None,
+            ))
+        },
+    },
+    Tool {
+        name: "claims",
+        description: "列出认领：默认全部，给了 bot 只看它的。",
+        schema: || obj(json!({ "bot": s("string", "handle，留空看全部") }), &[]),
+        build: |v| {
+            let b = v.get("bot").and_then(Value::as_str).unwrap_or("");
+            Ok(("GET", format!("/api/claims?bot={}", enc(b)), None))
+        },
+    },
+    Tool {
+        name: "memory_list",
+        description: "列出共享 memory 和你自己的 memory 的索引（名字和描述）。",
+        schema: || {
+            obj(
+                json!({ "scope": s("string", "shared 或 bot:<id>，留空看你能看的全部") }),
+                &[],
+            )
+        },
+        build: |v| {
+            let sc = v.get("scope").and_then(Value::as_str).unwrap_or("");
+            Ok(("GET", format!("/api/memories?scope={}", enc(sc)), None))
+        },
+    },
+    Tool {
+        name: "memory_read",
+        description: "读一条 memory 的正文。",
+        schema: || {
+            obj(
+                json!({ "memory": s("string", "memory 的 id 或名字") }),
+                &["memory"],
+            )
+        },
+        build: |v| {
+            Ok((
+                "GET",
+                format!("/api/memories/{}", enc(arg(v, "memory")?)),
+                None,
+            ))
+        },
+    },
+    Tool {
+        name: "memory_write",
+        description: "写一条 memory。同名或描述很接近的已有条目会被拦下并返回它；要更新就带上它的 version。",
+        schema: || {
+            obj(
+                json!({
+                    "name": s("string", "kebab-case 名字"),
+                    "description": s("string", "一句话描述"),
+                    "body": s("string", "正文"),
+                    "type": s("string", "user / feedback / project / reference"),
+                    "scope": s("string", "shared（默认）或 bot:<你的 id>"),
+                    "version": s("integer", "更新已有条目时带上当前版本号"),
+                }),
+                &["name", "description", "body"],
+            )
+        },
+        build: |v| Ok(("POST", "/api/memories".into(), Some(v.clone()))),
     },
     Tool {
         name: "list_tasks",

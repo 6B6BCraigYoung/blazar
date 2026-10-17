@@ -24,6 +24,7 @@ pub struct AppData {
     pub agents_n: RwSignal<usize>,
     pub skills_n: RwSignal<usize>,
     pub runtimes_n: RwSignal<usize>,
+    pub bots: RwSignal<Vec<Value>>,
     pub seen: RwSignal<HashMap<String, String>>,
     pub current_ws: RwSignal<Option<String>>,
     pub new_ws: RwSignal<bool>,
@@ -98,6 +99,15 @@ impl AppData {
                 Err(error) => {
                     let _ = self.state_error.try_set(Some(error.to_string()));
                 }
+            }
+        });
+    }
+
+    pub fn load_bots(self) {
+        spawn_local(async move {
+            if let Ok(v) = api::get::<Value>("/api/bots").await {
+                let list = v["bots"].as_array().cloned().unwrap_or_default();
+                let _ = self.bots.try_set(list);
             }
         });
     }
@@ -236,6 +246,7 @@ pub fn provide(bus: Bus) -> AppData {
         agents_n: RwSignal::new(0),
         skills_n: RwSignal::new(0),
         runtimes_n: RwSignal::new(0),
+        bots: RwSignal::new(Vec::new()),
         seen: RwSignal::new(storage::load(SEEN_KEY).unwrap_or_default()),
         current_ws: RwSignal::new(None),
         new_ws: RwSignal::new(false),
@@ -278,7 +289,9 @@ pub fn provide(bus: Bus) -> AppData {
     ] {
         app.load_counts(k);
     }
+    app.load_bots();
     bus.subscribe(move |ev| match ev {
+        ServerEvent::BotsChanged => app.load_bots(),
         ServerEvent::InboxChanged => app.load_counts("inbox"),
         ServerEvent::TasksChanged => app.load_counts("tasks"),
         ServerEvent::AutopilotsChanged => app.load_counts("autopilots"),

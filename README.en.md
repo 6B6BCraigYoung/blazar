@@ -45,6 +45,18 @@ Blazar uses EasyTier to connect machines. Join a network with a `.blazar` invite
 - **Obsidian**: open a vault as a workspace, preview Markdown, and save tasks as notes.
 - **Isaac Sim, MuJoCo**: pick a workspace and Blazar finds the software on that machine (the workspace's Python environment, a conda environment, or a path you set), launches it there, and streams that machine's display back with hardware encoding. If the software is missing, Blazar can install it: it creates its own Python environment on that machine, installs MuJoCo from PyPI or Isaac Sim from NVIDIA's package index (which requires accepting NVIDIA's license). A desktop session of yours is used directly; a headless machine needs a one-time root run of a script Blazar generates to set up a virtual display. When ffmpeg is missing, a checksum-verified static build is installed into that machine's `~/.blazar`.
 
+## Resident bots
+
+A bot is a persistent identity inside the hub: a role (an agent profile), a home workspace, a mailbox, the resources it has claimed, and its conversation threads. A process only starts when there is work and exits when it is done.
+
+- **Temporary or fixed**: a bot can be spun up for one job with a single sentence of duty (the "new bot" form, or `spawn_bot` from the lead); it is archived after a day idle with its home workspace and conversation kept, and "promote" keeps it for good.
+- **Work arrives as mail**: send a bot mail from its page, or let another bot call `send_message`. An idle bot wakes up and resumes its previous conversation; urgent mail is injected into the turn it is running. Bots answer with `reply` and wait with `wait_reply`.
+- **Lead and workers**: a `lead` can dispatch to any workspace; a `worker` can only message bots, read status and facts, and operate the workspaces it has claimed. The hub attaches the caller's identity to the orchestration tools, mail between bots names its sender, and only mail from the user counts as an instruction.
+- **Facts**: bots publish the state they own with `facts_put` and refresh it on a heartbeat; two missed intervals mark a fact stale, five mark it lost and raise an alert. External scripts report through `POST /api/facts/report` with a token generated in the settings.
+- **Claims**: `claim gpu:0,1`, `dir:/data/queue`, or `port:8766`; an overlapping exclusive claim is refused with the name of the owner to talk to. Claiming a whole workspace gives the bot remote hands on that machine.
+- **Shared memory**: `memory_write` compares against existing entries first; a duplicate name or a very similar description is refused and the existing entry returned, and updates must carry its version.
+- **Always-on hub**: run the hub on a machine that stays online, register it with `scripts/hub-service.sh install` as a launchd or systemd service bound to loopback only, and reach it from a laptop with `ssh -N -L 7777:127.0.0.1:7777 hub-host` and `http://localhost:7777`.
+
 ## Architecture
 
 | Directory | Responsibility |

@@ -27,6 +27,7 @@ const I_NODES: &str = r#"<circle cx="12" cy="5" r="2.2"/><circle cx="5" cy="18" 
 const I_USAGE: &str = r#"<path d="M3 20V10M9 20V4M15 20v-7M21 20V8"/>"#;
 const I_GEAR: &str = r#"<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/>"#;
 const I_SEARCH: &str = r#"<circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/>"#;
+const I_BOT: &str = r#"<rect x="5" y="8" width="14" height="11" rx="3"/><path d="M12 8V5M8 5h8M9.5 13h.01M14.5 13h.01M9 16.5h6"/>"#;
 const I_BELL: &str = r#"<path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>"#;
 
 fn nav(
@@ -120,6 +121,26 @@ pub fn Sidebar() -> impl IntoView {
             </button>
             <button type="button" class="btn primary new-ws" aria-haspopup="dialog" aria-expanded=move || app.new_ws.get().to_string() on:click=move |_| app.new_ws.set(true)>"＋ 新建工作区"</button>
             <div class="grp">
+                <span>"bot"</span>
+                {nav("/bots", I_BOT, "全部 bot", Signal::derive(move || n(app.bots.with(|b| b.len()))), true)}
+                {move || app.bots.get().into_iter().map(|b| {
+                    let id = b["id"].as_str().unwrap_or_default().to_owned();
+                    let href = format!("/bots/{}", js_sys::encode_uri_component(&id));
+                    let name = b["display_name"].as_str().unwrap_or_default().to_owned();
+                    let state = b["state"].as_str().unwrap_or("idle").to_owned();
+                    let act = match state.as_str() { "running" => "running", "awaiting" => "awaiting_approval", "lost" => "errored", _ => "idle" };
+                    let pending = b["pending_mail"].as_u64().unwrap_or(0);
+                    let title = format!("{} · {}", b["handle"].as_str().unwrap_or_default(), crate::pages::bot_state_label(&state).0);
+                    view! {
+                        <A href=href attr:class="nav" attr:title=title>
+                            <span class="ic"><span class="dot" data-act=act></span></span>
+                            <span class="nm">{name}</span>
+                            <span class="n">{n(pending as usize)}</span>
+                        </A>
+                    }
+                }).collect_view()}
+            </div>
+            <div class="grp">
                 <span>"工作"</span>
                 {nav("/inbox", I_INBOX, "收件箱", Signal::derive(move || { let u = app.inbox_unread.get(); if u > 0 { u.to_string() } else { String::new() } }), false)}
                 {nav("/", I_FOLDER, "全部工作区", all, true)}
@@ -148,7 +169,7 @@ pub fn Sidebar() -> impl IntoView {
             <div class="grp">
                 <span>"AI"</span>
                 {nav("/runtimes", I_RT, "运行时", Signal::derive(move || n(app.runtimes_n.get())), false)}
-                {nav("/agents", I_AGENT, "智能体", Signal::derive(move || n(app.agents_n.get())), false)}
+                {nav("/agents", I_AGENT, "角色档案", Signal::derive(move || n(app.agents_n.get())), false)}
                 {nav("/skills", I_SKILL, "SKILLs", Signal::derive(move || n(app.skills_n.get())), false)}
             </div>
             <div class="grp">

@@ -1,6 +1,7 @@
 mod agents;
 mod apps;
 mod autopilots;
+mod bots;
 mod inbox;
 mod nodes;
 pub mod runtimes;
@@ -35,4 +36,5 @@ pub fn NotFound() -> impl IntoView {
 pub use agents::{AgentCreatePage, AgentProfilePage, AgentsPage};
 pub use apps::{AppDetailPage, AppsPage};
 pub use autopilots::AutopilotsPage;
+pub use bots::{BotPage, BotsPage, state_label as bot_state_label};
 pub use inbox::InboxPage;

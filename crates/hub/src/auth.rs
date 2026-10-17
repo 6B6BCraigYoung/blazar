@@ -174,7 +174,7 @@ pub async fn guard(State(st): State<Shared>, request: Request, next: Next) -> Re
         )
             .into_response();
     }
-    let path = request.uri().path();
+    let path = request.uri().path().to_owned();
     if path == crate::fleet::PATH {
         let fleet_token = request
             .headers()
@@ -194,6 +194,26 @@ pub async fn guard(State(st): State<Shared>, request: Request, next: Next) -> Re
         && path
             .strip_prefix("/api/webhooks/")
             .is_some_and(|token| !token.is_empty() && !token.contains('/'));
+    let bearer = request
+        .headers()
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .map(str::to_owned);
+    let master = bearer.as_deref().is_some_and(|t| session.matches(t));
+    let mut request = request;
+    if !master {
+        request.headers_mut().remove(crate::bots::CALLER_HEADER);
+    }
+    if path == "/api/facts/report" && request.method() == Method::POST && !master {
+        let ok = match bearer.as_deref() {
+            Some(t) => crate::bots::facts::report_token_matches(&st, t).await,
+            None => false,
+        };
+        if ok {
+            return next.run(request).await;
+        }
+    }
     if (path.starts_with("/api/") || path.starts_with("/ws/"))
         && !webhook
         && !session.authorized(&request)

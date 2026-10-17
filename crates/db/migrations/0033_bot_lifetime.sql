@@ -1,0 +1,2 @@
+ALTER TABLE bots ADD COLUMN lifetime TEXT NOT NULL DEFAULT 'fixed';
+ALTER TABLE bots ADD COLUMN idle_ttl_secs INTEGER;

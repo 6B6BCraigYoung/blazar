@@ -9,6 +9,14 @@ use tokio::sync::{RwLock, broadcast};
 
 pub use blazar_core_types::api::ServerEvent;
 
+pub fn ssh_control_dir() -> std::path::PathBuf {
+    std::env::var_os("HOME")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir)
+        .join(".blazar")
+        .join("ssh-cm")
+}
+
 pub struct RunningSession {
     pub workspace_id: WorkspaceId,
     pub task: tokio::task::JoinHandle<()>,
@@ -49,6 +57,7 @@ pub struct AppState {
 
     pub fleet: crate::fleet::FleetState,
     pub sims: crate::sims::SimsState,
+    pub bots: crate::bots::BotsState,
 }
 
 impl AppState {
@@ -88,6 +97,7 @@ impl AppState {
             proxy: crate::proxy::ProxyState::default(),
             fleet: crate::fleet::FleetState::default(),
             sims: crate::sims::SimsState::default(),
+            bots: crate::bots::BotsState::default(),
         })
     }
 
@@ -130,7 +140,7 @@ impl AppState {
         if node == "local" {
             Arc::new(LocalTransport)
         } else {
-            Arc::new(SshTransport::new(node))
+            Arc::new(SshTransport::new(node).multiplexed(ssh_control_dir()))
         }
     }
 

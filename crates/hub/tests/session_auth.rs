@@ -415,7 +415,7 @@ async fn fleet_endpoint_takes_session_tokens_or_the_hub_token() {
         .unwrap();
     assert_eq!(forged.status(), StatusCode::UNAUTHORIZED);
     let session = blazar_core_types::SessionId::new();
-    let issued = state.fleet.issue(session, "gpu-1").unwrap();
+    let issued = state.fleet.issue(session, "gpu-1", None).unwrap();
     let granted = app
         .clone()
         .oneshot(post(vec![("Authorization", format!("Bearer {issued}"))]))

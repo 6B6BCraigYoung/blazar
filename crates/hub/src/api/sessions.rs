@@ -1,6 +1,6 @@
 use super::*;
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 pub struct PromptRequest {
     pub text: String,
 
@@ -61,6 +61,9 @@ pub struct PromptRequest {
 
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub exclude_accounts: Vec<String>,
+
+    #[serde(skip)]
+    pub bot: Option<String>,
 }
 
 const MAX_STORED_REQUEST: usize = 2 * 1024 * 1024;
@@ -156,6 +159,18 @@ pub async fn prompt(
 ) -> ApiResult<Json<serde_json::Value>> {
     let transports = st.clone();
     prompt_using(st, id, req, move |node| transports.transport(node)).await
+}
+
+pub(crate) async fn prompt_for_bot(
+    st: Shared,
+    id: String,
+    req: PromptRequest,
+) -> Result<serde_json::Value, String> {
+    let transports = st.clone();
+    prompt_using(st, id, req, move |node| transports.transport(node))
+        .await
+        .map(|Json(v)| v)
+        .map_err(|e| e.message())
 }
 
 async fn prompt_using(
@@ -477,8 +492,26 @@ async fn prompt_inner(
         if let Some(m) = crate::office::mcp_spec(&st).await {
             spec.mcp_servers.push(m);
         }
+        let bot = match req.bot.as_deref() {
+            Some(b) => crate::bots::get(&st, b).await,
+            None => crate::bots::by_home(&st, &id).await,
+        };
+        let caller = bot.as_ref().map(|b| crate::bots::Caller {
+            bot: b.id.clone(),
+            handle: b.handle.clone(),
+            role: b.role.clone(),
+            session: Some(session_id.to_string()),
+        });
         let children = crate::fleet::children_of(&st, &id).await;
-        match crate::fleet::mcp_spec(&st, session_id, &run_node, !children.is_empty()).await {
+        match crate::fleet::mcp_spec(
+            &st,
+            session_id,
+            &run_node,
+            !children.is_empty() || bot.is_some(),
+            caller,
+        )
+        .await
+        {
             Ok(Some(m)) => spec.mcp_servers.push(m),
             Ok(None) => {}
             Err(error) => tracing::warn!(
@@ -494,7 +527,15 @@ async fn prompt_inner(
         if let Some(c) = &cfg {
             apply_runtime_config(&mut spec, c);
         }
-        let brief = crate::fleet::briefing(&id, &children);
+        let mut brief = crate::fleet::briefing(&id, &children);
+        if let Some(b) = &bot {
+            let block = crate::bots::briefing(&st, b).await;
+            if !brief.is_empty() {
+                brief.push_str("\n\n");
+            }
+            brief.push_str(&block);
+            spec.mcp_servers.extend(crate::bots::hands(&st, b).await);
+        }
         if !brief.is_empty() {
             spec.instructions = Some(match spec.instructions.take() {
                 Some(i) => format!("{i}\n\n{brief}"),
@@ -905,6 +946,51 @@ pub async fn session_events(
 pub struct HistoryQuery {
     #[serde(default)]
     pub session: Option<String>,
+    #[serde(default)]
+    pub after: Option<String>,
+    #[serde(default)]
+    pub limit: Option<usize>,
+    #[serde(default)]
+    pub mode: Option<String>,
+}
+
+pub(crate) fn page_history(
+    rows: Vec<serde_json::Value>,
+    after: Option<&str>,
+    limit: Option<usize>,
+    summary: bool,
+) -> Vec<serde_json::Value> {
+    let start = after
+        .filter(|a| !a.is_empty())
+        .and_then(|a| rows.iter().position(|r| r["cursor"] == a))
+        .map_or(0, |i| i + 1);
+    let rows: Vec<serde_json::Value> = rows
+        .into_iter()
+        .skip(start)
+        .filter(|r| {
+            !summary
+                || matches!(
+                    r["kind"]["type"].as_str(),
+                    Some(
+                        "user_message" | "assistant_message" | "tool_use" | "approval" | "finished"
+                    )
+                )
+        })
+        .map(|mut r| {
+            if summary && r["kind"]["type"] == "tool_use" {
+                let input = r["kind"]["input"].to_string();
+                r["kind"]["input"] =
+                    serde_json::Value::String(input.chars().take(200).collect::<String>());
+            }
+            r
+        })
+        .collect();
+    let limit = limit.unwrap_or(200).clamp(1, 5000);
+    if after.is_some_and(|a| !a.is_empty()) || rows.len() <= limit {
+        rows.into_iter().take(limit).collect()
+    } else {
+        rows[rows.len() - limit..].to_vec()
+    }
 }
 
 pub async fn workspace_history(
@@ -924,23 +1010,35 @@ pub async fn workspace_history(
     .fetch_all(st.db.pool())
     .await?;
 
-    Ok(Json(
-        rows.into_iter()
-            .filter_map(|r| {
-                let payload: String = r.try_get("payload").ok()?;
-                let kind: serde_json::Value = serde_json::from_str(&payload).ok()?;
-                Some(serde_json::json!({
-                    "seq": r.try_get::<i64, _>("seq").unwrap_or(0),
-                    "ts": r.try_get::<String, _>("ts").unwrap_or_default(),
-                    "session_id": r.try_get::<String, _>("session_id").unwrap_or_default(),
-                    "parent": r.try_get::<Option<String>, _>("parent_tool_id").ok().flatten(),
+    let all: Vec<serde_json::Value> = rows
+        .into_iter()
+        .filter_map(|r| {
+            let payload: String = r.try_get("payload").ok()?;
+            let kind: serde_json::Value = serde_json::from_str(&payload).ok()?;
+            let seq = r.try_get::<i64, _>("seq").unwrap_or(0);
+            let session_id = r.try_get::<String, _>("session_id").unwrap_or_default();
+            Some(serde_json::json!({
+                "seq": seq,
+                "ts": r.try_get::<String, _>("ts").unwrap_or_default(),
+                "session_id": session_id,
+                "cursor": format!("{session_id}:{seq}"),
+                "parent": r.try_get::<Option<String>, _>("parent_tool_id").ok().flatten(),
 
-                    "rewound": r.try_get::<Option<String>, _>("rewound_at").ok().flatten().is_some(),
-                    "kind": kind,
-                }))
-            })
-            .collect(),
-    ))
+                "rewound": r.try_get::<Option<String>, _>("rewound_at").ok().flatten().is_some(),
+                "kind": kind,
+            }))
+        })
+        .collect();
+    let paged = q.limit.is_some() || q.after.is_some() || q.mode.is_some();
+    if !paged {
+        return Ok(Json(all));
+    }
+    Ok(Json(page_history(
+        all,
+        q.after.as_deref(),
+        q.limit,
+        q.mode.as_deref() == Some("summary"),
+    )))
 }
 
 #[cfg(test)]

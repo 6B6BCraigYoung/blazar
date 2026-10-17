@@ -351,9 +351,15 @@ pub trait NodeTransport: Send + Sync {
     }
 
     async fn health(&self) -> Result<NodeHealth> {
-        let out = self
-            .exec(ExecSpec::new("bash").arg("-lc").arg(HEALTH_SCRIPT))
-            .await?;
+        self.health_with(&BTreeMap::new()).await
+    }
+
+    async fn health_with(&self, env: &BTreeMap<String, String>) -> Result<NodeHealth> {
+        let mut spec = ExecSpec::new("bash").arg("-lc").arg(HEALTH_SCRIPT);
+        for (k, v) in env {
+            spec = spec.env(k, v);
+        }
+        let out = self.exec(spec).await?;
 
         if out.code != 0 {
             return Err(TransportError::Command {
@@ -367,12 +373,19 @@ pub trait NodeTransport: Send + Sync {
 
 const HEALTH_SCRIPT: &str = r#"
 . /etc/os-release 2>/dev/null
-echo "os=${PRETTY_NAME:-$(uname -s)}"
+if [ "$(uname -s)" = Darwin ]; then
+  echo "os=macOS $(sw_vers -productVersion 2>/dev/null)"
+  echo "mem_gb=$(( $(sysctl -n hw.memsize 2>/dev/null || echo 0) / 1073741824 ))"
+  echo "disk_free_gb=$(df -g / 2>/dev/null | awk 'NR==2{print $4}')"
+  echo "load1=$(sysctl -n vm.loadavg 2>/dev/null | awk '{print $2}')"
+else
+  echo "os=${PRETTY_NAME:-$(uname -s)}"
+  echo "mem_gb=$(free -g 2>/dev/null | awk '/^Mem:/{print $2}' || echo 0)"
+  echo "disk_free_gb=$(df -BG / 2>/dev/null | awk 'NR==2{gsub(/G/,"",$4); print $4}' || echo 0)"
+  echo "load1=$(cut -d' ' -f1 /proc/loadavg 2>/dev/null || echo 0)"
+fi
 echo "arch=$(uname -m)"
 echo "cpus=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 0)"
-echo "mem_gb=$(free -g 2>/dev/null | awk '/^Mem:/{print $2}' || echo 0)"
-echo "disk_free_gb=$(df -BG / 2>/dev/null | awk 'NR==2{gsub(/G/,"",$4); print $4}' || echo 0)"
-echo "load1=$(cut -d' ' -f1 /proc/loadavg 2>/dev/null || echo 0)"
 command -v nvidia-smi >/dev/null 2>&1 && \
   nvidia-smi --query-gpu=name,memory.total --format=csv,noheader,nounits 2>/dev/null | \
   while IFS=, read -r n m; do echo "gpu=${n# }|${m# }"; done
@@ -699,11 +712,15 @@ fn pipe_bytes(mut child: tokio::process::Child) -> Result<ByteStream> {
     })
 }
 
+pub const DEFAULT_EXEC_TIMEOUT_SECS: u64 = 1800;
+
 pub struct SshTransport {
     host: String,
     connect_timeout_secs: u32,
 
     multiplex: Option<PathBuf>,
+
+    exec_timeout_secs: u64,
 }
 
 impl SshTransport {
@@ -712,7 +729,14 @@ impl SshTransport {
             host: host.into(),
             connect_timeout_secs: 10,
             multiplex: None,
+            exec_timeout_secs: DEFAULT_EXEC_TIMEOUT_SECS,
         }
+    }
+
+    #[must_use]
+    pub fn exec_timeout(mut self, secs: u64) -> Self {
+        self.exec_timeout_secs = secs.max(1);
+        self
     }
 
     #[must_use]
@@ -752,7 +776,17 @@ impl NodeTransport for SshTransport {
         cmd.stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
-        run_with_stdin(cmd, spec.stdin.as_deref()).await
+        let limit = std::time::Duration::from_secs(self.exec_timeout_secs);
+        match tokio::time::timeout(limit, run_with_stdin(cmd, spec.stdin.as_deref())).await {
+            Ok(out) => out,
+            Err(_) => Err(TransportError::Command {
+                code: -1,
+                stderr: format!(
+                    "{} 上的命令 {} 秒内没有结束，已断开",
+                    self.host, self.exec_timeout_secs
+                ),
+            }),
+        }
     }
 
     async fn spawn_lines(&self, spec: ExecSpec) -> Result<LineStream> {

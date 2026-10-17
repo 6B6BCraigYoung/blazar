@@ -605,6 +605,8 @@ const KIND_TEXT: &[(&str, &str)] = &[
     ("question", "💬 在问你"),
     ("autopilot_paused", "⏸ 自动化暂停"),
     ("rate_limit", "📉 额度告警"),
+    ("alert", "🚨 告警"),
+    ("bot_reply", "🤖 bot 回复"),
 ];
 
 fn notify_args(target: &str, as_: &str, markdown: &str, key: &str, dry: bool) -> Vec<String> {
@@ -891,7 +893,14 @@ mod tests {
         );
         assert!(!crate::fleet::enabled(&st).await);
         assert!(matches!(
-            crate::fleet::mcp_spec(&st, blazar_core_types::SessionId::new(), "local", false).await,
+            crate::fleet::mcp_spec(
+                &st,
+                blazar_core_types::SessionId::new(),
+                "local",
+                false,
+                None
+            )
+            .await,
             Ok(None)
         ));
         let saved = put_prefs(
