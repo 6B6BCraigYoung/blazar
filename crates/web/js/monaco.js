@@ -1,5 +1,7 @@
-
-
+window.addEventListener('unhandledrejection', event => {
+  const reason = event.reason;
+  if (reason && reason.name === 'Canceled' && reason.message === 'Canceled') event.preventDefault();
+});
 
 let ready = null;
 
