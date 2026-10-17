@@ -12,6 +12,7 @@ struct Hit {
     title: String,
     kind: String,
     href: String,
+    keys: String,
 }
 
 #[component]
@@ -87,26 +88,33 @@ pub fn Palette() -> impl IntoView {
 
     let hits = move || {
         let mut all: Vec<Hit> = [
-            ("全部工作区", "导航", "/"),
-            ("运行中", "导航", "/running"),
-            ("等我审批", "导航", "/waiting"),
-            ("运行时", "导航", "/runtimes"),
-            ("收件箱", "导航", "/inbox"),
-            ("任务", "导航", "/tasks"),
-            ("自动化", "导航", "/autopilots"),
-            ("SKILLs", "导航", "/skills"),
-            ("接入的软件", "导航", "/apps"),
-            ("Agent", "导航", "/agents"),
-            ("机器与组网", "导航", "/nodes"),
-            ("用量", "导航", "/usage"),
-            ("设置", "导航", "/settings"),
-            ("新建工作区", "命令", "cmd:new"),
+            ("全部工作区", "导航", "/", "workspaces"),
+            ("运行中", "导航", "/running", "running"),
+            ("等我审批", "导航", "/waiting", "审批 approval"),
+            ("全部 bot", "导航", "/bots", "bots 机器人"),
+            ("运行时", "导航", "/runtimes", "runtimes 账号"),
+            ("收件箱", "导航", "/inbox", "inbox 通知"),
+            ("任务", "导航", "/tasks", "tasks"),
+            ("自动化", "导航", "/autopilots", "autopilots 定时"),
+            ("SKILLs", "导航", "/skills", "技能 skills mcp"),
+            (
+                "接入的软件",
+                "导航",
+                "/apps",
+                "apps 飞书 github obsidian 仿真",
+            ),
+            ("角色档案", "导航", "/agents", "智能体 agents"),
+            ("机器与组网", "导航", "/nodes", "节点 nodes mesh"),
+            ("用量", "导航", "/usage", "usage 费用"),
+            ("设置", "导航", "/settings", "settings 快捷键"),
+            ("新建工作区", "命令", "cmd:new", "new workspace"),
         ]
         .into_iter()
-        .map(|(t, k, h)| Hit {
+        .map(|(t, k, h, keys)| Hit {
             title: t.into(),
             kind: k.into(),
             href: h.into(),
+            keys: keys.into(),
         })
         .collect();
         if let Some(s) = app.state.get() {
@@ -114,17 +122,22 @@ pub fn Palette() -> impl IntoView {
                 title: w.name.clone(),
                 kind: format!("工作区 · {}", w.node),
                 href: format!("/w/{}", w.id),
+                keys: String::new(),
             }));
             all.extend(s.nodes.iter().map(|n| Hit {
                 title: n.name.clone(),
                 kind: "机器".into(),
                 href: format!("/nodes/{}", js_sys::encode_uri_component(&n.name)),
+                keys: String::new(),
             }));
         }
         let k = q.get().to_lowercase();
         all.into_iter()
             .filter(|h| {
-                k.is_empty() || format!("{}{}", h.title, h.kind).to_lowercase().contains(&k)
+                k.is_empty()
+                    || format!("{} {} {}", h.title, h.kind, h.keys)
+                        .to_lowercase()
+                        .contains(&k)
             })
             .take(40)
             .collect::<Vec<_>>()
