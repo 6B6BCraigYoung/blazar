@@ -28,13 +28,26 @@ function install() {
   };
 }
 
-function visible(el) {
-  if (el.closest('[inert]')) return false;
+function collapsed(el) {
+  for (let d = el.closest('details'); d; d = d.parentElement?.closest('details')) {
+    const summary = d.querySelector(':scope > summary');
+    if (!d.open && !(summary && summary.contains(el))) return true;
+  }
+  return false;
+}
+
+function shown(el) {
+  if (el.closest('[inert]') || collapsed(el)) return false;
   const r = el.getBoundingClientRect();
   if (r.width < 1 || r.height < 1) return false;
-  if (r.bottom < 0 || r.right < 0 || r.top > innerHeight || r.left > innerWidth) return false;
   const s = getComputedStyle(el);
   return s.visibility !== 'hidden' && s.display !== 'none' && Number(s.opacity) > 0;
+}
+
+function visible(el) {
+  if (!shown(el)) return false;
+  const r = el.getBoundingClientRect();
+  return !(r.bottom < 0 || r.right < 0 || r.top > innerHeight || r.left > innerWidth);
 }
 
 const clean = text => (text || '').trim().replace(/\s+/g, ' ').slice(0, 100);
@@ -102,10 +115,11 @@ function find(command) {
   }
   if (command.text) {
     const want = command.text.trim();
+    const fits = e => (command.partial ? label(e).includes(want) : label(e) === want);
     const pick = pool => {
       const exact = pool.find(e => label(e) === want);
-      if (exact) return exact;
-      const partial = pool.filter(e => label(e).includes(want));
+      if (exact || !command.partial) return exact;
+      const partial = pool.filter(fits);
       if (partial.length > 1) {
         const names = partial.slice(0, 5).map(e => `「${label(e)}」`).join('、');
         throw new Error(`「${want}」同时匹配 ${partial.length} 个元素：${names}，请写完整文字或用 ref`);
@@ -113,10 +127,12 @@ function find(command) {
       return partial[0];
     };
     const all = [...document.querySelectorAll(command.selector || INTERACTIVE)];
-    const el = pick(all.filter(visible));
+    const el = pick(all.filter(shown));
     if (el) return el;
-    if (all.some(e => e.closest('[inert]') && label(e).includes(want))) throw new Error(`「${want}」被上层弹窗挡住了，先处理最上面的弹窗`);
-    throw new Error(`没有文字为「${want}」的${command.selector ? `、匹配 ${command.selector} 的` : '可交互'}元素`);
+    if (all.some(e => e.closest('[inert]') && fits(e))) throw new Error(`「${want}」被上层弹窗挡住了，先处理最上面的弹窗`);
+    const near = all.filter(shown).map(label).filter(n => n && n !== want && n.includes(want)).slice(0, 5);
+    const hint = near.length ? `；包含这段文字的有 ${near.map(n => `「${n}」`).join('、')}，要按包含匹配请加 "partial": true` : '';
+    throw new Error(`没有文字为「${want}」的${command.selector ? `、匹配 ${command.selector} 的` : '可交互'}元素${hint}`);
   }
   throw new Error('需要 ref、selector 或 text');
 }
@@ -201,7 +217,7 @@ async function run(command) {
       el.scrollIntoView({ block: 'center' });
       pointer(el, 'contextmenu', { button: 2 });
       await sleep(settle);
-      return { ok: true };
+      return { ok: true, target: label(el) };
     }
     case 'type': {
       if (typeof command.value !== 'string') throw new Error('type 需要 value（要输入的文字）；text 只用来按文字找元素');
@@ -210,7 +226,7 @@ async function run(command) {
       setValue(el, command.value);
       if (command.submit) key(el, { key: 'Enter', code: 'Enter' });
       await sleep(settle);
-      return { ok: true };
+      return { ok: true, target: label(el) };
     }
     case 'key': {
       if (command.key === 'Tab' && command.shift) throw new Error('Shift+Tab 会切换权限模式，界面驱动不能用');
