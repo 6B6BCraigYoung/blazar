@@ -18,7 +18,9 @@ function install() {
   if (state.installed) return;
   state.installed = true;
   window.addEventListener('error', e => state.errors.push(`error: ${e.message}`));
-  window.addEventListener('unhandledrejection', e => state.errors.push(`rejection: ${e.reason}`));
+  window.addEventListener('unhandledrejection', e => {
+    if (!e.defaultPrevented) state.errors.push(`rejection: ${e.reason}`);
+  });
   const original = console.error.bind(console);
   console.error = (...args) => {
     state.errors.push(args.map(String).join(' '));
