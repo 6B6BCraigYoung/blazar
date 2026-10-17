@@ -33,10 +33,21 @@ function visible(el) {
   return s.visibility !== 'hidden' && s.display !== 'none' && Number(s.opacity) > 0;
 }
 
+const clean = text => (text || '').trim().replace(/\s+/g, ' ').slice(0, 100);
+
 function label(el) {
-  const text = el.getAttribute('aria-label') || el.getAttribute('title') || el.innerText
-    || el.value || el.getAttribute('placeholder') || '';
-  return text.trim().replace(/\s+/g, ' ').slice(0, 100);
+  const by = el.getAttribute('aria-labelledby');
+  if (by) {
+    const text = by.split(/\s+/).map(id => document.getElementById(id)?.innerText || '').join(' ');
+    if (clean(text)) return clean(text);
+  }
+  if (el.getAttribute('aria-label')) return clean(el.getAttribute('aria-label'));
+  if (el.labels && el.labels.length) {
+    const text = [...el.labels].map(l => l.innerText).join(' ');
+    if (clean(text)) return clean(text);
+  }
+  const field = el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT';
+  return clean((field ? '' : el.innerText) || el.getAttribute('title') || el.getAttribute('placeholder'));
 }
 
 function refOf(el) {
