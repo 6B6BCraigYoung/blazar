@@ -177,9 +177,10 @@ async function run(command) {
       return { ok: true };
     }
     case 'type': {
+      if (typeof command.value !== 'string') throw new Error('type 需要 value（要输入的文字）；text 只用来按文字找元素');
       const el = guard(find(command));
       el.focus();
-      setValue(el, command.value ?? '');
+      setValue(el, command.value);
       if (command.submit) key(el, { key: 'Enter', code: 'Enter' });
       await sleep(settle);
       return { ok: true };
