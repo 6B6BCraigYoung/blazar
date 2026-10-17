@@ -55,6 +55,7 @@ start() {
     p=$(pid)
     u=$(url || true)
     if [ -n "$p" ] && [ -n "$u" ] && curl -fsS -o /dev/null "$u/" 2>/dev/null; then
+      [ "${BLAZAR_UI_DRIVER:-1}" = 1 ] && wait_page
       echo "已启动：pid $p，$u"
       return 0
     fi
@@ -92,6 +93,16 @@ EOF
   [ -z "$id" ] && { echo "开发实例的窗口不在屏幕上" >&2; return 1; }
   screencapture -x -o -l"$id" "$out"
   echo "$out"
+}
+
+wait_page() {
+  for _ in $(seq 1 40); do
+    case "$(ui '{"action":"init","timeout_ms":1000}' 2>/dev/null)" in
+      *'"ok":true'*) return 0 ;;
+    esac
+    sleep 0.25
+  done
+  echo "页面还没有连上界面驱动" >&2
 }
 
 ui() {
