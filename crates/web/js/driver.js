@@ -236,12 +236,15 @@ async function run(command) {
       return { ok: true, default_prevented: !accepted };
     }
     case 'navigate': {
-      const a = Object.assign(document.createElement('a'), { href: command.path });
+      const target = new URL(command.path, location.href);
+      const a = Object.assign(document.createElement('a'), { href: target.href });
       document.body.appendChild(a);
       a.click();
       a.remove();
       await sleep(command.settle_ms ?? 400);
-      return { ok: true, url: location.pathname + location.search };
+      const url = location.pathname + location.search;
+      if (url === target.pathname + target.search) return { ok: true, url };
+      return { ok: false, url, note: '没有跳到目标地址，可能被未保存修改的确认框拦下了' };
     }
     case 'wait':
       if (command.ms) {
