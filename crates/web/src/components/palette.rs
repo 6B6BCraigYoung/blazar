@@ -150,11 +150,11 @@ pub fn Palette() -> impl IntoView {
         }
         let href = h.href.clone();
         let navigate = navigate.clone();
+        app.palette.set(false);
         leptos::task::spawn_local(async move {
             if !crate::files_js::confirm_leave().await {
                 return;
             }
-            app.palette.set(false);
             if href.starts_with('/') {
                 navigate(&href, Default::default());
             } else {
