@@ -304,11 +304,10 @@ pub fn Inspector(id: String, on_close: impl Fn() + Copy + Send + Sync + 'static)
             }
             let mut body = json!({});
             if a == "commit" {
-                let msg = window()
-                    .prompt_with_message_and_default("提交信息", &format!("blazar: {name}"))
-                    .ok()
-                    .flatten();
-                let Some(m) = msg.filter(|m| !m.trim().is_empty()) else {
+                let msg =
+                    dialog::prompt_with("提交", "提交信息", &format!("blazar: {name}"), "提交")
+                        .await;
+                let Some(m) = msg else {
                     let _ = busy.try_set(None);
                     return;
                 };

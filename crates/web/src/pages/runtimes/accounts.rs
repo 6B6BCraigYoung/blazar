@@ -205,7 +205,7 @@ pub(super) fn AccountRow(
                             match act {
                                 "quota" => { api::refresh_quota(&a.id).await?; }
                                 "rename" => {
-                                    let Some(n) = window().prompt_with_message_and_default("新的名字", &a.label).ok().flatten().map(|n| n.trim().to_owned()).filter(|n| !n.is_empty()) else { return Ok(()) };
+                                    let Some(n) = dialog::prompt("重命名账号", "新的名字", &a.label).await else { return Ok(()) };
                                     patch(&a, json!({ "label": n })).await?;
                                 }
                                 "toggle" => { patch(&a, json!({ "disabled": !a.disabled })).await?; }

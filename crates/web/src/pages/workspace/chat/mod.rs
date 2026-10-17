@@ -120,8 +120,7 @@ pub fn ChatPane(
                             let Some(id) = t4.clone() else { return };
                             let cur = chat.thread_title(Some(&id));
                             chat.spawn(async move {
-                                let name = window().prompt_with_message_and_default("Conversation name", &cur).ok().flatten();
-                                if let Some(name) = name.map(|name| name.trim().to_owned()).filter(|name| !name.is_empty()) {
+                                if let Some(name) = crate::components::dialog::prompt_with("Rename conversation", "Conversation name", &cur, "Rename").await {
                                     chat.rename(id, name);
                                 }
                             });

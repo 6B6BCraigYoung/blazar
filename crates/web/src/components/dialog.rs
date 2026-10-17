@@ -31,15 +31,29 @@ struct Open {
     reply: oneshot::Sender<Option<usize>>,
 }
 
+struct Prompt {
+    title: String,
+    label: String,
+    initial: String,
+    ok: String,
+    reply: oneshot::Sender<Option<String>>,
+}
+
 #[derive(Clone, Copy)]
-pub struct Dialogs(RwSignal<Option<Open>, LocalStorage>);
+pub struct Dialogs {
+    ask: RwSignal<Option<Open>, LocalStorage>,
+    prompt: RwSignal<Option<Prompt>, LocalStorage>,
+}
 
 thread_local! {
     static DIALOGS: std::cell::Cell<Option<Dialogs>> = const { std::cell::Cell::new(None) };
 }
 
 pub fn provide() {
-    DIALOGS.set(Some(Dialogs(RwSignal::new_local(None))));
+    DIALOGS.set(Some(Dialogs {
+        ask: RwSignal::new_local(None),
+        prompt: RwSignal::new_local(None),
+    }));
 }
 
 fn dialogs() -> Dialogs {
@@ -49,7 +63,7 @@ fn dialogs() -> Dialogs {
 pub async fn ask(title: &str, body: &str, choices: Vec<Choice>) -> Option<usize> {
     let d = dialogs();
     let (tx, rx) = oneshot::channel();
-    if let Some(old) = d.0.write().replace(Open {
+    if let Some(old) = d.ask.write().replace(Open {
         title: title.to_owned(),
         body: body.to_owned(),
         choices,
@@ -60,17 +74,46 @@ pub async fn ask(title: &str, body: &str, choices: Vec<Choice>) -> Option<usize>
     rx.await.ok().flatten()
 }
 
+pub async fn prompt(title: &str, label: &str, initial: &str) -> Option<String> {
+    prompt_with(title, label, initial, "确定").await
+}
+
+pub async fn prompt_with(title: &str, label: &str, initial: &str, ok: &str) -> Option<String> {
+    let d = dialogs();
+    let (tx, rx) = oneshot::channel();
+    if let Some(old) = d.prompt.write().replace(Prompt {
+        title: title.to_owned(),
+        label: label.to_owned(),
+        initial: initial.to_owned(),
+        ok: ok.to_owned(),
+        reply: tx,
+    }) {
+        let _ = old.reply.send(None);
+    }
+    rx.await
+        .ok()
+        .flatten()
+        .map(|v| v.trim().to_owned())
+        .filter(|v| !v.is_empty())
+}
+
 fn answer(d: Dialogs, v: Option<usize>) {
-    if let Some(o) = d.0.write().take() {
+    if let Some(o) = d.ask.write().take() {
         let _ = o.reply.send(v);
+    }
+}
+
+fn finish(d: Dialogs, v: Option<String>) {
+    if let Some(p) = d.prompt.write().take() {
+        let _ = p.reply.send(v);
     }
 }
 
 #[component]
 pub fn DialogHost() -> impl IntoView {
     let d = dialogs();
-    move || {
-        d.0.with(|o| {
+    let asks = move || {
+        d.ask.with(|o| {
             o.as_ref().map(|o| {
                 let buttons = o
                     .choices
@@ -93,5 +136,40 @@ pub fn DialogHost() -> impl IntoView {
                 }
             })
         })
+    };
+    let prompts = move || {
+        d.prompt.with(|p| {
+            p.as_ref().map(|p| {
+                let title = p.title.clone();
+                let label = p.label.clone();
+                let ok = p.ok.clone();
+                let value = RwSignal::new(p.initial.clone());
+                let empty = move || value.with(|v| v.trim().is_empty());
+                let submit = move || {
+                    if !empty() {
+                        finish(d, Some(value.get_untracked()));
+                    }
+                };
+                view! {
+                    <Modal label=title.clone() on_close=Callback::new(move |_| finish(d, None))>
+                            <h3>{title}</h3>
+                            <label class="field">{label}
+                                <input data-modal-initial-focus="" maxlength="200" autocomplete="off" spellcheck="false"
+                                    prop:value=move || value.get()
+                                    on:input=move |e| value.set(event_target_value(&e))
+                                    on:keydown=move |e| if e.key() == "Enter" { e.prevent_default(); submit() }/>
+                            </label>
+                            <div class="dlg-foot">
+                                <button type="button" class="btn" on:click=move |_| finish(d, None)>"取消"</button>
+                                <button type="button" class="btn primary" disabled=empty on:click=move |_| submit()>{ok}</button>
+                            </div>
+                    </Modal>
+                }
+            })
+        })
+    };
+    view! {
+        {asks}
+        {prompts}
     }
 }
