@@ -42,6 +42,11 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all -- --check
+      - name: View macro formatting
+        if: runner.os == 'Linux'
+        run: |
+          cargo install leptosfmt --version 0.1.33 --locked
+          leptosfmt --check crates/web/src
       - name: Install Trunk
         run: cargo install trunk --version 0.21.14 --locked
       - name: Build embedded web assets

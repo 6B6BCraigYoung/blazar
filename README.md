@@ -72,7 +72,7 @@ bot 是 hub 里的一条持久身份：一份职责（角色档案）、一个�
 
 1. 代码零注释，解释写进提交正文或 README。
 2. 使用 Conventional Commits：`type(scope): description`，一个逻辑改动一个提交。
-3. 使用 Rust 1.90，提交前运行 `cargo fmt --all -- --check`、`cargo clippy --workspace --all-targets -- -D warnings` 和 `cargo test --workspace`；完整检查见 [CI](.github/workflows/ci.yml)。前端改动先在 `crates/web` 执行 `trunk build --release`，再执行 `cargo build -p blazar-hub`。
+3. 使用 Rust 1.90，提交前运行 `leptosfmt --check crates/web/src`（`view!` 宏的格式，先 `leptosfmt` 再 `cargo fmt`）、`cargo fmt --all -- --check`、`cargo clippy --workspace --all-targets -- -D warnings` 和 `cargo test --workspace`；完整检查见 [CI](.github/workflows/ci.yml)。前端改动先在 `crates/web` 执行 `trunk build --release`，再执行 `cargo build -p blazar-hub`。
 4. 测试和示例使用通用值，例如 `hub-host`、`gpu-1`、`10.99.0.1`、`/home/me`，不提交个人环境信息或凭据。
 5. 数据库迁移只追加，不修改已有迁移。
 

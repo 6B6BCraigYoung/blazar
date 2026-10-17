@@ -72,7 +72,7 @@ A bot is a persistent identity inside the hub: a duty (an agent profile), a home
 
 1. Keep code free of comments; put explanations in commit bodies or the README.
 2. Use Conventional Commits: `type(scope): description`, with one logical change per commit.
-3. Use Rust 1.90. Before submitting, run `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo test --workspace`; see [CI](.github/workflows/ci.yml) for the full checks. For UI changes, run `trunk build --release` in `crates/web` before `cargo build -p blazar-hub`.
+3. Use Rust 1.90. Before submitting, run `leptosfmt --check crates/web/src` (formatting inside `view!`; run `leptosfmt` before `cargo fmt`), `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo test --workspace`; see [CI](.github/workflows/ci.yml) for the full checks. For UI changes, run `trunk build --release` in `crates/web` before `cargo build -p blazar-hub`.
 4. Use generic fixtures such as `hub-host`, `gpu-1`, `10.99.0.1`, and `/home/me`. Do not commit personal environment details or credentials.
 5. Only append database migrations; never change existing migrations.
 
