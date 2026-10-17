@@ -80,16 +80,16 @@ function find(command) {
     if (!el || !el.isConnected) throw new Error(`找不到元素 ${command.ref}，请重新 snapshot`);
     return el;
   }
-  if (command.selector) {
+  if (command.selector && !command.text) {
     const el = document.querySelector(command.selector);
     if (!el) throw new Error(`没有匹配 ${command.selector} 的元素`);
     return el;
   }
   if (command.text) {
     const want = command.text.trim();
-    const pool = [...document.querySelectorAll(INTERACTIVE)].filter(visible);
+    const pool = [...document.querySelectorAll(command.selector || INTERACTIVE)].filter(visible);
     const el = pool.find(e => label(e) === want) || pool.find(e => label(e).includes(want));
-    if (!el) throw new Error(`没有文字为「${want}」的可交互元素`);
+    if (!el) throw new Error(`没有文字为「${want}」的${command.selector ? `、匹配 ${command.selector} 的` : '可交互'}元素`);
     return el;
   }
   throw new Error('需要 ref、selector 或 text');
@@ -103,6 +103,7 @@ function pointer(el, type, extra = {}) {
 }
 
 function click(el) {
+  if (el.disabled || el.getAttribute('aria-disabled') === 'true') throw new Error(`「${label(el)}」是禁用状态，没有点`);
   el.scrollIntoView({ block: 'center', inline: 'center' });
   for (const t of ['pointerdown', 'mousedown']) pointer(el, t);
   if (typeof el.focus === 'function') el.focus();
