@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::Duration;
 
 use axum::Json;
@@ -20,7 +20,16 @@ const MAX_TIMEOUT: Duration = Duration::from_secs(120);
 pub struct UiDriver {
     enabled: bool,
     next: AtomicU64,
+    pages: AtomicUsize,
     pending: Mutex<HashMap<u64, oneshot::Sender<Value>>>,
+}
+
+pub struct PageConnection<'a>(&'a AtomicUsize);
+
+impl Drop for PageConnection<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::Relaxed);
+    }
 }
 
 impl UiDriver {
@@ -35,6 +44,16 @@ impl UiDriver {
     #[must_use]
     pub fn enabled(&self) -> bool {
         self.enabled
+    }
+
+    #[must_use]
+    pub fn page_connected(&self) -> PageConnection<'_> {
+        self.pages.fetch_add(1, Ordering::Relaxed);
+        PageConnection(&self.pages)
+    }
+
+    fn has_page(&self) -> bool {
+        self.pages.load(Ordering::Relaxed) > 0
     }
 
     fn register(&self) -> (u64, oneshot::Receiver<Value>) {
@@ -83,7 +102,7 @@ pub async fn command(State(st): State<Shared>, Json(command): Json<Value>) -> Re
         )
             .into_response();
     }
-    if st.bus.receiver_count() == 0 {
+    if !driver.has_page() {
         return (
             StatusCode::CONFLICT,
             Json(json!({ "error": "没有打开的页面" })),
@@ -133,6 +152,18 @@ mod tests {
         assert!(driver.resolve(id, json!({ "ok": true })));
         assert_eq!(rx.try_recv().unwrap(), json!({ "ok": true }));
         assert!(!driver.resolve(id, json!(2)));
+    }
+
+    #[test]
+    fn pages_count_only_while_connected() {
+        let driver = UiDriver::default();
+        assert!(!driver.has_page());
+        let first = driver.page_connected();
+        let second = driver.page_connected();
+        drop(first);
+        assert!(driver.has_page());
+        drop(second);
+        assert!(!driver.has_page());
     }
 
     #[test]

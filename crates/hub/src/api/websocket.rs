@@ -4,6 +4,7 @@ mod resync;
 
 pub async fn ws_handler(ws: WebSocketUpgrade, State(st): State<Shared>) -> Response {
     ws.on_upgrade(move |socket| async move {
+        let _page = st.ui_driver.page_connected();
         let (mut tx, mut rx) = socket.split();
         let mut bus = st.bus.subscribe();
 
