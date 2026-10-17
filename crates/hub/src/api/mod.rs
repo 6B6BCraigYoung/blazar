@@ -101,6 +101,7 @@ pub(crate) type ApiResult<T> = std::result::Result<T, ApiError>;
 
 mod agent_config;
 mod browse;
+mod client;
 mod context;
 mod hooks;
 mod lifecycle;
@@ -117,6 +118,7 @@ mod websocket;
 mod workspaces;
 pub use agent_config::*;
 pub use browse::*;
+pub use client::*;
 pub use context::*;
 pub use hooks::*;
 pub use lifecycle::*;

@@ -24,6 +24,7 @@ pub fn build_router(st: Arc<AppState>) -> Router {
         .route("/vendor/{*path}", get(asset))
         .route("/img/{*path}", get(asset))
         .route("/api/state", get(api::get_state))
+        .route("/api/client/panic", post(api::report_panic))
         .route("/api/dev/ui", post(crate::ui_driver::command))
         .route("/api/dev/ui/{id}", post(crate::ui_driver::result))
         .route("/api/agents", get(api::list_agents))

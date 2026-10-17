@@ -49,7 +49,14 @@ mod ui_driver;
 
 #[cfg(target_arch = "wasm32")]
 fn main() {
-    console_error_panic_hook::set_once();
+    std::panic::set_hook(Box::new(|info| {
+        console_error_panic_hook::hook(info);
+        if let Some(window) = web_sys::window() {
+            let _ = window
+                .navigator()
+                .send_beacon_with_opt_str("/api/client/panic", Some(&info.to_string()));
+        }
+    }));
     pages::apply_ui_preferences();
     leptos::mount::mount_to_body(app::App);
     if let Some(performance) = web_sys::window().and_then(|w| w.performance()) {

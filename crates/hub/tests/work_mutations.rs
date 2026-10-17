@@ -257,3 +257,20 @@ async fn a_missing_workspace_is_a_readable_404() {
         assert!(error.contains("不存在"), "{path}: {error}");
     }
 }
+
+#[tokio::test]
+async fn frontend_panics_are_accepted_for_the_log() {
+    let (_dir, _state, app) = fixture().await;
+    let res = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/client/panic")
+                .header("Content-Type", "text/plain;charset=UTF-8")
+                .body(Body::from("panicked at src/pages/nodes/mod.rs:1:1"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+}
