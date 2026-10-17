@@ -36,7 +36,14 @@ pub fn SectionTabs(label: &'static str, tabs: Vec<Tab>, current: &'static str) -
                 .into_iter()
                 .map(|tab| {
                     view! {
-                        <a href=tab.href aria-current=(tab.href == current).then_some("page")>
+                        <a
+                            href=tab.href
+                            aria-current=(tab.href == current).then_some("page")
+                            aria-label=move || match tab.count.map(|c| c.get()) {
+                                Some(n) if n > 0 => format!("{} {n}", tab.label),
+                                _ => tab.label.to_owned(),
+                            }
+                        >
                             {tab.label}
                             {tab
                                 .count
@@ -59,7 +66,7 @@ pub fn tasks(current: &'static str) -> impl IntoView {
             label="任务"
             current
             tabs=vec![
-                Tab::counted("任务", "/tasks", app.tasks_open.into()),
+                Tab::counted("全部", "/tasks", app.tasks_open.into()),
                 Tab::counted("自动化", "/autopilots", app.autopilots_active.into()),
             ]
         />

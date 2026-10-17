@@ -562,7 +562,7 @@ pub fn AgentCreatePage() -> impl IntoView {
         <div class="page agent-page">
             <div class="page-head">
                 <a class="crumb" href="/agents">
-                    "智能体"
+                    "角色档案"
                 </a>
                 <span>"/"</span>
                 <h1>
@@ -647,7 +647,7 @@ pub fn AgentProfilePage() -> impl IntoView {
                     view! {
                         <div class="page-head">
                             <a class="crumb" href="/agents">
-                                "智能体"
+                                "角色档案"
                             </a>
                             <span>"/"</span>
                             <h1>{text(&a.get_value(), "name")}</h1>

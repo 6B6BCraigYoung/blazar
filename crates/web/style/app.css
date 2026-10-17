@@ -331,7 +331,7 @@ b.mk { font: var(--font-weight-semibold) var(--font-size-caption) var(--font-mon
 .kv .v.mono { font: var(--font-size-label) var(--font-mono); }
 a.btn { display: inline-flex; align-items: center; color: var(--fg); }
 
-.page-filter { width: clamp(180px, 22vw, 280px); height: 28px; padding: 0 var(--space-control); border: 0; border-radius: var(--r-md); background: var(--control-track); color: var(--fg); font: var(--font-size-label-readable) var(--font-sans); outline: none; }
+.page-filter { width: clamp(140px, 30vw - 120px, 280px); height: 28px; padding: 0 var(--space-control); border: 0; border-radius: var(--r-md); background: var(--control-track); color: var(--fg); font: var(--font-size-label-readable) var(--font-sans); outline: none; }
 .page-filter:focus { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 45%, transparent); }
 .ws-card { cursor: pointer; }
 .ws-card .top b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
