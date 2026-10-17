@@ -121,6 +121,16 @@ pub fn titled(name: &str, id: &str) -> String {
     }
 }
 
+pub fn changed() {
+    if let Ok(event) = web_sys::Event::new("blazar-shortcuts") {
+        let _ = leptos::prelude::window().dispatch_event(&event);
+    }
+}
+
+pub fn on_change(f: impl Fn() + 'static) -> leptos::prelude::WindowListenerHandle {
+    leptos::prelude::window_event_listener_untyped("blazar-shortcuts", move |_| f())
+}
+
 pub fn on_menu(f: impl Fn(&str) + 'static) -> leptos::prelude::WindowListenerHandle {
     leptos::prelude::window_event_listener_untyped("blazar-menu", move |e| {
         if let Some(id) = js_sys::Reflect::get(&e, &"detail".into())

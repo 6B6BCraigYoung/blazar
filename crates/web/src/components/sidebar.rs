@@ -54,6 +54,13 @@ fn n(v: usize) -> String {
 pub fn Sidebar() -> impl IntoView {
     let app = use_app();
     let bus = use_bus();
+    let keys = RwSignal::new(0u32);
+    let watch_keys = crate::shortcuts::on_change(move || keys.update(|n| *n += 1));
+    on_cleanup(move || watch_keys.remove());
+    let palette_key = move || {
+        keys.track();
+        crate::shortcuts::label(&crate::shortcuts::current("palette"))
+    };
     let ws = move || app.workspaces();
     let running =
         Signal::derive(move || n(ws().iter().filter(|w| w.activity == "running").count()));
@@ -117,7 +124,7 @@ pub fn Sidebar() -> impl IntoView {
         <nav class="side" aria-label="主导航">
             <div class="brand"><span class="logo" inner_html=LOGO></span>"Blazar"<span class="grow"></span><button type="button" class="linkbtn" aria-label="收起侧栏" title="收起侧栏" on:click=move |_| app.side_collapsed.set(true)>"«"</button></div>
             <button type="button" class="nav search" aria-haspopup="dialog" aria-expanded=move || app.palette.get().to_string() on:click=move |_| app.palette.set(true)>
-                <span class="ic" inner_html=icon(I_SEARCH)></span><span class="nm muted">"搜索…"</span><span class="n">{crate::shortcuts::label(&crate::shortcuts::current("palette"))}</span>
+                <span class="ic" inner_html=icon(I_SEARCH)></span><span class="nm muted">"搜索…"</span><span class="n">{palette_key}</span>
             </button>
             <button type="button" class="btn primary new-ws" aria-haspopup="dialog" aria-expanded=move || app.new_ws.get().to_string() on:click=move |_| app.new_ws.set(true)>"＋ 新建工作区"</button>
             <div class="grp">
