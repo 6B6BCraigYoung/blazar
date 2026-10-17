@@ -83,11 +83,39 @@ remove() {
   fi
 }
 
+search_list() {
+  security list-keychains -d user | sed -e 's/^[[:space:]]*"//' -e 's/"[[:space:]]*$//'
+}
+
+codesign_with_keychain() {
+  local target="$1" original=() line
+  while IFS= read -r line; do
+    [ -n "$line" ] && original+=("$line")
+  done < <(search_list)
+  if [ "${#original[@]}" -eq 0 ]; then
+    codesign --force --deep --keychain "$KEYCHAIN" --sign "$NAME" "$target"
+    return
+  fi
+  local listed=0
+  for line in "${original[@]}"; do
+    [ "$line" = "$KEYCHAIN" ] && listed=1
+  done
+  if [ "$listed" = 1 ]; then
+    codesign --force --deep --keychain "$KEYCHAIN" --sign "$NAME" "$target"
+    return
+  fi
+  security list-keychains -d user -s "${original[@]}" "$KEYCHAIN"
+  local status=0
+  codesign --force --deep --keychain "$KEYCHAIN" --sign "$NAME" "$target" || status=$?
+  security list-keychains -d user -s "${original[@]}"
+  return "$status"
+}
+
 sign() {
   local target="$1"
   if has_identity; then
     unlock
-    codesign --force --deep --keychain "$KEYCHAIN" --sign "$NAME" "$target"
+    codesign_with_keychain "$target"
     echo "已用 $NAME 签名：$target"
   else
     echo "没有本地签名证书，保留临时签名：$target"

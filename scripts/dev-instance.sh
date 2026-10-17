@@ -14,7 +14,7 @@ pid() {
 }
 
 build() {
-  "$ROOT/scripts/package-macos.sh"
+  BLAZAR_BUNDLES=app "$ROOT/scripts/package-macos.sh"
   "$LSREGISTER" -u "$SRC" 2>/dev/null || true
   rm -rf "$DEV"
   mkdir -p "$(dirname "$DEV")"
