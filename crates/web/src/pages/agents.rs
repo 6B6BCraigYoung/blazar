@@ -357,7 +357,12 @@ fn AgentActions(agent: Value, rev: RwSignal<u32>, blocked: RwSignal<bool>) -> im
             .await
             {
                 Ok(_) => {
-                    toast("操作完成");
+                    toast(match action {
+                        "archive" => "已归档",
+                        "restore" => "已恢复",
+                        "delete" => "已删除",
+                        _ => "已取消全部运行",
+                    });
                     if action == "delete" {
                         if crate::files_js::confirm_navigation() {
                             nav.with_value(|n| n("/agents", Default::default()));

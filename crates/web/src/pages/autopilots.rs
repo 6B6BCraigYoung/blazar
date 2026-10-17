@@ -57,6 +57,7 @@ impl ApUi {
                                 current.clear();
                             }
                         });
+                        toast("已删除");
                     }
                     refresh(self.rev);
                 }
