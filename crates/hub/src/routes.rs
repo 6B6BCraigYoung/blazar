@@ -268,6 +268,7 @@ pub fn build_router(st: Arc<AppState>) -> Router {
             get(accounts::global_get).put(accounts::global_put),
         )
         .route("/api/accounts/check", post(accounts::check_all))
+        .route("/api/accounts/quota", post(accounts::quota_all))
         .route("/api/sims", get(sims::list))
         .route("/api/sims/{sw}/scan", post(sims::scan))
         .route("/api/sims/{sw}/path/{node}", put(sims::set_path))

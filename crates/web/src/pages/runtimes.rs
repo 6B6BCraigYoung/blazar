@@ -41,6 +41,45 @@ pub fn RuntimesPage() -> impl IntoView {
     spawn_local(async move {
         let _ = api::send::<Value>("POST", "/api/accounts/check", &json!({})).await;
     });
+    let refreshing = RwSignal::new(false);
+    let refresh_quota = move |_| {
+        if refreshing.get_untracked() {
+            return;
+        }
+        refreshing.set(true);
+        spawn_local(async move {
+            match api::send::<Value>("POST", "/api/accounts/quota", &json!({})).await {
+                Ok(r) => {
+                    let total = r["total"].as_u64().unwrap_or(0);
+                    let ok = r["refreshed"].as_u64().unwrap_or(0);
+                    let failed: Vec<String> = r["failed"]
+                        .as_array()
+                        .map(|f| {
+                            f.iter()
+                                .map(|x| {
+                                    format!(
+                                        "{}：{}",
+                                        x["label"].as_str().unwrap_or("?"),
+                                        x["error"].as_str().unwrap_or("失败")
+                                    )
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    toast(if total == 0 {
+                        "没有能查额度的账号（浏览器登录的 Claude 账号跑一次会话才会更新）"
+                            .to_owned()
+                    } else if failed.is_empty() {
+                        format!("已刷新 {ok} 个账号的额度")
+                    } else {
+                        format!("刷新了 {ok}/{total} 个账号；{}", failed.join("；"))
+                    });
+                }
+                Err(e) => toast(format!("刷新额度失败：{e}")),
+            }
+            let _ = refreshing.try_set(false);
+        });
+    };
 
     view! {
         <div class="page runtimes-page">
@@ -48,6 +87,7 @@ pub fn RuntimesPage() -> impl IntoView {
                 <h1>"运行时"</h1>
                 <span class="sub">"选择账号，开始工作"</span>
                 <span class="grow"></span>
+                <button class="btn" disabled=move || refreshing.get() on:click=refresh_quota title="一次刷新所有运行时账号的额度">{move || if refreshing.get() { "刷新中…" } else { "刷新额度" }}</button>
                 <button class="btn" disabled=move || runtimes.get().is_none() on:click=move |_| rescan.update(|n| *n += 1)>"重新扫描"</button>
             </div>
             {move || match runtimes.get() {

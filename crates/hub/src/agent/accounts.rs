@@ -1313,6 +1313,30 @@ pub async fn check_all(State(st): State<Shared>) -> Response {
         .into_response()
 }
 
+pub async fn quota_all(State(st): State<Shared>) -> Response {
+    let due: Vec<Account> = all(&st, None)
+        .await
+        .into_iter()
+        .filter(|a| can_query_quota(a) && !a.disabled && a.status != "logged_out")
+        .collect();
+    let results = futures::future::join_all(due.iter().map(|a| refresh_quota(&st, a))).await;
+    let failed: Vec<Value> = due
+        .iter()
+        .zip(&results)
+        .filter_map(|(a, r)| {
+            r.as_ref()
+                .err()
+                .map(|e| json!({ "id": a.id, "label": a.label, "error": e }))
+        })
+        .collect();
+    Json(json!({
+        "refreshed": results.iter().filter(|r| r.is_ok()).count(),
+        "total": due.len(),
+        "failed": failed,
+    }))
+    .into_response()
+}
+
 pub async fn quota(State(st): State<Shared>, Path(id): Path<String>) -> Response {
     let Some(a) = get(&st, &id).await else {
         return fail(StatusCode::NOT_FOUND, "没有这个账号");
