@@ -108,3 +108,119 @@ async fn a_child_cannot_take_over_another_workspace() {
     assert_eq!(status, StatusCode::OK, "{again}");
     assert_eq!(again["id"], child["id"]);
 }
+
+#[tokio::test]
+async fn glance_reports_the_newest_prompt_and_reply_of_a_workspace() {
+    let (_dir, state, app) = fixture().await;
+    let ws = workspace(&app, "/srv/glance", "看一眼").await;
+    let pool = state.db.pool();
+    sqlx::query(
+        "INSERT INTO sessions (id, workspace_id, runtime_kind, status, created_at)
+         VALUES ('s1', ?1, 'claude_cli', 'done', '2026-10-18T00:00:00Z'),
+                ('s2', ?1, 'claude_cli', 'running', '2026-10-18T01:00:00Z')",
+    )
+    .bind(&ws)
+    .execute(pool)
+    .await
+    .unwrap();
+    for (sid, seq, ts, payload) in [
+        (
+            "s1",
+            1,
+            "2026-10-18T00:00:01Z",
+            r#"{"type":"user_message","text":"第一轮"}"#,
+        ),
+        (
+            "s1",
+            2,
+            "2026-10-18T00:00:02Z",
+            r#"{"type":"assistant_message","text":"做完了"}"#,
+        ),
+        (
+            "s2",
+            1,
+            "2026-10-18T01:00:01Z",
+            r#"{"type":"user_message","text":"第二轮"}"#,
+        ),
+    ] {
+        sqlx::query("INSERT INTO events (session_id, seq, ts, payload) VALUES (?1, ?2, ?3, ?4)")
+            .bind(sid)
+            .bind(seq)
+            .bind(ts)
+            .bind(payload)
+            .execute(pool)
+            .await
+            .unwrap();
+    }
+    let (status, glance) = call(
+        &app,
+        "GET",
+        &format!("/api/workspaces/{ws}/glance"),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(glance["prompt"], "第二轮");
+    assert_eq!(glance["reply"], "做完了");
+    assert_eq!(glance["failed"], false);
+}
+
+#[tokio::test]
+async fn glance_reads_back_past_a_long_run_to_its_prompt() {
+    let (_dir, state, app) = fixture().await;
+    let ws = workspace(&app, "/srv/long", "长跑").await;
+    let pool = state.db.pool();
+    sqlx::query(
+        "INSERT INTO sessions (id, workspace_id, runtime_kind, status, created_at)
+         VALUES ('old', ?1, 'claude_cli', 'done', '2026-10-18T00:00:00Z'),
+                ('new', ?1, 'claude_cli', 'running', '2026-10-18T01:00:00Z')",
+    )
+    .bind(&ws)
+    .execute(pool)
+    .await
+    .unwrap();
+    let mut events = vec![
+        (
+            "old",
+            1,
+            r#"{"type":"user_message","text":"旧的一轮"}"#.to_owned(),
+        ),
+        (
+            "new",
+            1,
+            r#"{"type":"user_message","text":"新的一轮"}"#.to_owned(),
+        ),
+    ];
+    for i in 1..=40 {
+        events.push((
+            "new",
+            2 * i,
+            format!(r#"{{"type":"tool_use","id":"t{i}","name":"Bash","input":{{}}}}"#),
+        ));
+        events.push((
+            "new",
+            2 * i + 1,
+            format!(r#"{{"type":"assistant_message","text":"进度 {i}"}}"#),
+        ));
+    }
+    for (sid, seq, payload) in events {
+        sqlx::query("INSERT INTO events (session_id, seq, ts, payload) VALUES (?1, ?2, ?3, ?4)")
+            .bind(sid)
+            .bind(seq)
+            .bind(format!("2026-10-18T01:{:02}:{:02}Z", seq / 60, seq % 60))
+            .bind(payload)
+            .execute(pool)
+            .await
+            .unwrap();
+    }
+    let (status, glance) = call(
+        &app,
+        "GET",
+        &format!("/api/workspaces/{ws}/glance"),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(glance["prompt"], "新的一轮");
+    assert_eq!(glance["reply"], "进度 40");
+}

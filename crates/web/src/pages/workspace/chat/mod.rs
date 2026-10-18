@@ -321,6 +321,7 @@ pub fn ChatPane(
             </button>
         </div>
         <div class="chat-body">
+            <super::children::ChildrenPanel id=chat.ws_id() />
             <Log chat tick />
             <Composer chat tick tree_files />
         </div>

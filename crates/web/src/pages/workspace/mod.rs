@@ -23,7 +23,7 @@ use crate::md;
 use crate::realtime::use_bus;
 use crate::storage;
 
-use children::Children;
+use children::{Children, ChildrenOpen, children_open};
 use diff_panel::{DiffBar, DiffState, DiffView};
 use files::Files;
 use git_panel::{Git, GitView};
@@ -79,6 +79,8 @@ fn Workspace(id: String) -> impl IntoView {
         });
     }
     let insp = RwSignal::new(false);
+    let kids_open = children_open(&id);
+    provide_context(ChildrenOpen(kids_open));
 
     let files = Files::new(id.clone());
     let dirty = wasm_bindgen::closure::Closure::<dyn Fn() -> u32>::new(move || {
@@ -418,7 +420,7 @@ fn Workspace(id: String) -> impl IntoView {
                         .map(|e| view! { <InlineError message=e.to_string() /> })
                 }}
                 <span class="grow"></span>
-                <Children id=id.clone() />
+                <Children id=id.clone() open=kids_open />
                 <button class="btn small" on:click=move |_| insp.set(true)>
                     "属性"
                 </button>

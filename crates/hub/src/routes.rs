@@ -258,6 +258,7 @@ pub fn build_router(st: Arc<AppState>) -> Router {
         .route("/api/workspaces/{id}/git/{op}", post(git::op))
         .route("/api/workspaces/{id}/pr", get(git::pr))
         .route("/api/workspaces/{id}/history", get(api::workspace_history))
+        .route("/api/workspaces/{id}/glance", get(api::workspace_glance))
         .route("/api/workspaces/{id}/prompt", post(api::prompt))
         .route("/api/workspaces/{id}/context", get(api::get_context))
         .route("/api/workspaces/{id}/context/{kind}", put(api::put_context))
