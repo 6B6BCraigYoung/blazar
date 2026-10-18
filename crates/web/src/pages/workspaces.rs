@@ -63,9 +63,14 @@ fn List(kind: Kind) -> impl IntoView {
     };
     let count = move |activity: Option<&'static str>| {
         Signal::derive(move || {
-            app.workspaces()
+            app.top_workspaces()
                 .iter()
-                .filter(|w| activity.is_none_or(|a| w.activity == a))
+                .filter(|w| match activity {
+                    None => true,
+                    Some("awaiting_approval") => app.needs_you(w),
+                    Some("running") => app.busy(w),
+                    Some(a) => w.activity == a,
+                })
                 .count()
         })
     };
@@ -89,12 +94,12 @@ fn List(kind: Kind) -> impl IntoView {
     };
     let list = move || {
         let p = project();
-        app.workspaces()
+        app.top_workspaces()
             .into_iter()
             .filter(|w| match kind {
                 Kind::All => true,
-                Kind::Running => w.activity == "running",
-                Kind::Waiting => w.activity == "awaiting_approval",
+                Kind::Running => app.busy(w),
+                Kind::Waiting => app.needs_you(w),
                 Kind::Project => w.project.as_deref() == Some(p.as_str()),
             })
             .collect::<Vec<_>>()
@@ -106,9 +111,10 @@ fn List(kind: Kind) -> impl IntoView {
             .filter(|w| {
                 k.is_empty()
                     || format!(
-                        "{} {} {} {}",
+                        "{} {} {} {} {}",
                         w.name,
                         w.node,
+                        fmt::machine(&w.node),
                         w.project.clone().unwrap_or_default(),
                         w.path
                     )
@@ -220,50 +226,62 @@ fn card(w: WorkspaceView, insp: RwSignal<Option<String>>) -> impl IntoView {
     let unseen = app.unseen(&w);
     let href = format!("/w/{}", w.id);
     let id = w.id.clone();
-    let location = format!("{}:{}", w.node, w.path);
-    let details_label = format!("查看 {} 的详情", w.name);
+    let location = format!("{}:{}", fmt::machine(&w.node), w.path);
+    let title = fmt::ws_title(&w.name, &w.node);
+    let details_label = format!("查看 {} 的详情", fmt::ws_label(&w.name, &w.node));
+    let kids = app.children_of(&w.id);
+    let kids_waiting = kids
+        .iter()
+        .filter(|x| x.activity == "awaiting_approval")
+        .count();
+    let kids_running = kids.iter().filter(|x| x.activity == "running").count();
+    let kids_failed = kids
+        .iter()
+        .filter(|x| app.shown_activity(x) == "errored")
+        .count();
     view! {
         <article class="ws-card">
             <a class="ws-card-main" href=href.clone() title=location>
                 <div class="top">
-                    <b class:strong=unseen>{w.name.clone()}</b>
+                    <b class:strong=unseen>{title}</b>
+                    <span class="ws-machine">{fmt::machine(&w.node)}</span>
                     <span class="state-pill" data-act=shown.clone()>
                         {activity_label(&shown).to_owned()}
                     </span>
                 </div>
                 <div class="meta">
                     {w.project.clone().map(|p| view! { <span title="项目">{p}</span> })}
-                    {w
-                        .parent
-                        .as_ref()
-                        .map(|p| {
-                            let parent_name = app
-                                .workspaces()
-                                .into_iter()
-                                .find(|x| &x.id == p)
-                                .map(|x| x.name)
-                                .unwrap_or_else(|| "父工作区".into());
+                    {(!kids.is_empty())
+                        .then(|| {
                             view! {
                                 <span class="gchip" title="子工作区">
-                                    {format!("↳ {parent_name}")}
+                                    {if kids_running > 0 {
+                                        format!(
+                                            "{} 个子工作区 · {kids_running} 运行中",
+                                            kids.len(),
+                                        )
+                                    } else {
+                                        format!("{} 个子工作区", kids.len())
+                                    }}
                                 </span>
                             }
                         })}
-                    {{
-                        let n = app
-                            .workspaces()
-                            .iter()
-                            .filter(|x| x.parent.as_deref() == Some(w.id.as_str()))
-                            .count();
-                        (n > 0)
-                            .then(|| {
-                                view! {
-                                    <span class="gchip" title="子工作区">
-                                        {format!("{n} 个子工作区")}
-                                    </span>
-                                }
-                            })
-                    }} {diff_badge(&w)}
+                    {(kids_waiting > 0)
+                        .then(|| {
+                            view! {
+                                <span class="gchip warn" title="子工作区在等你审批">
+                                    {format!("{kids_waiting} 个子工作区等审批")}
+                                </span>
+                            }
+                        })}
+                    {(kids_failed > 0)
+                        .then(|| {
+                            view! {
+                                <span class="gchip bad" title="子工作区上一轮没跑成">
+                                    {format!("{kids_failed} 个子工作区出错")}
+                                </span>
+                            }
+                        })} {diff_badge(&w)}
                     <span class="muted">
                         {w.last_active_at.as_deref().map(fmt::ago).unwrap_or_default()}
                     </span>
@@ -368,12 +386,25 @@ fn PendingApprovals() -> impl IntoView {
                                     <div class="muted small">
                                         <a
                                             href=format!("/w/{wid}")
-                                            title=w.as_ref().map(|w| w.node.clone()).unwrap_or_default()
+                                            title=w.as_ref().map(|w| w.path.clone())
                                         >
                                             {w
                                                 .as_ref()
-                                                .map_or("工作区".to_owned(), |w| w.name.clone())}
+                                                .map_or(
+                                                    "工作区".to_owned(),
+                                                    |w| fmt::ws_label(&w.name, &w.node),
+                                                )}
                                         </a>
+                                        {w
+                                            .as_ref()
+                                            .and_then(|w| w.parent.as_deref())
+                                            .and_then(|p| app.workspace(p))
+                                            .map(|p| {
+                                                format!(
+                                                    " · 属于「{}」",
+                                                    fmt::ws_title(&p.name, &p.node),
+                                                )
+                                            })}
                                         {format!(
                                             " · {}",
                                             fmt::ago(a["created_at"].as_str().unwrap_or("")),
@@ -454,10 +485,19 @@ pub fn Inspector(id: String, on_close: impl Fn() + Copy + Send + Sync + 'static)
             let isolated = d["isolated"].as_bool().unwrap_or(false);
             let id = d["id"].as_str().unwrap_or("").to_owned();
             if a == "destroy" {
-                let msg = if isolated {
-                    format!("销毁工作区「{name}」？会删除远端 worktree、分支与私有目录，不可撤销。")
+                let label = fmt::ws_label(&name, d["node"].as_str().unwrap_or(""));
+                let kids = app.children_of(&id).len();
+                let orphans = if kids > 0 {
+                    format!("它的 {kids} 个子工作区会变成独立的工作区。")
                 } else {
-                    format!("从 Blazar 移除「{name}」？只删记录，不会动机器上的目录。")
+                    String::new()
+                };
+                let msg = if isolated {
+                    format!(
+                        "销毁工作区「{label}」？会删除远端 worktree、分支与私有目录，不可撤销。{orphans}"
+                    )
+                } else {
+                    format!("从 Blazar 移除「{label}」？只删记录，不会动机器上的目录。{orphans}")
                 };
                 if dialog::ask(
                     if isolated { "销毁" } else { "移除" },

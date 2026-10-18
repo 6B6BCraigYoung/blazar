@@ -429,11 +429,12 @@ pub async fn detail(State(st): State<Shared>, Path(id): Path<String>) -> Respons
         return fail(StatusCode::NOT_FOUND, "没有这个 Agent（可能已被删除）");
     };
     let runs = sqlx::query(
-        "SELECT s.id, s.workspace_id, w.name AS workspace, s.status, s.created_at, s.title,
-                COALESCE(s.thread_id, s.id) AS thread,
+        "SELECT s.id, s.workspace_id, w.name AS workspace, n.name AS node, s.status, s.created_at,
+                s.title, COALESCE(s.thread_id, s.id) AS thread,
                 (SELECT COUNT(*) FROM events e WHERE e.session_id = s.id) AS events,
                 (SELECT MAX(e.ts) FROM events e WHERE e.session_id = s.id) AS last_at
          FROM sessions s LEFT JOIN workspaces w ON w.id = s.workspace_id
+         LEFT JOIN nodes n ON n.id = w.node_id
          WHERE s.agent_profile = ?1 ORDER BY s.created_at DESC LIMIT 30",
     )
     .bind(&id)
@@ -447,7 +448,12 @@ pub async fn detail(State(st): State<Shared>, Path(id): Path<String>) -> Respons
                 "id": r.try_get::<String, _>("id").unwrap_or_default(),
                 "thread": r.try_get::<String, _>("thread").unwrap_or_default(),
                 "workspace_id": r.try_get::<String, _>("workspace_id").unwrap_or_default(),
-                "workspace": r.try_get::<Option<String>, _>("workspace").unwrap_or(None),
+                "workspace": r.try_get::<Option<String>, _>("workspace").unwrap_or(None).map(|name| {
+                    blazar_core_types::api::workspace_label(
+                        &name,
+                        &r.try_get::<Option<String>, _>("node").unwrap_or(None).unwrap_or_default(),
+                    )
+                }),
                 "status": r.try_get::<String, _>("status").unwrap_or_default(),
                 "created_at": r.try_get::<String, _>("created_at").unwrap_or_default(),
                 "last_at": r.try_get::<Option<String>, _>("last_at").unwrap_or(None),

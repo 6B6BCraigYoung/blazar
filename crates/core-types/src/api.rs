@@ -121,6 +121,23 @@ pub fn valid_bot_handle(handle: &str) -> bool {
         && !h.ends_with('-')
 }
 
+#[must_use]
+pub fn machine_label(node: &str) -> &str {
+    if node == "local" { "本机" } else { node }
+}
+
+#[must_use]
+pub fn workspace_title<'a>(name: &'a str, node: &str) -> &'a str {
+    name.strip_suffix(format!(" @ {node}").as_str())
+        .filter(|t| !t.trim().is_empty())
+        .unwrap_or(name)
+}
+
+#[must_use]
+pub fn workspace_label(name: &str, node: &str) -> String {
+    format!("{}（{}）", workspace_title(name, node), machine_label(node))
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WorkspaceView {
     pub id: String,
@@ -216,6 +233,17 @@ mod tests {
         ] {
             assert!(!valid_bot_handle(bad), "{bad}");
         }
+    }
+
+    #[test]
+    fn workspace_labels_name_the_machine_once() {
+        assert_eq!(machine_label("local"), "本机");
+        assert_eq!(machine_label("gpu-0"), "gpu-0");
+        assert_eq!(workspace_title("主控 @ gpu-0", "gpu-0"), "主控");
+        assert_eq!(workspace_title("主控 @ gpu-0", "gpu-1"), "主控 @ gpu-0");
+        assert_eq!(workspace_title(" @ gpu-0", "gpu-0"), " @ gpu-0");
+        assert_eq!(workspace_label("主控 @ gpu-0", "gpu-0"), "主控（gpu-0）");
+        assert_eq!(workspace_label("blazar", "local"), "blazar（本机）");
     }
 
     #[test]

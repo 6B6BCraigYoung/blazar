@@ -723,13 +723,17 @@ pub async fn on_run_finished(st: Shared, sid: blazar_core_types::SessionId, stat
                 Some(id) => get(&st, id).await.map(|a| a.label).unwrap_or_default(),
                 None => String::new(),
             };
-            let ws_name: String = sqlx::query_scalar("SELECT name FROM workspaces WHERE id = ?1")
-                .bind(&ws)
-                .fetch_optional(st.db.pool())
-                .await
-                .ok()
-                .flatten()
-                .unwrap_or_default();
+            let ws_name = sqlx::query_as::<_, (String, String)>(
+                "SELECT w.name, n.name FROM workspaces w JOIN nodes n ON n.id = w.node_id
+                 WHERE w.id = ?1",
+            )
+            .bind(&ws)
+            .fetch_optional(st.db.pool())
+            .await
+            .ok()
+            .flatten()
+            .map(|(name, node)| blazar_core_types::api::workspace_label(&name, &node))
+            .unwrap_or_default();
             crate::inbox::push(
                 &st,
                 crate::inbox::Item {

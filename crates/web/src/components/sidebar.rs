@@ -80,11 +80,12 @@ pub fn Sidebar() -> impl IntoView {
         crate::shortcuts::label(&crate::shortcuts::current("palette"))
     };
     let ws = move || app.workspaces();
-    let all = Signal::derive(move || ws().len().to_string());
+    let top = move || app.top_workspaces();
+    let all = Signal::derive(move || top().len().to_string());
     let none = Signal::derive(String::new);
     let projects = move || {
         let mut m: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
-        for w in ws() {
+        for w in top() {
             if let Some(p) = w.project.filter(|p| !p.trim().is_empty()) {
                 *m.entry(p).or_default() += 1;
             }
@@ -114,7 +115,7 @@ pub fn Sidebar() -> impl IntoView {
             .iter()
             .filter(|x| x.activity == "awaiting_approval")
             .count();
-        let u = w.iter().filter(|x| app.unseen(x)).count();
+        let u = top().iter().filter(|x| app.unseen(x)).count();
         let mut s = format!("{on} 节点在线 · {r} 运行中");
         if a > 0 {
             s.push_str(&format!(" · {a} 等审批"));

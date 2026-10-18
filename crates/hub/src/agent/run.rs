@@ -941,13 +941,16 @@ async fn triage_approvals(ctx: &Ctx, approvals: &[NewApproval]) {
         let tool = ap.request["tool_name"].as_str().unwrap_or_default();
         let short = tool.rsplit("__").next().unwrap_or(tool);
         let question = short == "AskUserQuestion";
-        let ws_name: String = sqlx::query_scalar("SELECT name FROM workspaces WHERE id = ?1")
-            .bind(&ws)
-            .fetch_optional(ctx.st.db.pool())
-            .await
-            .ok()
-            .flatten()
-            .unwrap_or_default();
+        let ws_name = sqlx::query_as::<_, (String, String)>(
+            "SELECT w.name, n.name FROM workspaces w JOIN nodes n ON n.id = w.node_id WHERE w.id = ?1",
+        )
+        .bind(&ws)
+        .fetch_optional(ctx.st.db.pool())
+        .await
+        .ok()
+        .flatten()
+        .map(|(name, node)| blazar_core_types::api::workspace_label(&name, &node))
+        .unwrap_or_default();
         let input = &ap.request["input"];
         let what = if question {
             input["questions"][0]["question"]

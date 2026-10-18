@@ -463,7 +463,7 @@ pub fn SimApp(id: &'static str, name: &'static str) -> impl IntoView {
                                 let on = move || ws_sel.get() == id;
                                 view! {
                                     <option value=w.id.clone() selected=on>
-                                        {format!("{} · {}", w.name, w.node)}
+                                        {crate::fmt::ws_label(&w.name, &w.node)}
                                     </option>
                                 }
                             })

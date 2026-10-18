@@ -188,8 +188,9 @@ pub async fn find(st: &Shared, workspace: &str, request: &Value) -> Option<Rule>
 
 pub async fn list(State(st): State<Shared>) -> Response {
     let rows = sqlx::query(
-        "SELECT r.*, w.name AS workspace_name FROM approval_rules r
-         LEFT JOIN workspaces w ON w.id = r.workspace_id ORDER BY r.created_at DESC",
+        "SELECT r.*, w.name AS workspace_name, n.name AS node FROM approval_rules r
+         LEFT JOIN workspaces w ON w.id = r.workspace_id LEFT JOIN nodes n ON n.id = w.node_id
+         ORDER BY r.created_at DESC",
     )
     .fetch_all(st.db.pool())
     .await
@@ -200,7 +201,10 @@ pub async fn list(State(st): State<Shared>) -> Response {
                 let s = |k: &str| r.try_get::<Option<String>, _>(k).ok().flatten();
                 json!({
                     "id": s("id"), "tool": s("tool"), "pattern": s("pattern"),
-                    "workspace_id": s("workspace_id"), "workspace_name": s("workspace_name"),
+                    "workspace_id": s("workspace_id"),
+                    "workspace_name": s("workspace_name").map(|name| {
+                        blazar_core_types::api::workspace_label(&name, &s("node").unwrap_or_default())
+                    }),
                     "enabled": r.try_get::<i64, _>("enabled").unwrap_or(0) == 1,
                     "hits": r.try_get::<i64, _>("hits").unwrap_or(0),
                     "created_at": s("created_at"),

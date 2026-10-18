@@ -1063,21 +1063,18 @@ fn RuleSettings() -> impl IntoView {
                             "全局"
                         </option>
                         {move || {
-                            app.state
-                                .get()
-                                .map(|s| {
-                                    s.workspaces
-                                        .iter()
-                                        .map(|w| {
-                                            let id = w.id.clone();
-                                            view! {
-                                                <option value=w.id.clone() selected=move || ws.get() == id>
-                                                    {w.name.clone()}
-                                                </option>
-                                            }
-                                        })
-                                        .collect_view()
+                            app.in_tree_order()
+                                .into_iter()
+                                .map(|(depth, w)| {
+                                    let id = w.id.clone();
+                                    let label = crate::app_state::indented_label(depth, &w);
+                                    view! {
+                                        <option value=w.id.clone() selected=move || ws.get() == id>
+                                            {label}
+                                        </option>
+                                    }
                                 })
+                                .collect_view()
                         }}
                     </select>
                     <div>

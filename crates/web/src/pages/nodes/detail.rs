@@ -183,7 +183,24 @@ fn NodeDetail(name: String) -> impl IntoView {
                                                     <td>
                                                         <span class="dot" data-act=w.activity.clone()></span>
                                                         " "
-                                                        <a href=format!("/w/{}", w.id)>{w.name.clone()}</a>
+                                                        <a href=format!(
+                                                            "/w/{}",
+                                                            w.id,
+                                                        )>{crate::fmt::ws_title(&w.name, &w.node)}</a>
+                                                        {w
+                                                            .parent
+                                                            .as_deref()
+                                                            .and_then(|p| app.workspace(p))
+                                                            .map(|p| {
+                                                                view! {
+                                                                    <span class="muted small">
+                                                                        {format!(
+                                                                            " · 属于「{}」",
+                                                                            crate::fmt::ws_title(&p.name, &p.node),
+                                                                        )}
+                                                                    </span>
+                                                                }
+                                                            })}
                                                     </td>
                                                     <td>
                                                         <details class="nodes-details">

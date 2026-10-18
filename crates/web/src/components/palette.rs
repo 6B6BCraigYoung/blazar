@@ -118,12 +118,17 @@ pub fn Palette() -> impl IntoView {
         })
         .collect();
         if let Some(s) = app.state.get() {
-            all.extend(s.workspaces.iter().map(|w| Hit {
-                title: w.name.clone(),
-                kind: format!("工作区 · {}", w.node),
-                href: format!("/w/{}", w.id),
-                keys: String::new(),
-            }));
+            all.extend(
+                s.workspaces
+                    .iter()
+                    .filter(|w| crate::app_state::is_top(w, &s.workspaces))
+                    .map(|w| Hit {
+                        title: crate::fmt::ws_title(&w.name, &w.node),
+                        kind: format!("工作区 · {}", crate::fmt::machine(&w.node)),
+                        href: format!("/w/{}", w.id),
+                        keys: w.node.clone(),
+                    }),
+            );
             all.extend(s.nodes.iter().map(|n| Hit {
                 title: n.name.clone(),
                 kind: "机器".into(),

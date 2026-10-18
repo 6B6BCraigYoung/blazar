@@ -9,6 +9,7 @@ use serde_json::Value;
 
 use crate::alerts;
 use crate::api;
+use crate::fmt;
 use crate::realtime::Bus;
 use crate::storage;
 
@@ -36,6 +37,63 @@ pub struct AppData {
     pub alerts_rev: RwSignal<u32>,
 }
 
+pub fn is_top(w: &WorkspaceView, all: &[WorkspaceView]) -> bool {
+    let Some(first) = w.parent.as_deref() else {
+        return true;
+    };
+    let mut seen = vec![w.id.as_str()];
+    let mut parent = Some(first);
+    while let Some(p) = parent {
+        match all.iter().find(|x| x.id == p) {
+            None => return p == first,
+            Some(x) if seen.contains(&x.id.as_str()) => return true,
+            Some(x) => {
+                seen.push(&x.id);
+                parent = x.parent.as_deref();
+            }
+        }
+    }
+    false
+}
+
+pub fn tree_order(all: &[WorkspaceView]) -> Vec<(usize, WorkspaceView)> {
+    let mut out: Vec<(usize, WorkspaceView)> = Vec::new();
+    let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    let mut stack: Vec<(usize, &WorkspaceView)> = all
+        .iter()
+        .filter(|w| is_top(w, all))
+        .rev()
+        .map(|w| (0, w))
+        .collect();
+    while let Some((depth, w)) = stack.pop() {
+        if !seen.insert(w.id.as_str()) {
+            continue;
+        }
+        out.push((depth, w.clone()));
+        stack.extend(
+            all.iter()
+                .filter(|c| c.parent.as_deref() == Some(w.id.as_str()))
+                .rev()
+                .map(|c| (depth + 1, c)),
+        );
+    }
+    for w in all {
+        if !seen.contains(w.id.as_str()) {
+            out.push((0, w.clone()));
+        }
+    }
+    out
+}
+
+pub fn indented_label(depth: usize, w: &WorkspaceView) -> String {
+    let label = crate::fmt::ws_label(&w.name, &w.node);
+    if depth == 0 {
+        label
+    } else {
+        format!("{}↳ {label}", "\u{3000}".repeat(depth - 1))
+    }
+}
+
 pub fn use_app() -> AppData {
     expect_context::<AppData>()
 }
@@ -44,6 +102,65 @@ impl AppData {
     pub fn workspaces(self) -> Vec<WorkspaceView> {
         self.state
             .with(|s| s.as_ref().map(|s| s.workspaces.clone()).unwrap_or_default())
+    }
+
+    pub fn top_workspaces(self) -> Vec<WorkspaceView> {
+        self.state.with(|s| {
+            s.as_ref()
+                .map(|s| {
+                    s.workspaces
+                        .iter()
+                        .filter(|w| is_top(w, &s.workspaces))
+                        .cloned()
+                        .collect()
+                })
+                .unwrap_or_default()
+        })
+    }
+
+    pub fn in_tree_order(self) -> Vec<(usize, WorkspaceView)> {
+        self.state.with(|s| {
+            s.as_ref()
+                .map(|s| tree_order(&s.workspaces))
+                .unwrap_or_default()
+        })
+    }
+
+    pub fn needs_you(self, w: &WorkspaceView) -> bool {
+        w.activity == "awaiting_approval"
+            || self
+                .children_of(&w.id)
+                .iter()
+                .any(|c| c.activity == "awaiting_approval")
+    }
+
+    pub fn busy(self, w: &WorkspaceView) -> bool {
+        w.activity == "running"
+            || self
+                .children_of(&w.id)
+                .iter()
+                .any(|c| c.activity == "running")
+    }
+
+    pub fn children_of(self, id: &str) -> Vec<WorkspaceView> {
+        self.state.with(|s| {
+            s.as_ref()
+                .map(|s| {
+                    s.workspaces
+                        .iter()
+                        .filter(|w| w.parent.as_deref() == Some(id))
+                        .cloned()
+                        .collect()
+                })
+                .unwrap_or_default()
+        })
+    }
+
+    pub fn workspace(self, id: &str) -> Option<WorkspaceView> {
+        self.state.with(|s| {
+            s.as_ref()
+                .and_then(|s| s.workspaces.iter().find(|w| w.id == id).cloned())
+        })
     }
 
     pub fn nodes(self) -> Vec<blazar_core_types::api::NodeView> {
@@ -225,8 +342,8 @@ async fn notify_changes(app: AppData, fresh: Vec<WorkspaceView>) {
         };
         let id = w.id.clone();
         alerts::notify(
-            &format!("{} {what}", w.name),
-            &format!("{} · {}", w.node, w.path),
+            &format!("{} {what}", fmt::ws_label(&w.name, &w.node)),
+            &w.path,
             &format!("blazar-{}", w.id),
             w.activity == "awaiting_approval",
             move || {
@@ -302,7 +419,10 @@ pub fn provide(bus: Bus) -> AppData {
     let last: StoredValue<Option<HashMap<String, String>>> = StoredValue::new(None);
     Effect::new(move |_| {
         let ws = app.workspaces();
-        let n = ws.iter().filter(|w| app.unseen(w)).count();
+        let n = ws
+            .iter()
+            .filter(|w| app.unseen(w) && (is_top(w, &ws) || w.activity == "awaiting_approval"))
+            .count();
         document().set_title(&if n > 0 {
             format!("({n}) Blazar")
         } else {
@@ -319,10 +439,11 @@ pub fn provide(bus: Bus) -> AppData {
             .iter()
             .filter(|w| {
                 prev.get(&w.id) != Some(&w.activity)
-                    && matches!(
-                        w.activity.as_str(),
-                        "completed" | "errored" | "awaiting_approval"
-                    )
+                    && match w.activity.as_str() {
+                        "awaiting_approval" => true,
+                        "completed" | "errored" => is_top(w, &ws),
+                        _ => false,
+                    }
             })
             .cloned()
             .collect();

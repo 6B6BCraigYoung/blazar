@@ -938,7 +938,7 @@ fn AgentActions(agent: Value, rev: RwSignal<u32>, blocked: RwSignal<bool>) -> im
                                 on_close=Callback::new(move |_| pick.set(false))
                             >
                                 <h3>"在哪个工作区对话？"</h3>
-                                {if app.workspaces().is_empty() {
+                                {if app.top_workspaces().is_empty() {
                                     view! {
                                         <EmptyState
                                             title="先创建工作区"
@@ -950,7 +950,7 @@ fn AgentActions(agent: Value, rev: RwSignal<u32>, blocked: RwSignal<bool>) -> im
                                     }
                                         .into_any()
                                 } else {
-                                    app.workspaces()
+                                    app.top_workspaces()
                                         .into_iter()
                                         .map(|w| {
                                             view! {
@@ -971,9 +971,9 @@ fn AgentActions(agent: Value, rev: RwSignal<u32>, blocked: RwSignal<bool>) -> im
                                                         });
                                                     }
                                                 >
-                                                    <b>{w.name}</b>
-                                                    <span class="muted" title=w.path>
-                                                        {w.node}
+                                                    <b>{crate::fmt::ws_title(&w.name, &w.node)}</b>
+                                                    <span class="ws-machine" title=w.path>
+                                                        {crate::fmt::machine(&w.node)}
                                                     </span>
                                                 </button>
                                             }

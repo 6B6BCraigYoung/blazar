@@ -350,7 +350,7 @@ pub fn TasksPage() -> impl IntoView {
                                                                                 {(t["running"] == true).then(|| badge("running"))}
                                                                             </span>
                                                                             <small class="muted">
-                                                                                {meta(&[s(&t, "workspace_name"), who(&t)])}
+                                                                                {meta(&[crate::fmt::ws_label_of(&t), who(&t)])}
                                                                             </small>
                                                                             <span class="row-actions">
                                                                                 {arr(&t, "labels")
@@ -781,7 +781,9 @@ fn TaskDetail(id: String, ui: TaskUi) -> impl IntoView {
                                         inner_html=md::render(&s(&t, "description"), "", &ws)
                                     ></div>
                                     <p class="muted small">
-                                        {meta(&[s(&t, "workspace_name"), who(&t), priority(&t)])}
+                                        {meta(
+                                            &[crate::fmt::ws_label_of(&t), who(&t), priority(&t)],
+                                        )}
                                     </p>
                                     <div class="row-actions">
                                         <button

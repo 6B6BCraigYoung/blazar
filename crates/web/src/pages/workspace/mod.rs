@@ -383,6 +383,33 @@ fn Workspace(id: String) -> impl IntoView {
                 </div>
             </Show>
             <div class="ws-head" inert=move || gone.get()>
+                {
+                    let id = id.clone();
+                    move || {
+                        app.workspace(&id)
+                            .map(|w| {
+                                let up = w.parent.as_deref().and_then(|p| app.workspace(p));
+                                view! {
+                                    <span class="ws-where">
+                                        <span class="ws-machine" title=w.path.clone()>
+                                            {crate::fmt::machine(&w.node)}
+                                        </span>
+                                        {up
+                                            .map(|p| {
+                                                view! {
+                                                    <a class="ws-up" href=format!("/w/{}", p.id)>
+                                                        {format!(
+                                                            "属于「{}」",
+                                                            crate::fmt::ws_title(&p.name, &p.node),
+                                                        )}
+                                                    </a>
+                                                }
+                                            })}
+                                    </span>
+                                }
+                            })
+                    }
+                }
                 {move || {
                     detail
                         .get()

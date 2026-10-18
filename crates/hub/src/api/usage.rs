@@ -54,7 +54,10 @@ pub async fn usage(State(st): State<Shared>) -> ApiResult<Json<serde_json::Value
             .entry(r.try_get("node").unwrap_or_default())
             .or_default());
         let ws_id: String = r.try_get("ws_id").unwrap_or_default();
-        let ws_name: String = r.try_get("workspace").unwrap_or_default();
+        let ws_name = blazar_core_types::api::workspace_label(
+            &r.try_get::<String, _>("workspace").unwrap_or_default(),
+            &r.try_get::<String, _>("node").unwrap_or_default(),
+        );
         let e = by_ws.entry(ws_id).or_insert((ws_name, Agg::default()));
         add(&mut e.1);
     }

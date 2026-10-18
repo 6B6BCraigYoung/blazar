@@ -209,7 +209,7 @@ pub fn AutopilotsPage() -> impl IntoView {
                                                         {badge(&s(&a, "status"))}
                                                     </div>
                                                     <span class="muted">
-                                                        {meta(&[s(&a, "workspace_name"), who(&a)])}
+                                                        {meta(&[crate::fmt::ws_label_of(&a), who(&a)])}
                                                     </span>
                                                     <span class="autopilot-schedule">{schedule_label(&a)}</span>
                                                     <div class="row-actions">
@@ -366,7 +366,7 @@ fn AutopilotDetail(id: String, ui: ApUi) -> impl IntoView {
                                                 {if s(&a, "workspace_name").is_empty() {
                                                     "工作区已删除".into()
                                                 } else {
-                                                    s(&a, "workspace_name")
+                                                    crate::fmt::ws_label_of(&a)
                                                 }}
                                             </a>
                                         </dd>

@@ -123,7 +123,13 @@ fn Dialog() -> impl IntoView {
     let node = RwSignal::new(preset);
     let parent = app.new_ws_parent.get_untracked();
     let is_child = parent.is_some();
-    let parent_name = parent.as_ref().map(|p| p.1.clone()).unwrap_or_default();
+    let parent_name = parent
+        .as_ref()
+        .map(|p| {
+            app.workspace(&p.0)
+                .map_or_else(|| p.1.clone(), |w| crate::fmt::ws_label(&w.name, &w.node))
+        })
+        .unwrap_or_default();
     let copy = RwSignal::new(false);
     on_cleanup(move || {
         app.new_ws_node.set(None);
@@ -337,7 +343,10 @@ fn Dialog() -> impl IntoView {
                         remember_dir(&chosen.0, &chosen.1);
                         toast(format!(
                             "已添加子工作区 {}",
-                            v["name"].as_str().unwrap_or("")
+                            crate::fmt::ws_label(
+                                v["name"].as_str().unwrap_or(""),
+                                v["node"].as_str().unwrap_or(""),
+                            )
                         ));
                         app.new_ws.set(false);
                         app.load_state();

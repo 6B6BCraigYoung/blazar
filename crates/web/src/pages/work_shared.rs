@@ -186,13 +186,14 @@ pub fn WorkspaceField(
                     "未选择"
                 </option>
                 {move || {
-                    app.workspaces()
+                    app.in_tree_order()
                         .into_iter()
-                        .map(|w| {
+                        .map(|(depth, w)| {
                             let selected = w.id.clone();
+                            let label = crate::app_state::indented_label(depth, &w);
                             view! {
                                 <option value=w.id selected=move || value.get() == selected>
-                                    {format!("{} · {}", w.name, w.node)}
+                                    {label}
                                 </option>
                             }
                         })

@@ -153,9 +153,11 @@ pub async fn on_run_finished(st: Shared, sid: blazar_core_types::SessionId, stat
         return;
     }
     let row = sqlx::query(
-        "SELECT s.workspace_id, COALESCE(s.thread_id, s.id) AS thread, w.name AS ws,
+        "SELECT s.workspace_id, COALESCE(s.thread_id, s.id) AS thread, w.name AS ws, n.name AS node,
+                w.parent_id,
                 (SELECT title FROM sessions r WHERE r.id = COALESCE(s.thread_id, s.id)) AS title
-         FROM sessions s JOIN workspaces w ON w.id = s.workspace_id WHERE s.id = ?1",
+         FROM sessions s JOIN workspaces w ON w.id = s.workspace_id
+         JOIN nodes n ON n.id = w.node_id WHERE s.id = ?1",
     )
     .bind(sid.to_string())
     .fetch_optional(st.db.pool())
@@ -163,7 +165,18 @@ pub async fn on_run_finished(st: Shared, sid: blazar_core_types::SessionId, stat
     .ok()
     .flatten();
     let Some(row) = row else { return };
-    let ws_name: String = row.try_get("ws").unwrap_or_default();
+    if row
+        .try_get::<Option<String>, _>("parent_id")
+        .ok()
+        .flatten()
+        .is_some()
+    {
+        return;
+    }
+    let ws_name = blazar_core_types::api::workspace_label(
+        &row.try_get::<String, _>("ws").unwrap_or_default(),
+        &row.try_get::<String, _>("node").unwrap_or_default(),
+    );
     let thread: String = row.try_get("thread").unwrap_or_default();
     let title: Option<String> = row.try_get("title").ok().flatten();
 

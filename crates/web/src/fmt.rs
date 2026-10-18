@@ -16,6 +16,25 @@ fn span(secs: f64) -> String {
     }
 }
 
+pub fn machine(node: &str) -> String {
+    blazar_core_types::api::machine_label(node).to_owned()
+}
+
+pub fn ws_title(name: &str, node: &str) -> String {
+    blazar_core_types::api::workspace_title(name, node).to_owned()
+}
+
+pub fn ws_label(name: &str, node: &str) -> String {
+    blazar_core_types::api::workspace_label(name, node)
+}
+
+pub fn ws_label_of(v: &serde_json::Value) -> String {
+    match v["workspace_name"].as_str().filter(|n| !n.is_empty()) {
+        Some(name) => ws_label(name, v["node"].as_str().unwrap_or_default()),
+        None => String::new(),
+    }
+}
+
 pub fn ago(iso: &str) -> String {
     parse_ms(iso).map_or_else(String::new, |t| {
         let d = (js_sys::Date::now() - t) / 1000.0;
