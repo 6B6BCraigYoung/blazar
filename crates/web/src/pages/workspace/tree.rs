@@ -496,195 +496,197 @@ pub fn FileTree(
         />
         <TreeMenu menu ws=files.ws() />
         <div class="tree" on:scroll=move |_| menu.set(None)>
-            <button
-                type="button"
-                class="tn root"
-                aria-expanded=move || root_open.get().to_string()
-                data-open=move || root_open.get().to_string()
-                title=move || root_name.get()
-                on:click=move |_| root_open.update(|o| *o = !*o)
-                on:contextmenu=move |e: leptos::ev::MouseEvent| {
-                    e.prevent_default();
-                    menu.set(
-                        Some(Menu {
-                            x: e.client_x(),
-                            y: e.client_y(),
-                            path: String::new(),
-                            name: root_name.get_untracked(),
-                            dir: true,
-                        }),
-                    );
-                }
-            >
-                <span class="chev" inner_html=CHEV></span>
-                <span class="nm dir">{move || root_name.get()}</span>
-            </button>
-            <Show when=move || {
-                root_open.get()
-            }>
-                {move || {
-                    errors
-                        .get()
-                        .into_iter()
-                        .filter(|(path, _)| {
-                            path.is_empty() || opened.with(|paths| paths.contains(path))
-                        })
-                        .map(|(path, error)| {
-                            let label = if path.is_empty() {
-                                "根目录".to_owned()
-                            } else {
-                                path.clone()
-                            };
-                            view! {
-                                <InlineError
-                                    message=format!("读取{label}失败：{error}")
-                                    class="tree-state"
-                                    retry=Callback::new(move |_| {
-                                        fetch.with_value(|load| load(path.clone()))
-                                    })
-                                />
-                            }
-                        })
-                        .collect_view()
-                }}
-            </Show>
-            {move || {
-                (root_open.get() || !filter.with(|f| f.trim().is_empty()))
-                    .then(|| match list() {
-                        None => ().into_any(),
-                        Some(
-                            r,
-                        ) if r.is_empty() && loading.with(HashSet::is_empty)
-                            && errors.with(HashMap::is_empty) => {
-                            view! {
-                                <EmptyState title=if filter.with(|f| f.trim().is_empty()) {
-                                    "空目录"
+            <div class="tree-flow">
+                <button
+                    type="button"
+                    class="tn root"
+                    aria-expanded=move || root_open.get().to_string()
+                    data-open=move || root_open.get().to_string()
+                    title=move || root_name.get()
+                    on:click=move |_| root_open.update(|o| *o = !*o)
+                    on:contextmenu=move |e: leptos::ev::MouseEvent| {
+                        e.prevent_default();
+                        menu.set(
+                            Some(Menu {
+                                x: e.client_x(),
+                                y: e.client_y(),
+                                path: String::new(),
+                                name: root_name.get_untracked(),
+                                dir: true,
+                            }),
+                        );
+                    }
+                >
+                    <span class="chev" inner_html=CHEV></span>
+                    <span class="nm dir">{move || root_name.get()}</span>
+                </button>
+                <Show when=move || {
+                    root_open.get()
+                }>
+                    {move || {
+                        errors
+                            .get()
+                            .into_iter()
+                            .filter(|(path, _)| {
+                                path.is_empty() || opened.with(|paths| paths.contains(path))
+                            })
+                            .map(|(path, error)| {
+                                let label = if path.is_empty() {
+                                    "根目录".to_owned()
                                 } else {
-                                    "没有匹配的文件"
-                                } />
-                            }
-                                .into_any()
-                        }
-                        Some(r) => {
-                            r.into_iter()
-                                .map(|row| {
-                                    let (mark, cls) = change_mark(row.change);
-                                    let p = row.path.clone();
-                                    let dir = row.dir;
-                                    let more = row.more;
-                                    let sel = {
-                                        let p = p.clone();
-                                        move || {
-                                            !dir
-                                                && files.current.with(|c| c.as_deref() == Some(p.as_str()))
-                                        }
-                                    };
-                                    let accessible_sel = sel.clone();
-                                    let click = move |_| {
-                                        if more {} else if dir {
-                                            opened
-                                                .update(|o| {
-                                                    if !o.remove(&p) {
-                                                        o.insert(p.clone());
-                                                    }
-                                                });
-                                        } else {
-                                            files.open(p.clone(), 0);
-                                        }
-                                    };
-                                    let menu_path = row.path.clone();
-                                    let menu_name = row.name.clone();
-                                    let guides = guide_dirs(&row.path, row.depth)
-                                        .into_iter()
-                                        .enumerate()
-                                        .map(|(i, dir)| {
-                                            let active = move || {
-                                                files
-                                                    .current
-                                                    .with(|c| {
-                                                        c.as_deref()
-                                                            .is_some_and(|c| {
-                                                                c.rsplit_once('/').map_or("", |(parent, _)| parent) == dir
-                                                            })
-                                                    })
-                                            };
-                                            view! {
-                                                <span
-                                                    class="tn-guide"
-                                                    data-active=move || active().to_string()
-                                                    style=format!(
-                                                        "left:calc(var(--tree-base) + {i} * var(--tree-indent) + var(--tree-chev) / 2)",
-                                                    )
-                                                ></span>
-                                            }
+                                    path.clone()
+                                };
+                                view! {
+                                    <InlineError
+                                        message=format!("读取{label}失败：{error}")
+                                        class="tree-state"
+                                        retry=Callback::new(move |_| {
+                                            fetch.with_value(|load| load(path.clone()))
                                         })
-                                        .collect_view();
-                                    view! {
-                                        <button
-                                            type="button"
-                                            class="tn"
-                                            disabled=more
-                                            aria-expanded=dir.then(|| row.open.to_string())
-                                            aria-pressed=move || {
-                                                (!dir && !more).then(|| accessible_sel().to_string())
+                                    />
+                                }
+                            })
+                            .collect_view()
+                    }}
+                </Show>
+                {move || {
+                    (root_open.get() || !filter.with(|f| f.trim().is_empty()))
+                        .then(|| match list() {
+                            None => ().into_any(),
+                            Some(
+                                r,
+                            ) if r.is_empty() && loading.with(HashSet::is_empty)
+                                && errors.with(HashMap::is_empty) => {
+                                view! {
+                                    <EmptyState title=if filter.with(|f| f.trim().is_empty()) {
+                                        "空目录"
+                                    } else {
+                                        "没有匹配的文件"
+                                    } />
+                                }
+                                    .into_any()
+                            }
+                            Some(r) => {
+                                r.into_iter()
+                                    .map(|row| {
+                                        let (mark, cls) = change_mark(row.change);
+                                        let p = row.path.clone();
+                                        let dir = row.dir;
+                                        let more = row.more;
+                                        let sel = {
+                                            let p = p.clone();
+                                            move || {
+                                                !dir
+                                                    && files.current.with(|c| c.as_deref() == Some(p.as_str()))
                                             }
-                                            data-open=row.open.to_string()
-                                            data-sel=move || sel().to_string()
-                                            data-ign=row.ignored.to_string()
-                                            data-more=more.to_string()
-                                            data-chg=(dir && row.has_change).to_string()
-                                            title=row.path.clone()
-                                            on:click=click
-                                            on:contextmenu=move |e: leptos::ev::MouseEvent| {
-                                                e.prevent_default();
-                                                if !more {
-                                                    menu.set(
-                                                        Some(Menu {
-                                                            x: e.client_x(),
-                                                            y: e.client_y(),
-                                                            path: menu_path.clone(),
-                                                            name: menu_name.clone(),
-                                                            dir,
-                                                        }),
-                                                    );
+                                        };
+                                        let accessible_sel = sel.clone();
+                                        let click = move |_| {
+                                            if more {} else if dir {
+                                                opened
+                                                    .update(|o| {
+                                                        if !o.remove(&p) {
+                                                            o.insert(p.clone());
+                                                        }
+                                                    });
+                                            } else {
+                                                files.open(p.clone(), 0);
+                                            }
+                                        };
+                                        let menu_path = row.path.clone();
+                                        let menu_name = row.name.clone();
+                                        let guides = guide_dirs(&row.path, row.depth)
+                                            .into_iter()
+                                            .enumerate()
+                                            .map(|(i, dir)| {
+                                                let active = move || {
+                                                    files
+                                                        .current
+                                                        .with(|c| {
+                                                            c.as_deref()
+                                                                .is_some_and(|c| {
+                                                                    c.rsplit_once('/').map_or("", |(parent, _)| parent) == dir
+                                                                })
+                                                        })
+                                                };
+                                                view! {
+                                                    <span
+                                                        class="tn-guide"
+                                                        data-active=move || active().to_string()
+                                                        style=format!(
+                                                            "left:calc(var(--tree-base) + {i} * var(--tree-indent) + var(--tree-chev) / 2)",
+                                                        )
+                                                    ></span>
                                                 }
-                                            }
-                                            style=format!(
-                                                "padding-left:calc(var(--tree-base) + {} * var(--tree-indent))",
-                                                row.depth,
-                                            )
-                                        >
-                                            {guides}
-                                            <span
-                                                class="chev"
-                                                inner_html=if dir { CHEV } else { "" }
-                                            ></span>
-                                            {(!more)
-                                                .then(|| {
-                                                    view! {
-                                                        <span
-                                                            class="ic"
-                                                            class:folder=dir
-                                                            inner_html=if dir {
-                                                                if row.open { ICON_FOLDER_OPEN } else { ICON_FOLDER }
-                                                            } else {
-                                                                file_icon(&row.name)
-                                                            }
-                                                        ></span>
+                                            })
+                                            .collect_view();
+                                        view! {
+                                            <button
+                                                type="button"
+                                                class="tn"
+                                                disabled=more
+                                                aria-expanded=dir.then(|| row.open.to_string())
+                                                aria-pressed=move || {
+                                                    (!dir && !more).then(|| accessible_sel().to_string())
+                                                }
+                                                data-open=row.open.to_string()
+                                                data-sel=move || sel().to_string()
+                                                data-ign=row.ignored.to_string()
+                                                data-more=more.to_string()
+                                                data-chg=(dir && row.has_change).to_string()
+                                                title=row.path.clone()
+                                                on:click=click
+                                                on:contextmenu=move |e: leptos::ev::MouseEvent| {
+                                                    e.prevent_default();
+                                                    if !more {
+                                                        menu.set(
+                                                            Some(Menu {
+                                                                x: e.client_x(),
+                                                                y: e.client_y(),
+                                                                path: menu_path.clone(),
+                                                                name: menu_name.clone(),
+                                                                dir,
+                                                            }),
+                                                        );
                                                     }
-                                                })}
-                                            <span class="nm" class:dir=dir>
-                                                {row.name}
-                                            </span>
-                                            <span class=format!("ch {cls}")>{mark}</span>
-                                        </button>
-                                    }
-                                })
-                                .collect_view()
-                                .into_any()
-                        }
-                    })
-            }}
+                                                }
+                                                style=format!(
+                                                    "padding-left:calc(var(--tree-base) + {} * var(--tree-indent))",
+                                                    row.depth,
+                                                )
+                                            >
+                                                {guides}
+                                                <span
+                                                    class="chev"
+                                                    inner_html=if dir { CHEV } else { "" }
+                                                ></span>
+                                                {(!more)
+                                                    .then(|| {
+                                                        view! {
+                                                            <span
+                                                                class="ic"
+                                                                class:folder=dir
+                                                                inner_html=if dir {
+                                                                    if row.open { ICON_FOLDER_OPEN } else { ICON_FOLDER }
+                                                                } else {
+                                                                    file_icon(&row.name)
+                                                                }
+                                                            ></span>
+                                                        }
+                                                    })}
+                                                <span class="nm" class:dir=dir>
+                                                    {row.name}
+                                                </span>
+                                                <span class=format!("ch {cls}")>{mark}</span>
+                                            </button>
+                                        }
+                                    })
+                                    .collect_view()
+                                    .into_any()
+                            }
+                        })
+                }}
+            </div>
         </div>
     }
 }

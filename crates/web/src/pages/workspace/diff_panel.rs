@@ -474,7 +474,7 @@ pub fn DiffView(
                 data-wrap=move || (p().wrap || p().view == "split").to_string()
                 data-view=move || p().view
             >
-                {body}
+                <div class="df-flow">{body}</div>
             </div>
         </div>
     }

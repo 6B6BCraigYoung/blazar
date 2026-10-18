@@ -1,3 +1,5 @@
+const offset = (el, n) => n.getBoundingClientRect().top - el.getBoundingClientRect().top;
+
 export function keepScroll(el) {
   let width = el.clientWidth;
   let bottom = true;
@@ -17,7 +19,8 @@ export function keepScroll(el) {
     anchor = null;
     if (bottom) return;
     const top = el.getBoundingClientRect().top;
-    const row = firstVisible(el.children, top);
+    const rows = el.querySelector(':scope > .cc-flow')?.children ?? el.children;
+    const row = firstVisible(rows, top);
     if (!row) return;
     anchor = firstVisible(row[0].querySelectorAll('.cc-md > *'), top) || row;
   };
@@ -30,8 +33,7 @@ export function keepScroll(el) {
     if (el.clientWidth === width) return;
     width = el.clientWidth;
     if (bottom) el.scrollTop = el.scrollHeight;
-    else if (anchor && anchor[0].isConnected) {
-      el.scrollTop += anchor[0].getBoundingClientRect().top - el.getBoundingClientRect().top - anchor[1];
-    }
+    else if (anchor && anchor[0].isConnected) el.scrollTop += offset(el, anchor[0]) - anchor[1];
   }).observe(el);
 }
+

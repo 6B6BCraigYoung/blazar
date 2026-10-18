@@ -1007,41 +1007,43 @@ pub fn Log(chat: Chat, tick: RwSignal<u32>) -> impl IntoView {
             <Show when=empty>
                 <Empty chat />
             </Show>
-            <Show when=move || { earlier() > 0 }>
-                <button type="button" class="cc-more cc-earlier" on:click=show_earlier>
-                    {move || format!("Show {} earlier", earlier().min(WINDOW))}
-                </button>
-            </Show>
-            <For each=keys key=|k| k.clone() let:k>
-                {item_slot(k, chat, opened, ws.clone())}
-            </For>
-            <For each=move || chat.pending.get() key=|p| p.id let:p>
-                <div class="cc-user pending">
-                    <div class="cc-ut">
-                        {p.text.clone()}
-                        {(p.images > 0).then(|| format!("\n[{} attachments]", p.images))}
+            <div class="cc-flow">
+                <Show when=move || { earlier() > 0 }>
+                    <button type="button" class="cc-more cc-earlier" on:click=show_earlier>
+                        {move || format!("Show {} earlier", earlier().min(WINDOW))}
+                    </button>
+                </Show>
+                <For each=keys key=|k| k.clone() let:k>
+                    {item_slot(k, chat, opened, ws.clone())}
+                </For>
+                <For each=move || chat.pending.get() key=|p| p.id let:p>
+                    <div class="cc-user pending">
+                        <div class="cc-ut">
+                            {p.text.clone()}
+                            {(p.images > 0).then(|| format!("\n[{} attachments]", p.images))}
+                        </div>
                     </div>
-                </div>
-            </For>
-            {move || {
-                chat.local_errors
-                    .get()
-                    .into_iter()
-                    .map(|e| {
-                        view! {
-                            <div class="cc-row cc-err">
-                                <span class="cc-dot" aria-hidden="true"></span>
-                                <div class="cc-main">
-                                    <InlineError message=e />
+                </For>
+                {move || {
+                    chat.local_errors
+                        .get()
+                        .into_iter()
+                        .map(|e| {
+                            view! {
+                                <div class="cc-row cc-err">
+                                    <span class="cc-dot" aria-hidden="true"></span>
+                                    <div class="cc-main">
+                                        <InlineError message=e />
+                                    </div>
                                 </div>
-                            </div>
-                        }
-                    })
-                    .collect_view()
-            }}
-            <Show when=busy>
-                <Spinner chat tick />
-            </Show>
+                            }
+                        })
+                        .collect_view()
+                }}
+                <Show when=busy>
+                    <Spinner chat tick />
+                </Show>
+            </div>
         </div>
     }
 }
