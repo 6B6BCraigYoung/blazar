@@ -37,3 +37,15 @@ export function keepScroll(el) {
   }).observe(el);
 }
 
+export function holdTail(el) {
+  const flow = el.querySelector(':scope > .cc-flow') ?? el;
+  const tail = el.scrollHeight - el.scrollTop;
+  let expected = el.scrollTop;
+  const watch = new ResizeObserver(() => {
+    if (Math.abs(el.scrollTop - expected) > 4) return watch.disconnect();
+    el.scrollTop = el.scrollHeight - tail;
+    expected = el.scrollTop;
+  });
+  watch.observe(flow);
+  setTimeout(() => watch.disconnect(), 1000);
+}

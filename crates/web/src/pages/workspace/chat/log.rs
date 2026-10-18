@@ -897,6 +897,8 @@ fn Spinner(chat: Chat, tick: RwSignal<u32>) -> impl IntoView {
 extern "C" {
     #[wasm_bindgen(js_name = keepScroll)]
     fn keep_scroll(el: &web_sys::HtmlElement);
+    #[wasm_bindgen(js_name = holdTail)]
+    fn hold_tail(el: &web_sys::HtmlElement);
 }
 
 const WINDOW: usize = 120;
@@ -936,13 +938,10 @@ pub fn Log(chat: Chat, tick: RwSignal<u32>) -> impl IntoView {
     };
     let earlier = move || chat.transcript.with(|t| start(t.items.len()));
     let show_earlier = move |_| {
-        let Some(e) = el.get_untracked() else { return };
-        let before = e.scroll_height();
-        let from = earlier().saturating_sub(WINDOW);
-        frozen.set(Some(from));
-        request_animation_frame(move || {
-            e.set_scroll_top(e.scroll_top() + e.scroll_height() - before);
-        });
+        if let Some(e) = el.get_untracked() {
+            hold_tail(&e);
+        }
+        frozen.set(Some(earlier().saturating_sub(WINDOW)));
     };
     Effect::new(move |_| {
         chat.transcript.track();
