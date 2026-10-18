@@ -25,6 +25,7 @@ button { font: inherit; color: inherit; }
 .side .foot a { color: var(--fg-3); }
 .side .foot a:hover { color: var(--fg); }
 .main { flex: 1 1 auto; min-width: 0; overflow-y: auto; overscroll-behavior: contain; }
+.main > .page { will-change: opacity; }
 
 .page { width: 100%; max-width: calc(var(--page-max) + var(--page-gutter) * 2); margin-inline: auto; padding: var(--page-top) var(--page-gutter) var(--space-4xl); display: flex; flex-direction: column; gap: var(--space-section); }
 .page-head { display: flex; align-items: center; gap: var(--space-lg); }
