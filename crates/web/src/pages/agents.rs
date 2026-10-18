@@ -1339,14 +1339,17 @@ fn AgentEditor(
             if !r.runtimes.iter().any(|r| r.installed && r.id == current)
                 && let Some(r) = r.runtimes.iter().find(|r| r.installed)
             {
-                draft.update(|v| {
+                let pick = |v: &mut Value| {
                     v["runtime"] = json!(r.id);
                     for key in ["model", "thinking_level", "permission_mode", "account"] {
                         v[key] = Value::Null;
                     }
-                });
-                if !current.is_empty() {
-                    toast("原运行时未安装，已改用可用运行时并重置模型与权限。 ");
+                };
+                draft.update(pick);
+                if current.is_empty() {
+                    original.update(pick);
+                } else {
+                    toast("原运行时未安装，已改用可用运行时并重置模型与权限。");
                 }
             }
         }
