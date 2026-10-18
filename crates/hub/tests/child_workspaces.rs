@@ -96,6 +96,7 @@ async fn a_child_cannot_take_over_another_workspace() {
     .await;
     assert_eq!(status, StatusCode::OK, "{child}");
     assert_eq!(child["parent"], parent.as_str());
+    assert_eq!(child["name"], "child");
 
     let (status, again) = call(
         &app,

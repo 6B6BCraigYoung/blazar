@@ -149,14 +149,13 @@ pub async fn create_child_workspace(
 ) -> ApiResult<Json<serde_json::Value>> {
     let pool = st.db.pool();
     let parent = sqlx::query(
-        "SELECT w.name, w.project_id, w.path, n.name AS node FROM workspaces w
+        "SELECT w.project_id, w.path, n.name AS node FROM workspaces w
          JOIN nodes n ON n.id = w.node_id WHERE w.id = ?1",
     )
     .bind(&id)
     .fetch_optional(pool)
     .await?
     .ok_or_else(|| ApiError::bad_request("父工作区不存在"))?;
-    let parent_name: String = parent.try_get("name").unwrap_or_default();
     let parent_project: Option<String> = parent.try_get("project_id").unwrap_or(None);
     let parent_path: String = parent.try_get("path").unwrap_or_default();
     let parent_node: String = parent.try_get("node").unwrap_or_default();
@@ -188,7 +187,7 @@ pub async fn create_child_workspace(
         .name
         .map(|n| n.trim().to_owned())
         .filter(|n| !n.is_empty())
-        .unwrap_or_else(|| format!("{parent_name} @ {}", body.node));
+        .unwrap_or_else(|| path.rsplit('/').next().unwrap_or(&path).to_owned());
     let created = create_workspace(
         State(st.clone()),
         Json(CreateWorkspace {
@@ -674,7 +673,8 @@ mod tests {
         .map_err(|e| e.message())
         .unwrap()
         .0;
-        assert_eq!(child["name"], "orbit @ local");
+        let folder = b.path().file_name().unwrap().to_string_lossy().into_owned();
+        assert_eq!(child["name"], folder.as_str());
         assert_eq!(child["parent"], parent);
         assert_eq!(
             std::fs::read_to_string(b.path().join("src/main.rs")).unwrap(),
@@ -690,7 +690,9 @@ mod tests {
         assert_eq!(view.project.as_deref(), Some("Orbit"));
         let children = crate::fleet::children_of(&st, &parent).await;
         assert_eq!(children.len(), 1);
-        assert!(crate::fleet::briefing(&parent, &children).contains("orbit @ local"));
+        assert!(
+            crate::fleet::briefing(&parent, &children).contains(&format!("- {folder}：机器 local"))
+        );
         let same = create_child_workspace(
             State(st.clone()),
             Path(parent.clone()),
