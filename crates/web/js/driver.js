@@ -148,7 +148,7 @@ function click(el) {
   if (el.disabled || el.getAttribute('aria-disabled') === 'true') throw new Error(`「${label(el)}」是禁用状态，没有点`);
   el.scrollIntoView({ block: 'center', inline: 'center' });
   for (const t of ['pointerdown', 'mousedown']) pointer(el, t);
-  if (typeof el.focus === 'function') el.focus();
+  if (typeof el.focus === 'function') el.focus({ preventScroll: true });
   for (const t of ['pointerup', 'mouseup']) pointer(el, t);
   el.click();
 }
