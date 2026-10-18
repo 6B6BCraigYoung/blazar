@@ -99,6 +99,7 @@
 .cc-out.err .cc-pre { color: var(--err-fg); }
 .cc-out.sum .cc-pre { color: var(--fg-3); }
 .cc-more { all: unset; cursor: pointer; display: block; color: var(--fg-4); font-size: var(--font-size-caption-readable); }
+.cc-earlier { width: fit-content; margin: var(--space-sm) auto var(--space-md); }
 .cc-more:hover { color: var(--accent); }
 .cc-diff { margin-top: var(--space-xs); border: 1px solid var(--line); border-radius: var(--r-md); background: var(--bg-code); font: var(--font-size-label)/var(--line-height-code) var(--font-mono); overflow: hidden; }
 .cc-diff > div { padding: 0 var(--space-md) 0 calc(var(--space-md) + 14px); text-indent: -14px; white-space: pre-wrap; word-break: break-all; }

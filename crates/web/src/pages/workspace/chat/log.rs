@@ -899,16 +899,20 @@ extern "C" {
     fn keep_scroll(el: &web_sys::HtmlElement);
 }
 
+const WINDOW: usize = 120;
+
 #[component]
 pub fn Log(chat: Chat, tick: RwSignal<u32>) -> impl IntoView {
     let opened = Opened(RwSignal::new(HashSet::new()));
     let el = NodeRef::<html::Div>::new();
     let at_bottom = StoredValue::new(true);
+    let frozen = RwSignal::new(None::<usize>);
     let ws = chat.ws_id();
     Effect::new(move |_| {
         chat.view.track();
         opened.0.set(HashSet::new());
         at_bottom.set_value(true);
+        frozen.set(None);
     });
     Effect::new(move |done: Option<bool>| {
         if done == Some(true) {
@@ -916,9 +920,29 @@ pub fn Log(chat: Chat, tick: RwSignal<u32>) -> impl IntoView {
         }
         el.get().map(|e| keep_scroll(&e)).is_some()
     });
+    let start = move |len: usize| {
+        frozen
+            .get()
+            .unwrap_or_else(|| len.saturating_sub(WINDOW))
+            .min(len)
+    };
     let keys = move || {
-        chat.transcript
-            .with(|t| t.items.iter().map(|it| it.key.clone()).collect::<Vec<_>>())
+        chat.transcript.with(|t| {
+            t.items[start(t.items.len())..]
+                .iter()
+                .map(|it| it.key.clone())
+                .collect::<Vec<_>>()
+        })
+    };
+    let earlier = move || chat.transcript.with(|t| start(t.items.len()));
+    let show_earlier = move |_| {
+        let Some(e) = el.get_untracked() else { return };
+        let before = e.scroll_height();
+        let from = earlier().saturating_sub(WINDOW);
+        frozen.set(Some(from));
+        request_animation_frame(move || {
+            e.set_scroll_top(e.scroll_top() + e.scroll_height() - before);
+        });
     };
     Effect::new(move |_| {
         chat.transcript.track();
@@ -965,8 +989,15 @@ pub fn Log(chat: Chat, tick: RwSignal<u32>) -> impl IntoView {
             data-dim=move || dim().to_string()
             on:scroll=move |_| {
                 if let Some(e) = el.try_get_untracked().flatten() {
-                    at_bottom
-                        .set_value(e.scroll_height() - e.scroll_top() - e.client_height() < 80);
+                    let bottom = e.scroll_height() - e.scroll_top() - e.client_height() < 80;
+                    at_bottom.set_value(bottom);
+                    if bottom {
+                        if frozen.get_untracked().is_some() {
+                            frozen.set(None);
+                        }
+                    } else if frozen.get_untracked().is_none() {
+                        frozen.set(Some(earlier()));
+                    }
                 }
             }
         >
@@ -975,6 +1006,11 @@ pub fn Log(chat: Chat, tick: RwSignal<u32>) -> impl IntoView {
             </Show>
             <Show when=empty>
                 <Empty chat />
+            </Show>
+            <Show when=move || { earlier() > 0 }>
+                <button type="button" class="cc-more cc-earlier" on:click=show_earlier>
+                    {move || format!("Show {} earlier", earlier().min(WINDOW))}
+                </button>
             </Show>
             <For each=keys key=|k| k.clone() let:k>
                 {item_slot(k, chat, opened, ws.clone())}
