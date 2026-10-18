@@ -220,6 +220,14 @@ async function run(command) {
       await sleep(settle);
       return { ok: true, target: label(el) };
     }
+    case 'scroll': {
+      const to = command.top;
+      if (to !== 'start' && to !== 'end' && typeof to !== 'number') throw new Error('scroll 需要 top：start、end 或像素值');
+      const el = guard(find(command));
+      el.scrollTop = to === 'start' ? 0 : to === 'end' ? el.scrollHeight : to;
+      await sleep(settle);
+      return { ok: true, top: Math.round(el.scrollTop), height: el.scrollHeight, view: el.clientHeight };
+    }
     case 'type': {
       if (typeof command.value !== 'string') throw new Error('type 需要 value（要输入的文字）；text 只用来按文字找元素');
       const el = guard(find(command));
