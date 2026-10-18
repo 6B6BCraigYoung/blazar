@@ -39,9 +39,11 @@ fn details(
     key: String,
     class: &'static str,
     summary: AnyView,
-    body: impl FnOnce() -> AnyView,
+    body: impl FnOnce() -> AnyView + 'static,
 ) -> impl IntoView {
     let k = key.clone();
+    let shown = RwSignal::new(opened.is(&key));
+    let body = StoredValue::new_local(Some(body));
     view! {
         <details
             class=class
@@ -52,10 +54,19 @@ fn details(
                     .and_then(|t| t.dyn_into::<web_sys::HtmlDetailsElement>().ok())
                     .is_some_and(|d| d.open());
                 opened.set(&k, open);
+                if open {
+                    shown.set(true);
+                }
             }
         >
             <summary>{summary}</summary>
-            {body()}
+            {move || {
+                shown
+                    .get()
+                    .then(|| body.try_update_value(Option::take).flatten())
+                    .flatten()
+                    .map(untrack)
+            }}
         </details>
     }
 }
