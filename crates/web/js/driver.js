@@ -184,6 +184,15 @@ async function waitFor(command) {
   return { found: false };
 }
 
+function scrolledSideways(el) {
+  for (let p = el.parentElement; p && p !== document.body; p = p.parentElement) {
+    if (!['auto', 'scroll'].includes(getComputedStyle(p).overflowX) || p.scrollHeight > p.clientHeight + 1) continue;
+    const r = p.getBoundingClientRect();
+    if (r.left >= -1 && r.right <= innerWidth + 1) return true;
+  }
+  return false;
+}
+
 function overflowing() {
   const out = [];
   for (const el of document.querySelectorAll('body *')) {
@@ -191,7 +200,7 @@ function overflowing() {
     const s = getComputedStyle(el);
     const clipped = el.scrollWidth > el.clientWidth + 1 && s.overflowX !== 'visible' && s.textOverflow !== 'ellipsis';
     const r = el.getBoundingClientRect();
-    const outside = r.right > innerWidth + 1 || r.left < -1;
+    const outside = (r.right > innerWidth + 1 || r.left < -1) && !scrolledSideways(el);
     if (clipped || outside) out.push({ ref: refOf(el), name: label(el), rect: rect(el), clipped, outside });
     if (out.length >= 50) break;
   }
