@@ -274,14 +274,30 @@ async function run(command) {
     }
     case 'style': {
       const props = Array.isArray(command.props) ? command.props.slice(0, 40) : [];
-      const nodes = [...document.querySelectorAll(command.selector || ':root')].slice(0, 20);
+      const all = [...document.querySelectorAll(command.selector || ':root')];
       return {
-        matches: nodes.length,
-        styles: nodes.map(el => {
+        matches: all.length,
+        styles: all.slice(0, 20).map(el => {
           const s = getComputedStyle(el, command.pseudo || null);
-          return Object.fromEntries(props.map(p => [p, s.getPropertyValue(p)]));
+          const out = Object.fromEntries(props.map(p => [p, s.getPropertyValue(p)]));
+          if (command.rects) {
+            out.rect = rect(el);
+            out.scroll = [el.scrollWidth, el.scrollHeight];
+          }
+          return out;
         }),
       };
+    }
+    case 'css': {
+      if (typeof command.value !== 'string') throw new Error('css 需要 value（要注入的样式），传空字符串清除');
+      let sheet = document.getElementById('blazar-driver-css');
+      if (!sheet) {
+        sheet = Object.assign(document.createElement('style'), { id: 'blazar-driver-css' });
+        document.head.appendChild(sheet);
+      }
+      sheet.textContent = command.value;
+      await sleep(settle);
+      return { ok: true, length: command.value.length };
     }
     default:
       throw new Error(`不认识的 action：${command.action}`);
