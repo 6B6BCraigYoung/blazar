@@ -167,6 +167,23 @@ pub async fn create_child_workspace(
     if body.node == parent_node && path == parent_path.trim_end_matches('/') {
         return Err(ApiError::bad_request("子工作区不能和父工作区是同一个目录"));
     }
+    let taken = sqlx::query(
+        "SELECT w.name, w.parent_id FROM workspaces w JOIN nodes n ON n.id = w.node_id
+         WHERE n.name = ?1 AND (w.path = ?2 OR w.path = ?2 || '/')",
+    )
+    .bind(&body.node)
+    .bind(&path)
+    .fetch_optional(pool)
+    .await?;
+    if let Some(row) = taken {
+        let owner: Option<String> = row.try_get("parent_id").unwrap_or(None);
+        if owner.as_deref() != Some(id.as_str()) {
+            let name: String = row.try_get("name").unwrap_or_default();
+            return Err(ApiError::bad_request(format!(
+                "这个目录已经是工作区「{name}」了，换一个目录"
+            )));
+        }
+    }
     let name = body
         .name
         .map(|n| n.trim().to_owned())
