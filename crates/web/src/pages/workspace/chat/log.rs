@@ -194,6 +194,31 @@ fn extra_view(e: &Extra, opened: Opened, key: &str, ws: &str) -> AnyView {
             )
             .into_any()
         }
+        Extra::Fleet(_) => ().into_any(),
+    }
+}
+
+fn ws_chip(id: String) -> impl IntoView {
+    let app = crate::app_state::use_app();
+    let wid = id.clone();
+    let w = Memo::new(move |_| app.workspace(&wid));
+    let href = format!("/w/{id}");
+    let short: String = id.chars().take(8).collect();
+    move || match w.get() {
+        Some(w) => {
+            let shown = app.shown_activity(&w);
+            view! {
+                <a class="cc-ws" href=href.clone() title=w.path.clone()>
+                    <span class="dot" data-act=shown></span>
+                    <span class="nm">{crate::fmt::ws_title(&w.name, &w.node)}</span>
+                    <span class="ws-machine">{crate::fmt::machine(&w.node)}</span>
+                </a>
+            }
+            .into_any()
+        }
+        None => {
+            view! { <span class="cc-ws gone">{format!("workspace {short}…")}</span> }.into_any()
+        }
     }
 }
 
@@ -239,12 +264,17 @@ fn tool_view(t: Tool, opened: Opened, ws: String) -> AnyView {
             },
         )
     });
+    let fleet = match &t.extra {
+        Extra::Fleet(id) => Some(id.clone()),
+        _ => None,
+    };
     view! {
         <div class="cc-row cc-tool" data-st=t.state.as_str() data-name=t.name.clone()>
             <span class="cc-dot"></span>
             <div class="cc-main">
                 <div class="cc-head">
                     <b>{t.label.clone()}</b>
+                    {fleet.map(ws_chip)}
                     {(!t.arg.is_empty())
                         .then(|| view! { <span class="cc-arg">{t.arg.clone()}</span> })}
                 </div>

@@ -90,6 +90,11 @@
 .cc-head { display: flex; gap: var(--space-sm); align-items: baseline; min-width: 0; }
 .cc-head b { font-weight: var(--font-weight-semibold); flex: 0 0 auto; }
 .cc-arg { color: var(--fg-2); font: var(--font-size-label) var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cc-ws { flex: 0 0 auto; display: inline-flex; align-items: center; gap: var(--space-xs); max-width: 60%; padding: 0 var(--space-md); border-radius: var(--radius-pill); background: var(--control-track); color: var(--fg); font-size: var(--font-size-caption-readable); line-height: 1.6; text-decoration: none; align-self: center; }
+.cc-ws .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: var(--font-weight-medium); }
+.cc-ws .ws-machine { padding: 0; background: none; color: var(--fg-3); }
+.cc-ws .dot { flex: 0 0 auto; }
+.cc-ws.gone { color: var(--fg-3); font-family: var(--font-mono); }
 .cc-io, .cc-out { display: flex; gap: var(--space-md); margin-top: var(--space-label); }
 .cc-io { padding: var(--space-sm) var(--space-md); border: 1px solid var(--line); border-radius: var(--r-md); background: var(--bg-code); }
 .cc-io .lb { font: var(--font-weight-semibold) var(--font-size-keycap) var(--font-mono); color: var(--fg-4); padding-top: var(--space-2xs); }

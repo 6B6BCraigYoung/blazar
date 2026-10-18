@@ -97,6 +97,7 @@ pub enum Extra {
     },
     Files(Vec<String>),
     Plan(String),
+    Fleet(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -323,6 +324,33 @@ pub fn shell_display(text: &str) -> String {
     out
 }
 
+const FLEET_WS: [&str; 6] = [
+    "send_prompt",
+    "wait_workspace",
+    "get_history",
+    "read_file",
+    "get_diff",
+    "list_files",
+];
+
+pub fn fleet_target(name: &str, input: &Value) -> Option<String> {
+    let id = if FLEET_WS.contains(&name) {
+        s(input, "workspace_id")
+    } else if name == "copy_files" {
+        s(input, "to_workspace_id")
+    } else {
+        ""
+    };
+    (!id.is_empty()).then(|| id.to_owned())
+}
+
+fn first_line(text: &str) -> &str {
+    text.lines()
+        .find(|l| !l.trim().is_empty())
+        .unwrap_or("")
+        .trim()
+}
+
 pub fn tool_title(name: &str, input: &Value, root: &str) -> (String, String) {
     let rp = |k: &str| rel_path(s(input, k), root);
     let arg = if SHELL_TOOLS.contains(&name) {
@@ -376,6 +404,31 @@ pub fn tool_title(name: &str, input: &Value, root: &str) -> (String, String) {
             "WebSearch" => s(input, "query").to_owned(),
             "Task" | "Agent" | "Install" => s(input, "description").to_owned(),
             "TodoWrite" | "ExitPlanMode" => String::new(),
+            "send_prompt" => short(first_line(s(input, "text")), 140),
+            "wait_workspace" | "get_history" | "get_diff" | "list_workspaces" | "list_nodes"
+            | "fleet_status" => String::new(),
+            "read_file" | "list_files" => s(input, "path").to_owned(),
+            "search_code" => format!("\"{}\"", short(s(input, "query"), 60)),
+            "copy_files" => short(
+                &input["paths"]
+                    .as_array()
+                    .map(|p| {
+                        p.iter()
+                            .filter_map(Value::as_str)
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    })
+                    .unwrap_or_default(),
+                100,
+            ),
+            "probe_node" | "discover_agents" => {
+                blazar_core_types::api::machine_label(s(input, "node")).to_owned()
+            }
+            "create_workspace" => format!(
+                "{} · {}",
+                blazar_core_types::api::machine_label(s(input, "node")),
+                s(input, "path")
+            ),
             _ => short(&input.to_string(), 100),
         }
     };
@@ -384,6 +437,19 @@ pub fn tool_title(name: &str, input: &Value, root: &str) -> (String, String) {
         "Shell" => "Bash",
         "Agent" => "Task",
         "ExitPlanMode" => "Plan",
+        "send_prompt" => "Dispatch",
+        "wait_workspace" => "Wait",
+        "get_history" => "History",
+        "read_file" => "Read",
+        "list_files" => "List",
+        "get_diff" => "Diff",
+        "copy_files" => "Copy",
+        "search_code" => "Search",
+        "probe_node" => "Probe",
+        "discover_agents" => "Agents on",
+        "create_workspace" => "Create workspace",
+        "list_workspaces" => "Workspaces",
+        "list_nodes" => "Machines",
         other => other,
     };
     (label.to_owned(), arg)
@@ -553,6 +619,83 @@ pub fn result_of(name: &str, ok: bool, content: &str, input: &Value, root: &str)
             1,
         ),
         "Task" | "Agent" => res(if text.is_empty() { "Done" } else { text }, "", 3),
+        "send_prompt" => res("Dispatched", "sum", 4),
+        "wait_workspace" => {
+            let v: Value = serde_json::from_str(text).unwrap_or(Value::Null);
+            let act = s(&v, "activity");
+            let head = match act {
+                "completed" | "idle" => "Finished",
+                "errored" => "Errored",
+                "awaiting_approval" => "Waiting for approval",
+                "running" => "Still running",
+                _ if v.is_null() => {
+                    return Some(res(
+                        if text.is_empty() {
+                            "(No content)"
+                        } else {
+                            text
+                        },
+                        "",
+                        4,
+                    ));
+                }
+                _ => "Stopped",
+            };
+            let reply = s(&v, "last_reply").trim();
+            res(
+                &if reply.is_empty() {
+                    head.to_owned()
+                } else {
+                    format!("{head}\n{reply}")
+                },
+                if act == "errored" { "err" } else { "" },
+                4,
+            )
+        }
+        "get_history" => match serde_json::from_str::<Value>(text) {
+            Ok(Value::Array(rows)) => res(
+                &format!(
+                    "Read {} entr{}",
+                    rows.len(),
+                    if rows.len() == 1 { "y" } else { "ies" }
+                ),
+                "sum",
+                4,
+            ),
+            _ => res(
+                if text.is_empty() {
+                    "(No content)"
+                } else {
+                    text
+                },
+                "",
+                4,
+            ),
+        },
+        "get_diff" => match serde_json::from_str::<Value>(text) {
+            Ok(v) if v["files"].is_array() => {
+                let n = v["files"].as_array().map_or(0, Vec::len);
+                res(
+                    &if n == 0 {
+                        "No changes".to_owned()
+                    } else {
+                        format!("{n} file{} changed", if n == 1 { "" } else { "s" })
+                    },
+                    "sum",
+                    4,
+                )
+            }
+            _ => res(
+                if text.is_empty() {
+                    "(No content)"
+                } else {
+                    text
+                },
+                "",
+                4,
+            ),
+        },
+        "copy_files" => res("Copied", "sum", 4),
         _ => res(
             if text.is_empty() {
                 "(No content)"
@@ -976,6 +1119,8 @@ impl Builder<'_> {
             edit_diff(&input, self.root)
         } else if name == "ExitPlanMode" && !s(&input, "plan").is_empty() {
             Extra::Plan(s(&input, "plan").to_owned())
+        } else if let Some(ws) = fleet_target(&name, &input) {
+            Extra::Fleet(ws)
         } else {
             Extra::None
         };
@@ -1131,9 +1276,11 @@ fn fold_summary(steps: &[Step], live: bool, waiting: Option<bool>) -> (String, S
     let text = match (live, waiting) {
         (true, Some(true)) => "Waiting for your answer…".to_owned(),
         (true, Some(false)) => "Waiting for your approval…".to_owned(),
-        _ if live && running.is_some() => {
-            format!("Running {}…", running.map_or("", |t| t.label.as_str()))
-        }
+        _ if live && running.is_some() => match running.map_or("", |t| t.name.as_str()) {
+            "wait_workspace" => "Waiting on a child workspace…".to_owned(),
+            "send_prompt" => "Dispatching…".to_owned(),
+            _ => format!("Running {}…", running.map_or("", |t| t.label.as_str())),
+        },
         _ if live && tools.is_empty() => "Thinking…".to_owned(),
         _ if !tools.is_empty() => format!(
             "{} tool call{}{}",
@@ -1454,6 +1601,94 @@ mod tests {
         assert!(
             matches!(&t.items[2].body, Body::Assistant { .. }),
             "最终文本和上一条回答一样，不重复"
+        );
+    }
+
+    #[test]
+    fn fleet_calls_name_the_child_and_summarise_the_result() {
+        let rows = vec![
+            row("s", 1, 0, json!({"type":"user_message","text":"派活"})),
+            row(
+                "s",
+                2,
+                1000,
+                json!({"type":"tool_use","id":"t1","name":"mcp__blazar-fleet__send_prompt",
+                    "input":{"workspace_id":"w1","text":"\n  run the third pass\nthen report"}}),
+            ),
+            row(
+                "s",
+                3,
+                1500,
+                json!({"type":"tool_result","id":"t1","ok":true,"content":"{\"session_id\":\"x\"}"}),
+            ),
+            row(
+                "s",
+                4,
+                2000,
+                json!({"type":"tool_use","id":"t2","name":"mcp__blazar-fleet__wait_workspace",
+                    "input":{"workspace_id":"w1"}}),
+            ),
+            row(
+                "s",
+                5,
+                2500,
+                json!({"type":"tool_result","id":"t2","ok":true,
+                    "content":"{\"reached\":true,\"activity\":\"completed\",\"last_reply\":\"loss 0.82\"}"}),
+            ),
+            row(
+                "s",
+                6,
+                3000,
+                json!({"type":"assistant_message","text":"好了"}),
+            ),
+        ];
+        let t = build(&rows, "/w", false);
+        let Body::Fold(f) = &t.items[1].body else {
+            panic!("{:#?}", t.items)
+        };
+        let tools: Vec<&Tool> = f
+            .steps
+            .iter()
+            .filter_map(|s| match s {
+                Step::Tool(t) => Some(t.as_ref()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            (tools[0].label.as_str(), tools[0].arg.as_str()),
+            ("Dispatch", "run the third pass")
+        );
+        assert_eq!(tools[0].extra, Extra::Fleet("w1".into()));
+        assert_eq!(
+            tools[0].result.as_ref().map(|r| r.shown.as_str()),
+            Some("Dispatched")
+        );
+        assert_eq!(tools[1].label, "Wait");
+        assert_eq!(tools[1].extra, Extra::Fleet("w1".into()));
+        assert_eq!(
+            tools[1].result.as_ref().map(|r| r.shown.as_str()),
+            Some("Finished\nloss 0.82")
+        );
+    }
+
+    #[test]
+    fn fleet_targets_only_workspace_tools() {
+        assert_eq!(
+            fleet_target(
+                "copy_files",
+                &json!({"from_workspace_id":"a","to_workspace_id":"b"})
+            ),
+            Some("b".into())
+        );
+        assert_eq!(fleet_target("search_code", &json!({"query":"x"})), None);
+        assert_eq!(fleet_target("send_prompt", &json!({})), None);
+        assert_eq!(
+            result_of("get_history", true, "[{},{}]", &json!({}), "").map(|r| r.shown),
+            Some("Read 2 entries".into())
+        );
+        assert_eq!(
+            result_of("wait_workspace", true, "timed out", &json!({}), "").map(|r| r.shown),
+            Some("timed out".into())
         );
     }
 
