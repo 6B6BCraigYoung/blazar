@@ -899,6 +899,8 @@ extern "C" {
     fn keep_scroll(el: &web_sys::HtmlElement);
     #[wasm_bindgen(js_name = holdTail)]
     fn hold_tail(el: &web_sys::HtmlElement);
+    #[wasm_bindgen(js_name = holdBottom)]
+    fn hold_bottom(el: &web_sys::HtmlElement);
 }
 
 const WINDOW: usize = 120;
@@ -950,7 +952,7 @@ pub fn Log(chat: Chat, tick: RwSignal<u32>) -> impl IntoView {
         if at_bottom.get_value()
             && let Some(e) = el.get()
         {
-            request_animation_frame(move || e.set_scroll_top(e.scroll_height()));
+            hold_bottom(&e);
         }
     });
     Effect::new(move |prev: Option<usize>| {

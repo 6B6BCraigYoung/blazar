@@ -49,3 +49,24 @@ export function holdTail(el) {
   watch.observe(flow);
   setTimeout(() => watch.disconnect(), 1000);
 }
+
+const bottoms = new WeakMap();
+
+export function holdBottom(el) {
+  bottoms.get(el)?.();
+  const flow = el.querySelector(':scope > .cc-flow') ?? el;
+  let pinned = -Infinity;
+  const watch = new ResizeObserver(() => {
+    if (el.scrollTop < pinned - 4) return stop();
+    el.scrollTop = el.scrollHeight;
+    pinned = el.scrollTop;
+  });
+  const timer = setTimeout(() => stop(), 1000);
+  const stop = () => {
+    watch.disconnect();
+    clearTimeout(timer);
+    bottoms.delete(el);
+  };
+  bottoms.set(el, stop);
+  watch.observe(flow);
+}
