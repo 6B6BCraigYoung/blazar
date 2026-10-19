@@ -431,7 +431,7 @@ pub async fn wait(
         }
         if started.elapsed().as_secs() >= timeout {
             return (
-                StatusCode::REQUEST_TIMEOUT,
+                StatusCode::OK,
                 Json(json!({ "reached": false, "timed_out": true, "activity": activity, "error_code": "wait_timeout",
                              "error": format!("等了 {timeout} 秒还没停下来") })),
             )
@@ -913,5 +913,46 @@ mod queue_tests {
             .is_err()
         );
         assert_eq!(queue_contents(&st).await, before);
+    }
+}
+
+#[cfg(test)]
+mod wait_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn a_wait_that_runs_out_is_an_answer_not_an_error() {
+        let db = blazar_db::Db::open_in_memory().await.unwrap();
+        let st = crate::state::AppState::with_services(
+            db,
+            "local".into(),
+            None,
+            crate::mesh::MeshCtx::new(None, std::env::temp_dir().join("blazar-wait-tests")),
+            crate::services::Services::Isolated,
+        );
+        for setup in [
+            "INSERT INTO nodes (id, name, transport, created_at) VALUES ('node', 'local', 'local', '0')",
+            "INSERT INTO workspaces (id, node_id, name, path, created_at, activity)
+             VALUES ('w', 'node', 'repo', '/repo', '0', 'running')",
+        ] {
+            sqlx::query(setup).execute(st.db.pool()).await.unwrap();
+        }
+        let response = wait(
+            State(st),
+            Path("w".into()),
+            axum::extract::Query(WaitQuery {
+                timeout: Some(1),
+                ..WaitQuery::default()
+            }),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let v: Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(v["reached"], false);
+        assert_eq!(v["timed_out"], true);
+        assert_eq!(v["activity"], "running");
     }
 }

@@ -32,6 +32,8 @@ fn enc(v: &str) -> String {
         .collect()
 }
 
+const WAIT_CAP_SECS: u64 = 50;
+
 pub const TOOLS: &[Tool] = &[
     Tool {
         name: "list_workspaces",
@@ -192,7 +194,7 @@ pub const TOOLS: &[Tool] = &[
                     "resume": { "type": "boolean", "description": "是否续接上一轮上下文" },
                     "permission_mode": s("string", "acceptEdits / default / bypassPermissions / plan"),
                     "wait_secs": { "type": "integer",
-                        "description": "等 agent 真的开始干活的秒数。送达不等于开工 —— 建议填 15，否则 agent 起不来时你会以为成功了" },
+                        "description": "等 agent 真的开始干活的秒数，最多 50。送达不等于开工 —— 建议填 15，否则 agent 起不来时你会以为成功了" },
                 }),
                 &["workspace_id", "text"],
             )
@@ -200,6 +202,9 @@ pub const TOOLS: &[Tool] = &[
         build: |v| {
             let mut body = v.clone();
             body.as_object_mut().map(|m| m.remove("workspace_id"));
+            if let Some(w) = body.get("wait_secs").and_then(Value::as_u64) {
+                body["wait_secs"] = json!(w.min(WAIT_CAP_SECS));
+            }
             Ok((
                 "POST",
                 format!("/api/workspaces/{}/prompt", enc(arg(v, "workspace_id")?)),
@@ -343,12 +348,12 @@ pub const TOOLS: &[Tool] = &[
     },
     Tool {
         name: "wait_reply",
-        description: "等一封邮件得到回复，或者对方处理完它。超时返回 timed_out。",
+        description: "等一封邮件得到回复，或者对方处理完它。每次最多等 50 秒（调用方一分钟就会断开），没等到就返回 timed_out，再调一次接着等。",
         schema: || {
             obj(
                 json!({
                     "mail_id": s("string", "邮件 id"),
-                    "timeout_secs": s("integer", "最多等多少秒，默认 120，上限 3600"),
+                    "timeout_secs": s("integer", "这次最多等多少秒，默认也是上限 50"),
                 }),
                 &["mail_id"],
             )
@@ -357,8 +362,8 @@ pub const TOOLS: &[Tool] = &[
             let t = v
                 .get("timeout_secs")
                 .and_then(Value::as_u64)
-                .unwrap_or(120)
-                .clamp(1, 3600);
+                .unwrap_or(WAIT_CAP_SECS)
+                .clamp(1, WAIT_CAP_SECS);
             Ok((
                 "GET",
                 format!("/api/mail/{}/wait?timeout={t}", enc(arg(v, "mail_id")?)),
@@ -603,13 +608,13 @@ pub const TOOLS: &[Tool] = &[
     },
     Tool {
         name: "wait_workspace",
-        description: "等一个工作区停下来：跑完（idle），或者停下来等人裁决（blocked）。返回最后一句回复。很久没动静会以 agent_prompt_stalled 失败。",
+        description: "等一个工作区停下来：跑完（idle），或者停下来等人裁决（blocked），返回最后一句回复。每次最多等 50 秒（调用方一分钟就会断开），还没停下来就返回 reached=false、timed_out=true 和当前状态，再调一次接着等。很久没动静会以 agent_prompt_stalled 失败。",
         schema: || {
             obj(
                 json!({
                     "workspace_id": s("string", "工作区 id"),
                     "until": s("string", "idle（默认，跑完为止）或 blocked（跑完或等人裁决，先到哪个算哪个）"),
-                    "timeout_secs": s("integer", "最多等多少秒，默认 600，上限 3600"),
+                    "timeout_secs": s("integer", "这次最多等多少秒，默认也是上限 50"),
                 }),
                 &["workspace_id"],
             )
@@ -624,8 +629,8 @@ pub const TOOLS: &[Tool] = &[
             let timeout = v
                 .get("timeout_secs")
                 .and_then(Value::as_u64)
-                .unwrap_or(600)
-                .min(3600);
+                .unwrap_or(WAIT_CAP_SECS)
+                .clamp(1, WAIT_CAP_SECS);
             Ok((
                 "GET",
                 format!("/api/workspaces/{id}/wait?until={until}&timeout={timeout}"),
@@ -752,6 +757,35 @@ mod tests {
             "id 已在路径里，不该再出现在请求体"
         );
         assert_eq!(b["agent"], "codex");
+    }
+
+    #[test]
+    fn waits_answer_before_the_caller_gives_up() {
+        for (name, args) in [
+            (
+                "wait_workspace",
+                json!({ "workspace_id": "w1", "timeout_secs": 600 }),
+            ),
+            ("wait_workspace", json!({ "workspace_id": "w1" })),
+            (
+                "wait_reply",
+                json!({ "mail_id": "m1", "timeout_secs": 3600 }),
+            ),
+            ("wait_reply", json!({ "mail_id": "m1" })),
+        ] {
+            let (_, url, _) = (find(name).unwrap().build)(&args).unwrap();
+            assert!(url.ends_with(&format!("timeout={WAIT_CAP_SECS}")), "{url}");
+        }
+        let (_, url, _) = (find("wait_workspace").unwrap().build)(&json!({
+            "workspace_id": "w1", "timeout_secs": 5
+        }))
+        .unwrap();
+        assert!(url.ends_with("timeout=5"), "{url}");
+        let (_, _, body) = (find("send_prompt").unwrap().build)(&json!({
+            "workspace_id": "w1", "text": "hi", "wait_secs": 300
+        }))
+        .unwrap();
+        assert_eq!(body.unwrap()["wait_secs"], WAIT_CAP_SECS);
     }
 
     #[test]
