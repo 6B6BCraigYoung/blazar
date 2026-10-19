@@ -1027,13 +1027,46 @@ pub(crate) fn page_history(
     }
 }
 
+struct StoredEvent {
+    seq: i64,
+    ts: String,
+    session_id: String,
+    parent: Option<String>,
+    rewound: bool,
+    payload: String,
+}
+
+impl StoredEvent {
+    fn is(&self, kind: &str) -> bool {
+        self.payload
+            .strip_prefix("{\"type\":\"")
+            .and_then(|rest| rest.strip_prefix(kind))
+            .is_some_and(|rest| rest.starts_with('"'))
+    }
+
+    fn cursor(&self) -> String {
+        format!("{}:{}", self.session_id, self.seq)
+    }
+}
+
+#[derive(Serialize)]
+struct HistoryRow {
+    seq: i64,
+    ts: String,
+    session_id: String,
+    cursor: String,
+    parent: Option<String>,
+    rewound: bool,
+    kind: Box<serde_json::value::RawValue>,
+}
+
 pub async fn workspace_history(
     State(st): State<Shared>,
     Path(id): Path<String>,
     Query(q): Query<HistoryQuery>,
-) -> ApiResult<Json<Vec<serde_json::Value>>> {
+) -> ApiResult<Response> {
     let one = q.session.filter(|s| !s.is_empty());
-    let rows = sqlx::query(
+    let events: Vec<StoredEvent> = sqlx::query(
         "SELECT e.seq, e.ts, e.payload, e.session_id, e.parent_tool_id, s.rewound_at
          FROM events e JOIN sessions s ON s.id = e.session_id
          WHERE s.workspace_id = ?1 AND (?2 IS NULL OR COALESCE(s.thread_id, s.id) = ?2)
@@ -1042,37 +1075,73 @@ pub async fn workspace_history(
     .bind(&id)
     .bind(one)
     .fetch_all(st.db.pool())
-    .await?;
+    .await?
+    .into_iter()
+    .filter_map(|r| {
+        Some(StoredEvent {
+            seq: r.try_get::<i64, _>("seq").unwrap_or(0),
+            ts: r.try_get::<String, _>("ts").unwrap_or_default(),
+            session_id: r.try_get::<String, _>("session_id").unwrap_or_default(),
+            parent: r
+                .try_get::<Option<String>, _>("parent_tool_id")
+                .ok()
+                .flatten(),
+            rewound: r
+                .try_get::<Option<String>, _>("rewound_at")
+                .ok()
+                .flatten()
+                .is_some(),
+            payload: r.try_get("payload").ok()?,
+        })
+    })
+    .collect();
 
-    let all: Vec<serde_json::Value> = rows
+    let paged = q.limit.is_some() || q.after.is_some() || q.mode.is_some();
+    if paged {
+        let all: Vec<serde_json::Value> = events
+            .into_iter()
+            .filter_map(|e| {
+                let kind: serde_json::Value = serde_json::from_str(&e.payload).ok()?;
+                Some(serde_json::json!({
+                    "seq": e.seq,
+                    "ts": e.ts,
+                    "cursor": e.cursor(),
+                    "session_id": e.session_id,
+                    "parent": e.parent,
+                    "rewound": e.rewound,
+                    "kind": kind,
+                }))
+            })
+            .collect();
+        return Ok(Json(page_history(
+            all,
+            q.after.as_deref(),
+            q.limit,
+            q.mode.as_deref() == Some("summary"),
+        ))
+        .into_response());
+    }
+
+    let last_prompt = events
+        .iter()
+        .rposition(|e| e.parent.is_none() && e.is("user_message"));
+    let rows: Vec<HistoryRow> = events
         .into_iter()
-        .filter_map(|r| {
-            let payload: String = r.try_get("payload").ok()?;
-            let kind: serde_json::Value = serde_json::from_str(&payload).ok()?;
-            let seq = r.try_get::<i64, _>("seq").unwrap_or(0);
-            let session_id = r.try_get::<String, _>("session_id").unwrap_or_default();
-            Some(serde_json::json!({
-                "seq": seq,
-                "ts": r.try_get::<String, _>("ts").unwrap_or_default(),
-                "session_id": session_id,
-                "cursor": format!("{session_id}:{seq}"),
-                "parent": r.try_get::<Option<String>, _>("parent_tool_id").ok().flatten(),
-
-                "rewound": r.try_get::<Option<String>, _>("rewound_at").ok().flatten().is_some(),
-                "kind": kind,
-            }))
+        .enumerate()
+        .filter(|(i, e)| !(e.is("progress") && last_prompt.is_some_and(|p| *i < p)))
+        .filter_map(|(_, e)| {
+            Some(HistoryRow {
+                cursor: e.cursor(),
+                kind: serde_json::value::RawValue::from_string(e.payload).ok()?,
+                seq: e.seq,
+                ts: e.ts,
+                session_id: e.session_id,
+                parent: e.parent,
+                rewound: e.rewound,
+            })
         })
         .collect();
-    let paged = q.limit.is_some() || q.after.is_some() || q.mode.is_some();
-    if !paged {
-        return Ok(Json(all));
-    }
-    Ok(Json(page_history(
-        all,
-        q.after.as_deref(),
-        q.limit,
-        q.mode.as_deref() == Some("summary"),
-    )))
+    Ok(Json(rows).into_response())
 }
 
 const GLANCE_CHARS: usize = 300;

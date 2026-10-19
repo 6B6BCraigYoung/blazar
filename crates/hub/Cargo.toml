@@ -31,7 +31,7 @@ chrono.workspace = true
 clap.workspace = true
 futures.workspace = true
 serde.workspace = true
-serde_json.workspace = true
+serde_json = { workspace = true, features = ["raw_value"] }
 sqlx.workspace = true
 tokio.workspace = true
 tower-http.workspace = true
