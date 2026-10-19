@@ -54,6 +54,9 @@ pub struct PromptRequest {
     pub resume_at_last: bool,
 
     #[serde(default)]
+    pub interject: bool,
+
+    #[serde(default)]
     pub retry_thread: Option<String>,
 
     #[serde(default)]
@@ -236,12 +239,43 @@ async fn prompt_inner(
                 .await
                 .iter()
                 .find(|(_, r)| r.workspace_id == workspace_id)
-                .map(|(sid, r)| {
-                    (
-                        sid.to_string(),
-                        r.live.as_ref().is_some_and(|l| l.interactive),
-                    )
-                });
+                .map(|(sid, r)| (*sid, r.live.as_ref().is_some_and(|l| l.interactive)));
+            if req.interject
+                && let Some((sid, true)) = running_session
+                && let Some(thread) = sqlx::query_scalar::<_, String>(
+                    "SELECT COALESCE(thread_id, id) FROM sessions WHERE id = ?1",
+                )
+                .bind(sid.to_string())
+                .fetch_optional(st.db.pool())
+                .await?
+                && req
+                    .resume_session
+                    .as_deref()
+                    .is_none_or(|t| t.is_empty() || t == thread)
+            {
+                let sent = with_editor_context(&req.text, req.context_file.as_deref());
+                return Ok(Json(
+                    match crate::run::interject(&st, sid, &req.text, &sent, &req.images).await {
+                        Ok(_) => serde_json::json!({
+                            "session_id": sid.to_string(),
+                            "thread_id": thread,
+                            "resumed": true,
+                            "interjected": true,
+                            "node": node,
+                            "activity": { "started": true },
+                            "interactive": true,
+                        }),
+                        Err(why) => serde_json::json!({
+                            "admitted": false,
+                            "reason": why,
+                            "running_session_id": sid.to_string(),
+                            "running_interactive": true,
+                        }),
+                    },
+                ));
+            }
+            let running_session =
+                running_session.map(|(sid, interactive)| (sid.to_string(), interactive));
             return Ok(Json(serde_json::json!({
                 "admitted": false,
                 "reason": reason,

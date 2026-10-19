@@ -608,3 +608,64 @@ async fn approval_retry_worker_delivers_saved_decision() {
     worker.abort();
     assert_eq!(fake.inputs.lock().unwrap().len(), 1);
 }
+
+#[tokio::test]
+async fn a_prompt_with_interject_joins_the_running_turn() {
+    let (dir, ctx, fake) = fixture(String::new()).await;
+    let live = Arc::new(Live {
+        run: DetachedRun::attach(
+            fake.clone(),
+            dir.path().join("run").display().to_string(),
+            ctx.sid.to_string(),
+        ),
+        interactive: true,
+        state: Mutex::new(LiveState {
+            next_seq: 1,
+            pending_user: 1,
+            user_no: 1,
+            eof_sent: false,
+            interrupt_requested: false,
+            bg: Default::default(),
+            idle: false,
+            app: Default::default(),
+        }),
+    });
+    ctx.st.running.write().await.insert(
+        ctx.sid,
+        RunningSession {
+            workspace_id: ctx.ws,
+            task: tokio::spawn(std::future::pending()),
+            killer: None,
+            live: Some(live),
+        },
+    );
+    let send = |interject: bool| {
+        let st = ctx.st.clone();
+        let ws = ctx.ws.to_string();
+        async move {
+            crate::api::prompt(
+                axum::extract::State(st),
+                axum::extract::Path(ws),
+                axum::Json(
+                    serde_json::from_value(serde_json::json!({
+                        "text": "顺手把检查点存一下",
+                        "interject": interject,
+                    }))
+                    .unwrap(),
+                ),
+            )
+            .await
+            .unwrap_or_else(|error| panic!("{}", error.message()))
+            .0
+        }
+    };
+    let refused = send(false).await;
+    assert_eq!(refused["admitted"], false);
+    assert!(fake.inputs.lock().unwrap().is_empty());
+    let joined = send(true).await;
+    assert_eq!(joined["interjected"], true);
+    assert_eq!(joined["session_id"], ctx.sid.to_string());
+    let inputs = fake.inputs.lock().unwrap();
+    assert_eq!(inputs.len(), 1);
+    assert!(inputs[0].1.contains("顺手把检查点存一下"));
+}

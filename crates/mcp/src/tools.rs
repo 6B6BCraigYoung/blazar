@@ -195,6 +195,8 @@ pub const TOOLS: &[Tool] = &[
                     "permission_mode": s("string", "acceptEdits / default / bypassPermissions / plan"),
                     "wait_secs": { "type": "integer",
                         "description": "等 agent 真的开始干活的秒数，最多 50。送达不等于开工 —— 建议填 15，否则 agent 起不来时你会以为成功了" },
+                    "interject": { "type": "boolean",
+                        "description": "对方正在跑一轮时，把这段话插进它正在跑的这一轮（像在 CLI 里边跑边打字）。不填时对方在忙会返回 admitted=false" },
                 }),
                 &["workspace_id", "text"],
             )
