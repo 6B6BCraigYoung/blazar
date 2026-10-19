@@ -619,7 +619,23 @@ pub fn result_of(name: &str, ok: bool, content: &str, input: &Value, root: &str)
             1,
         ),
         "Task" | "Agent" => res(if text.is_empty() { "Done" } else { text }, "", 3),
-        "send_prompt" => res("Dispatched", "sum", 4),
+        "send_prompt" => {
+            let v: Value = serde_json::from_str(text).unwrap_or(Value::Null);
+            if v["admitted"] == false {
+                let why = s(&v, "reason");
+                res(
+                    &if why.is_empty() {
+                        "Not sent".to_owned()
+                    } else {
+                        format!("Not sent\n{why}")
+                    },
+                    "err",
+                    4,
+                )
+            } else {
+                res("Dispatched", "sum", 4)
+            }
+        }
         "wait_workspace" => {
             let v: Value = serde_json::from_str(text).unwrap_or(Value::Null);
             let act = s(&v, "activity");
@@ -1689,6 +1705,17 @@ mod tests {
         assert_eq!(
             result_of("wait_workspace", true, "timed out", &json!({}), "").map(|r| r.shown),
             Some("timed out".into())
+        );
+        assert_eq!(
+            result_of(
+                "send_prompt",
+                true,
+                r#"{"admitted":false,"reason":"该工作区已有会话在运行"}"#,
+                &json!({}),
+                ""
+            )
+            .map(|r| r.shown),
+            Some("Not sent\n该工作区已有会话在运行".into())
         );
     }
 
