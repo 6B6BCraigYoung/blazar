@@ -15,6 +15,7 @@ use crate::api::Shared;
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(20);
 const MAX_TIMEOUT: Duration = Duration::from_secs(120);
+const ANSWER_GRACE: Duration = Duration::from_secs(3);
 
 #[derive(Default)]
 pub struct UiDriver {
@@ -109,7 +110,7 @@ pub async fn command(State(st): State<Shared>, Json(command): Json<Value>) -> Re
         )
             .into_response();
     }
-    let wait = timeout_of(&command);
+    let wait = timeout_of(&command) + ANSWER_GRACE;
     let (id, rx) = driver.register();
     st.emit(ServerEvent::UiCommand { id, command });
     match tokio::time::timeout(wait, rx).await {
