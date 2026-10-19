@@ -24,6 +24,12 @@ pub struct Thread {
     pub last_at: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SubLoad {
+    Loading,
+    Failed,
+}
+
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct Queued {
     pub id: String,

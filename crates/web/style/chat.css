@@ -121,6 +121,8 @@
 .cc-thinkmark { color: var(--fg-3); font-size: var(--font-size-label-readable); margin-bottom: var(--space-md); }
 .cc-sub { margin-top: var(--space-xs); }
 .cc-subl { margin: var(--space-sm) 0 0 var(--space-xs); padding-left: var(--space-control); border-left: 1px solid var(--line); }
+.cc-subwait { display: flex; align-items: center; gap: var(--space-sm); height: 1.85em; overflow: hidden; white-space: nowrap; color: var(--fg-3); font-size: var(--font-size-label-readable); }
+.cc-subretry { all: unset; cursor: pointer; color: var(--accent); }
 .cc-meta { margin: var(--margin-chat-meta); font-size: var(--font-size-caption-readable); color: var(--fg-4); }
 .cc-meta.bad { color: var(--err-fg); }
 .cc-rewound { margin: 0 0 var(--space-lg); padding: var(--space-sm) var(--space-control); border: 1px dashed var(--border); border-radius: var(--r-md); opacity: .7; }

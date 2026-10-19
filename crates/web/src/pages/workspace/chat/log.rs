@@ -11,7 +11,7 @@ use crate::components::dialog::{self, Choice};
 use crate::components::toast::toast;
 use crate::md;
 
-use super::state::Chat;
+use super::state::{Chat, SubLoad};
 
 #[derive(Clone, Copy)]
 pub struct Opened(RwSignal<HashSet<String>>);
@@ -240,7 +240,45 @@ pub fn todo_list(list: &[crate::chat_model::Todo]) -> impl IntoView + use<> {
     }
 }
 
-fn tool_view(t: Tool, opened: Opened, ws: String) -> AnyView {
+fn subagent_pending(chat: Chat, id: String) -> impl IntoView {
+    let failed = {
+        let id = id.clone();
+        Memo::new(move |_| {
+            chat.subagents
+                .with(|s| s.get(&id) == Some(&SubLoad::Failed))
+        })
+    };
+    view! {
+        <div class="cc-subl">
+            <div class="cc-subwait">
+                {move || {
+                    if failed.get() {
+                        "子智能体的记录没有加载出来"
+                    } else {
+                        "正在加载子智能体的记录…"
+                    }
+                }}
+                {move || {
+                    failed
+                        .get()
+                        .then(|| {
+                            let id = id.clone();
+                            view! {
+                                <button
+                                    class="cc-subretry"
+                                    on:click=move |_| chat.load_subagent(id.clone())
+                                >
+                                    "重试"
+                                </button>
+                            }
+                        })
+                }}
+            </div>
+        </div>
+    }
+}
+
+fn tool_view(t: Tool, chat: Chat, opened: Opened, ws: String) -> AnyView {
     let sub = (!t.sub.is_empty() || t.sub_calls > 0).then(|| {
         let summary = if t.sub_calls > 0 {
             format!("{} tool calls · latest: {}", t.sub_calls, t.sub_last)
@@ -249,15 +287,27 @@ fn tool_view(t: Tool, opened: Opened, ws: String) -> AnyView {
         };
         let steps = t.sub.clone();
         let ws = ws.clone();
+        let elided = t.sub_elided;
+        let id = t.id.clone();
         details(
             opened,
             format!("sub:{}", t.id),
             "cc-sub",
             view! { {summary} }.into_any(),
             move || {
+                if elided {
+                    if chat.subagents.with_untracked(|s| !s.contains_key(&id)) {
+                        let load = id.clone();
+                        queue_microtask(move || chat.load_subagent(load));
+                    }
+                    return subagent_pending(chat, id).into_any();
+                }
                 view! {
                     <div class="cc-subl">
-                        {steps.into_iter().map(|s| step_view(s, opened, ws.clone())).collect_view()}
+                        {steps
+                            .into_iter()
+                            .map(|s| step_view(s, chat, opened, ws.clone()))
+                            .collect_view()}
                     </div>
                 }
                 .into_any()
@@ -289,7 +339,7 @@ fn tool_view(t: Tool, opened: Opened, ws: String) -> AnyView {
     .into_any()
 }
 
-fn step_view(s: Step, opened: Opened, ws: String) -> AnyView {
+fn step_view(s: Step, chat: Chat, opened: Opened, ws: String) -> AnyView {
     match s {
         Step::Thinking { text, secs } => {
             let head = if secs > 0 {
@@ -315,7 +365,7 @@ fn step_view(s: Step, opened: Opened, ws: String) -> AnyView {
                 .into_any()
             }
         }
-        Step::Tool(t) => tool_view(*t, opened, ws),
+        Step::Tool(t) => tool_view(*t, chat, opened, ws),
         Step::Text(t) => view! {
             <div class="cc-row cc-msg sub">
                 <span class="cc-dot"></span>
@@ -345,7 +395,7 @@ fn step_view(s: Step, opened: Opened, ws: String) -> AnyView {
     }
 }
 
-fn fold_view(key: String, f: Fold, opened: Opened, ws: String) -> AnyView {
+fn fold_view(key: String, f: Fold, chat: Chat, opened: Opened, ws: String) -> AnyView {
     let Fold {
         steps,
         live,
@@ -370,7 +420,7 @@ fn fold_view(key: String, f: Fold, opened: Opened, ws: String) -> AnyView {
                             <div class="cc-fb">
                                 {steps
                                     .into_iter()
-                                    .map(|s| step_view(s, opened, ws.clone()))
+                                    .map(|s| step_view(s, chat, opened, ws.clone()))
                                     .collect_view()}
                             </div>
                         }
@@ -756,7 +806,7 @@ fn item_view(it: Item, chat: Chat, opened: Opened, ws: String) -> AnyView {
                 </div>
             }.into_any()
         }
-        Body::Fold(f) => fold_view(key, f, opened, ws),
+        Body::Fold(f) => fold_view(key, f, chat, opened, ws),
         Body::Error { text, by_account } => error_view(chat, text, by_account),
         Body::Warn { denied } => view! {
             <div class="cc-row cc-warn">
@@ -837,7 +887,7 @@ fn fold_slot(key: String, chat: Chat, opened: Opened, ws: String) -> AnyView {
                         view! {
                             <div class="cc-fb">
                                 <For each=steps key=|(i, sig, _)| (*i, *sig) let:step>
-                                    {step_view(step.2, opened, ws.clone())}
+                                    {step_view(step.2, chat, opened, ws.clone())}
                                 </For>
                             </div>
                         }

@@ -16,6 +16,7 @@ pub struct Row {
     pub ts: i64,
     pub parent: Option<String>,
     pub rewound: bool,
+    pub elided: bool,
     pub kind: EntryKind,
 }
 
@@ -29,6 +30,8 @@ pub struct HistRow {
     parent: Option<String>,
     #[serde(default)]
     rewound: bool,
+    #[serde(default)]
+    elided: bool,
     kind: EntryKind,
 }
 
@@ -52,6 +55,7 @@ impl HistItem {
             seq: h.seq,
             parent: h.parent,
             rewound: h.rewound,
+            elided: h.elided,
         })
     }
 }
@@ -68,6 +72,7 @@ impl Row {
             ts: e.ts.timestamp_millis(),
             parent: e.parent_tool_use_id.map(|t| t.0),
             rewound: false,
+            elided: false,
             kind: e.kind,
         }
     }
@@ -134,6 +139,7 @@ pub struct Tool {
     pub sub: Vec<Step>,
     pub sub_calls: usize,
     pub sub_last: String,
+    pub sub_elided: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1163,6 +1169,7 @@ impl Builder<'_> {
             sub: Vec::new(),
             sub_calls: 0,
             sub_last: String::new(),
+            sub_elided: false,
         };
         self.tools.push(BTool {
             tool: t,
@@ -1183,6 +1190,9 @@ impl Builder<'_> {
     }
 
     fn sub_row(&mut self, parent: usize, r: Row) {
+        if r.elided {
+            self.tools[parent].tool.sub_elided = true;
+        }
         match r.kind {
             EntryKind::ToolUse { id, name, input } => {
                 let t = self.new_tool(id.0, &name, input);
@@ -1199,6 +1209,11 @@ impl Builder<'_> {
                     format!("{label} {}", short(&arg, 40))
                 };
             }
+            EntryKind::ToolResult { id, ok, .. } if r.elided => {
+                if let Some(&t) = self.by_id.get(&id.0) {
+                    self.tools[t].tool.state = if ok { St::Ok } else { St::Err };
+                }
+            }
             EntryKind::ToolResult {
                 id, ok, content, ..
             } => {
@@ -1209,6 +1224,7 @@ impl Builder<'_> {
             EntryKind::AssistantMessage { text } if !text.trim().is_empty() => {
                 self.tools[parent].sub.push(BStep::Text(text))
             }
+            EntryKind::Thinking { .. } if r.elided => {}
             EntryKind::Thinking { text } => self.tools[parent]
                 .sub
                 .push(BStep::Thinking { text, secs: 0 }),
@@ -1350,7 +1366,16 @@ fn sig_step(st: &Step, h: &mut impl Hasher) {
         Step::Text(t) | Step::Bg(t) | Step::Note(t) => (1u8, t).hash(h),
         Step::Orphan(r) => (2u8, r).hash(h),
         Step::Tool(t) => {
-            (3u8, &t.id, t.state, &t.result, t.sub_calls, &t.arg).hash(h);
+            (
+                3u8,
+                &t.id,
+                t.state,
+                &t.result,
+                t.sub_calls,
+                t.sub_elided,
+                &t.arg,
+            )
+                .hash(h);
             for x in &t.sub {
                 sig_step(x, h);
             }
@@ -1570,6 +1595,7 @@ mod tests {
             ts,
             parent: None,
             rewound: false,
+            elided: false,
             kind: serde_json::from_value(kind).unwrap(),
         }
     }
@@ -1875,6 +1901,72 @@ mod tests {
         };
         assert_eq!((task.sub_calls, task.sub_last.as_str()), (1, "Read x.rs"));
         assert_eq!(task.sub.len(), 1);
+    }
+
+    #[test]
+    fn elided_subagent_rows_hide_output_until_full_rows_replace_them() {
+        let sub = |seq, kind: Value, elided| {
+            let mut r = row("s", seq, 0, kind);
+            r.parent = Some("task1".into());
+            r.elided = elided;
+            r
+        };
+        let rows = |elided: bool| {
+            vec![
+                row(
+                    "s",
+                    1,
+                    0,
+                    json!({"type":"tool_use","id":"task1","name":"Task","input":{"description":"查一下"}}),
+                ),
+                sub(
+                    2,
+                    json!({"type":"tool_use","id":"c1","name":"Bash","input":{"command":"ls"}}),
+                    false,
+                ),
+                sub(
+                    3,
+                    json!({"type":"thinking","text": if elided { "" } else { "想一想" }}),
+                    elided,
+                ),
+                sub(
+                    4,
+                    json!({"type":"tool_result","id":"c1","ok":false,"content": if elided { "" } else { "a\nb" }}),
+                    elided,
+                ),
+            ]
+        };
+        let task = |rows: &[Row]| {
+            let t = build(rows, "/w", false);
+            let Body::Fold(f) = &t.items[0].body else {
+                panic!("{:#?}", t.items)
+            };
+            let Step::Tool(task) = &f.steps[0] else {
+                panic!()
+            };
+            (**task).clone()
+        };
+
+        let thin = task(&rows(true));
+        assert!(thin.sub_elided);
+        assert_eq!(thin.sub.len(), 1);
+        let Step::Tool(call) = &thin.sub[0] else {
+            panic!()
+        };
+        assert_eq!((call.state, call.result.is_none()), (St::Err, true));
+
+        let full = task(&rows(false));
+        assert!(!full.sub_elided);
+        assert_eq!(full.sub.len(), 2);
+        let Step::Tool(call) = &full.sub[0] else {
+            panic!()
+        };
+        assert_eq!(call.state, St::Err);
+        assert_eq!(call.result.as_ref().map(|r| r.full.as_str()), Some("a\nb"));
+        assert_ne!(
+            step_sig(&Step::Tool(Box::new(thin))),
+            step_sig(&Step::Tool(Box::new(full)))
+        );
     }
 
     #[test]

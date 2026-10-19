@@ -38,7 +38,21 @@ pub fn merge_history<T: Clone>(
     current: &[T],
     baseline: &HashSet<RowKey>,
     key: impl Fn(&T) -> RowKey,
+    elided: impl Fn(&T) -> bool,
 ) -> Vec<T> {
+    let thin: HashMap<RowKey, usize> = history
+        .iter()
+        .enumerate()
+        .filter(|(_, row)| elided(row))
+        .map(|(i, row)| (key(row), i))
+        .collect();
+    if !thin.is_empty() {
+        for row in current.iter().filter(|row| !elided(row)) {
+            if let Some(&i) = thin.get(&key(row)) {
+                history[i] = row.clone();
+            }
+        }
+    }
     let mut seen = HashSet::new();
     history.retain(|row| seen.insert(key(row)));
     history.extend(
@@ -82,7 +96,13 @@ mod tests {
             Row("session-a", 2, false),
             Row("session-b", 1, false),
         ];
-        let merged = merge_history(vec![Row("session-a", 1, true)], &current, &baseline, key);
+        let merged = merge_history(
+            vec![Row("session-a", 1, true)],
+            &current,
+            &baseline,
+            key,
+            |_| false,
+        );
         assert_eq!(
             merged,
             vec![
@@ -100,6 +120,7 @@ mod tests {
             &[Row("session-a", 3, false), Row("session-a", 2, false)],
             &HashSet::new(),
             key,
+            |_| false,
         );
         assert_eq!(
             merged,
@@ -107,6 +128,37 @@ mod tests {
                 Row("session-a", 1, false),
                 Row("session-a", 2, false),
                 Row("session-a", 3, true)
+            ]
+        );
+    }
+
+    #[test]
+    fn reloaded_history_keeps_rows_that_were_already_loaded_in_full() {
+        let current = [
+            Row("session-a", 1, false),
+            Row("session-a", 2, false),
+            Row("session-a", 3, true),
+        ];
+        let baseline = current.iter().map(key).collect();
+        let merged = merge_history(
+            vec![
+                Row("session-a", 1, false),
+                Row("session-a", 2, true),
+                Row("session-a", 3, true),
+                Row("session-a", 4, true),
+            ],
+            &current,
+            &baseline,
+            key,
+            |row| row.2,
+        );
+        assert_eq!(
+            merged,
+            vec![
+                Row("session-a", 1, false),
+                Row("session-a", 2, false),
+                Row("session-a", 3, true),
+                Row("session-a", 4, true)
             ]
         );
     }

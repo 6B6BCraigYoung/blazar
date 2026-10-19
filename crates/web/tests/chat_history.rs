@@ -12,9 +12,13 @@ fn empty_history_drops_old_snapshot_rows_but_keeps_new_live_events() {
             "received live while the history request waited",
         ),
     ];
-    let merged = history::merge_history(Vec::new(), &current, &baseline, |row| {
-        (row.0.to_owned(), row.1)
-    });
+    let merged = history::merge_history(
+        Vec::new(),
+        &current,
+        &baseline,
+        |row| (row.0.to_owned(), row.1),
+        |_| false,
+    );
     assert_eq!(
         merged,
         vec![(

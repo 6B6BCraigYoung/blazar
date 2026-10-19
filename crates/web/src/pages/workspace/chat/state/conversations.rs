@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use blazar_core_types::api::ServerEvent;
@@ -15,7 +15,7 @@ use crate::storage;
 use super::approval_delivery::ApprovalDeliveries;
 use super::history::{RowKey, merge_history};
 use super::send_context::clear_view_pending;
-use super::{Chat, Queued, Thread};
+use super::{Chat, Queued, SubLoad, Thread};
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct SavedTabs {
@@ -174,6 +174,7 @@ impl Chat {
             self.sessions.set_value(view.iter().cloned().collect());
             self.seen.set_value(HashSet::new());
             self.rows.set(Vec::new());
+            self.subagents.set(HashMap::new());
         }
         let baseline: HashSet<RowKey> = self.rows.with_untracked(|rows| {
             rows.iter()
@@ -211,9 +212,13 @@ impl Chat {
                         list.into_iter().filter_map(HistItem::into_row).collect();
                     self.flush_rows();
                     let rows = self.rows.with_untracked(|current| {
-                        merge_history(history, current, &baseline, |row| {
-                            (row.session_id.clone(), row.seq)
-                        })
+                        merge_history(
+                            history,
+                            current,
+                            &baseline,
+                            |row| (row.session_id.clone(), row.seq),
+                            |row| row.elided,
+                        )
                     });
                     self.sessions.set_value(
                         rows.iter()
@@ -232,6 +237,57 @@ impl Chat {
             }
             self.loading.set(false);
             self.load_checkpoints();
+        });
+    }
+
+    pub fn load_subagent(self, tool: String) {
+        if self
+            .subagents
+            .with_untracked(|s| s.get(&tool) == Some(&SubLoad::Loading))
+        {
+            return;
+        }
+        let Some(thread) = self.view.get_untracked() else {
+            return;
+        };
+        self.subagents.update(|s| {
+            s.insert(tool.clone(), SubLoad::Loading);
+        });
+        let ws = self.ws_id();
+        self.spawn(async move {
+            let r = api::get::<Vec<HistItem>>(&format!(
+                "/api/workspaces/{ws}/history?session={}&parent={}",
+                api::enc(&thread),
+                api::enc(&tool)
+            ))
+            .await;
+            if self.view.try_get_untracked().flatten().as_deref() != Some(thread.as_str()) {
+                return;
+            }
+            match r {
+                Ok(list) => {
+                    let mut full: HashMap<RowKey, Row> = list
+                        .into_iter()
+                        .filter_map(HistItem::into_row)
+                        .filter(|r| !r.elided)
+                        .map(|r| ((r.session_id.clone(), r.seq), r))
+                        .collect();
+                    self.flush_rows();
+                    self.rows.update(|rows| {
+                        for row in rows.iter_mut().filter(|r| r.elided) {
+                            if let Some(f) = full.remove(&(row.session_id.clone(), row.seq)) {
+                                *row = f;
+                            }
+                        }
+                    });
+                    self.subagents.update(|s| {
+                        s.remove(&tool);
+                    });
+                }
+                Err(_) => self.subagents.update(|s| {
+                    s.insert(tool, SubLoad::Failed);
+                }),
+            }
         });
     }
 
