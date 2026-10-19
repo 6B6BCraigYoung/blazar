@@ -95,6 +95,8 @@ pub async fn build_state_with_services(
     let auth = auth::Session::new(&cfg.db_path, std::env::var("BLAZAR_DEV_ORIGIN").ok())?;
     let _ = st.auth.set(auth);
 
+    fleet::restore(&st).await;
+    services.spawn(fleet::reopen_tunnels(st.clone()));
     services.spawn(run::reattach_all(st.clone()));
     services.spawn(proxy::restore(st.clone()));
 

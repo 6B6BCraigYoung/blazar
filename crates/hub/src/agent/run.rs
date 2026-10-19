@@ -668,7 +668,7 @@ async fn finalize(ctx: &Ctx, code: Option<i32>, p: &mut Progress) -> Result<(), 
         status,
     ));
 
-    ctx.st.fleet.revoke(ctx.sid).await;
+    crate::fleet::revoke(&ctx.st, ctx.sid).await;
     ctx.st.services.spawn(crate::bots::on_run_finished(
         ctx.st.clone(),
         ctx.sid,

@@ -435,3 +435,61 @@ async fn fleet_endpoint_takes_session_tokens_or_the_hub_token() {
         .unwrap();
     assert_eq!(revoked.status(), StatusCode::UNAUTHORIZED);
 }
+
+#[tokio::test]
+async fn fleet_tokens_of_a_running_session_still_work_after_a_hub_restart() {
+    let dir = tempfile::tempdir().unwrap();
+    blazar_hub::ensure_private_dir(dir.path()).unwrap();
+    let cfg = HubConfig {
+        db_path: dir.path().join("blazar.sqlite"),
+        bind: ([127, 0, 0, 1], 0).into(),
+        mesh_via: "local".into(),
+        mesh_container: None,
+        engine_dir: None,
+    };
+    let _ = blazar_hub::bind(&cfg).await.unwrap();
+    let before = build_state_with_services(&cfg, Services::Isolated)
+        .await
+        .unwrap();
+    let session = blazar_core_types::SessionId::new();
+    sqlx::query(
+        "INSERT INTO workspaces (id, node_id, name, path, created_at)
+         SELECT 'w', id, 'w', '/w', 't' FROM nodes WHERE name = 'local'",
+    )
+    .execute(before.db.pool())
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO sessions (id, workspace_id, runtime_kind, status, created_at, run_dir)
+         VALUES (?1, 'w', 'claude_cli', 'running', 't', '/tmp/run')",
+    )
+    .bind(session.to_string())
+    .execute(before.db.pool())
+    .await
+    .unwrap();
+    let spec = blazar_hub::fleet::mcp_spec(&before, session, "local", true, None)
+        .await
+        .unwrap()
+        .unwrap();
+    let bearer = spec.headers["Authorization"].clone();
+    drop(before);
+
+    let after = build_state_with_services(&cfg, Services::Isolated)
+        .await
+        .unwrap();
+    let mut request = Request::builder()
+        .method("POST")
+        .uri("/mcp/fleet")
+        .header("Host", "127.0.0.1:7777")
+        .header("Content-Type", "application/json")
+        .header("Authorization", bearer)
+        .body(Body::from(
+            r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#,
+        ))
+        .unwrap();
+    request.extensions_mut().insert(ConnectInfo(
+        "10.99.0.2:40000".parse::<SocketAddr>().unwrap(),
+    ));
+    let reply = build_router(after).oneshot(request).await.unwrap();
+    assert_eq!(reply.status(), StatusCode::OK);
+}

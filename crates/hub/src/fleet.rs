@@ -12,6 +12,7 @@ use axum::response::{IntoResponse, Response};
 use blazar_core_types::SessionId;
 use blazar_runtime::McpServerSpec;
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use sqlx::Row;
 use tokio::io::{AsyncBufReadExt, BufReader};
 
@@ -52,12 +53,15 @@ pub struct FleetState {
     tunnels: tokio::sync::Mutex<HashMap<String, Tunnel>>,
 }
 
-fn same(a: &str, b: &str) -> bool {
-    a.len() == b.len()
-        && a.bytes()
-            .zip(b.bytes())
-            .fold(0u8, |acc, (x, y)| acc | (x ^ y))
-            == 0
+fn digest(token: &str) -> String {
+    Sha256::digest(token.as_bytes())
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
+fn tunnel_key(node: &str) -> String {
+    format!("fleet.tunnel_port.{node}")
 }
 
 impl FleetState {
@@ -74,7 +78,7 @@ impl FleetState {
         let mut grants = self.grants.lock().unwrap_or_else(PoisonError::into_inner);
         grants.retain(|_, grant| grant.session != session);
         grants.insert(
-            token.clone(),
+            digest(&token),
             Grant {
                 session,
                 node: node.to_owned(),
@@ -87,10 +91,26 @@ impl FleetState {
     #[must_use]
     pub fn grant(&self, token: &str) -> Option<Grant> {
         let grants = self.grants.lock().unwrap_or_else(PoisonError::into_inner);
-        grants
-            .iter()
-            .find(|(issued, _)| same(issued, token))
-            .map(|(_, grant)| grant.clone())
+        grants.get(&digest(token)).cloned()
+    }
+
+    fn keep(&self, digest: String, grant: Grant) {
+        self.grants
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(digest, grant);
+    }
+
+    fn remote_nodes(&self) -> Vec<String> {
+        let grants = self.grants.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut nodes: Vec<String> = grants
+            .values()
+            .filter(|grant| grant.node != "local")
+            .map(|grant| grant.node.clone())
+            .collect();
+        nodes.sort();
+        nodes.dedup();
+        nodes
     }
 
     pub async fn revoke(&self, session: SessionId) {
@@ -127,6 +147,19 @@ impl FleetState {
         let port = tunnel.port;
         tunnels.insert(node.to_owned(), tunnel);
         Ok(port)
+    }
+
+    async fn reopen(&self, node: &str, hub_port: u16, port: u16) -> anyhow::Result<()> {
+        let mut tunnels = self.tunnels.lock().await;
+        if tunnels
+            .get_mut(node)
+            .is_some_and(|t| matches!(t.child.try_wait(), Ok(None)))
+        {
+            return Ok(());
+        }
+        let tunnel = open_tunnel(node, hub_port, Some(port)).await?;
+        tunnels.insert(node.to_owned(), tunnel);
+        Ok(())
     }
 
     pub async fn repair_tunnels(&self, hub_port: u16) -> Vec<(String, Result<u16, String>)> {
@@ -346,9 +379,11 @@ pub async fn mcp_spec(
             .and_then(|p| p.parse().ok())
             .context("hub 地址里没有端口")?;
         let port = st.fleet.tunnel_port(node, hub_port).await?;
+        let _ = crate::office::kv_put(st, &tunnel_key(node), &json!(port)).await;
         format!("http://127.0.0.1:{port}{PATH}")
     };
     let token = st.fleet.issue(session, node, caller)?;
+    remember(st, &token).await;
     Ok(Some(McpServerSpec {
         name: blazar_mcp::fleet::SERVER_NAME.into(),
         http: true,
@@ -356,6 +391,117 @@ pub async fn mcp_spec(
         headers: BTreeMap::from([("Authorization".to_owned(), format!("Bearer {token}"))]),
         ..Default::default()
     }))
+}
+
+async fn remember(st: &Shared, token: &str) {
+    let Some(grant) = st.fleet.grant(token) else {
+        return;
+    };
+    let caller = grant
+        .caller
+        .as_ref()
+        .and_then(|c| serde_json::to_string(c).ok());
+    let saved: Result<(), sqlx::Error> = async {
+        let mut tx = st.db.pool().begin().await?;
+        sqlx::query("DELETE FROM fleet_grants WHERE session_id = ?1")
+            .bind(grant.session.to_string())
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query(
+            "INSERT INTO fleet_grants (token_sha256, session_id, node, caller, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+        )
+        .bind(digest(token))
+        .bind(grant.session.to_string())
+        .bind(&grant.node)
+        .bind(caller)
+        .bind(chrono::Utc::now().to_rfc3339())
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await
+    }
+    .await;
+    if let Err(error) = saved {
+        tracing::warn!(target: "blazar::fleet", "调度令牌没存进库，hub 重启后这轮会用不了调度工具: {error}");
+    }
+}
+
+pub async fn revoke(st: &Shared, session: SessionId) {
+    st.fleet.revoke(session).await;
+    if let Err(error) = sqlx::query("DELETE FROM fleet_grants WHERE session_id = ?1")
+        .bind(session.to_string())
+        .execute(st.db.pool())
+        .await
+    {
+        tracing::warn!(target: "blazar::fleet", "作废调度令牌时没删掉库里的记录: {error}");
+    }
+}
+
+pub async fn restore(st: &Shared) {
+    let pool = st.db.pool();
+    if let Err(error) = sqlx::query(
+        "DELETE FROM fleet_grants WHERE session_id NOT IN
+           (SELECT id FROM sessions WHERE status = 'running' AND run_dir IS NOT NULL)",
+    )
+    .execute(pool)
+    .await
+    {
+        tracing::warn!(target: "blazar::fleet", "清理过期的调度令牌失败: {error}");
+    }
+    let rows: Vec<(String, String, String, Option<String>)> =
+        sqlx::query_as("SELECT token_sha256, session_id, node, caller FROM fleet_grants")
+            .fetch_all(pool)
+            .await
+            .unwrap_or_default();
+    for (digest, session, node, caller) in rows {
+        let Ok(id) = session.parse() else {
+            continue;
+        };
+        st.fleet.keep(
+            digest,
+            Grant {
+                session: SessionId(id),
+                node,
+                caller: caller.and_then(|c| serde_json::from_str(&c).ok()),
+            },
+        );
+    }
+}
+
+pub async fn reopen_tunnels(st: Shared) {
+    let nodes = st.fleet.remote_nodes();
+    if nodes.is_empty() {
+        return;
+    }
+    let mut hub = hub_port();
+    for _ in 0..300 {
+        if hub.is_some() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        hub = hub_port();
+    }
+    let Some(hub) = hub else {
+        return;
+    };
+    for node in nodes {
+        let Some(port) = crate::office::kv_get(&st, &tunnel_key(&node))
+            .await
+            .as_u64()
+            .and_then(|p| u16::try_from(p).ok())
+        else {
+            tracing::warn!(target: "blazar::fleet", "没记下 {node} 的调度回程端口，重启前在那台机器上跑的会话用不了调度工具");
+            continue;
+        };
+        match st.fleet.reopen(&node, hub, port).await {
+            Ok(()) => {
+                tracing::info!(target: "blazar::fleet", "{node} 的调度回程已按端口 {port} 恢复")
+            }
+            Err(error) => {
+                tracing::warn!(target: "blazar::fleet", "{node} 的调度回程没能按端口 {port} 恢复: {error}")
+            }
+        }
+    }
 }
 
 fn grant_of(st: &Shared, headers: &HeaderMap) -> Option<Grant> {
@@ -576,6 +722,80 @@ mod tests {
             .block_on(fleet.revoke(a));
         assert!(fleet.grant(&second).is_none());
         assert!(fleet.grant(&other).is_some());
+    }
+
+    #[tokio::test]
+    async fn grants_of_running_sessions_survive_a_hub_restart() {
+        let root = tempfile::tempdir().unwrap();
+        crate::ensure_private_dir(root.path()).unwrap();
+        let path = root.path().join("hub.sqlite");
+        let open = |db: blazar_db::Db| {
+            crate::state::AppState::with_services(
+                db,
+                "local".into(),
+                None,
+                crate::mesh::MeshCtx::new(None, root.path().to_path_buf()),
+                crate::services::Services::Isolated,
+            )
+        };
+        let st = open(blazar_db::Db::open(&path).await.unwrap());
+        let live = SessionId::new();
+        let done = SessionId::new();
+        for setup in [
+            "INSERT INTO nodes (id, name, transport, status, created_at)
+             VALUES ('n', 'local', 'local', 'online', 't')",
+            "INSERT INTO workspaces (id, node_id, name, path, created_at)
+             VALUES ('w', 'n', 'w', '/w', 't')",
+        ] {
+            sqlx::query(setup).execute(st.db.pool()).await.unwrap();
+        }
+        sqlx::query(
+            "INSERT INTO sessions (id, workspace_id, runtime_kind, status, created_at, run_dir)
+             VALUES (?1, 'w', 'claude_cli', 'running', 't', '/tmp/run'),
+                    (?2, 'w', 'claude_cli', 'done', 't', NULL)",
+        )
+        .bind(live.to_string())
+        .bind(done.to_string())
+        .execute(st.db.pool())
+        .await
+        .unwrap();
+        let caller = Caller {
+            bot: "b1".into(),
+            handle: "trainer".into(),
+            role: "lead".into(),
+            session: Some(live.to_string()),
+        };
+        let token = st.fleet.issue(live, "local", Some(caller.clone())).unwrap();
+        remember(&st, &token).await;
+        let gone = st.fleet.issue(done, "gpu-1", None).unwrap();
+        remember(&st, &gone).await;
+        let stored: Vec<String> = sqlx::query_scalar("SELECT token_sha256 FROM fleet_grants")
+            .fetch_all(st.db.pool())
+            .await
+            .unwrap();
+        assert_eq!(stored.len(), 2);
+        assert!(!stored.contains(&token) && !stored.contains(&gone));
+        drop(st);
+
+        let st = open(blazar_db::Db::open(&path).await.unwrap());
+        assert!(st.fleet.grant(&token).is_none());
+        restore(&st).await;
+        let back = st.fleet.grant(&token).unwrap();
+        assert_eq!(
+            (back.session, back.node.as_str(), back.caller),
+            (live, "local", Some(caller))
+        );
+        assert!(st.fleet.grant(&gone).is_none());
+        let count = || async {
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM fleet_grants")
+                .fetch_one(st.db.pool())
+                .await
+                .unwrap()
+        };
+        assert_eq!(count().await, 1);
+        revoke(&st, live).await;
+        assert!(st.fleet.grant(&token).is_none());
+        assert_eq!(count().await, 0);
     }
 
     #[tokio::test]
