@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::api;
-use crate::chat_model::{self, Row};
+use crate::chat_model::{self, HistItem, Row};
 use crate::components::toast::toast;
 use crate::realtime::Bus;
 use crate::storage;
@@ -192,7 +192,7 @@ impl Chat {
         self.loading.set(true);
         let ws = self.ws_id();
         self.spawn(async move {
-            let r = api::get::<Vec<Value>>(&format!(
+            let r = api::get::<Vec<HistItem>>(&format!(
                 "/api/workspaces/{ws}/history?session={}",
                 api::enc(&thread)
             ))
@@ -208,7 +208,7 @@ impl Chat {
             match r {
                 Ok(list) => {
                     let history: Vec<Row> =
-                        list.into_iter().filter_map(Row::from_history).collect();
+                        list.into_iter().filter_map(HistItem::into_row).collect();
                     self.flush_rows();
                     let rows = self.rows.with_untracked(|current| {
                         merge_history(history, current, &baseline, |row| {

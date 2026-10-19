@@ -20,7 +20,7 @@ pub struct Row {
 }
 
 #[derive(Deserialize)]
-struct HistRow {
+pub struct HistRow {
     session_id: String,
     seq: u64,
     #[serde(default)]
@@ -29,7 +29,31 @@ struct HistRow {
     parent: Option<String>,
     #[serde(default)]
     rewound: bool,
-    kind: Value,
+    kind: EntryKind,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+pub enum HistItem {
+    Row(Box<HistRow>),
+    Unreadable(serde::de::IgnoredAny),
+}
+
+impl HistItem {
+    pub fn into_row(self) -> Option<Row> {
+        let Self::Row(h) = self else {
+            return None;
+        };
+        let h = *h;
+        Some(Row {
+            ts: parse_ts(&h.ts),
+            kind: h.kind,
+            session_id: h.session_id,
+            seq: h.seq,
+            parent: h.parent,
+            rewound: h.rewound,
+        })
+    }
 }
 
 fn parse_ts(s: &str) -> i64 {
@@ -37,18 +61,6 @@ fn parse_ts(s: &str) -> i64 {
 }
 
 impl Row {
-    pub fn from_history(v: Value) -> Option<Self> {
-        let h: HistRow = serde_json::from_value(v).ok()?;
-        Some(Self {
-            ts: parse_ts(&h.ts),
-            kind: serde_json::from_value(h.kind).ok()?,
-            session_id: h.session_id,
-            seq: h.seq,
-            parent: h.parent,
-            rewound: h.rewound,
-        })
-    }
-
     pub fn from_live(session_id: String, e: NormalizedEntry) -> Self {
         Self {
             session_id,
@@ -1685,6 +1697,24 @@ mod tests {
             tools[1].result.as_ref().map(|r| r.shown.as_str()),
             Some("Finished\nloss 0.82")
         );
+    }
+
+    #[test]
+    fn history_skips_entries_it_cannot_read() {
+        let items: Vec<HistItem> = serde_json::from_str(
+            r#"[
+                {"session_id":"s","seq":1,"ts":"2026-10-19T00:00:00Z","cursor":"s:1",
+                 "parent":null,"rewound":false,"kind":{"type":"user_message","text":"hi"}},
+                {"session_id":"s","seq":2,"kind":{"type":"from_a_newer_hub","x":1}},
+                {"session_id":"s","seq":3,"parent":"t1","kind":{"type":"thinking","text":"hm"}}
+            ]"#,
+        )
+        .unwrap();
+        let rows: Vec<Row> = items.into_iter().filter_map(HistItem::into_row).collect();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].ts, parse_ts("2026-10-19T00:00:00Z"));
+        assert!(matches!(&rows[0].kind, EntryKind::UserMessage { text } if text == "hi"));
+        assert_eq!((rows[1].seq, rows[1].parent.as_deref()), (3, Some("t1")));
     }
 
     #[test]
