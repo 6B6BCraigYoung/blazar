@@ -986,6 +986,8 @@ pub struct HistoryQuery {
     pub limit: Option<usize>,
     #[serde(default)]
     pub mode: Option<String>,
+    #[serde(default)]
+    pub parent: Option<String>,
 }
 
 pub(crate) fn page_history(
@@ -1047,6 +1049,27 @@ impl StoredEvent {
     fn cursor(&self) -> String {
         format!("{}:{}", self.session_id, self.seq)
     }
+
+    fn elided(&self) -> Option<String> {
+        #[derive(Deserialize)]
+        struct Head {
+            id: serde_json::Value,
+            ok: bool,
+        }
+        self.parent.as_ref()?;
+        if self.is("thinking") {
+            return Some(r#"{"type":"thinking","text":""}"#.to_owned());
+        }
+        if !self.is("tool_result") {
+            return None;
+        }
+        let head: Head = serde_json::from_str(&self.payload).ok()?;
+        Some(format!(
+            r#"{{"type":"tool_result","id":{},"ok":{},"content":""}}"#,
+            serde_json::to_string(&head.id).ok()?,
+            head.ok
+        ))
+    }
 }
 
 #[derive(Serialize)]
@@ -1057,6 +1080,8 @@ struct HistoryRow {
     cursor: String,
     parent: Option<String>,
     rewound: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    elided: bool,
     kind: Box<serde_json::value::RawValue>,
 }
 
@@ -1066,14 +1091,17 @@ pub async fn workspace_history(
     Query(q): Query<HistoryQuery>,
 ) -> ApiResult<Response> {
     let one = q.session.filter(|s| !s.is_empty());
+    let parent = q.parent.filter(|p| !p.is_empty());
     let events: Vec<StoredEvent> = sqlx::query(
         "SELECT e.seq, e.ts, e.payload, e.session_id, e.parent_tool_id, s.rewound_at
          FROM events e JOIN sessions s ON s.id = e.session_id
          WHERE s.workspace_id = ?1 AND (?2 IS NULL OR COALESCE(s.thread_id, s.id) = ?2)
+           AND (?3 IS NULL OR e.parent_tool_id = ?3)
          ORDER BY s.created_at, e.seq",
     )
     .bind(&id)
     .bind(one)
+    .bind(&parent)
     .fetch_all(st.db.pool())
     .await?
     .into_iter()
@@ -1130,9 +1158,11 @@ pub async fn workspace_history(
         .enumerate()
         .filter(|(i, e)| !(e.is("progress") && last_prompt.is_some_and(|p| *i < p)))
         .filter_map(|(_, e)| {
+            let elided = parent.is_none().then(|| e.elided()).flatten();
             Some(HistoryRow {
                 cursor: e.cursor(),
-                kind: serde_json::value::RawValue::from_string(e.payload).ok()?,
+                elided: elided.is_some(),
+                kind: serde_json::value::RawValue::from_string(elided.unwrap_or(e.payload)).ok()?,
                 seq: e.seq,
                 ts: e.ts,
                 session_id: e.session_id,
