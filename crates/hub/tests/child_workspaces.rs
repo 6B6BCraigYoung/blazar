@@ -224,3 +224,23 @@ async fn glance_reads_back_past_a_long_run_to_its_prompt() {
     assert_eq!(glance["prompt"], "新的一轮");
     assert_eq!(glance["reply"], "进度 40");
 }
+
+#[tokio::test]
+async fn workspaces_and_nodes_are_listed_on_their_own() {
+    let (_dir, _state, app) = fixture().await;
+    let id = workspace(&app, "/srv/listed", "列出来").await;
+    let (status, workspaces) = call(&app, "GET", "/api/workspaces", Value::Null).await;
+    assert_eq!(status, StatusCode::OK);
+    let workspaces = workspaces.as_array().unwrap();
+    assert_eq!(workspaces.len(), 1);
+    assert_eq!(workspaces[0]["id"], id.as_str());
+    let (status, nodes) = call(&app, "GET", "/api/nodes", Value::Null).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        nodes
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|n| n["name"] == "local")
+    );
+}

@@ -98,7 +98,11 @@ pub fn build_router(st: Arc<AppState>) -> Router {
         .route("/api/mesh/invites/{id}", delete(mesh::revoke))
         .route("/api/nodes/health", get(api::node_health))
         .route("/api/nodes/roles", put(api::set_node_roles))
-        .route("/api/workspaces", post(api::create_workspace))
+        .route(
+            "/api/workspaces",
+            get(api::list_workspaces).post(api::create_workspace),
+        )
+        .route("/api/nodes", get(api::list_nodes))
         .route("/api/workspaces/isolated", post(api::create_isolated))
         .route("/api/workspaces/{id}/push", post(api::push_workspace))
         .route("/api/nodes/{name}/branches", get(api::list_branches))

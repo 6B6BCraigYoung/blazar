@@ -39,13 +39,13 @@ pub const TOOLS: &[Tool] = &[
         name: "list_workspaces",
         description: "列出所有工作区（跨机器），含活动状态、所在机器、项目归属。",
         schema: || obj(json!({}), &[]),
-        build: |_| Ok(("GET", "/api/state".into(), None)),
+        build: |_| Ok(("GET", "/api/workspaces".into(), None)),
     },
     Tool {
         name: "list_nodes",
         description: "列出 mesh 里的所有机器，含在线状态与链路延迟。",
         schema: || obj(json!({}), &[]),
-        build: |_| Ok(("GET", "/api/state".into(), None)),
+        build: |_| Ok(("GET", "/api/nodes".into(), None)),
     },
     Tool {
         name: "discover_agents",
@@ -786,6 +786,17 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(body.unwrap()["wait_secs"], WAIT_CAP_SECS);
+    }
+
+    #[test]
+    fn lists_ask_only_for_what_they_list() {
+        for (name, path) in [
+            ("list_workspaces", "/api/workspaces"),
+            ("list_nodes", "/api/nodes"),
+        ] {
+            let (method, url, _) = (find(name).unwrap().build)(&json!({})).unwrap();
+            assert_eq!((method, url.as_str()), ("GET", path));
+        }
     }
 
     #[test]

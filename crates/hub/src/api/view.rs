@@ -6,6 +6,14 @@ pub async fn get_state(State(st): State<Shared>) -> ApiResult<Json<StateSnapshot
     Ok(Json(snapshot(&st).await?))
 }
 
+pub async fn list_workspaces(State(st): State<Shared>) -> ApiResult<Json<Vec<WorkspaceView>>> {
+    Ok(Json(snapshot(&st).await?.workspaces))
+}
+
+pub async fn list_nodes(State(st): State<Shared>) -> ApiResult<Json<Vec<NodeView>>> {
+    Ok(Json(snapshot(&st).await?.nodes))
+}
+
 pub(crate) async fn snapshot(st: &AppState) -> anyhow::Result<StateSnapshot> {
     let nodes = sqlx::query(
         "SELECT n.name, n.transport, n.endpoint, n.status, n.labels, n.network, n.role,
