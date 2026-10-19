@@ -54,7 +54,7 @@ fn details(
                     .and_then(|t| t.dyn_into::<web_sys::HtmlDetailsElement>().ok())
                     .is_some_and(|d| d.open());
                 opened.set(&k, open);
-                if open {
+                if open && !shown.get_untracked() {
                     shown.set(true);
                 }
             }
