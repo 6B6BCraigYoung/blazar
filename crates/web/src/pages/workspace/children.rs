@@ -370,9 +370,11 @@ pub fn ChildrenPanel(id: String) -> impl IntoView {
                     Look::Cards => {
                         view! {
                             <div class="fl-cards">
-                                <For each=move || kids.get() key=|w| w.id.clone() let:w>
-                                    {card(app, w.id)}
-                                </For>
+                                <div class="fl-track">
+                                    <For each=move || kids.get() key=|w| w.id.clone() let:w>
+                                        {card(app, w.id)}
+                                    </For>
+                                </div>
                             </div>
                         }
                             .into_any()

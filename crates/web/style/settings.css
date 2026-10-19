@@ -75,6 +75,7 @@
 .sim-script { width: 100%; min-height: 260px; font: var(--font-size-label) var(--font-mono); }
 .sim-inst { margin-top: var(--space-lg); }
 .sim-inst-log { height: 220px; overflow: auto; margin-top: var(--space-md); white-space: pre-wrap; }
+.sim-log-flow { display: block; }
 .apps-section-head { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: var(--space-lg); margin-bottom: var(--space-lg); }
 .apps-section-head h3 { margin: 0; }
 .apps-page > .settings-card + .settings-card { margin-top: var(--space-xl); }

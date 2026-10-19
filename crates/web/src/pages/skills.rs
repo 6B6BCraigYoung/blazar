@@ -1668,10 +1668,12 @@ fn MarketPreview(install: Value, update: bool, close: Callback<()>) -> impl Into
                                     })
                                     .collect_view()}
                             </nav>
-                            <article
-                                class="md-body skill-preview"
-                                inner_html=md::render(&text(&p, "skill_md"), "SKILL.md", "")
-                            />
+                            <div class="skill-preview">
+                                <article
+                                    class="md-body"
+                                    inner_html=md::render(&text(&p, "skill_md"), "SKILL.md", "")
+                                />
+                            </div>
                         </div>
                         {(p["exists"] == true && !update)
                             .then(|| {

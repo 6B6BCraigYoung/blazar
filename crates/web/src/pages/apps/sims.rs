@@ -865,14 +865,16 @@ pub fn SimApp(id: &'static str, name: &'static str) -> impl IntoView {
                                     </span>
                                 </div>
                                 <pre class="settings-pre sim-inst-log">
-                                    {
-                                        let l = s(&v, "log");
-                                        if l.is_empty() {
-                                            "（还没有输出）".to_owned()
-                                        } else {
-                                            l
+                                    <span class="sim-log-flow">
+                                        {
+                                            let l = s(&v, "log");
+                                            if l.is_empty() {
+                                                "（还没有输出）".to_owned()
+                                            } else {
+                                                l
+                                            }
                                         }
-                                    }
+                                    </span>
                                 </pre>
                             </div>
                         }

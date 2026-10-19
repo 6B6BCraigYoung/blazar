@@ -25,7 +25,7 @@ button { font: inherit; color: inherit; }
 .side .foot a { color: var(--fg-3); }
 .side .foot a:hover { color: var(--fg); }
 .main { flex: 1 1 auto; min-width: 0; overflow-y: auto; overscroll-behavior: contain; }
-.main > .page, .cc-flow, .df-flow, .tree-flow, .mdview > .md-body { will-change: opacity; }
+.main > .page, .cc-flow, .df-flow, .tree-flow, .mdview > .md-body, .work-flow, .difftree-flow, .skill-preview > .md-body, .pal-flow, .sim-log-flow, .fl-track { will-change: opacity; }
 
 .page { width: 100%; max-width: calc(var(--page-max) + var(--page-gutter) * 2); margin-inline: auto; padding: var(--page-top) var(--page-gutter) var(--space-4xl); display: flex; flex-direction: column; gap: var(--space-section); }
 .page-head { display: flex; align-items: center; gap: var(--space-lg); }
@@ -224,6 +224,7 @@ body.drag-y, body.drag-y * { cursor: row-resize !important; user-select: none; }
 b.ok, i.ok { color: var(--ok-fg); font-style: normal; font-weight: var(--font-weight-medium); }
 b.bad, i.bad { color: var(--err-fg); font-style: normal; font-weight: var(--font-weight-medium); }
 .diffwrap { flex: 1; min-height: 0; display: flex; }
+.difftree-flow { display: flex; flex-direction: column; }
 .difftree { width: 240px; flex: 0 0 auto; display: flex; flex-direction: column; overflow: auto; overscroll-behavior: contain; border-right: 1px solid var(--line); padding-bottom: var(--space-md); }
 .dt-row { all: unset; cursor: pointer; display: flex; align-items: center; gap: var(--space-sm); padding: var(--space-xs) var(--space-control); font-size: var(--font-size-label); }
 .dt-row:hover { background: var(--bg-hover); }
@@ -521,7 +522,8 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 .fl-head { display: flex; align-items: center; gap: var(--space-md); margin-bottom: var(--space-md); }
 .fl-head > b { font-size: var(--font-size-label); font-weight: var(--font-weight-semibold); }
 .fl-head .grow { flex: 1; }
-.fl-cards { display: flex; gap: var(--space-md); overflow-x: auto; overscroll-behavior: contain; scroll-snap-type: x mandatory; padding-bottom: var(--space-2xs); }
+.fl-cards { overflow-x: auto; overscroll-behavior: contain; scroll-snap-type: x mandatory; padding-bottom: var(--space-2xs); }
+.fl-track { display: flex; gap: var(--space-md); }
 .fl-card, .fl-node { display: flex; flex-direction: column; gap: var(--space-xs); min-width: 0; border-radius: var(--r-md); background: var(--bg-raised); color: inherit; text-decoration: none; box-sizing: border-box; }
 .fl-card { flex: 1 0 220px; max-width: 320px; height: 108px; padding: var(--space-md) var(--space-lg); scroll-snap-align: start; }
 .fl-node { position: relative; height: var(--fl-node); justify-content: center; padding: var(--space-sm) var(--space-lg); }

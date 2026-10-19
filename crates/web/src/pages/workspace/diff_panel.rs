@@ -459,14 +459,16 @@ pub fn DiffView(
         <div class="diffwrap">
             <Show when=move || p().tree && !d.files.with(Vec::is_empty)>
                 <div class="difftree">
-                    <input
-                        class="tree-filter"
-                        aria-label="筛选改动文件"
-                        placeholder="筛选文件…"
-                        prop:value=move || filter.get()
-                        on:input=move |e| filter.set(event_target_value(&e))
-                    />
-                    {tree}
+                    <div class="difftree-flow">
+                        <input
+                            class="tree-filter"
+                            aria-label="筛选改动文件"
+                            placeholder="筛选文件…"
+                            prop:value=move || filter.get()
+                            on:input=move |e| filter.set(event_target_value(&e))
+                        />
+                        {tree}
+                    </div>
                 </div>
             </Show>
             <div

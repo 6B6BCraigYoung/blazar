@@ -206,30 +206,32 @@ pub fn Palette() -> impl IntoView {
                     }
                 />
                 <div class="pal-list">
-                    {move || {
-                        let list = hits();
-                        if list.is_empty() {
-                            return view! { <EmptyState title="无匹配" /> }.into_any();
-                        }
-                        list.into_iter()
-                            .enumerate()
-                            .map(|(i, h)| {
-                                let h2 = h.clone();
-                                view! {
-                                    <button
-                                        type="button"
-                                        class="palrow"
-                                        data-sel=move || (sel.get() == i).to_string()
-                                        on:click=move |_| go.with_value(|g| g(&h2))
-                                    >
-                                        <span class="t">{h.title.clone()}</span>
-                                        <span class="k">{h.kind.clone()}</span>
-                                    </button>
-                                }
-                            })
-                            .collect_view()
-                            .into_any()
-                    }}
+                    <div class="pal-flow">
+                        {move || {
+                            let list = hits();
+                            if list.is_empty() {
+                                return view! { <EmptyState title="无匹配" /> }.into_any();
+                            }
+                            list.into_iter()
+                                .enumerate()
+                                .map(|(i, h)| {
+                                    let h2 = h.clone();
+                                    view! {
+                                        <button
+                                            type="button"
+                                            class="palrow"
+                                            data-sel=move || (sel.get() == i).to_string()
+                                            on:click=move |_| go.with_value(|g| g(&h2))
+                                        >
+                                            <span class="t">{h.title.clone()}</span>
+                                            <span class="k">{h.kind.clone()}</span>
+                                        </button>
+                                    }
+                                })
+                                .collect_view()
+                                .into_any()
+                        }}
+                    </div>
                 </div>
             </Modal>
         </Show>

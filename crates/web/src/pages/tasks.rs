@@ -706,399 +706,141 @@ fn TaskDetail(id: String, ui: TaskUi) -> impl IntoView {
     });
     view! {
         <aside class="card work-detail" aria-label="任务详情">
-            <header class="work-detail-head">
-                <strong>"任务详情"</strong>
-                <span class="grow"></span>
-                <button
-                    class="btn small ghost"
-                    aria-label="关闭任务详情"
-                    disabled=move || sending.get() || ui.busy.get()
-                    on:click=move |_| ui.selected.set(String::new())
-                >
-                    "×"
-                </button>
-            </header>
-            {move || match data.get() {
-                None => view! { <LoadingState text="正在读取任务…" /> }.into_any(),
-                Some(r) => {
-                    match &r {
-                        Err(e) => {
-                            view! {
-                                <InlineError
-                                    message=format!("无法读取任务：{e}")
-                                    retry=Callback::new(move |()| refresh(ui.rev))
-                                    class="pad"
-                                />
+            <div class="work-flow">
+                <header class="work-detail-head">
+                    <strong>"任务详情"</strong>
+                    <span class="grow"></span>
+                    <button
+                        class="btn small ghost"
+                        aria-label="关闭任务详情"
+                        disabled=move || sending.get() || ui.busy.get()
+                        on:click=move |_| ui.selected.set(String::new())
+                    >
+                        "×"
+                    </button>
+                </header>
+                {move || match data.get() {
+                    None => view! { <LoadingState text="正在读取任务…" /> }.into_any(),
+                    Some(r) => {
+                        match &r {
+                            Err(e) => {
+                                view! {
+                                    <InlineError
+                                        message=format!("无法读取任务：{e}")
+                                        retry=Callback::new(move |()| refresh(ui.rev))
+                                        class="pad"
+                                    />
+                                }
+                                    .into_any()
                             }
-                                .into_any()
-                        }
-                        Ok(t) => {
-                            let t = t.clone();
-                            let id = s(&t, "id");
-                            let can_run = !s(&t, "workspace_id").is_empty()
-                                && !assignee(&t).is_empty();
-                            let running = t["running"] == true;
-                            let thread = s(&t, "thread_id");
-                            let ws = s(&t, "workspace_id");
-                            let edit = t.clone();
-                            let child = t.clone();
-                            let delete = t.clone();
-                            let status_id = id.clone();
-                            let copy_key = s(&t, "key");
-                            let start_id = id.clone();
-                            let detach_id = id.clone();
-                            let export_id = id.clone();
-                            let obsidian_id = id;
-                            let run_id = arr(&t, "runs")
-                                .into_iter()
-                                .find(|r| s(r, "status") == "running")
-                                .map(|r| s(&r, "id"));
-                            view! {
-                                <div class="pad">
-                                    <h2>{s(&t, "title")}</h2>
-                                    <div class="row-actions">
-                                        {badge(&s(&t, "status"))}{running.then(|| badge("running"))}
-                                        <span class="grow"></span>
-                                        <button
-                                            class="btn small"
-                                            disabled=move || ui.busy.get()
-                                            on:click=move |_| ui.editor.set(Some(edit.clone()))
-                                        >
-                                            "编辑"
-                                        </button>
-                                    </div>
-                                    {(!s(&t, "parent_id").is_empty())
-                                        .then(|| {
-                                            view! {
-                                                <a href=format!(
-                                                    "/tasks?task={}",
-                                                    api::enc(&s(&t, "parent_id")),
-                                                )>"查看父任务"</a>
-                                            }
-                                        })}
-                                    <div
-                                        class="md-body work-description"
-                                        inner_html=md::render(&s(&t, "description"), "", &ws)
-                                    ></div>
-                                    <p class="muted small">
-                                        {meta(
-                                            &[crate::fmt::ws_label_of(&t), who(&t), priority(&t)],
-                                        )}
-                                    </p>
-                                    <div class="row-actions">
-                                        <button
-                                            class="btn primary small"
-                                            disabled=move || !can_run || running || ui.busy.get()
-                                            on:click=move |_| {
-                                                ui.mutate(start_id.clone(), "POST", "/start", json!({}))
-                                            }
-                                        >
-                                            {if thread.is_empty() { "开始" } else { "继续" }}
-                                        </button>
-                                        {run_id
-                                            .map(|id| {
-                                                view! {
-                                                    <button
-                                                        class="btn small"
-                                                        disabled=move || ui.busy.get()
-                                                        on:click=move |_| {
-                                                            if ui.busy.try_get_untracked().unwrap_or(true) {
-                                                                return;
-                                                            }
-                                                            ui.busy.set(true);
-                                                            let id = id.clone();
-                                                            spawn_local(async move {
-                                                                match api::send::<
-                                                                    Value,
-                                                                >(
-                                                                        "POST",
-                                                                        &format!("/api/sessions/{}/interrupt", api::enc(&id)),
-                                                                        &json!({}),
-                                                                    )
-                                                                    .await
-                                                                {
-                                                                    Ok(_) => {
-                                                                        toast("已请求停止");
-                                                                        refresh(ui.rev);
-                                                                    }
-                                                                    Err(e) => toast(e.to_string()),
-                                                                }
-                                                                ui.busy.try_set(false);
-                                                            });
-                                                        }
-                                                    >
-                                                        "停止"
-                                                    </button>
-                                                }
-                                            })}
-                                        {(!thread.is_empty())
-                                            .then(|| {
-                                                view! {
-                                                    <a class="btn small" href=thread_link(&ws, &thread)>
-                                                        "打开对话"
-                                                    </a>
-                                                }
-                                            })}
-                                        {(s(&t, "status") == "in_review")
-                                            .then(|| {
-                                                view! {
-                                                    <button
-                                                        class="btn small"
-                                                        disabled=move || ui.busy.get()
-                                                        on:click=move |_| {
-                                                            ui.mutate(
-                                                                status_id.clone(),
-                                                                "PUT",
-                                                                "",
-                                                                json!({"status":"done"}),
-                                                            )
-                                                        }
-                                                    >
-                                                        "通过审阅"
-                                                    </button>
-                                                }
-                                            })}
-                                    </div>
-                                    {(s(&t, "parent_id").is_empty())
-                                        .then(|| {
-                                            view! {
-                                                <div class="work-section-head">
-                                                    <h3>"子任务"</h3>
-                                                    <span class="grow"></span>
-                                                    <button
-                                                        class="btn small"
-                                                        on:click=move |_| {
-                                                            ui.editor
-                                                                .set(
-                                                                    Some(
-                                                                        json!(
-                                                                            {"parent_id":s(&child,"id"),"workspace_id":child["workspace_id"],"agent_profile":child["agent_profile"],"runtime":child["runtime"],"status":"todo"}
-                                                                        ),
-                                                                    ),
-                                                                )
-                                                        }
-                                                    >
-                                                        "添加子任务"
-                                                    </button>
-                                                </div>
-                                                {arr(&t, "child_list")
-                                                    .into_iter()
-                                                    .map(|c| {
-                                                        view! {
-                                                            <a
-                                                                class="work-child"
-                                                                href=format!("/tasks?task={}", api::enc(&s(&c, "id")))
-                                                            >
-                                                                <span class="muted">{s(&c, "key")}</span>
-                                                                <strong>{s(&c, "title")}</strong>
-                                                                {badge(&s(&c, "status"))}
-                                                            </a>
-                                                        }
-                                                    })
-                                                    .collect_view()}
-                                            }
-                                        })}
-                                    <details class="work-more">
-                                        <summary>"执行记录"</summary>
-                                        {if arr(&t, "runs").is_empty() {
-                                            view! {
-                                                <p class="muted small">
-                                                    "还没有运行过。选择工作区与指派对象后点「开始」。"
-                                                </p>
-                                            }
-                                                .into_any()
-                                        } else {
-                                            arr(&t, "runs")
-                                                .into_iter()
-                                                .enumerate()
-                                                .map(|(i, r)| {
-                                                    view! {
-                                                        <a class="work-run" href=thread_link(&ws, &thread)>
-                                                            {badge(&s(&r, "status"))}
-                                                            <span>
-                                                                {format!(
-                                                                    "第 {} 次 · {}",
-                                                                    i + 1,
-                                                                    if s(&r, "trigger") == "initial" {
-                                                                        "首次"
-                                                                    } else {
-                                                                        "评论 / 重试"
-                                                                    },
-                                                                )}
-                                                            </span>
-                                                            <small class="muted">
-                                                                {format!(
-                                                                    "{} · {} 条 · ${:.2} · {}",
-                                                                    s(&r, "runtime"),
-                                                                    r["events"].as_u64().unwrap_or(0),
-                                                                    r["cost_usd"].as_f64().unwrap_or(0.0),
-                                                                    fmt::ago(&s(&r, "created_at")),
-                                                                )}
-                                                            </small>
-                                                        </a>
-                                                    }
-                                                })
-                                                .collect_view()
-                                                .into_any()
-                                        }}
-                                    </details>
-                                    <h3>"评论"</h3>
-                                    {arr(&t, "comment_list")
-                                        .is_empty()
-                                        .then(|| {
-                                            view! {
-                                                <EmptyState
-                                                    title="还没有评论"
-                                                    detail="补充要求，或写一条备注。"
-                                                    class="tasks-inline-empty"
-                                                />
-                                            }
-                                        })}
-                                    {arr(&t, "comment_list")
-                                        .into_iter()
-                                        .map(|c| {
-                                            view! {
-                                                <article class="work-comment">
-                                                    <div class="row-actions">
-                                                        <strong>
-                                                            {match s(&c, "author").as_str() {
-                                                                "user" => "你".to_owned(),
-                                                                "agent" => who(&t),
-                                                                _ => "系统".into(),
-                                                            }}
-                                                        </strong>
-                                                        {(c["note"] == true)
-                                                            .then(|| view! { <span class="gchip">"仅备注"</span> })}
-                                                        <small class="muted">
-                                                            {fmt::ago(&s(&c, "created_at"))}
-                                                        </small>
-                                                    </div>
-                                                    <div
-                                                        class="md-body"
-                                                        inner_html=md::render(&s(&c, "body"), "", &ws)
-                                                    ></div>
-                                                </article>
-                                            }
-                                        })
-                                        .collect_view()}
-                                    <details class="work-more">
-                                        <summary>"导出与更多"</summary>
+                            Ok(t) => {
+                                let t = t.clone();
+                                let id = s(&t, "id");
+                                let can_run = !s(&t, "workspace_id").is_empty()
+                                    && !assignee(&t).is_empty();
+                                let running = t["running"] == true;
+                                let thread = s(&t, "thread_id");
+                                let ws = s(&t, "workspace_id");
+                                let edit = t.clone();
+                                let child = t.clone();
+                                let delete = t.clone();
+                                let status_id = id.clone();
+                                let copy_key = s(&t, "key");
+                                let start_id = id.clone();
+                                let detach_id = id.clone();
+                                let export_id = id.clone();
+                                let obsidian_id = id;
+                                let run_id = arr(&t, "runs")
+                                    .into_iter()
+                                    .find(|r| s(r, "status") == "running")
+                                    .map(|r| s(&r, "id"));
+                                view! {
+                                    <div class="pad">
+                                        <h2>{s(&t, "title")}</h2>
                                         <div class="row-actions">
-                                            <span class="mono muted">{s(&t, "key")}</span>
+                                            {badge(&s(&t, "status"))}{running.then(|| badge("running"))}
+                                            <span class="grow"></span>
                                             <button
-                                                class="btn small ghost"
-                                                on:click=move |_| {
-                                                    let key = copy_key.clone();
-                                                    spawn_local(copy(key));
-                                                }
+                                                class="btn small"
+                                                disabled=move || ui.busy.get()
+                                                on:click=move |_| ui.editor.set(Some(edit.clone()))
                                             >
-                                                "复制编号"
+                                                "编辑"
                                             </button>
                                         </div>
+                                        {(!s(&t, "parent_id").is_empty())
+                                            .then(|| {
+                                                view! {
+                                                    <a href=format!(
+                                                        "/tasks?task={}",
+                                                        api::enc(&s(&t, "parent_id")),
+                                                    )>"查看父任务"</a>
+                                                }
+                                            })}
+                                        <div
+                                            class="md-body work-description"
+                                            inner_html=md::render(&s(&t, "description"), "", &ws)
+                                        ></div>
+                                        <p class="muted small">
+                                            {meta(
+                                                &[crate::fmt::ws_label_of(&t), who(&t), priority(&t)],
+                                            )}
+                                        </p>
                                         <div class="row-actions">
                                             <button
-                                                class="btn small"
-                                                disabled=move || ui.busy.get()
+                                                class="btn primary small"
+                                                disabled=move || !can_run || running || ui.busy.get()
                                                 on:click=move |_| {
-                                                    let id = export_id.clone();
-                                                    spawn_local(async move {
-                                                        if dialog::ask(
-                                                                "存为飞书文档",
-                                                                "把任务描述和每轮回复存为一篇飞书文档？会使用本机 lark-cli 的登录身份创建。",
-                                                                vec![Choice::plain("取消"), Choice::plain("创建文档")],
-                                                            )
-                                                            .await != Some(1)
-                                                        {
-                                                            return;
-                                                        }
-                                                        if ui.busy.try_get_untracked().unwrap_or(true) {
-                                                            return;
-                                                        }
-                                                        ui.busy.set(true);
-                                                        match api::send::<
-                                                            Value,
-                                                        >(
-                                                                "POST",
-                                                                &format!("/api/tasks/{}/lark-doc", api::enc(&id)),
-                                                                &json!({}),
-                                                            )
-                                                            .await
-                                                        {
-                                                            Ok(r) => {
-                                                                if r["ok"] == true {
-                                                                    let url = s(&r, "url");
-                                                                    if !url.is_empty() {
-                                                                        export.try_set(Some(("打开飞书文档".into(), url)));
-                                                                    }
-                                                                    toast("飞书文档已创建");
-                                                                } else {
-                                                                    toast(format!("创建失败：{}", s(&r, "detail")));
+                                                    ui.mutate(start_id.clone(), "POST", "/start", json!({}))
+                                                }
+                                            >
+                                                {if thread.is_empty() { "开始" } else { "继续" }}
+                                            </button>
+                                            {run_id
+                                                .map(|id| {
+                                                    view! {
+                                                        <button
+                                                            class="btn small"
+                                                            disabled=move || ui.busy.get()
+                                                            on:click=move |_| {
+                                                                if ui.busy.try_get_untracked().unwrap_or(true) {
+                                                                    return;
                                                                 }
+                                                                ui.busy.set(true);
+                                                                let id = id.clone();
+                                                                spawn_local(async move {
+                                                                    match api::send::<
+                                                                        Value,
+                                                                    >(
+                                                                            "POST",
+                                                                            &format!("/api/sessions/{}/interrupt", api::enc(&id)),
+                                                                            &json!({}),
+                                                                        )
+                                                                        .await
+                                                                    {
+                                                                        Ok(_) => {
+                                                                            toast("已请求停止");
+                                                                            refresh(ui.rev);
+                                                                        }
+                                                                        Err(e) => toast(e.to_string()),
+                                                                    }
+                                                                    ui.busy.try_set(false);
+                                                                });
                                                             }
-                                                            Err(e) => toast(e.to_string()),
-                                                        }
-                                                        ui.busy.try_set(false);
-                                                    });
-                                                }
-                                            >
-                                                "存为飞书文档"
-                                            </button>
-                                            <button
-                                                class="btn small"
-                                                disabled=move || ui.busy.get()
-                                                on:click=move |_| {
-                                                    let id = obsidian_id.clone();
-                                                    if ui.busy.try_get_untracked().unwrap_or(true) {
-                                                        return;
+                                                        >
+                                                            "停止"
+                                                        </button>
                                                     }
-                                                    ui.busy.set(true);
-                                                    spawn_local(async move {
-                                                        let path = format!(
-                                                            "/api/tasks/{}/obsidian-note",
-                                                            api::enc(&id),
-                                                        );
-                                                        let mut r = api::send::<
-                                                            Value,
-                                                        >("POST", &path, &json!({"overwrite":false}))
-                                                            .await;
-                                                        if r
-                                                            .as_ref()
-                                                            .err()
-                                                            .is_some_and(|e| e.to_string().contains("同名"))
-                                                        {
-                                                            if dialog::ask(
-                                                                    "覆盖 Obsidian 笔记",
-                                                                    "库中已有同名笔记，使用当前任务内容覆盖？",
-                                                                    vec![Choice::plain("取消"), Choice::danger("覆盖")],
-                                                                )
-                                                                .await == Some(1)
-                                                            {
-                                                                r = api::send::<
-                                                                    Value,
-                                                                >("POST", &path, &json!({"overwrite":true}))
-                                                                    .await;
-                                                            } else {
-                                                                ui.busy.try_set(false);
-                                                                return;
-                                                            }
-                                                        }
-                                                        match r {
-                                                            Ok(r) => {
-                                                                toast(format!("已存到 {}", s(&r, "path")));
-                                                                export
-                                                                    .try_set(
-                                                                        Some(("在 Obsidian 中打开".into(), s(&r, "open"))),
-                                                                    );
-                                                            }
-                                                            Err(e) => toast(e.to_string()),
-                                                        }
-                                                        ui.busy.try_set(false);
-                                                    });
-                                                }
-                                            >
-                                                "存到 Obsidian"
-                                            </button>
-                                            {(!s(&t, "parent_id").is_empty())
+                                                })}
+                                            {(!thread.is_empty())
+                                                .then(|| {
+                                                    view! {
+                                                        <a class="btn small" href=thread_link(&ws, &thread)>
+                                                            "打开对话"
+                                                        </a>
+                                                    }
+                                                })}
+                                            {(s(&t, "status") == "in_review")
                                                 .then(|| {
                                                     view! {
                                                         <button
@@ -1106,147 +848,407 @@ fn TaskDetail(id: String, ui: TaskUi) -> impl IntoView {
                                                             disabled=move || ui.busy.get()
                                                             on:click=move |_| {
                                                                 ui.mutate(
-                                                                    detach_id.clone(),
+                                                                    status_id.clone(),
                                                                     "PUT",
                                                                     "",
-                                                                    json!({"parent_id":null}),
+                                                                    json!({"status":"done"}),
                                                                 )
                                                             }
                                                         >
-                                                            "变成独立任务"
+                                                            "通过审阅"
                                                         </button>
                                                     }
                                                 })}
-                                            <button
-                                                class="btn small danger"
-                                                disabled=move || ui.busy.get()
-                                                on:click=move |_| {
-                                                    let t = delete.clone();
-                                                    spawn_local(async move {
-                                                        if dialog::ask(
-                                                                "删除任务",
-                                                                &format!(
-                                                                    "删除 {}「{}」？对话记录保留；子任务变为独立任务。未发送的评论将丢失。",
-                                                                    s(&t, "key"),
-                                                                    s(&t, "title"),
-                                                                ),
-                                                                vec![Choice::plain("取消"), Choice::danger("删除")],
-                                                            )
-                                                            .await != Some(1)
-                                                        {
-                                                            return;
+                                        </div>
+                                        {(s(&t, "parent_id").is_empty())
+                                            .then(|| {
+                                                view! {
+                                                    <div class="work-section-head">
+                                                        <h3>"子任务"</h3>
+                                                        <span class="grow"></span>
+                                                        <button
+                                                            class="btn small"
+                                                            on:click=move |_| {
+                                                                ui.editor
+                                                                    .set(
+                                                                        Some(
+                                                                            json!(
+                                                                                {"parent_id":s(&child,"id"),"workspace_id":child["workspace_id"],"agent_profile":child["agent_profile"],"runtime":child["runtime"],"status":"todo"}
+                                                                            ),
+                                                                        ),
+                                                                    )
+                                                            }
+                                                        >
+                                                            "添加子任务"
+                                                        </button>
+                                                    </div>
+                                                    {arr(&t, "child_list")
+                                                        .into_iter()
+                                                        .map(|c| {
+                                                            view! {
+                                                                <a
+                                                                    class="work-child"
+                                                                    href=format!("/tasks?task={}", api::enc(&s(&c, "id")))
+                                                                >
+                                                                    <span class="muted">{s(&c, "key")}</span>
+                                                                    <strong>{s(&c, "title")}</strong>
+                                                                    {badge(&s(&c, "status"))}
+                                                                </a>
+                                                            }
+                                                        })
+                                                        .collect_view()}
+                                                }
+                                            })}
+                                        <details class="work-more">
+                                            <summary>"执行记录"</summary>
+                                            {if arr(&t, "runs").is_empty() {
+                                                view! {
+                                                    <p class="muted small">
+                                                        "还没有运行过。选择工作区与指派对象后点「开始」。"
+                                                    </p>
+                                                }
+                                                    .into_any()
+                                            } else {
+                                                arr(&t, "runs")
+                                                    .into_iter()
+                                                    .enumerate()
+                                                    .map(|(i, r)| {
+                                                        view! {
+                                                            <a class="work-run" href=thread_link(&ws, &thread)>
+                                                                {badge(&s(&r, "status"))}
+                                                                <span>
+                                                                    {format!(
+                                                                        "第 {} 次 · {}",
+                                                                        i + 1,
+                                                                        if s(&r, "trigger") == "initial" {
+                                                                            "首次"
+                                                                        } else {
+                                                                            "评论 / 重试"
+                                                                        },
+                                                                    )}
+                                                                </span>
+                                                                <small class="muted">
+                                                                    {format!(
+                                                                        "{} · {} 条 · ${:.2} · {}",
+                                                                        s(&r, "runtime"),
+                                                                        r["events"].as_u64().unwrap_or(0),
+                                                                        r["cost_usd"].as_f64().unwrap_or(0.0),
+                                                                        fmt::ago(&s(&r, "created_at")),
+                                                                    )}
+                                                                </small>
+                                                            </a>
                                                         }
+                                                    })
+                                                    .collect_view()
+                                                    .into_any()
+                                            }}
+                                        </details>
+                                        <h3>"评论"</h3>
+                                        {arr(&t, "comment_list")
+                                            .is_empty()
+                                            .then(|| {
+                                                view! {
+                                                    <EmptyState
+                                                        title="还没有评论"
+                                                        detail="补充要求，或写一条备注。"
+                                                        class="tasks-inline-empty"
+                                                    />
+                                                }
+                                            })}
+                                        {arr(&t, "comment_list")
+                                            .into_iter()
+                                            .map(|c| {
+                                                view! {
+                                                    <article class="work-comment">
+                                                        <div class="row-actions">
+                                                            <strong>
+                                                                {match s(&c, "author").as_str() {
+                                                                    "user" => "你".to_owned(),
+                                                                    "agent" => who(&t),
+                                                                    _ => "系统".into(),
+                                                                }}
+                                                            </strong>
+                                                            {(c["note"] == true)
+                                                                .then(|| view! { <span class="gchip">"仅备注"</span> })}
+                                                            <small class="muted">
+                                                                {fmt::ago(&s(&c, "created_at"))}
+                                                            </small>
+                                                        </div>
+                                                        <div
+                                                            class="md-body"
+                                                            inner_html=md::render(&s(&c, "body"), "", &ws)
+                                                        ></div>
+                                                    </article>
+                                                }
+                                            })
+                                            .collect_view()}
+                                        <details class="work-more">
+                                            <summary>"导出与更多"</summary>
+                                            <div class="row-actions">
+                                                <span class="mono muted">{s(&t, "key")}</span>
+                                                <button
+                                                    class="btn small ghost"
+                                                    on:click=move |_| {
+                                                        let key = copy_key.clone();
+                                                        spawn_local(copy(key));
+                                                    }
+                                                >
+                                                    "复制编号"
+                                                </button>
+                                            </div>
+                                            <div class="row-actions">
+                                                <button
+                                                    class="btn small"
+                                                    disabled=move || ui.busy.get()
+                                                    on:click=move |_| {
+                                                        let id = export_id.clone();
+                                                        spawn_local(async move {
+                                                            if dialog::ask(
+                                                                    "存为飞书文档",
+                                                                    "把任务描述和每轮回复存为一篇飞书文档？会使用本机 lark-cli 的登录身份创建。",
+                                                                    vec![Choice::plain("取消"), Choice::plain("创建文档")],
+                                                                )
+                                                                .await != Some(1)
+                                                            {
+                                                                return;
+                                                            }
+                                                            if ui.busy.try_get_untracked().unwrap_or(true) {
+                                                                return;
+                                                            }
+                                                            ui.busy.set(true);
+                                                            match api::send::<
+                                                                Value,
+                                                            >(
+                                                                    "POST",
+                                                                    &format!("/api/tasks/{}/lark-doc", api::enc(&id)),
+                                                                    &json!({}),
+                                                                )
+                                                                .await
+                                                            {
+                                                                Ok(r) => {
+                                                                    if r["ok"] == true {
+                                                                        let url = s(&r, "url");
+                                                                        if !url.is_empty() {
+                                                                            export.try_set(Some(("打开飞书文档".into(), url)));
+                                                                        }
+                                                                        toast("飞书文档已创建");
+                                                                    } else {
+                                                                        toast(format!("创建失败：{}", s(&r, "detail")));
+                                                                    }
+                                                                }
+                                                                Err(e) => toast(e.to_string()),
+                                                            }
+                                                            ui.busy.try_set(false);
+                                                        });
+                                                    }
+                                                >
+                                                    "存为飞书文档"
+                                                </button>
+                                                <button
+                                                    class="btn small"
+                                                    disabled=move || ui.busy.get()
+                                                    on:click=move |_| {
+                                                        let id = obsidian_id.clone();
                                                         if ui.busy.try_get_untracked().unwrap_or(true) {
                                                             return;
                                                         }
                                                         ui.busy.set(true);
-                                                        match api::send::<
-                                                            Value,
-                                                        >(
-                                                                "DELETE",
-                                                                &format!("/api/tasks/{}", api::enc(&s(&t, "id"))),
-                                                                &json!({}),
-                                                            )
-                                                            .await
-                                                        {
-                                                            Ok(_) => {
-                                                                ui.comment_drafts
-                                                                    .try_update(|drafts| {
-                                                                        drafts.remove(&s(&t, "id"));
-                                                                    });
-                                                                ui.selected
-                                                                    .try_update(|current| {
-                                                                        if *current == s(&t, "id") {
-                                                                            current.clear();
-                                                                        }
-                                                                    });
-                                                                refresh(ui.rev);
-                                                                toast("已删除");
+                                                        spawn_local(async move {
+                                                            let path = format!(
+                                                                "/api/tasks/{}/obsidian-note",
+                                                                api::enc(&id),
+                                                            );
+                                                            let mut r = api::send::<
+                                                                Value,
+                                                            >("POST", &path, &json!({"overwrite":false}))
+                                                                .await;
+                                                            if r
+                                                                .as_ref()
+                                                                .err()
+                                                                .is_some_and(|e| e.to_string().contains("同名"))
+                                                            {
+                                                                if dialog::ask(
+                                                                        "覆盖 Obsidian 笔记",
+                                                                        "库中已有同名笔记，使用当前任务内容覆盖？",
+                                                                        vec![Choice::plain("取消"), Choice::danger("覆盖")],
+                                                                    )
+                                                                    .await == Some(1)
+                                                                {
+                                                                    r = api::send::<
+                                                                        Value,
+                                                                    >("POST", &path, &json!({"overwrite":true}))
+                                                                        .await;
+                                                                } else {
+                                                                    ui.busy.try_set(false);
+                                                                    return;
+                                                                }
                                                             }
-                                                            Err(e) => toast(e.to_string()),
+                                                            match r {
+                                                                Ok(r) => {
+                                                                    toast(format!("已存到 {}", s(&r, "path")));
+                                                                    export
+                                                                        .try_set(
+                                                                            Some(("在 Obsidian 中打开".into(), s(&r, "open"))),
+                                                                        );
+                                                                }
+                                                                Err(e) => toast(e.to_string()),
+                                                            }
+                                                            ui.busy.try_set(false);
+                                                        });
+                                                    }
+                                                >
+                                                    "存到 Obsidian"
+                                                </button>
+                                                {(!s(&t, "parent_id").is_empty())
+                                                    .then(|| {
+                                                        view! {
+                                                            <button
+                                                                class="btn small"
+                                                                disabled=move || ui.busy.get()
+                                                                on:click=move |_| {
+                                                                    ui.mutate(
+                                                                        detach_id.clone(),
+                                                                        "PUT",
+                                                                        "",
+                                                                        json!({"parent_id":null}),
+                                                                    )
+                                                                }
+                                                            >
+                                                                "变成独立任务"
+                                                            </button>
                                                         }
-                                                        ui.busy.try_set(false);
-                                                    });
-                                                }
-                                            >
-                                                "删除任务"
-                                            </button>
-                                        </div>
-                                    </details>
-                                </div>
+                                                    })}
+                                                <button
+                                                    class="btn small danger"
+                                                    disabled=move || ui.busy.get()
+                                                    on:click=move |_| {
+                                                        let t = delete.clone();
+                                                        spawn_local(async move {
+                                                            if dialog::ask(
+                                                                    "删除任务",
+                                                                    &format!(
+                                                                        "删除 {}「{}」？对话记录保留；子任务变为独立任务。未发送的评论将丢失。",
+                                                                        s(&t, "key"),
+                                                                        s(&t, "title"),
+                                                                    ),
+                                                                    vec![Choice::plain("取消"), Choice::danger("删除")],
+                                                                )
+                                                                .await != Some(1)
+                                                            {
+                                                                return;
+                                                            }
+                                                            if ui.busy.try_get_untracked().unwrap_or(true) {
+                                                                return;
+                                                            }
+                                                            ui.busy.set(true);
+                                                            match api::send::<
+                                                                Value,
+                                                            >(
+                                                                    "DELETE",
+                                                                    &format!("/api/tasks/{}", api::enc(&s(&t, "id"))),
+                                                                    &json!({}),
+                                                                )
+                                                                .await
+                                                            {
+                                                                Ok(_) => {
+                                                                    ui.comment_drafts
+                                                                        .try_update(|drafts| {
+                                                                            drafts.remove(&s(&t, "id"));
+                                                                        });
+                                                                    ui.selected
+                                                                        .try_update(|current| {
+                                                                            if *current == s(&t, "id") {
+                                                                                current.clear();
+                                                                            }
+                                                                        });
+                                                                    refresh(ui.rev);
+                                                                    toast("已删除");
+                                                                }
+                                                                Err(e) => toast(e.to_string()),
+                                                            }
+                                                            ui.busy.try_set(false);
+                                                        });
+                                                    }
+                                                >
+                                                    "删除任务"
+                                                </button>
+                                            </div>
+                                        </details>
+                                    </div>
+                                }
+                                    .into_any()
                             }
-                                .into_any()
                         }
                     }
-                }
-            }}
-            <div class="pad work-compose">
-                {move || {
-                    export
-                        .get()
-                        .map(|(label, href)| {
-                            view! {
-                                <p>
-                                    <a href=href target="_blank" rel="noopener noreferrer">
-                                        {label}
-                                    </a>
-                                </p>
-                            }
-                        })
                 }}
-                <textarea
-                    class="input"
-                    rows="3"
-                    placeholder="补充要求或写评论…"
-                    disabled=move || sending.get()
-                    aria-label="任务评论"
-                    prop:value=move || body.get()
-                    on:input=move |e| {
-                        ui.comment_drafts
-                            .update(|drafts| {
-                                drafts.entry(task_id.get_value()).or_default().body = event_target_value(
-                                    &e,
-                                );
+                <div class="pad work-compose">
+                    {move || {
+                        export
+                            .get()
+                            .map(|(label, href)| {
+                                view! {
+                                    <p>
+                                        <a href=href target="_blank" rel="noopener noreferrer">
+                                            {label}
+                                        </a>
+                                    </p>
+                                }
                             })
-                    }
-                    on:keydown=move |e: leptos::ev::KeyboardEvent| {
-                        if e.key() == "Enter" && (e.meta_key() || e.ctrl_key()) {
-                            e.prevent_default();
-                            send.run(());
+                    }}
+                    <textarea
+                        class="input"
+                        rows="3"
+                        placeholder="补充要求或写评论…"
+                        disabled=move || sending.get()
+                        aria-label="任务评论"
+                        prop:value=move || body.get()
+                        on:input=move |e| {
+                            ui.comment_drafts
+                                .update(|drafts| {
+                                    drafts.entry(task_id.get_value()).or_default().body = event_target_value(
+                                        &e,
+                                    );
+                                })
                         }
-                    }
-                ></textarea><div class="row-actions">
-                    <label class="chk">
-                        <input
-                            type="checkbox"
-                            disabled=move || sending.get()
-                            prop:checked=move || note.get()
-                            on:change=move |e| {
-                                ui.comment_drafts
-                                    .update(|drafts| {
-                                        drafts.entry(task_id.get_value()).or_default().note = event_target_checked(
-                                            &e,
-                                        );
-                                    })
+                        on:keydown=move |e: leptos::ev::KeyboardEvent| {
+                            if e.key() == "Enter" && (e.meta_key() || e.ctrl_key()) {
+                                e.prevent_default();
+                                send.run(());
                             }
-                        />
-                        "仅备注"
-                    </label>
-                    <span class="grow"></span>
-                    <button
-                        class="btn primary small"
-                        disabled=move || sending.get() || body.get().trim().is_empty()
-                        on:click=move |_| send.run(())
-                    >
-                        {move || if sending.get() { "发送中…" } else { "发送" }}
-                    </button>
+                        }
+                    ></textarea><div class="row-actions">
+                        <label class="chk">
+                            <input
+                                type="checkbox"
+                                disabled=move || sending.get()
+                                prop:checked=move || note.get()
+                                on:change=move |e| {
+                                    ui.comment_drafts
+                                        .update(|drafts| {
+                                            drafts.entry(task_id.get_value()).or_default().note = event_target_checked(
+                                                &e,
+                                            );
+                                        })
+                                }
+                            />
+                            "仅备注"
+                        </label>
+                        <span class="grow"></span>
+                        <button
+                            class="btn primary small"
+                            disabled=move || sending.get() || body.get().trim().is_empty()
+                            on:click=move |_| send.run(())
+                        >
+                            {move || if sending.get() { "发送中…" } else { "发送" }}
+                        </button>
+                    </div>
+                    <small class="muted">
+                        {format!(
+                            "仅备注或尚未指派时，不会触发智能体。{} 发送。",
+                            crate::shortcuts::label("Mod+Enter"),
+                        )}
+                    </small>
                 </div>
-                <small class="muted">
-                    {format!(
-                        "仅备注或尚未指派时，不会触发智能体。{} 发送。",
-                        crate::shortcuts::label("Mod+Enter"),
-                    )}
-                </small>
             </div>
         </aside>
     }

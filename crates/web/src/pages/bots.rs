@@ -957,250 +957,252 @@ pub fn BotPage() -> impl IntoView {
                                 }
                             </div>
                             <aside class="work-detail">
-                                <section class="card pad">
-                                    <h3>"现状"</h3>
-                                    <div class="work-kv">
-                                        <span class="muted">"思考位置"</span>
-                                        <span>
-                                            {if s(&b, "brain") == "node" {
-                                                "工作机器"
-                                            } else {
-                                                "hub 本机"
-                                            }}
-                                        </span>
-                                        <span class="muted">"机器"</span>
-                                        <span>
-                                            {format!(
-                                                "{}{}",
-                                                s(&b, "node"),
-                                                b["node_status"]
+                                <div class="work-flow">
+                                    <section class="card pad">
+                                        <h3>"现状"</h3>
+                                        <div class="work-kv">
+                                            <span class="muted">"思考位置"</span>
+                                            <span>
+                                                {if s(&b, "brain") == "node" {
+                                                    "工作机器"
+                                                } else {
+                                                    "hub 本机"
+                                                }}
+                                            </span>
+                                            <span class="muted">"机器"</span>
+                                            <span>
+                                                {format!(
+                                                    "{}{}",
+                                                    s(&b, "node"),
+                                                    b["node_status"]
+                                                        .as_str()
+                                                        .map(|st| format!(" · {st}"))
+                                                        .unwrap_or_default(),
+                                                )}
+                                            </span>
+                                            <span class="muted">"家工作区"</span>
+                                            <span>
+                                                <a href=format!("/w/{}", api::enc(&home))>"打开"</a>
+                                            </span>
+                                            <span class="muted">"待处理"</span>
+                                            <span>
+                                                {format!("{} 封", b["pending_mail"].as_u64().unwrap_or(0))}
+                                            </span>
+                                            <span class="muted">"最近活动"</span>
+                                            <span>
+                                                {b["last_active_at"]
                                                     .as_str()
-                                                    .map(|st| format!(" · {st}"))
-                                                    .unwrap_or_default(),
-                                            )}
-                                        </span>
-                                        <span class="muted">"家工作区"</span>
-                                        <span>
-                                            <a href=format!("/w/{}", api::enc(&home))>"打开"</a>
-                                        </span>
-                                        <span class="muted">"待处理"</span>
-                                        <span>
-                                            {format!("{} 封", b["pending_mail"].as_u64().unwrap_or(0))}
-                                        </span>
-                                        <span class="muted">"最近活动"</span>
-                                        <span>
-                                            {b["last_active_at"]
-                                                .as_str()
-                                                .map_or_else(|| "—".to_owned(), fmt::ago)}
-                                        </span>
-                                    </div>
-                                    {(!s(&b, "last_instruction").is_empty())
-                                        .then(|| {
-                                            view! {
-                                                <div class="bot-line">
-                                                    <span class="muted">"最后指令 "</span>
-                                                    {s(&b, "last_instruction")}
-                                                </div>
-                                            }
-                                        })}
-                                    {
-                                        let steps = arr(&b, "recent");
-                                        (!steps.is_empty())
+                                                    .map_or_else(|| "—".to_owned(), fmt::ago)}
+                                            </span>
+                                        </div>
+                                        {(!s(&b, "last_instruction").is_empty())
                                             .then(|| {
                                                 view! {
-                                                    <ul class="bot-steps">
-                                                        {steps
-                                                            .into_iter()
-                                                            .map(|x| {
-                                                                view! { <li>{x.as_str().unwrap_or("").to_owned()}</li> }
-                                                            })
-                                                            .collect_view()}
-                                                    </ul>
+                                                    <div class="bot-line">
+                                                        <span class="muted">"最后指令 "</span>
+                                                        {s(&b, "last_instruction")}
+                                                    </div>
                                                 }
-                                            })
-                                    }
-                                </section>
-                                <section class="card pad">
-                                    <h3>"认领的资源"</h3>
-                                    {
-                                        let claims = arr(&b, "claims");
-                                        if claims.is_empty() {
-                                            view! {
-                                                <div class="muted">"还没认领任何资源。"</div>
-                                            }
-                                                .into_any()
-                                        } else {
-                                            view! {
-                                                <ul class="bot-claims">
-                                                    {claims
-                                                        .into_iter()
-                                                        .map(|c| {
-                                                            let cid = s(&c, "id");
-                                                            view! {
-                                                                <li>
-                                                                    <span class="mono">
-                                                                        {format!("{} {}", s(&c, "node"), s(&c, "scope"))}
-                                                                    </span>
-                                                                    <span class="gchip">{s(&c, "mode")}</span>
-                                                                    {c["hands"]
-                                                                        .as_str()
-                                                                        .map(|h| {
-                                                                            view! { <span class="muted mono">{h.to_owned()}</span> }
-                                                                        })}
-                                                                    <span class="grow"></span>
-                                                                    <button
-                                                                        type="button"
-                                                                        class="btn small ghost"
-                                                                        disabled=move || busy.get()
-                                                                        on:click=move |_| call(
-                                                                            "DELETE",
-                                                                            format!("/api/claims/{}", api::enc(&cid)),
-                                                                            json!({}),
-                                                                            "已释放",
-                                                                        )
-                                                                    >
-                                                                        "释放"
-                                                                    </button>
-                                                                </li>
-                                                            }
-                                                        })
-                                                        .collect_view()}
-                                                </ul>
-                                            }
-                                                .into_any()
-                                        }
-                                    }
-                                    <div class="bot-claim-form">
-                                        <input
-                                            class="input mono"
-                                            placeholder="gpu:0,1 · dir:/data · repo"
-                                            prop:value=move || claim_scope.get()
-                                            on:input=move |e| claim_scope.set(event_target_value(&e))
-                                            on:keydown=move |e| {
-                                                if e.key() == "Enter" {
-                                                    add_claim()
-                                                }
-                                            }
-                                        />
-                                        <select
-                                            class="input"
-                                            on:change=move |e| claim_node.set(event_target_value(&e))
-                                        >
-                                            <option value="local" selected=true>
-                                                "local"
-                                            </option>
-                                            {nodes
-                                                .into_iter()
-                                                .filter(|n| n.name != "local")
-                                                .map(|n| {
+                                            })}
+                                        {
+                                            let steps = arr(&b, "recent");
+                                            (!steps.is_empty())
+                                                .then(|| {
                                                     view! {
-                                                        <option value=n.name.clone()>{n.name.clone()}</option>
+                                                        <ul class="bot-steps">
+                                                            {steps
+                                                                .into_iter()
+                                                                .map(|x| {
+                                                                    view! { <li>{x.as_str().unwrap_or("").to_owned()}</li> }
+                                                                })
+                                                                .collect_view()}
+                                                        </ul>
                                                     }
                                                 })
-                                                .collect_view()}
-                                        </select>
-                                        <select
-                                            class="input"
-                                            on:change=move |e| claim_mode.set(event_target_value(&e))
-                                        >
-                                            <option value="exclusive" selected=true>
-                                                "独占"
-                                            </option>
-                                            <option value="shared">"共用"</option>
-                                            <option value="read">"只读"</option>
-                                        </select>
-                                        <button
-                                            type="button"
-                                            class="btn small"
-                                            disabled=move || busy.get()
-                                            on:click=move |_| add_claim()
-                                        >
-                                            "认领"
-                                        </button>
-                                    </div>
-                                </section>
-                                <section class="card pad">
-                                    <h3>"线程"</h3>
-                                    <ul class="bot-claims">
-                                        {arr(&b, "all_threads")
-                                            .into_iter()
-                                            .map(|t| {
-                                                let tid = s(&t, "id");
-                                                let closed = !s(&t, "closed_at").is_empty();
-                                                let b7 = b4.clone();
+                                        }
+                                    </section>
+                                    <section class="card pad">
+                                        <h3>"认领的资源"</h3>
+                                        {
+                                            let claims = arr(&b, "claims");
+                                            if claims.is_empty() {
                                                 view! {
-                                                    <li>
-                                                        <span>
-                                                            {format!(
-                                                                "{}{}",
-                                                                s(&t, "kind"),
-                                                                if s(&t, "title").is_empty() {
-                                                                    String::new()
-                                                                } else {
-                                                                    format!(" · {}", s(&t, "title"))
-                                                                },
-                                                            )}
-                                                        </span>
-                                                        {t["thread_id"]
-                                                            .as_str()
-                                                            .map(|_| {
-                                                                view! { <span class="gchip ok">"已续接"</span> }
-                                                            })}
-                                                        {closed
-                                                            .then(|| view! { <span class="gchip">"已关闭"</span> })}
-                                                        <span class="grow"></span>
-                                                        {(!closed)
-                                                            .then(|| {
-                                                                view! {
-                                                                    <button
-                                                                        type="button"
-                                                                        class="btn small ghost"
-                                                                        disabled=move || busy.get()
-                                                                        on:click=move |_| call(
-                                                                            "POST",
-                                                                            format!(
-                                                                                "/api/bots/{}/threads/{}/close",
-                                                                                api::enc(&b7),
-                                                                                api::enc(&tid),
-                                                                            ),
-                                                                            json!({}),
-                                                                            "线程已关闭，下一封邮件开新对话",
-                                                                        )
-                                                                    >
-                                                                        "关闭"
-                                                                    </button>
-                                                                }
-                                                            })}
-                                                    </li>
+                                                    <div class="muted">"还没认领任何资源。"</div>
                                                 }
-                                            })
-                                            .collect_view()}
-                                    </ul>
-                                </section>
-                                {
-                                    let mem = arr(&b, "memories");
-                                    (!mem.is_empty())
-                                        .then(|| {
-                                            view! {
-                                                <section class="card pad">
-                                                    <h3>"它的 memory"</h3>
+                                                    .into_any()
+                                            } else {
+                                                view! {
                                                     <ul class="bot-claims">
-                                                        {mem
+                                                        {claims
                                                             .into_iter()
-                                                            .map(|m| {
+                                                            .map(|c| {
+                                                                let cid = s(&c, "id");
                                                                 view! {
                                                                     <li>
-                                                                        <span class="mono">{s(&m, "name")}</span>
-                                                                        <span class="muted">{s(&m, "description")}</span>
+                                                                        <span class="mono">
+                                                                            {format!("{} {}", s(&c, "node"), s(&c, "scope"))}
+                                                                        </span>
+                                                                        <span class="gchip">{s(&c, "mode")}</span>
+                                                                        {c["hands"]
+                                                                            .as_str()
+                                                                            .map(|h| {
+                                                                                view! { <span class="muted mono">{h.to_owned()}</span> }
+                                                                            })}
+                                                                        <span class="grow"></span>
+                                                                        <button
+                                                                            type="button"
+                                                                            class="btn small ghost"
+                                                                            disabled=move || busy.get()
+                                                                            on:click=move |_| call(
+                                                                                "DELETE",
+                                                                                format!("/api/claims/{}", api::enc(&cid)),
+                                                                                json!({}),
+                                                                                "已释放",
+                                                                            )
+                                                                        >
+                                                                            "释放"
+                                                                        </button>
                                                                     </li>
                                                                 }
                                                             })
                                                             .collect_view()}
                                                     </ul>
-                                                </section>
+                                                }
+                                                    .into_any()
                                             }
-                                        })
-                                }
+                                        }
+                                        <div class="bot-claim-form">
+                                            <input
+                                                class="input mono"
+                                                placeholder="gpu:0,1 · dir:/data · repo"
+                                                prop:value=move || claim_scope.get()
+                                                on:input=move |e| claim_scope.set(event_target_value(&e))
+                                                on:keydown=move |e| {
+                                                    if e.key() == "Enter" {
+                                                        add_claim()
+                                                    }
+                                                }
+                                            />
+                                            <select
+                                                class="input"
+                                                on:change=move |e| claim_node.set(event_target_value(&e))
+                                            >
+                                                <option value="local" selected=true>
+                                                    "local"
+                                                </option>
+                                                {nodes
+                                                    .into_iter()
+                                                    .filter(|n| n.name != "local")
+                                                    .map(|n| {
+                                                        view! {
+                                                            <option value=n.name.clone()>{n.name.clone()}</option>
+                                                        }
+                                                    })
+                                                    .collect_view()}
+                                            </select>
+                                            <select
+                                                class="input"
+                                                on:change=move |e| claim_mode.set(event_target_value(&e))
+                                            >
+                                                <option value="exclusive" selected=true>
+                                                    "独占"
+                                                </option>
+                                                <option value="shared">"共用"</option>
+                                                <option value="read">"只读"</option>
+                                            </select>
+                                            <button
+                                                type="button"
+                                                class="btn small"
+                                                disabled=move || busy.get()
+                                                on:click=move |_| add_claim()
+                                            >
+                                                "认领"
+                                            </button>
+                                        </div>
+                                    </section>
+                                    <section class="card pad">
+                                        <h3>"线程"</h3>
+                                        <ul class="bot-claims">
+                                            {arr(&b, "all_threads")
+                                                .into_iter()
+                                                .map(|t| {
+                                                    let tid = s(&t, "id");
+                                                    let closed = !s(&t, "closed_at").is_empty();
+                                                    let b7 = b4.clone();
+                                                    view! {
+                                                        <li>
+                                                            <span>
+                                                                {format!(
+                                                                    "{}{}",
+                                                                    s(&t, "kind"),
+                                                                    if s(&t, "title").is_empty() {
+                                                                        String::new()
+                                                                    } else {
+                                                                        format!(" · {}", s(&t, "title"))
+                                                                    },
+                                                                )}
+                                                            </span>
+                                                            {t["thread_id"]
+                                                                .as_str()
+                                                                .map(|_| {
+                                                                    view! { <span class="gchip ok">"已续接"</span> }
+                                                                })}
+                                                            {closed
+                                                                .then(|| view! { <span class="gchip">"已关闭"</span> })}
+                                                            <span class="grow"></span>
+                                                            {(!closed)
+                                                                .then(|| {
+                                                                    view! {
+                                                                        <button
+                                                                            type="button"
+                                                                            class="btn small ghost"
+                                                                            disabled=move || busy.get()
+                                                                            on:click=move |_| call(
+                                                                                "POST",
+                                                                                format!(
+                                                                                    "/api/bots/{}/threads/{}/close",
+                                                                                    api::enc(&b7),
+                                                                                    api::enc(&tid),
+                                                                                ),
+                                                                                json!({}),
+                                                                                "线程已关闭，下一封邮件开新对话",
+                                                                            )
+                                                                        >
+                                                                            "关闭"
+                                                                        </button>
+                                                                    }
+                                                                })}
+                                                        </li>
+                                                    }
+                                                })
+                                                .collect_view()}
+                                        </ul>
+                                    </section>
+                                    {
+                                        let mem = arr(&b, "memories");
+                                        (!mem.is_empty())
+                                            .then(|| {
+                                                view! {
+                                                    <section class="card pad">
+                                                        <h3>"它的 memory"</h3>
+                                                        <ul class="bot-claims">
+                                                            {mem
+                                                                .into_iter()
+                                                                .map(|m| {
+                                                                    view! {
+                                                                        <li>
+                                                                            <span class="mono">{s(&m, "name")}</span>
+                                                                            <span class="muted">{s(&m, "description")}</span>
+                                                                        </li>
+                                                                    }
+                                                                })
+                                                                .collect_view()}
+                                                        </ul>
+                                                    </section>
+                                                }
+                                            })
+                                    }
+                                </div>
                             </aside>
                         </div>
                     }
