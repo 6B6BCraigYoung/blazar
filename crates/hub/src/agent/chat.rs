@@ -382,9 +382,12 @@ pub async fn wait(
     let mut bus = st.bus.subscribe();
     loop {
         let row = sqlx::query(
-            "SELECT w.activity,
-                    (SELECT MAX(e.ts) FROM events e JOIN sessions s ON s.id = e.session_id WHERE s.workspace_id = w.id) AS last_event
-             FROM workspaces w WHERE w.id = ?1",
+            "SELECT w.activity, e.ts AS last_event, json_extract(e.payload, '$.type') AS last_kind
+             FROM workspaces w
+             LEFT JOIN events e ON e.rowid = (
+                 SELECT e2.rowid FROM events e2 JOIN sessions s ON s.id = e2.session_id
+                 WHERE s.workspace_id = w.id ORDER BY e2.ts DESC LIMIT 1)
+             WHERE w.id = ?1",
         )
         .bind(&id)
         .fetch_optional(st.db.pool())
@@ -413,7 +416,14 @@ pub async fn wait(
             return Json(json!({ "reached": true, "activity": activity, "last_reply": reply }))
                 .into_response();
         }
+        let in_tool = row
+            .try_get::<Option<String>, _>("last_kind")
+            .ok()
+            .flatten()
+            .as_deref()
+            == Some("tool_use");
         if running
+            && !in_tool
             && let Some(last) = row
                 .try_get::<Option<String>, _>("last_event")
                 .ok()
@@ -919,6 +929,53 @@ mod queue_tests {
 #[cfg(test)]
 mod wait_tests {
     use super::*;
+
+    async fn quiet_since(last: &str) -> Response {
+        let db = blazar_db::Db::open_in_memory().await.unwrap();
+        let st = crate::state::AppState::with_services(
+            db,
+            "local".into(),
+            None,
+            crate::mesh::MeshCtx::new(None, std::env::temp_dir().join("blazar-wait-tests")),
+            crate::services::Services::Isolated,
+        );
+        for setup in [
+            "INSERT INTO nodes (id, name, transport, created_at) VALUES ('node', 'local', 'local', '0')",
+            "INSERT INTO workspaces (id, node_id, name, path, created_at, activity)
+             VALUES ('w', 'node', 'repo', '/repo', '0', 'running')",
+            "INSERT INTO sessions (id, workspace_id, runtime_kind, created_at) VALUES ('s', 'w', 'claude', '0')",
+        ] {
+            sqlx::query(setup).execute(st.db.pool()).await.unwrap();
+        }
+        let ten_minutes_ago = (Utc::now() - chrono::Duration::minutes(10)).to_rfc3339();
+        sqlx::query("INSERT INTO events (session_id, seq, ts, payload) VALUES ('s', 1, ?1, ?2)")
+            .bind(&ten_minutes_ago)
+            .bind(last)
+            .execute(st.db.pool())
+            .await
+            .unwrap();
+        wait(
+            State(st),
+            Path("w".into()),
+            axum::extract::Query(WaitQuery {
+                timeout: Some(1),
+                stall: Some(60),
+                ..WaitQuery::default()
+            }),
+        )
+        .await
+    }
+
+    #[tokio::test]
+    async fn a_long_tool_call_is_not_a_stall() {
+        let busy = quiet_since(
+            r#"{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"python train.py"}}"#,
+        )
+        .await;
+        assert_eq!(busy.status(), StatusCode::OK);
+        let quiet = quiet_since(r#"{"type":"assistant_message","text":"开始训练"}"#).await;
+        assert_eq!(quiet.status(), StatusCode::REQUEST_TIMEOUT);
+    }
 
     #[tokio::test]
     async fn a_wait_that_runs_out_is_an_answer_not_an_error() {
