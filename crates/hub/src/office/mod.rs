@@ -67,7 +67,21 @@ pub async fn prefs(st: &Shared) -> Value {
             "enabled": saved["fleet"]["enabled"].as_bool().unwrap_or(false),
         },
         "rules": crate::bots::rules::settings_of(&saved["rules"]),
+        "bots": {
+            "max_concurrent": crate::bots::dispatch::max_concurrent_of(&saved),
+        },
     })
+}
+
+fn overlay(base: &mut Value, top: &Value) {
+    match (base, top) {
+        (Value::Object(b), Value::Object(t)) => {
+            for (k, v) in t {
+                overlay(b.entry(k.clone()).or_insert(Value::Null), v);
+            }
+        }
+        (b, t) => *b = t.clone(),
+    }
 }
 
 fn valid_branch_prefix(p: &str) -> bool {
@@ -111,12 +125,34 @@ pub async fn put_prefs(State(st): State<Shared>, Json(b): Json<Value>) -> Respon
             .collect();
         cur["inbox"]["muted"] = json!(kinds);
     }
+    if let Some(n) = b["bots"].get("max_concurrent") {
+        match n
+            .as_u64()
+            .filter(|n| (1..=crate::bots::dispatch::MAX_CONCURRENT_LIMIT).contains(n))
+        {
+            Some(n) => cur["bots"]["max_concurrent"] = json!(n),
+            None => {
+                return fail(
+                    StatusCode::BAD_REQUEST,
+                    format!(
+                        "同时运行的 bot 上限要在 1 到 {} 之间",
+                        crate::bots::dispatch::MAX_CONCURRENT_LIMIT
+                    ),
+                );
+            }
+        }
+    }
     if !b["rules"].is_null()
         && let Err(e) = crate::bots::rules::merge(&mut cur["rules"], &b["rules"])
     {
         return fail(StatusCode::BAD_REQUEST, e);
     }
-    match kv_put(&st, "prefs", &cur).await {
+    let mut next = kv_get(&st, "prefs").await;
+    if !next.is_object() {
+        next = json!({});
+    }
+    overlay(&mut next, &cur);
+    match kv_put(&st, "prefs", &next).await {
         Ok(()) => Json(cur).into_response(),
         Err(e) => fail(StatusCode::INTERNAL_SERVER_ERROR, e),
     }
@@ -924,6 +960,65 @@ mod tests {
         .await;
         assert_eq!(off.status(), StatusCode::OK);
         assert!(!crate::fleet::enabled(&st).await);
+    }
+
+    #[tokio::test]
+    async fn saving_other_settings_keeps_the_bot_limit_and_unknown_keys() {
+        let db = blazar_db::Db::open_in_memory().await.unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let st = crate::state::AppState::with_services(
+            db,
+            "local".into(),
+            None,
+            crate::mesh::MeshCtx::new(None, root.path().to_path_buf()),
+            crate::services::Services::Isolated,
+        );
+        let put = |body: Value| put_prefs(State(st.clone()), Json(body));
+        assert_eq!(prefs(&st).await["bots"]["max_concurrent"], 6);
+        kv_put(
+            &st,
+            "prefs",
+            &json!({ "bots": { "max_concurrent": 3 }, "later": { "x": 1 } }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(crate::bots::dispatch::max_concurrent(&st).await, 3);
+        for body in [
+            json!({ "fleet": { "enabled": true } }),
+            json!({ "git": { "branch_prefix": "me/" } }),
+            json!({ "inbox": { "muted": ["job"] } }),
+            json!({ "rules": { "bot_stuck": { "threshold": 30 } } }),
+        ] {
+            assert_eq!(put(body.clone()).await.status(), StatusCode::OK, "{body}");
+            assert_eq!(
+                crate::bots::dispatch::max_concurrent(&st).await,
+                3,
+                "保存 {body} 后上限还在"
+            );
+        }
+        let raw = kv_get(&st, "prefs").await;
+        assert_eq!(raw["later"], json!({ "x": 1 }), "不认识的键也保留");
+        assert_eq!(raw["git"]["branch_prefix"], "me/");
+        assert_eq!(raw["rules"]["bot_stuck"]["threshold"], 30);
+
+        assert_eq!(
+            put(json!({ "bots": { "max_concurrent": 16 } }))
+                .await
+                .status(),
+            StatusCode::OK
+        );
+        assert_eq!(crate::bots::dispatch::max_concurrent(&st).await, 16);
+        for bad in [json!(0), json!(17), json!(-1), json!(2.5), json!("4")] {
+            assert_eq!(
+                put(json!({ "bots": { "max_concurrent": bad } }))
+                    .await
+                    .status(),
+                StatusCode::BAD_REQUEST,
+                "{bad}"
+            );
+        }
+        assert_eq!(crate::bots::dispatch::max_concurrent(&st).await, 16);
+        assert_eq!(prefs(&st).await["bots"]["max_concurrent"], 16);
     }
 
     #[test]

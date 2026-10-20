@@ -8,13 +8,19 @@ use super::{Bot, Mail, status};
 use crate::api::Shared;
 
 pub const DEFAULT_MAX_CONCURRENT: u64 = 6;
+pub const MAX_CONCURRENT_LIMIT: u64 = 16;
 const TICK: Duration = Duration::from_secs(5);
 
-pub async fn max_concurrent(st: &Shared) -> u64 {
-    crate::office::kv_get(st, "prefs").await["bots"]["max_concurrent"]
+#[must_use]
+pub fn max_concurrent_of(prefs: &Value) -> u64 {
+    prefs["bots"]["max_concurrent"]
         .as_u64()
         .filter(|n| (1..=64).contains(n))
         .unwrap_or(DEFAULT_MAX_CONCURRENT)
+}
+
+pub async fn max_concurrent(st: &Shared) -> u64 {
+    max_concurrent_of(&crate::office::kv_get(st, "prefs").await)
 }
 
 pub async fn scheduler(st: Shared) {
