@@ -477,6 +477,7 @@ async fn a_failure_halfway_rolls_everything_back() {
         err.contains("disk on fire") && err.contains("回滚"),
         "{err}"
     );
+    assert!(!b.root.path().join("bots").exists());
     for table in [
         "agents",
         "skills",

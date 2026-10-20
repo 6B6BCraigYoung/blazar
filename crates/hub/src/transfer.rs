@@ -1594,6 +1594,28 @@ pub async fn apply(conn: &mut SqliteConnection, plan: &Plan) -> Result<(), Strin
     Ok(())
 }
 
+fn fresh_dirs(plan: &Plan) -> Vec<std::path::PathBuf> {
+    let Some(root) = plan.bot_home.as_deref() else {
+        return Vec::new();
+    };
+    let mut fresh = Vec::new();
+    for op in &plan.ops {
+        let Op::Bot(b) = op else { continue };
+        let mut dir = Some(root.join(&b.handle));
+        while let Some(d) = dir {
+            if d.exists() {
+                break;
+            }
+            dir = d.parent().map(std::path::Path::to_path_buf);
+            if !fresh.contains(&d) {
+                fresh.push(d);
+            }
+        }
+    }
+    fresh.sort_by_key(|d| std::cmp::Reverse(d.components().count()));
+    fresh
+}
+
 pub async fn import(
     st: &Shared,
     file: &ExportFile,
@@ -1611,8 +1633,20 @@ pub async fn import(
         .await
         .map_err(|e| e.to_string())?;
     let plan = plan(&mut tx, file, opts).await?;
-    apply(&mut tx, &plan).await?;
-    tx.commit().await.map_err(|e| e.to_string())?;
+    let fresh = fresh_dirs(&plan);
+    let done = match apply(&mut tx, &plan).await {
+        Ok(()) => tx.commit().await.map_err(|e| e.to_string()),
+        Err(err) => {
+            drop(tx);
+            Err(err)
+        }
+    };
+    if let Err(err) = done {
+        for dir in fresh {
+            let _ = std::fs::remove_dir(dir);
+        }
+        return Err(err);
+    }
     let mut report = plan.report;
     report.dry_run = false;
     report.applied = true;
