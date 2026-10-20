@@ -15,6 +15,13 @@ fn s(t: &str, desc: &str) -> Value {
 fn obj(props: Value, required: &[&str]) -> Value {
     json!({ "type": "object", "properties": props, "required": required })
 }
+fn waits_for() -> Value {
+    json!({
+        "type": "array",
+        "description": "它在等什么；任何一项不在了，hub 会提醒你（job_orphan）。每项只写一个键：{\"node\": 机器名} / {\"fact\": 事实 key} / {\"path\": 任务所在机器上的绝对路径} / {\"job\": 后台任务 id}",
+        "items": { "type": "object" },
+    })
+}
 fn arg<'a>(v: &'a Value, k: &str) -> anyhow::Result<&'a str> {
     v.get(k)
         .and_then(Value::as_str)
@@ -524,6 +531,7 @@ pub const TOOLS: &[Tool] = &[
                     "cwd": s("string", "工作目录，相对路径相对工作区根目录；留空用工作区根目录"),
                     "deadline_mins": s("integer", "多少分钟后还没结束就提醒一次（只提醒，不会结束它）"),
                     "notify": s("string", "结束时怎么通知：wake（默认，唤醒发起方）/ inbox（只进收件箱）/ none"),
+                    "waits_for": waits_for(),
                 }),
                 &["workspace_id", "command", "label"],
             )
@@ -548,6 +556,7 @@ pub const TOOLS: &[Tool] = &[
                     "log_path": s("string", "它的日志文件（绝对路径），可省；给了才能用 job_log 看"),
                     "deadline_mins": s("integer", "多少分钟后还没结束就提醒一次"),
                     "notify": s("string", "wake（默认）/ inbox / none"),
+                    "waits_for": waits_for(),
                 }),
                 &["pid", "label"],
             )
@@ -924,6 +933,10 @@ mod tests {
         .unwrap();
         assert_eq!((m, url.as_str()), ("POST", "/api/jobs"));
         assert_eq!(body.unwrap()["deadline_mins"], 5);
+        for name in ["job_spawn", "job_register"] {
+            let schema = (find(name).unwrap().schema)();
+            assert_eq!(schema["properties"]["waits_for"]["type"], "array");
+        }
         assert!((find("job_spawn").unwrap().build)(&json!({ "workspace_id": "w1" })).is_err());
         assert!(
             (find("job_register").unwrap().build)(&json!({ "node": "local", "label": "x" }))
