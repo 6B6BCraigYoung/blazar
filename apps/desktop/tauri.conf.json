@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "identifier": "ai.blazar.desktop",
   "build": {
-    "frontendDist": "../../crates/hub/static"
+    "frontendDist": "ui"
   },
   "app": {
     "withGlobalTauri": true,

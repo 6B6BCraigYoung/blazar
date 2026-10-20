@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "hub-mode"
+description = "Read and change which hub this desktop app uses."
+commands.allow = ["hub_mode", "test_remote_hub", "set_hub_mode", "retry_hub"]

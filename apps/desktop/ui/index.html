@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Blazar</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f5f5f7;
+    --card: #ffffff;
+    --text: #1d1d1f;
+    --muted: #6e6e73;
+    --line: #d2d2d7;
+    --accent: #0071e3;
+    --code: #f0f0f2;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1c1c1e;
+      --card: #2c2c2e;
+      --text: #f5f5f7;
+      --muted: #a1a1a6;
+      --line: #3a3a3c;
+      --accent: #0a84ff;
+      --code: #232325;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", sans-serif;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  main {
+    width: 440px;
+    padding: 32px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: var(--card);
+  }
+  h1 {
+    margin: 0 0 8px;
+    font-size: 20px;
+    font-weight: 600;
+    line-height: 28px;
+    height: 28px;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  p { margin: 0; color: var(--muted); }
+  pre {
+    height: 64px;
+    margin: 16px 0 24px;
+    padding: 10px 12px;
+    overflow: auto;
+    border-radius: 8px;
+    background: var(--code);
+    color: var(--text);
+    font: 12px/1.5 ui-monospace, "SF Mono", Menlo, monospace;
+    white-space: pre-wrap;
+    word-break: break-all;
+    -webkit-user-select: text;
+    user-select: text;
+  }
+  .actions { display: flex; gap: 8px; justify-content: flex-end; }
+  button {
+    min-width: 120px;
+    height: 30px;
+    padding: 0 14px;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    background: var(--card);
+    color: var(--text);
+    font: inherit;
+    cursor: default;
+  }
+  button.primary { border-color: var(--accent); background: var(--accent); color: #fff; }
+  button:disabled { opacity: 0.5; }
+</style>
+</head>
+<body>
+<main>
+  <h1 id="title">正在连接 hub</h1>
+  <p id="note">经 SSH 隧道连接远程机器上的 hub，最多等 15 秒。</p>
+  <pre id="error"></pre>
+  <div class="actions">
+    <button id="local" type="button">改用本机 hub</button>
+    <button id="retry" type="button" class="primary">重试</button>
+  </div>
+</main>
+<script>
+  const invoke = window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke;
+  const $ = (id) => document.getElementById(id);
+  let busy = false;
+  let timer = 0;
+  let last = {};
+
+  function render(state) {
+    const host = state.label || "远程机器";
+    const connecting = busy || state.phase === "connecting";
+    if (connecting) {
+      $("title").textContent = `正在连接 ${host} 上的 hub`;
+      $("note").textContent = "经 SSH 隧道连接，最多等 15 秒。";
+    } else {
+      $("title").textContent = `连不上 ${host} 上的 hub`;
+      $("note").textContent = "确认那台机器开着、hub 在运行、这台电脑能用 SSH 登录它。";
+    }
+    $("error").textContent = connecting ? "" : (state.error || "");
+    $("retry").disabled = connecting;
+    $("local").disabled = busy;
+  }
+
+  async function refresh() {
+    clearTimeout(timer);
+    if (!invoke) {
+      $("title").textContent = "连不上 hub";
+      $("note").textContent = "这个页面要在 Blazar 桌面端里打开。";
+      $("retry").disabled = true;
+      $("local").disabled = true;
+      return;
+    }
+    try {
+      const state = await invoke("hub_mode");
+      last = state;
+      render(state);
+    } catch (e) {
+      $("error").textContent = String(e);
+    }
+    timer = setTimeout(refresh, last.phase === "connecting" || busy ? 500 : 2000);
+  }
+
+  $("retry").addEventListener("click", async () => {
+    busy = true;
+    render({ ...last, phase: "connecting" });
+    try {
+      await invoke("retry_hub");
+    } catch (e) {
+      busy = false;
+      await refresh();
+      return;
+    }
+    busy = false;
+    refresh();
+  });
+
+  $("local").addEventListener("click", async () => {
+    busy = true;
+    $("retry").disabled = true;
+    $("local").disabled = true;
+    try {
+      await invoke("set_hub_mode", { mode: "embedded" });
+    } catch (e) {
+      busy = false;
+      $("error").textContent = String(e);
+      $("retry").disabled = false;
+      $("local").disabled = false;
+    }
+  });
+
+  refresh();
+</script>
+</body>
+</html>

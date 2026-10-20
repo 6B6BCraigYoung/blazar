@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
-use blazar_hub::accounts::{self, MenuProvider};
-use blazar_hub::state::{AppState, ServerEvent};
+use blazar_hub::accounts::MenuProvider;
 use tauri::image::Image;
 use tauri::menu::{
     AboutMetadata, CheckMenuItem, Menu, MenuItem, MenuItemKind, PredefinedMenuItem, Submenu,
@@ -9,7 +8,11 @@ use tauri::menu::{
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Manager, Wry};
 
+use crate::backend::Hub;
+
 const TRAY_ICON: &[u8] = include_bytes!("../icons/tray-36.rgba");
+
+const LOCAL_HUB: &str = "hub-local";
 
 const REPO: &str = "https://github.com/6B6BCraigYoung/blazar";
 
@@ -17,7 +20,7 @@ struct AccountMenu(Vec<Submenu<Wry>>);
 
 pub fn install(
     app: &AppHandle,
-    state: Arc<AppState>,
+    hub: Arc<Hub>,
     rt: tokio::runtime::Handle,
     with_tray: bool,
 ) -> tauri::Result<()> {
@@ -25,7 +28,7 @@ pub fn install(
     let menu = Menu::with_items(
         app,
         &[
-            &app_menu(app)?,
+            &app_menu(app, hub.remote().is_some())?,
             &file_menu(app)?,
             &edit_menu(app)?,
             &view_menu(app)?,
@@ -51,24 +54,24 @@ pub fn install(
     app.manage(AccountMenu(accounts));
 
     let handle = app.clone();
-    let st = state.clone();
+    let watched = hub.clone();
     rt.spawn(async move {
-        let mut bus = st.bus.subscribe();
+        let mut watch = watched.watch_accounts();
         loop {
-            let snapshot = accounts::menu_state(&st).await;
-            let h = handle.clone();
-            let _ = handle.run_on_main_thread(move || {
-                if let Err(e) = fill_accounts(&h, &snapshot.0, &snapshot.1) {
-                    tracing::warn!("账号菜单刷新失败：{e}");
+            match watched.account_menu().await {
+                Ok((global, providers)) => {
+                    tracing::debug!(providers = providers.len(), global, "账号菜单已刷新");
+                    let h = handle.clone();
+                    let _ = handle.run_on_main_thread(move || {
+                        if let Err(e) = fill_accounts(&h, &global, &providers) {
+                            tracing::warn!("账号菜单刷新失败：{e}");
+                        }
+                    });
                 }
-            });
-            loop {
-                match bus.recv().await {
-                    Ok(ServerEvent::AccountsChanged) => break,
-                    Ok(_) => {}
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => break,
-                    Err(_) => return,
-                }
+                Err(e) => tracing::debug!("账号菜单这次没刷新：{e}"),
+            }
+            if !watch.next().await {
+                return;
             }
         }
     });
@@ -78,22 +81,29 @@ pub fn install(
         if let Some(rest) = id.strip_prefix("acct:") {
             let (provider, mode) = rest.split_once(':').unwrap_or((rest, ""));
             let (provider, mode) = (provider.to_owned(), mode.to_owned());
-            let (st, app) = (state.clone(), app.clone());
+            let (hub, app) = (hub.clone(), app.clone());
             rt.spawn(async move {
-                if let Err(e) = accounts::choose(&st, &provider, &mode).await {
+                if let Err(e) = hub.choose(&provider, &mode).await {
                     toast(&app, &format!("切换账号失败：{e}"));
                 }
-                st.emit(ServerEvent::AccountsChanged);
+                hub.accounts_changed();
             });
         } else if id == "acct-global" {
-            let (st, app) = (state.clone(), app.clone());
+            let (hub, app) = (hub.clone(), app.clone());
             rt.spawn(async move {
-                let (enabled, _) = accounts::menu_state(&st).await;
-                if let Err(e) = accounts::set_global(&st, !enabled).await {
+                let result = match hub.account_menu().await {
+                    Ok((enabled, _)) => hub.set_global(!enabled).await,
+                    Err(e) => Err(e),
+                };
+                if let Err(e) = result {
                     toast(&app, &format!("同步全局登录失败：{e}"));
                 }
-                st.emit(ServerEvent::AccountsChanged);
+                hub.accounts_changed();
             });
+        } else if id == LOCAL_HUB {
+            if let Err(e) = crate::commands::switch(app, &crate::hub_mode::HubMode::Embedded) {
+                toast(app, &format!("切换失败：{e}"));
+            }
         } else if id == "quit" {
             crate::QUITTING.store(true, std::sync::atomic::Ordering::SeqCst);
             app.exit(0);
@@ -155,7 +165,7 @@ fn dispatch(app: &AppHandle, id: &str) {
     }
 }
 
-fn toast(app: &AppHandle, message: &str) {
+pub fn toast(app: &AppHandle, message: &str) {
     dispatch(app, &format!("toast:{message}"));
 }
 
@@ -168,14 +178,14 @@ fn item(
     MenuItem::with_id(app, id, text, true, accel)
 }
 
-fn app_menu(app: &AppHandle) -> tauri::Result<Submenu<Wry>> {
+fn app_menu(app: &AppHandle, remote: bool) -> tauri::Result<Submenu<Wry>> {
     let about = AboutMetadata {
         name: Some("Blazar".into()),
         version: Some(app.package_info().version.to_string()),
         website: Some(REPO.into()),
         ..Default::default()
     };
-    Submenu::with_items(
+    let menu = Submenu::with_items(
         app,
         "Blazar",
         true,
@@ -192,7 +202,11 @@ fn app_menu(app: &AppHandle) -> tauri::Result<Submenu<Wry>> {
             &PredefinedMenuItem::separator(app)?,
             &item(app, "quit", "退出 Blazar", None)?,
         ],
-    )
+    )?;
+    if remote {
+        menu.insert(&item(app, LOCAL_HUB, "改用本机 hub 并重启", None)?, 3)?;
+    }
+    Ok(menu)
 }
 
 fn file_menu(app: &AppHandle) -> tauri::Result<Submenu<Wry>> {

@@ -1,22 +1,32 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use std::net::SocketAddr;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
-use blazar_hub::state::AppState;
 use tauri::utils::config::BackgroundThrottlingPolicy;
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
+use crate::backend::Hub;
+use crate::remote::{Phase, RemoteHub};
+
+mod backend;
+mod commands;
+mod hub_mode;
 mod menu;
 mod profile;
+mod remote;
+
+const BUNDLED_PAGE: &str = "index.html";
+
+static STARTUP_NOTICE: Mutex<Option<&'static str>> = Mutex::new(None);
 
 fn dev_instance() -> bool {
     std::env::var("BLAZAR_DEV_INSTANCE").is_ok_and(|v| v == "1")
 }
 
 static QUITTING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static RESTART: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 fn main() {
     let argv: Vec<String> = std::env::args().collect();
@@ -70,72 +80,66 @@ fn init_logging() {
 
 fn run() -> Result<()> {
     let rt = tokio::runtime::Runtime::new().context("创建 tokio 运行时失败")?;
-    let mut cfg = profile::hub_config()?;
-    tracing::info!("数据目录: {}", cfg.db_path.display());
-
-    let port_file = profile::data_dir()?.join("hub.port");
-    let saved: u16 = std::fs::read_to_string(&port_file)
-        .ok()
-        .and_then(|s| s.trim().parse().ok())
-        .unwrap_or(0);
-    let free = saved != 0 && std::net::TcpListener::bind(("127.0.0.1", saved)).is_ok();
-    cfg.bind = ([127, 0, 0, 1], if free { saved } else { 0 }).into();
-    let (addr, state) = rt
-        .block_on(blazar_hub::spawn(cfg))
-        .context("启动内嵌 hub 失败")?;
-    if addr.port() != saved {
-        let _ = std::fs::write(&port_file, addr.port().to_string());
-    }
-    tracing::info!("内嵌 hub 已就绪: http://{addr}");
-
-    let (badge_tx, badge_rx) = tokio::sync::oneshot::channel::<tauri::WebviewWindow>();
-    let badge_state = state.clone();
-    rt.spawn(async move {
-        let Ok(win) = badge_rx.await else { return };
-        let mut bus = badge_state.bus.subscribe();
-        let mut shown = -1;
-        loop {
-            let n = blazar_hub::inbox::unread(&badge_state).await;
-            if n != shown {
-                let _ = win.set_badge_count((n > 0).then_some(n));
-                shown = n;
-            }
-
-            loop {
-                match tokio::time::timeout(std::time::Duration::from_secs(60), bus.recv()).await {
-                    Ok(Ok(blazar_hub::state::ServerEvent::InboxChanged)) | Ok(Err(_)) | Err(_) => {
-                        break;
-                    }
-                    Ok(Ok(_)) => {}
-                }
-            }
+    let dir = profile::data_dir()?;
+    let mode = hub_mode::HubMode::load(&dir);
+    let url_override = std::env::var(hub_mode::URL_ENV).ok();
+    let hub = Arc::new(match mode.target(url_override.as_deref()) {
+        Some(target) => {
+            tracing::info!("远程模式，连 {} 上的 hub", target.label());
+            let _enter = rt.enter();
+            Hub::Remote(Arc::new(
+                RemoteHub::new(target, &dir.join(remote::PORTS_FILE))
+                    .context("启动 SSH 隧道失败")?,
+            ))
         }
+        None => start_embedded(&rt)?,
     });
 
+    let (badge_tx, badge_rx) = tokio::sync::oneshot::channel::<tauri::WebviewWindow>();
+    rt.spawn(badge(hub.clone(), badge_rx));
+
     let rt_handle = rt.handle().clone();
-    let menu_state = state.clone();
+    let setup_hub = hub.clone();
     let _guard = rt;
 
     for arg in std::env::args_os().skip(1) {
-        accept_invite_file(&state, Path::new(&arg));
+        if let Some(text) = read_invite_file(Path::new(&arg))
+            && let Err(notice) = hub.accept_invite(text)
+        {
+            *STARTUP_NOTICE.lock().unwrap() = Some(notice);
+        }
     }
 
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
-        .invoke_handler(tauri::generate_handler![hub_address, data_dir])
+        .invoke_handler(tauri::generate_handler![
+            commands::hub_mode,
+            commands::test_remote_hub,
+            commands::set_hub_mode,
+            commands::retry_hub,
+        ])
         .setup(move |app| {
-            let url = format!("http://{addr}")
-                .parse()
-                .expect("内嵌 hub 地址应为合法 URL");
-
+            let hub = setup_hub;
             let geo = window_geometry::load();
             let dev = dev_instance();
             #[cfg(target_os = "macos")]
             if dev {
                 app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             }
-            let mut b = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
-                .title(if dev { "Blazar Dev" } else { "Blazar" })
+            let base = if dev { "Blazar Dev" } else { "Blazar" };
+            let (url, title) = match hub.remote() {
+                None => (
+                    WebviewUrl::External(hub.url().parse().expect("内嵌 hub 地址应为合法 URL")),
+                    base.to_owned(),
+                ),
+                Some(r) => (
+                    WebviewUrl::App(BUNDLED_PAGE.into()),
+                    format!("{base} — {}", r.target.label()),
+                ),
+            };
+            tracing::info!(%title, "主窗口");
+            let mut b = WebviewWindowBuilder::new(app, "main", url)
+                .title(title)
                 .focused(!dev)
                 .inner_size(geo.map_or(1440.0, |g| g.w), geo.map_or(900.0, |g| g.h))
                 .min_inner_size(900.0, 600.0)
@@ -154,6 +158,21 @@ fn run() -> Result<()> {
                         reveal_download(&path);
                     }
                     true
+                })
+                .on_page_load(|webview, payload| {
+                    if payload.event() == tauri::webview::PageLoadEvent::Finished {
+                        tracing::info!(url = %payload.url(), "页面已加载");
+                    }
+                    if payload.event() == tauri::webview::PageLoadEvent::Finished
+                        && payload.url().scheme() == "http"
+                        && let Some(notice) = STARTUP_NOTICE.lock().unwrap().take()
+                    {
+                        let app = webview.app_handle().clone();
+                        std::thread::spawn(move || {
+                            std::thread::sleep(std::time::Duration::from_secs(2));
+                            menu::toast(&app, notice);
+                        });
+                    }
                 });
             if let Some(g) = geo {
                 b = b.position(g.x, g.y);
@@ -164,6 +183,7 @@ fn run() -> Result<()> {
             let win = b.build()?;
             let _ = badge_tx.send(win.clone());
             let w2 = win.clone();
+            let focus_hub = hub.clone();
             win.on_window_event(move |e| match e {
                 tauri::WindowEvent::CloseRequested { api, .. } => {
                     window_geometry::save(&w2);
@@ -180,10 +200,22 @@ fn run() -> Result<()> {
                 tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) => {
                     window_geometry::save(&w2);
                 }
+                tauri::WindowEvent::Focused(true) => focus_hub.inbox_maybe_changed(),
                 _ => {}
             });
-            app.manage(HubAddr(addr));
-            menu::install(app.handle(), menu_state.clone(), rt_handle.clone(), !dev)?;
+            if let Some(r) = hub.remote() {
+                rt_handle.spawn(watch_remote(r.clone(), app.handle().clone()));
+                rt_handle.spawn(quit_on_signal(app.handle().clone()));
+            }
+            app.add_capability(
+                tauri::ipc::CapabilityBuilder::new("hub-page")
+                    .remote(format!("{}/*", hub.url()))
+                    .local(false)
+                    .window("main")
+                    .permission("hub-mode"),
+            )?;
+            app.manage(hub.clone());
+            menu::install(app.handle(), hub, rt_handle.clone(), !dev)?;
             Ok(())
         })
         .build(tauri::generate_context!())
@@ -192,6 +224,12 @@ fn run() -> Result<()> {
     app.run(move |handle, event| {
         if let tauri::RunEvent::ExitRequested { .. } = &event {
             QUITTING.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+        if let tauri::RunEvent::Exit = &event {
+            hub.shutdown();
+            if RESTART.load(std::sync::atomic::Ordering::SeqCst) {
+                restart();
+            }
         }
         #[cfg(target_os = "macos")]
         if let tauri::RunEvent::Reopen { .. } = &event
@@ -206,8 +244,12 @@ fn run() -> Result<()> {
         if let tauri::RunEvent::Opened { urls } = &event {
             let mut got = false;
             for u in urls {
-                if let Ok(p) = u.to_file_path() {
-                    got |= accept_invite_file(&state, &p);
+                let Some(text) = u.to_file_path().ok().and_then(|p| read_invite_file(&p)) else {
+                    continue;
+                };
+                match hub.accept_invite(text) {
+                    Ok(()) => got = true,
+                    Err(notice) => menu::toast(handle, notice),
                 }
             }
             if got {
@@ -218,6 +260,154 @@ fn run() -> Result<()> {
         let _ = (handle, &event);
     });
     Ok(())
+}
+
+fn start_embedded(rt: &tokio::runtime::Runtime) -> Result<Hub> {
+    let mut cfg = profile::hub_config()?;
+    tracing::info!("数据目录: {}", cfg.db_path.display());
+
+    let port_file = profile::data_dir()?.join("hub.port");
+    let saved: u16 = std::fs::read_to_string(&port_file)
+        .ok()
+        .and_then(|s| s.trim().parse().ok())
+        .unwrap_or(0);
+    let free = saved != 0 && std::net::TcpListener::bind(("127.0.0.1", saved)).is_ok();
+    cfg.bind = ([127, 0, 0, 1], if free { saved } else { 0 }).into();
+    let (addr, state) = rt
+        .block_on(blazar_hub::spawn(cfg))
+        .context("启动内嵌 hub 失败")?;
+    if addr.port() != saved {
+        let _ = std::fs::write(&port_file, addr.port().to_string());
+    }
+    tracing::info!("内嵌 hub 已就绪: http://{addr}");
+    Ok(Hub::Embedded {
+        state,
+        url: format!("http://{addr}"),
+    })
+}
+
+async fn badge(hub: Arc<Hub>, window: tokio::sync::oneshot::Receiver<tauri::WebviewWindow>) {
+    let Ok(win) = window.await else { return };
+    let mut watch = hub.watch_inbox();
+    let mut shown = -1;
+    loop {
+        match hub.unread().await {
+            Ok(n) => {
+                tracing::debug!(unread = n, "角标已刷新");
+                if n != shown {
+                    let _ = win.set_badge_count((n > 0).then_some(n));
+                    shown = n;
+                }
+            }
+            Err(e) => tracing::debug!("角标这次没刷新：{e}"),
+        }
+        if !watch.next().await {
+            return;
+        }
+    }
+}
+
+fn bundled_url() -> tauri::Url {
+    let origin = if cfg!(windows) {
+        "http://tauri.localhost/"
+    } else {
+        "tauri://localhost/"
+    };
+    format!("{origin}{BUNDLED_PAGE}")
+        .parse()
+        .expect("随包页面地址应为合法 URL")
+}
+
+fn point_window(app: &tauri::AppHandle, url: &str) {
+    let Some(win) = app.get_webview_window("main") else {
+        return;
+    };
+    let Ok(url) = url.parse::<tauri::Url>() else {
+        return;
+    };
+    if win.url().is_ok_and(|current| {
+        current.scheme() == url.scheme()
+            && current.host_str() == url.host_str()
+            && current.port() == url.port()
+    }) {
+        return;
+    }
+    if let Err(e) = win.navigate(url) {
+        tracing::warn!("窗口换不了页面：{e}");
+    }
+}
+
+async fn watch_remote(r: Arc<RemoteHub>, app: tauri::AppHandle) {
+    loop {
+        r.set_phase(Phase::Connecting);
+        if r.wait_reachable().await {
+            tracing::info!("远程 hub 已连上：{}", r.base);
+            r.set_phase(Phase::Connected);
+            point_window(&app, &r.base);
+            r.inbox_kick.notify_one();
+            r.accounts_kick.notify_one();
+            let mut misses = 0;
+            while misses < 3 {
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                if r.reachable().await {
+                    misses = 0;
+                } else {
+                    misses += 1;
+                }
+            }
+            tracing::warn!("远程 hub 连不上了：{}", r.target.label());
+        }
+        let error = r.failure();
+        tracing::warn!("连不上 {} 上的 hub：{error}", r.target.label());
+        r.set_phase(Phase::Failed(error));
+        point_window(&app, bundled_url().as_str());
+        tokio::select! {
+            () = r.retry.notified() => {}
+            () = tokio::time::sleep(std::time::Duration::from_secs(30)) => {}
+        }
+        if let Some(tunnel) = &r.tunnel {
+            tunnel.kick();
+        }
+    }
+}
+
+#[cfg(unix)]
+async fn quit_on_signal(app: tauri::AppHandle) {
+    use tokio::signal::unix::{SignalKind, signal};
+
+    let (Ok(mut term), Ok(mut int), Ok(mut hup)) = (
+        signal(SignalKind::terminate()),
+        signal(SignalKind::interrupt()),
+        signal(SignalKind::hangup()),
+    ) else {
+        return;
+    };
+    tokio::select! {
+        _ = term.recv() => {}
+        _ = int.recv() => {}
+        _ = hup.recv() => {}
+    }
+    tracing::info!("收到退出信号");
+    QUITTING.store(true, std::sync::atomic::Ordering::SeqCst);
+    app.exit(0);
+}
+
+#[cfg(not(unix))]
+async fn quit_on_signal(app: tauri::AppHandle) {
+    let _ = app;
+}
+
+fn restart() {
+    let Ok(exe) = std::env::current_exe() else {
+        return;
+    };
+    match std::process::Command::new(exe)
+        .env_remove(hub_mode::URL_ENV)
+        .spawn()
+    {
+        Ok(_) => tracing::info!("应用已重启"),
+        Err(e) => tracing::warn!("重启失败：{e}"),
+    }
 }
 
 fn open_in_browser(url: &tauri::Url) {
@@ -261,29 +451,28 @@ fn reveal_download(path: &Path) {
     }
 }
 
-fn accept_invite_file(state: &Arc<AppState>, path: &Path) -> bool {
+fn read_invite_file(path: &Path) -> Option<String> {
     use blazar_netmesh::invite::{INVITE_EXT, MAX_INVITE_BYTES};
 
     let is_invite = path
         .extension()
         .is_some_and(|e| e.eq_ignore_ascii_case(INVITE_EXT));
     if !is_invite {
-        return false;
+        return None;
     }
     let too_big = std::fs::metadata(path).map_or(true, |m| m.len() > MAX_INVITE_BYTES as u64);
     if too_big {
         tracing::warn!("忽略 {}：不是有效的邀请文件", path.display());
-        return false;
+        return None;
     }
     match std::fs::read_to_string(path) {
         Ok(text) => {
             tracing::info!("收到邀请文件 {}", path.display());
-            state.mesh_ctx.set_pending_invite(text);
-            true
+            Some(text)
         }
         Err(e) => {
             tracing::warn!("读取邀请文件 {} 失败: {e}", path.display());
-            false
+            None
         }
     }
 }
@@ -404,18 +593,4 @@ mod window_geometry {
             let _ = std::fs::write(p, t);
         }
     }
-}
-
-struct HubAddr(SocketAddr);
-
-#[tauri::command]
-fn hub_address(state: tauri::State<'_, HubAddr>) -> String {
-    format!("http://{}", state.0)
-}
-
-#[tauri::command]
-fn data_dir() -> String {
-    profile::data_dir()
-        .map(|p| p.display().to_string())
-        .unwrap_or_default()
 }

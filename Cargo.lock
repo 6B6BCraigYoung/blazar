@@ -458,15 +458,19 @@ dependencies = [
  "blazar-hub",
  "blazar-mcp",
  "blazar-netmesh",
+ "blazar-transport",
  "directories",
+ "reqwest",
  "serde",
  "serde_json",
  "tauri",
  "tauri-build",
  "tauri-plugin-shell",
+ "tempfile",
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "url",
 ]
 
 [[package]]
