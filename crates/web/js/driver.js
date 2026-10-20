@@ -222,6 +222,18 @@ async function run(command) {
       await sleep(settle);
       return { ok: true, clicked };
     }
+    case 'file': {
+      if (typeof command.value !== 'string') throw new Error('file 需要 value（文件内容），可选 name（文件名）');
+      const el = command.ref ? find(command) : document.querySelector(command.selector || 'input[type="file"]');
+      if (!(el instanceof HTMLInputElement) || el.type !== 'file') throw new Error('file 只能用在 <input type="file"> 上');
+      const file = new File([command.value], command.name || 'upload.txt', { type: command.type || '' });
+      const files = new DataTransfer();
+      files.items.add(file);
+      el.files = files.files;
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+      await sleep(settle);
+      return { ok: true, name: file.name, bytes: file.size };
+    }
     case 'context_menu': {
       const el = guard(find(command));
       el.scrollIntoView({ block: 'center' });
