@@ -363,7 +363,6 @@ async fn process_line(ctx: &Ctx, line: &str, at: u64, p: &mut Progress) -> Line 
                 crate::inbox::resolve_ref(&ctx.st, &id.to_string()).await;
             }
             EntryKind::RateLimit(rl) => {
-                crate::inbox::note_rate_limit(&ctx.st, rl).await;
                 crate::accounts::note_rate_limit(&ctx.st, ctx.sid, rl).await;
             }
             EntryKind::Finished(Outcome::Failed { message }) | EntryKind::Error { message } => {

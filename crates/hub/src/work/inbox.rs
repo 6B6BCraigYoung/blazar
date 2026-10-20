@@ -38,6 +38,10 @@ fn changed(st: &Shared) {
 }
 
 pub async fn push(st: &Shared, it: Item) {
+    push_id(st, it).await;
+}
+
+pub async fn push_id(st: &Shared, it: Item) -> Option<String> {
     let muted = crate::office::prefs(st).await["inbox"]["muted"]
         .as_array()
         .is_some_and(|m| m.iter().any(|k| k == it.kind));
@@ -60,17 +64,29 @@ pub async fn push(st: &Shared, it: Item) {
     .await;
     if let Err(e) = r {
         tracing::warn!(target: "blazar::inbox", "收件箱写入失败: {e}");
-        return;
+        return None;
     }
     changed(st);
     if !muted {
         tokio::spawn(crate::office::forward(
             st.clone(),
-            id,
+            id.clone(),
             it.kind,
             it.title.clone(),
             it.body.clone(),
         ));
+    }
+    Some(id)
+}
+
+pub async fn mark_resolved(st: &Shared, id: &str) {
+    let r = sqlx::query("UPDATE inbox SET resolved_at = ?2 WHERE id = ?1 AND resolved_at IS NULL")
+        .bind(id)
+        .bind(Utc::now().to_rfc3339())
+        .execute(st.db.pool())
+        .await;
+    if r.is_ok_and(|r| r.rows_affected() > 0) {
+        changed(st);
     }
 }
 
@@ -102,51 +118,6 @@ pub async fn resolve_session(st: &Shared, sid: blazar_core_types::SessionId) {
     if r.is_ok_and(|r| r.rows_affected() > 0) {
         changed(st);
     }
-}
-
-pub async fn note_rate_limit(st: &Shared, rl: &blazar_core_types::RateLimit) {
-    let Some(w) = rl
-        .windows
-        .iter()
-        .filter(|w| w.utilization >= 0.9)
-        .max_by(|a, b| a.utilization.total_cmp(&b.utilization))
-    else {
-        return;
-    };
-    let key = format!("rate:{}", w.name);
-    let since = (Utc::now() - chrono::Duration::hours(6)).to_rfc3339();
-    let seen: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM inbox WHERE kind = 'rate_limit' AND ref_id = ?1 AND created_at > ?2",
-    )
-    .bind(&key)
-    .bind(since)
-    .fetch_one(st.db.pool())
-    .await
-    .unwrap_or(0);
-    if seen > 0 {
-        return;
-    }
-    let name = match w.name.as_str() {
-        "five_hour" => "5 小时窗口",
-        "seven_day" => "7 天窗口",
-        other => other,
-    };
-    push(
-        st,
-        Item {
-            kind: "rate_limit",
-            title: format!("额度快用完了：{name} 已用 {:.0}%", w.utilization * 100.0),
-            body: w.resets_at.map_or_else(String::new, |t| {
-                format!(
-                    "{} 重置。",
-                    t.with_timezone(&chrono::Local).format("%m-%d %H:%M")
-                )
-            }),
-            ref_id: Some(key),
-            ..Item::default()
-        },
-    )
-    .await;
 }
 
 pub async fn on_run_finished(st: Shared, sid: blazar_core_types::SessionId, status: &'static str) {
@@ -281,7 +252,7 @@ pub async fn list(State(st): State<Shared>, Query(q): Query<ListQuery>) -> Respo
                 "workspace_id": s("workspace_id"), "workspace_name": s("workspace_name"),
                 "thread_id": s("thread_id"), "session_id": s("session_id"), "ref_id": s("ref_id"),
                 "read": s("read_at").is_some(), "archived": s("archived_at").is_some(),
-                "created_at": s("created_at"),
+                "resolved_at": s("resolved_at"), "created_at": s("created_at"),
             })
         })
         .collect();

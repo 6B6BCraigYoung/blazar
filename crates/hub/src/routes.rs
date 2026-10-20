@@ -362,6 +362,7 @@ pub fn build_router(st: Arc<AppState>) -> Router {
             "/api/jobs",
             get(bots::api::list_jobs).post(bots::api::spawn_job),
         )
+        .route("/api/alert-rules", get(bots::rules::list))
         .route("/api/jobs/register", post(bots::api::register_job))
         .route("/api/jobs/{id}", get(bots::api::get_job))
         .route("/api/jobs/{id}/log", get(bots::api::job_log))

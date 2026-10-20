@@ -322,7 +322,7 @@ pub async fn release(st: &Shared, id: &str, by: Option<&Caller>) -> Result<(), S
     Ok(())
 }
 
-pub async fn sweep(st: &Shared) {
+pub async fn sweep(st: &Shared, release_after_hours: i64) {
     let now = Utc::now();
     let expired: Vec<Claim> = sqlx::query(&format!(
         "{SELECT} WHERE c.expires_at IS NOT NULL AND c.expires_at < ?1"
@@ -355,7 +355,7 @@ pub async fn sweep(st: &Shared) {
                     &c.bot_id,
                     super::NewMail {
                         body: format!(
-                            "你在 {} 上认领的 {}（{}）已经过期。还需要就重新 claim，24 小时后会自动释放。",
+                            "你在 {} 上认领的 {}（{}）已经过期。还需要就重新 claim，{release_after_hours} 小时后会自动释放。",
                             c.node, c.scope, c.mode
                         ),
                         subject: Some("认领过期".into()),
@@ -366,7 +366,7 @@ pub async fn sweep(st: &Shared) {
                 )
                 .await;
             }
-            Some(at) if at < (now - chrono::Duration::hours(24)).to_rfc3339() => {
+            Some(at) if at < (now - chrono::Duration::hours(release_after_hours)).to_rfc3339() => {
                 let _ = sqlx::query("DELETE FROM claims WHERE id = ?1")
                     .bind(&c.id)
                     .execute(st.db.pool())

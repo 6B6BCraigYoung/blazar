@@ -222,7 +222,7 @@ pub fn staleness(ttl_secs: i64, age_secs: i64) -> &'static str {
     }
 }
 
-pub async fn sweep(st: &Shared) {
+pub async fn sweep(st: &Shared, notify: bool) {
     let now = Utc::now();
     let rows = sqlx::query(&format!("{SELECT} WHERE f.ttl_secs IS NOT NULL"))
         .fetch_all(st.db.pool())
@@ -247,27 +247,11 @@ pub async fn sweep(st: &Shared) {
             .execute(st.db.pool())
             .await;
         changed = true;
-        if next == "lost" {
-            crate::inbox::push(
-                st,
-                crate::inbox::Item {
-                    kind: "alert",
-                    title: format!("事实 {} 失联", f.key),
-                    body: format!(
-                        "{} 秒没有更新（心跳间隔 {ttl} 秒）{}",
-                        age,
-                        f.owner_handle
-                            .as_deref()
-                            .map(|h| format!("，负责人 bot:{h}"))
-                            .unwrap_or_default()
-                    ),
-                    ref_id: Some(format!("fact:{}", f.key)),
-                    ..crate::inbox::Item::default()
-                },
-            )
-            .await;
-            if let Some(owner) = &f.owner_bot {
-                let _ = super::send(
+        if next == "lost"
+            && notify
+            && let Some(owner) = &f.owner_bot
+        {
+            let _ = super::send(
                     st,
                     owner,
                     super::NewMail {
@@ -282,7 +266,6 @@ pub async fn sweep(st: &Shared) {
                     },
                 )
                 .await;
-            }
         }
     }
     if changed {

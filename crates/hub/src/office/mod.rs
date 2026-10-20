@@ -66,6 +66,7 @@ pub async fn prefs(st: &Shared) -> Value {
         "fleet": {
             "enabled": saved["fleet"]["enabled"].as_bool().unwrap_or(false),
         },
+        "rules": crate::bots::rules::settings_of(&saved["rules"]),
     })
 }
 
@@ -109,6 +110,11 @@ pub async fn put_prefs(State(st): State<Shared>, Json(b): Json<Value>) -> Respon
             .filter(|k| crate::inbox::KINDS.contains(k))
             .collect();
         cur["inbox"]["muted"] = json!(kinds);
+    }
+    if !b["rules"].is_null()
+        && let Err(e) = crate::bots::rules::merge(&mut cur["rules"], &b["rules"])
+    {
+        return fail(StatusCode::BAD_REQUEST, e);
     }
     match kv_put(&st, "prefs", &cur).await {
         Ok(()) => Json(cur).into_response(),

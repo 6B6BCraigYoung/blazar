@@ -18,6 +18,7 @@ pub mod dispatch;
 pub mod facts;
 pub mod jobs;
 pub mod memory;
+pub mod rules;
 pub mod status;
 #[cfg(test)]
 mod tests;

@@ -9,7 +9,6 @@ use crate::api::Shared;
 
 pub const DEFAULT_MAX_CONCURRENT: u64 = 6;
 const TICK: Duration = Duration::from_secs(5);
-const SWEEP_EVERY: u32 = 6;
 
 pub async fn max_concurrent(st: &Shared) -> u64 {
     crate::office::kv_get(st, "prefs").await["bots"]["max_concurrent"]
@@ -19,14 +18,8 @@ pub async fn max_concurrent(st: &Shared) -> u64 {
 }
 
 pub async fn scheduler(st: Shared) {
-    let mut n: u32 = 0;
     loop {
         tick(&st).await;
-        if n.is_multiple_of(SWEEP_EVERY) {
-            super::facts::sweep(&st).await;
-            super::claims::sweep(&st).await;
-        }
-        n = n.wrapping_add(1);
         tokio::select! {
             () = st.bots.wake.notified() => {}
             () = tokio::time::sleep(TICK) => {}
@@ -155,6 +148,10 @@ async fn live_thread(st: &Shared, session: &str) -> Option<String> {
 pub async fn dispatch_one(st: &Shared, bot: &Bot) {
     let mails = super::pending(st, &bot.id).await;
     if mails.is_empty() {
+        return;
+    }
+    if let Some(node) = super::rules::offline_node_of(st, bot).await {
+        tracing::debug!(target: "blazar::bots", "{} 的机器 {node} 离线，邮件先留着", bot.handle);
         return;
     }
     let Some(ws) = run_ws(bot) else {

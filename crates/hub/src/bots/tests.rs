@@ -353,7 +353,7 @@ async fn facts_belong_to_their_owner_and_go_stale() {
         .execute(st.db.pool())
         .await
         .unwrap();
-    facts::sweep(&st).await;
+    crate::bots::rules::run_once(&st).await;
     assert_eq!(facts::get(&st, "run/q01").await.unwrap().status, "lost");
     assert_eq!(pending(&st, &a.id).await.len(), 1, "owner 收到失联邮件");
     let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM inbox WHERE kind = 'alert'")
@@ -361,7 +361,7 @@ async fn facts_belong_to_their_owner_and_go_stale() {
         .await
         .unwrap();
     assert_eq!(n, 1);
-    facts::sweep(&st).await;
+    crate::bots::rules::run_once(&st).await;
     assert_eq!(pending(&st, &a.id).await.len(), 1, "不重复告警");
 
     let token = facts::report_token(&st, false).await.unwrap();
