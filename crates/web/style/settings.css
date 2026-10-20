@@ -25,6 +25,8 @@
 .settings-table th { color: var(--fg-3); font-weight: var(--font-weight-medium); }
 .settings-checks { display: flex; flex-wrap: wrap; gap: var(--space-md) var(--space-xl); }
 .settings-checks label { display: inline-flex; align-items: center; gap: var(--space-icon); }
+.settings-card p.settings-status { height: 20px; margin: var(--space-md) 0 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--fg-3); font-size: var(--font-size-caption-readable); }
+.settings-card p.settings-status.bad { color: var(--err-fg); }
 .usage-kpis { display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); gap: var(--space-control); }
 .usage-kpi { display: flex; flex-direction: column; padding: var(--space-card); }
 .usage-kpi strong { font-size: var(--font-size-heading); font-weight: var(--font-weight-medium); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }

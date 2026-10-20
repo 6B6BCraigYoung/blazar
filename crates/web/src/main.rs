@@ -12,6 +12,8 @@ mod app_state;
 mod chat_model;
 #[cfg(target_arch = "wasm32")]
 mod components;
+#[cfg(target_arch = "wasm32")]
+mod desktop;
 #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 mod diff;
 #[cfg(target_arch = "wasm32")]
