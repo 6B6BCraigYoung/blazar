@@ -284,7 +284,7 @@ pub const TOOLS: &[Tool] = &[
     },
     Tool {
         name: "bot_status",
-        description: "看一个 bot 的现状：状态、当前线程、最后一条指令、最近几步操作、待处理邮件、认领的资源。",
+        description: "看一个 bot 的现状：状态、当前线程、最后一条指令、最近几步操作、待处理邮件、认领的资源、它的后台任务。",
         schema: || {
             obj(
                 json!({ "bot": s("string", "bot 的 handle 或 id") }),
@@ -301,7 +301,7 @@ pub const TOOLS: &[Tool] = &[
     },
     Tool {
         name: "fleet_status",
-        description: "一次拿到所有 bot 的现状，加上机器在线情况、账号额度、最近告警、失联的事实。总控看全局用这个。",
+        description: "一次拿到所有 bot 的现状，加上机器在线情况、账号额度、最近告警、失联的事实、在跑和刚结束的后台任务。总控看全局用这个。",
         schema: || obj(json!({}), &[]),
         build: |_| Ok(("GET", "/api/fleet/status".into(), None)),
     },
@@ -511,6 +511,119 @@ pub const TOOLS: &[Tool] = &[
             )
         },
         build: |v| Ok(("POST", "/api/memories".into(), Some(v.clone()))),
+    },
+    Tool {
+        name: "job_spawn",
+        description: "在某个工作区所在的机器上起一个后台任务（训练、评测、长时间脚本）。进程和 ssh 脱钩，hub 每 30 秒巡检；结束时把标签、退出码、耗时和日志最后 20 行发回给你（bot 收邮件，会话被续接或插话）。立即返回任务 id。",
+        schema: || {
+            obj(
+                json!({
+                    "workspace_id": s("string", "工作区 id，决定在哪台机器上跑、默认在哪个目录跑"),
+                    "command": s("string", "要跑的 shell 命令，stdout 和 stderr 一起进日志"),
+                    "label": s("string", "一句话标签，通知和列表里显示它"),
+                    "cwd": s("string", "工作目录，相对路径相对工作区根目录；留空用工作区根目录"),
+                    "deadline_mins": s("integer", "多少分钟后还没结束就提醒一次（只提醒，不会结束它）"),
+                    "notify": s("string", "结束时怎么通知：wake（默认，唤醒发起方）/ inbox（只进收件箱）/ none"),
+                }),
+                &["workspace_id", "command", "label"],
+            )
+        },
+        build: |v| {
+            arg(v, "workspace_id")?;
+            arg(v, "command")?;
+            arg(v, "label")?;
+            Ok(("POST", "/api/jobs".into(), Some(v.clone())))
+        },
+    },
+    Tool {
+        name: "job_register",
+        description: "把一台机器上已经在跑的进程登记成后台任务，hub 替你盯着它，结束时通知你。这种任务拿不到退出码，结束一律按 done 记。",
+        schema: || {
+            obj(
+                json!({
+                    "node": s("string", "机器名，本机用 local"),
+                    "pid": s("integer", "进程号"),
+                    "label": s("string", "一句话标签"),
+                    "log_path": s("string", "它的日志文件（绝对路径），可省；给了才能用 job_log 看"),
+                    "deadline_mins": s("integer", "多少分钟后还没结束就提醒一次"),
+                    "notify": s("string", "wake（默认）/ inbox / none"),
+                    "workspace_id": s("string", "归到哪个工作区，可省"),
+                }),
+                &["node", "pid", "label"],
+            )
+        },
+        build: |v| {
+            arg(v, "node")?;
+            arg(v, "label")?;
+            if !v.get("pid").is_some_and(Value::is_u64) {
+                anyhow::bail!("缺少必填参数 pid");
+            }
+            Ok(("POST", "/api/jobs/register".into(), Some(v.clone())))
+        },
+    },
+    Tool {
+        name: "list_jobs",
+        description: "列出后台任务：状态、标签、机器、发起方、开始时间、截止时间、退出码。worker 只看得到自己的。",
+        schema: || {
+            obj(
+                json!({
+                    "status": s("string", "running / done / failed / killed / lost，留空全部"),
+                    "workspace_id": s("string", "只看这个工作区的"),
+                }),
+                &[],
+            )
+        },
+        build: |v| {
+            let mut qs = Vec::new();
+            for k in ["status", "workspace_id"] {
+                if let Some(x) = v.get(k).and_then(Value::as_str).filter(|x| !x.is_empty()) {
+                    qs.push(format!("{k}={}", enc(x)));
+                }
+            }
+            let tail = if qs.is_empty() {
+                String::new()
+            } else {
+                format!("?{}", qs.join("&"))
+            };
+            Ok(("GET", format!("/api/jobs{tail}"), None))
+        },
+    },
+    Tool {
+        name: "job_log",
+        description: "看一个后台任务日志的最后几行。",
+        schema: || {
+            obj(
+                json!({
+                    "job_id": s("string", "任务 id"),
+                    "tail": s("integer", "最后多少行，默认 50，最多 2000"),
+                }),
+                &["job_id"],
+            )
+        },
+        build: |v| {
+            let tail = v
+                .get("tail")
+                .and_then(Value::as_u64)
+                .unwrap_or(50)
+                .clamp(1, 2000);
+            Ok((
+                "GET",
+                format!("/api/jobs/{}/log?tail={tail}", enc(arg(v, "job_id")?)),
+                None,
+            ))
+        },
+    },
+    Tool {
+        name: "job_kill",
+        description: "结束一个还在跑的后台任务，状态记为 killed。worker 只能停自己的。",
+        schema: || obj(json!({ "job_id": s("string", "任务 id") }), &["job_id"]),
+        build: |v| {
+            Ok((
+                "POST",
+                format!("/api/jobs/{}/kill", enc(arg(v, "job_id")?)),
+                None,
+            ))
+        },
     },
     Tool {
         name: "list_tasks",
@@ -799,6 +912,29 @@ mod tests {
             let (method, url, _) = (find(name).unwrap().build)(&json!({})).unwrap();
             assert_eq!((method, url.as_str()), ("GET", path));
         }
+    }
+
+    #[test]
+    fn job_tools_build_the_jobs_api() {
+        let (m, url, body) = (find("job_spawn").unwrap().build)(&json!({
+            "workspace_id": "w1", "command": "sleep 1", "label": "nap", "deadline_mins": 5
+        }))
+        .unwrap();
+        assert_eq!((m, url.as_str()), ("POST", "/api/jobs"));
+        assert_eq!(body.unwrap()["deadline_mins"], 5);
+        assert!((find("job_spawn").unwrap().build)(&json!({ "workspace_id": "w1" })).is_err());
+        assert!(
+            (find("job_register").unwrap().build)(&json!({ "node": "local", "label": "x" }))
+                .is_err()
+        );
+        let (_, url, _) =
+            (find("job_log").unwrap().build)(&json!({ "job_id": "j/1", "tail": 9999 })).unwrap();
+        assert_eq!(url, "/api/jobs/j%2F1/log?tail=2000");
+        let (m, url, _) = (find("job_kill").unwrap().build)(&json!({ "job_id": "j1" })).unwrap();
+        assert_eq!((m, url.as_str()), ("POST", "/api/jobs/j1/kill"));
+        let (_, url, _) =
+            (find("list_jobs").unwrap().build)(&json!({ "status": "running" })).unwrap();
+        assert_eq!(url, "/api/jobs?status=running");
     }
 
     #[test]
