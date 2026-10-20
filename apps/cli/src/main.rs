@@ -12,6 +12,7 @@ use futures::StreamExt;
 mod hub;
 mod join;
 mod probe;
+mod transfer;
 
 #[derive(Parser)]
 #[command(name = "blazar", version, about = "分布式 AI Agent 工作区编排")]
@@ -155,6 +156,25 @@ enum Command {
         #[arg(long, env = "BLAZAR_HUB", default_value = "auto")]
         hub: String,
     },
+
+    Export {
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+        #[arg(long)]
+        force: bool,
+        #[arg(long, env = "BLAZAR_HUB", default_value = "auto")]
+        hub: String,
+    },
+
+    Import {
+        file: PathBuf,
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(long)]
+        local_node: Option<String>,
+        #[arg(long, env = "BLAZAR_HUB", default_value = "auto")]
+        hub: String,
+    },
 }
 
 #[tokio::main]
@@ -224,6 +244,17 @@ async fn main() -> Result<()> {
         Command::Autopilot { action, arg, hub } => {
             std::process::exit(hub::autopilots(hub, action, arg.as_deref()).await?);
         }
+        Command::Export { output, force, hub } => {
+            std::process::exit(transfer::export(hub, output.as_deref(), *force).await?);
+        }
+        Command::Import {
+            file,
+            dry_run,
+            local_node,
+            hub,
+        } => {
+            std::process::exit(transfer::import(hub, file, *dry_run, local_node.as_deref()).await?);
+        }
         Command::MeshStatus => return join::status().await,
         _ => {}
     }
@@ -251,7 +282,9 @@ async fn main() -> Result<()> {
         | Command::Prompt { .. }
         | Command::Wait { .. }
         | Command::Task { .. }
-        | Command::Autopilot { .. } => unreachable!("已在上面处理"),
+        | Command::Autopilot { .. }
+        | Command::Export { .. }
+        | Command::Import { .. } => unreachable!("已在上面处理"),
         Command::Health { host } => probe::health(&host).await,
         Command::Tree { host, root, limit } => probe::tree(&host, &root, limit).await,
         Command::Search {

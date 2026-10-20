@@ -4,9 +4,14 @@ use serde_json::{Value, json};
 pub struct Reply {
     pub status: u16,
     pub body: Value,
+    pub text: String,
 }
 
 pub async fn request(hub: &str, method: &str, path: &str, body: Option<Value>) -> Result<Reply> {
+    send(hub, method, path, body.map(|b| b.to_string())).await
+}
+
+pub async fn send(hub: &str, method: &str, path: &str, payload: Option<String>) -> Result<Reply> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let endpoint = blazar_core_types::connection::resolve(hub)?;
     let addr = endpoint
@@ -20,7 +25,7 @@ pub async fn request(hub: &str, method: &str, path: &str, body: Option<Value>) -
         .with_context(|| {
             format!("连不上 hub {host_port}；启动 Blazar，或用 --hub / BLAZAR_HUB 指定地址")
         })?;
-    let payload = body.map(|b| b.to_string()).unwrap_or_default();
+    let payload = payload.unwrap_or_default();
     let mut req = format!(
         "{method} {path} HTTP/1.1\r\nHost: {host_port}\r\nConnection: close\r\nAccept: application/json\r\n"
     );
@@ -48,11 +53,12 @@ fn parse_response(raw: &[u8]) -> Result<Reply> {
     let body = String::from_utf8(response.body).context("hub 返回的 HTTP 正文不是合法 UTF-8")?;
     Ok(Reply {
         status: response.status,
-        body: serde_json::from_str(&body).unwrap_or(Value::String(body)),
+        body: serde_json::from_str(&body).unwrap_or_else(|_| Value::String(body.clone())),
+        text: body,
     })
 }
 
-fn enc(v: &str) -> String {
+pub fn enc(v: &str) -> String {
     v.bytes()
         .map(|b| match b {
             b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
@@ -63,7 +69,7 @@ fn enc(v: &str) -> String {
         .collect()
 }
 
-fn fail_of(r: &Reply) -> anyhow::Error {
+pub fn fail_of(r: &Reply) -> anyhow::Error {
     anyhow::anyhow!(
         "hub 返回 {}：{}",
         r.status,
