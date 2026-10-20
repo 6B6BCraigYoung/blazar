@@ -161,12 +161,13 @@ pub fn PreviewBar(
     };
     let url = move || {
         let o = url_override.get();
-        if o.is_empty() {
+        let raw = if o.is_empty() {
             dev.with(|d| d.as_ref().and_then(|d| d.preview_url.clone()))
                 .unwrap_or_default()
         } else {
             o
-        }
+        };
+        crate::loopback::away_from_page(&raw, &window().location().hostname().unwrap_or_default())
     };
     let running = move || dev.with(|d| d.as_ref().is_some_and(|d| d.running));
 
