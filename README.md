@@ -55,7 +55,8 @@ bot 是 hub 里的一条持久身份：一份职责（角色档案）、一个�
 - **事实层**：bot 用 `facts_put` 写自己负责的状态并按心跳更新；超过 2 倍心跳标 stale，5 倍标 lost 并告警。外部脚本用 `POST /api/facts/report` 上报，令牌在设置里生成。
 - **资源认领**：`claim gpu:0,1` / `dir:/data/queue` / `port:8766`，独占范围重叠会被拒并告诉你找谁；认领整个工作区时，bot 会得到一个对应机器的远程手。
 - **共享 memory**：`memory_write` 写入前会和已有条目比对，同名或描述很接近的会被拦下并返回原条目，更新要带版本号。
-- **常驻 hub**：把 hub 放到一台常在线的机器上，`scripts/hub-service.sh install` 注册成 launchd / systemd 服务，只监听本机回环；笔记本用 `ssh -N -L 7777:127.0.0.1:7777 hub-host` 转发后打开 `http://localhost:7777`。
+- **常驻 hub**：把 hub 放到一台常在线的机器上，`scripts/hub-service.sh install` 注册成 launchd / systemd 服务，只监听本机回环；笔记本用 `ssh -N -L 7777:127.0.0.1:7777 hub-host` 转发后打开 `http://localhost:7777`。令牌存在数据库旁的 `hub.token`，重启不变，CLI 用 `BLAZAR_HUB=http://127.0.0.1:7777 BLAZAR_HUB_TOKEN=<令牌>` 连。
+- **桌面端连远程 hub**：在「设置 → 数据与关于 → 这台电脑连哪个 hub」选「远程机器」，填 `~/.ssh/config` 里的主机别名和端口（默认 7777），测试通过后「切换并重启」。桌面端不再起本机 hub，自己维持一条 SSH 隧道（断了自动重连），角标、账号菜单都走远程 hub；要求这台电脑能免密码 SSH 登录那台机器。回本机 hub 用菜单「Blazar → 改用本机 hub 并重启」，不依赖远程 hub 的版本；设置存在数据目录的 `hub.json`，删掉它也会回到本机 hub。
 
 ## 架构
 
