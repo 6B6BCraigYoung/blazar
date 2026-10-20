@@ -60,6 +60,18 @@ fn spawn_ssh(alias: &str, local: u16, remote: u16) -> std::io::Result<Child> {
         .spawn()
 }
 
+const FATAL: [&str; 5] = [
+    "open failed",
+    "Connection refused",
+    "Could not resolve hostname",
+    "Permission denied",
+    "Host key verification failed",
+];
+
+fn fatal(line: &str) -> bool {
+    FATAL.iter().any(|pattern| line.contains(pattern))
+}
+
 fn capture_stderr(child: &mut Child, last: Arc<Mutex<String>>) -> tokio::task::JoinHandle<()> {
     let stderr = child.stderr.take();
     tokio::spawn(async move {
@@ -255,6 +267,10 @@ pub async fn probe(alias: &str, port: u16) -> Result<(), String> {
                 .map(drop)
                 .map_err(|_| NOT_A_HUB.to_owned());
         }
+        let line = last.lock().unwrap().clone();
+        if fatal(&line) {
+            break Err(line);
+        }
         if let Ok(Some(_)) = child.try_wait() {
             let _ = tokio::time::timeout(Duration::from_secs(1), reader).await;
             let line = last.lock().unwrap().clone();
@@ -449,6 +465,21 @@ mod tests {
         let port = tunnel_port(&file, "hub-host", 7777).unwrap();
         assert_ne!(port, 0);
         assert_eq!(tunnel_port(&file, "hub-host", 7777).unwrap(), port);
+    }
+
+    #[test]
+    fn clear_ssh_failures_are_fatal() {
+        assert!(fatal(
+            "channel 2: open failed: connect failed: Connection refused"
+        ));
+        assert!(fatal(
+            "ssh: Could not resolve hostname nowhere: nodename nor servname provided"
+        ));
+        assert!(fatal("craig@hub-host: Permission denied (publickey)."));
+        assert!(fatal("Host key verification failed."));
+        assert!(!fatal(
+            "Warning: Permanently added 'hub-host' to the list of known hosts."
+        ));
     }
 
     async fn serve_once(response: &'static str) -> String {
