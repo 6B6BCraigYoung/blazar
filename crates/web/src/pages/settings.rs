@@ -343,6 +343,7 @@ fn FleetSettings() -> impl IntoView {
         .into_any(),
         Some(Ok(p)) => {
             let on = RwSignal::new(flag(&p["fleet"], "enabled"));
+            let limit = RwSignal::new(p["bots"]["max_concurrent"].as_u64().unwrap_or(6));
             view! {
                 <section class="card settings-card">
                     <h3>"多机调度"</h3>
@@ -377,11 +378,57 @@ fn FleetSettings() -> impl IntoView {
                             }
                         />
                     </div>
+                    <div class="settings-row">
+                        <label class="settings-label" for="settings-bot-limit">
+                            <b>"同时运行的 bot 上限"</b>
+                            <span>"超过时新的邮件先排队，等有 bot 停下再派。取 1 到 16。"</span>
+                        </label>
+                        <input
+                            id="settings-bot-limit"
+                            class="settings-input settings-number"
+                            type="number"
+                            min="1"
+                            max=BOT_LIMIT_MAX
+                            disabled=move || busy.get()
+                            prop:value=move || limit.get().to_string()
+                            on:change=move |e| {
+                                let old = limit.get_untracked();
+                                match event_target_value(&e).trim().parse::<u64>() {
+                                    Ok(n) if (1..=BOT_LIMIT_MAX).contains(&n) => {
+                                        if n == old {
+                                            return;
+                                        }
+                                        limit.set(n);
+                                        busy.set(true);
+                                        leptos::task::spawn_local(async move {
+                                            if !save(
+                                                    "PUT",
+                                                    "/api/settings",
+                                                    json!({"bots": {"max_concurrent": n}}),
+                                                )
+                                                .await
+                                            {
+                                                limit.set(old);
+                                            }
+                                            busy.set(false);
+                                        });
+                                    }
+                                    _ => {
+                                        event_target::<web_sys::HtmlInputElement>(&e)
+                                            .set_value(&old.to_string());
+                                        toast(format!("上限要在 1 到 {BOT_LIMIT_MAX} 之间"));
+                                    }
+                                }
+                            }
+                        />
+                    </div>
                 </section>
             }.into_any()
         }
     }
 }
+
+const BOT_LIMIT_MAX: u64 = 16;
 
 pub(super) const NOTIFY_KINDS: &[(&str, &str)] = &[
     ("run_done", "运行完成"),
