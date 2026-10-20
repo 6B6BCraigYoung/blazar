@@ -891,3 +891,18 @@ async fn claim_expiry_follows_its_switch_and_release_threshold() {
         .unwrap();
     assert_eq!(left, 0, "过了释放时间自动释放");
 }
+
+#[tokio::test]
+async fn periodic_node_probes_follow_the_node_offline_switch() {
+    let h = hub().await;
+    assert!(probe_due(&h.st, None).await, "默认打开，第一次就探测");
+    let now = std::time::Instant::now();
+    assert!(!probe_due(&h.st, Some(now)).await, "两分钟内不重复探测");
+    let long_ago = now.checked_sub(PROBE_EVERY).unwrap();
+    assert!(probe_due(&h.st, Some(long_ago)).await);
+    h.set(json!({ "node_offline": { "enabled": false } })).await;
+    assert!(!probe_due(&h.st, None).await, "关掉就不定时探测");
+    assert!(!probe_due(&h.st, Some(long_ago)).await);
+    h.set(json!({ "node_offline": { "enabled": true } })).await;
+    assert!(probe_due(&h.st, Some(long_ago)).await, "重新打开照常探测");
+}

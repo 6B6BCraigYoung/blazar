@@ -77,7 +77,7 @@ pub const SPECS: &[Spec] = &[
     Spec {
         key: "node_offline",
         label: "机器离线",
-        about: "机器离线这么久：进收件箱并写信给总控 bot，列出上面还在跑的任务和相关的 bot。",
+        about: "机器离线这么久：进收件箱并写信给总控 bot，列出上面还在跑的任务和相关的 bot。打开时每 2 分钟探测一次机器。",
         unit: "分钟",
         default: Some(10),
         min: 1,
@@ -746,11 +746,19 @@ async fn probe_nodes(st: &Shared) {
     }
 }
 
+pub async fn probe_due(st: &Shared, last: Option<Instant>) -> bool {
+    settings(st)
+        .await
+        .get("node_offline")
+        .is_some_and(|c| c.enabled)
+        && last.is_none_or(|t| t.elapsed() >= PROBE_EVERY)
+}
+
 pub async fn watch(st: Shared) {
     let mut rx = st.bus.subscribe();
     let mut probed: Option<Instant> = None;
     loop {
-        if probed.is_none_or(|t| t.elapsed() >= PROBE_EVERY) {
+        if probe_due(&st, probed).await {
             probed = Some(Instant::now());
             let probe = st.clone();
             tokio::spawn(async move { probe_nodes(&probe).await });
