@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::Duration;
@@ -26,10 +26,13 @@ const SUMMARY_LINES: usize = 20;
 pub const MAX_TAIL: usize = 2000;
 const MAX_COMMAND: usize = 8000;
 const MAX_DEADLINE_MINS: i64 = 30 * 24 * 60;
+const MAX_WAITS: usize = 20;
+pub const WAIT_KINDS: &[&str] = &["node", "fact", "path", "job"];
 
 #[derive(Default)]
 pub struct JobsState {
     pub root: Mutex<Option<PathBuf>>,
+    pub missing: Mutex<HashMap<String, Vec<String>>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -50,6 +53,7 @@ pub struct Job {
     pub run_dir: Option<String>,
     pub pid: Option<i64>,
     pub log_path: Option<String>,
+    pub waits_for: Value,
     pub deadline_at: Option<String>,
     pub deadline_noted_at: Option<String>,
     pub status: String,
@@ -63,6 +67,31 @@ pub struct Job {
 }
 
 impl Job {
+    #[must_use]
+    pub fn waits(&self) -> Vec<(String, String)> {
+        self.waits_for
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|w| {
+                WAIT_KINDS.iter().find_map(|k| {
+                    w.get(*k)
+                        .and_then(Value::as_str)
+                        .map(|v| ((*k).to_owned(), v.to_owned()))
+                })
+            })
+            .collect()
+    }
+
+    #[must_use]
+    pub fn wait_paths(&self) -> Vec<String> {
+        self.waits()
+            .into_iter()
+            .filter(|(k, _)| k == "path")
+            .map(|(_, v)| v)
+            .collect()
+    }
+
     #[must_use]
     pub fn log_file(&self) -> Option<String> {
         self.log_path.clone().or_else(|| {
@@ -122,6 +151,7 @@ fn job_of(r: &SqliteRow) -> Job {
         run_dir: opt(r, "run_dir"),
         pid: r.try_get("pid").ok().flatten(),
         log_path: opt(r, "log_path"),
+        waits_for: serde_json::from_str(&s(r, "waits_for")).unwrap_or_else(|_| json!([])),
         deadline_at: opt(r, "deadline_at"),
         deadline_noted_at: opt(r, "deadline_noted_at"),
         status: s(r, "status"),
@@ -291,6 +321,7 @@ pub fn brief(j: &Job) -> Value {
         "started_at": j.created_at,
         "ended_at": j.ended_at,
         "deadline_at": j.deadline_at,
+        "waits_for": j.waits_for,
         "exit_code": j.exit_code,
         "last_error": j.last_error,
     })
@@ -317,6 +348,53 @@ fn deadline(mins: Option<i64>) -> Result<Option<String>, String> {
         )),
         Some(_) => Err(format!("deadline_mins 要在 1 到 {MAX_DEADLINE_MINS} 之间")),
     }
+}
+
+pub async fn check_waits(st: &Shared, items: &[Value]) -> Result<String, String> {
+    if items.len() > MAX_WAITS {
+        return Err(format!("waits_for 最多 {MAX_WAITS} 项"));
+    }
+    let mut out = Vec::new();
+    for item in items {
+        let fields = item
+            .as_object()
+            .filter(|o| o.len() == 1)
+            .ok_or_else(|| format!("waits_for 的每一项只能有一个键：{}", WAIT_KINDS.join(" / ")))?;
+        let (kind, value) = fields.iter().next().ok_or("waits_for 有空项")?;
+        let value = value
+            .as_str()
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .ok_or_else(|| format!("waits_for 里 {kind} 的值要是非空字符串"))?;
+        match kind.as_str() {
+            "node" => {
+                node_id(st, value).await?;
+            }
+            "fact" => {
+                if !super::facts::valid_key(value) {
+                    return Err(format!("事实 key 不合法：{value}"));
+                }
+            }
+            "path" => {
+                if !value.starts_with('/') {
+                    return Err(format!("waits_for 里的 path 要用绝对路径：{value}"));
+                }
+            }
+            "job" => {
+                get(st, value)
+                    .await
+                    .ok_or_else(|| format!("没有这个后台任务 {value}"))?;
+            }
+            other => {
+                return Err(format!(
+                    "waits_for 不认识 {other}，可用 {}",
+                    WAIT_KINDS.join(" / ")
+                ));
+            }
+        }
+        out.push(json!({ kind.as_str(): value }));
+    }
+    Ok(Value::Array(out).to_string())
 }
 
 pub async fn root(st: &Shared, node: &str) -> Result<PathBuf, String> {
@@ -368,6 +446,7 @@ struct NewJob {
     run_dir: String,
     pid: Option<i64>,
     log_path: Option<String>,
+    waits_for: String,
     deadline_at: Option<String>,
     notify: String,
 }
@@ -382,8 +461,8 @@ async fn insert(st: &Shared, j: NewJob) -> Result<(), String> {
     sqlx::query(
         "INSERT INTO jobs (id, owner_kind, bot_id, session_id, workspace_id, node_id, kind, label,
                            command, cwd, run_dir, pid, log_path, deadline_at, notify,
-                           created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?16)",
+                           waits_for, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?17)",
     )
     .bind(&j.id)
     .bind(j.owner.kind())
@@ -400,6 +479,7 @@ async fn insert(st: &Shared, j: NewJob) -> Result<(), String> {
     .bind(&j.log_path)
     .bind(&j.deadline_at)
     .bind(&j.notify)
+    .bind(&j.waits_for)
     .bind(now)
     .execute(st.db.pool())
     .await
@@ -419,6 +499,8 @@ pub struct Spawn {
     pub deadline_mins: Option<i64>,
     #[serde(default)]
     pub notify: Option<String>,
+    #[serde(default)]
+    pub waits_for: Vec<Value>,
 }
 
 fn label_of(label: Option<&str>, fallback: &str) -> String {
@@ -439,6 +521,7 @@ pub async fn spawn(st: &Shared, req: Spawn, owner: &Owner) -> Result<Job, String
     }
     let notify = check_notify(req.notify.as_deref())?;
     let deadline_at = deadline(req.deadline_mins)?;
+    let waits_for = check_waits(st, &req.waits_for).await?;
     let (node, path) = crate::api::locate(st, req.workspace_id.trim())
         .await
         .map_err(|e| e.to_string())?;
@@ -474,6 +557,7 @@ pub async fn spawn(st: &Shared, req: Spawn, owner: &Owner) -> Result<Job, String
             run_dir: run.dir.clone(),
             pid: None,
             log_path: Some(log),
+            waits_for,
             deadline_at,
             notify,
         },
@@ -501,6 +585,8 @@ pub struct Register {
     pub notify: Option<String>,
     #[serde(default)]
     pub workspace_id: Option<String>,
+    #[serde(default)]
+    pub waits_for: Vec<Value>,
 }
 
 async fn register_target(
@@ -566,6 +652,7 @@ pub async fn register(
         .ok_or("pid 无效")?;
     let notify = check_notify(req.notify.as_deref())?;
     let deadline_at = deadline(req.deadline_mins)?;
+    let waits_for = check_waits(st, &req.waits_for).await?;
     let log_path = nonempty(req.log_path.as_deref()).map(str::to_owned);
     if log_path.as_deref().is_some_and(|p| !p.starts_with('/')) {
         return Err("日志路径要用绝对路径".into());
@@ -592,6 +679,7 @@ pub async fn register(
             run_dir: run.dir,
             pid: Some(i64::from(pid)),
             log_path,
+            waits_for,
             deadline_at,
             notify,
         },
@@ -695,6 +783,12 @@ pub async fn sweep(st: &Shared) {
         .iter()
         .map(job_of)
         .collect();
+    st.bots
+        .jobs
+        .missing
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .retain(|id, _| running.iter().any(|j| &j.id == id));
     let mut by_node: BTreeMap<String, Vec<Job>> = BTreeMap::new();
     for j in running.into_iter().filter(|j| j.run_dir.is_some()) {
         by_node.entry(j.node.clone()).or_default().push(j);
@@ -726,7 +820,7 @@ async fn check_node(st: &Shared, node: String, jobs: Vec<Job>) -> bool {
             dir: j.run_dir.clone().unwrap_or_default(),
             tail_of: j.log_file(),
             tail_lines: SUMMARY_LINES,
-            exists: Vec::new(),
+            exists: j.wait_paths(),
         })
         .collect();
     let transport = st.transport(&node);
@@ -748,6 +842,7 @@ async fn check_node(st: &Shared, node: String, jobs: Vec<Job>) -> bool {
             .await;
         }
     };
+    note_missing(st, &jobs, &probed);
     let mut touched = false;
     for (job, probed) in jobs.iter().zip(probed) {
         match verdict(job, &probed.state) {
@@ -773,6 +868,41 @@ async fn check_node(st: &Shared, node: String, jobs: Vec<Job>) -> bool {
         }
     }
     touched
+}
+
+fn note_missing(st: &Shared, jobs: &[Job], probed: &[blazar_transport::detached::Probed]) {
+    let mut missing = st
+        .bots
+        .jobs
+        .missing
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    for (job, p) in jobs.iter().zip(probed) {
+        let gone: Vec<String> = job
+            .wait_paths()
+            .into_iter()
+            .zip(&p.present)
+            .filter(|(_, have)| **have == Some(false))
+            .map(|(path, _)| path)
+            .collect();
+        if gone.is_empty() {
+            missing.remove(&job.id);
+        } else {
+            missing.insert(job.id.clone(), gone);
+        }
+    }
+}
+
+#[must_use]
+pub fn missing_paths(st: &Shared, id: &str) -> Vec<String> {
+    st.bots
+        .jobs
+        .missing
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .get(id)
+        .cloned()
+        .unwrap_or_default()
 }
 
 async fn note_error(st: &Shared, jobs: &[Job], error: &str) -> bool {

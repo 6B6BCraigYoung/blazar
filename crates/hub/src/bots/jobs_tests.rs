@@ -589,6 +589,103 @@ async fn wake_falls_back_to_the_inbox_when_the_thread_is_gone() {
     );
 }
 
+#[tokio::test]
+async fn waits_for_is_validated_and_normalized() {
+    let h = hub().await;
+    let spawn_waiting = |waits: Value| {
+        spawn(
+            &h.st,
+            Spawn {
+                workspace_id: h.ws.clone(),
+                command: "sleep 30".into(),
+                label: Some("watcher".into()),
+                waits_for: waits.as_array().cloned().unwrap_or_default(),
+                ..Spawn::default()
+            },
+            &Owner::User,
+        )
+    };
+    let many: Vec<Value> = (0..21).map(|_| json!({ "node": "local" })).collect();
+    for bad in [
+        json!([{ "node": "local", "fact": "x" }]),
+        json!([{ "path": "relative/file" }]),
+        json!([{ "disk": "/" }]),
+        json!([{ "node": "nowhere" }]),
+        json!([{ "job": "no-such-job" }]),
+        json!([{ "fact": "/bad" }]),
+        json!([{ "node": "" }]),
+        json!(["local"]),
+        json!(many),
+    ] {
+        assert!(spawn_waiting(bad.clone()).await.is_err(), "{bad}");
+    }
+    let job = spawn_waiting(json!([
+        { "node": " local " },
+        { "path": "/tmp/x" },
+        { "fact": "run/q01" }
+    ]))
+    .await
+    .unwrap();
+    assert_eq!(
+        job.waits_for,
+        json!([{ "node": "local" }, { "path": "/tmp/x" }, { "fact": "run/q01" }])
+    );
+    assert_eq!(job.wait_paths(), ["/tmp/x"]);
+    let after = spawn_waiting(json!([{ "job": job.id }])).await.unwrap();
+    assert_eq!(after.waits(), [("job".to_owned(), job.id.clone())]);
+    let registered = register(
+        &h.st,
+        Register {
+            node: Some("local".into()),
+            pid: detached_pid(30),
+            label: "adopted".into(),
+            waits_for: vec![json!({ "node": "local" })],
+            ..Register::default()
+        },
+        &Owner::User,
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(registered.waits_for, json!([{ "node": "local" }]));
+    for j in [&job, &after, &registered] {
+        kill(&h.st, &j.id, None, &Owner::User).await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn missing_wait_paths_are_noted_by_the_sweep() {
+    let h = hub().await;
+    let file = h.root.path().join("ckpt.pt");
+    std::fs::write(&file, "x").unwrap();
+    let job = spawn(
+        &h.st,
+        Spawn {
+            workspace_id: h.ws.clone(),
+            command: "sleep 30".into(),
+            label: Some("watcher".into()),
+            waits_for: vec![json!({ "path": file.display().to_string() })],
+            ..Spawn::default()
+        },
+        &Owner::User,
+    )
+    .await
+    .unwrap();
+    sweep(&h.st).await;
+    assert!(missing_paths(&h.st, &job.id).is_empty());
+    std::fs::remove_file(&file).unwrap();
+    sweep(&h.st).await;
+    assert_eq!(missing_paths(&h.st, &job.id), [file.display().to_string()]);
+    std::fs::write(&file, "x").unwrap();
+    sweep(&h.st).await;
+    assert!(missing_paths(&h.st, &job.id).is_empty());
+    std::fs::remove_file(&file).unwrap();
+    sweep(&h.st).await;
+    kill(&h.st, &job.id, None, &Owner::User).await.unwrap();
+    sweep(&h.st).await;
+    assert!(missing_paths(&h.st, &job.id).is_empty(), "结束的任务不再记");
+}
+
 #[test]
 fn verdicts_follow_the_run_state() {
     let job = |kind: &str| Job {
@@ -608,6 +705,7 @@ fn verdicts_follow_the_run_state() {
         run_dir: None,
         pid: None,
         log_path: None,
+        waits_for: json!([]),
         deadline_at: None,
         deadline_noted_at: None,
         status: "running".into(),
