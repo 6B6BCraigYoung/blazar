@@ -382,12 +382,16 @@ pub async fn wait(
     let mut bus = st.bus.subscribe();
     loop {
         let row = sqlx::query(
-            "SELECT w.activity, e.ts AS last_event, json_extract(e.payload, '$.type') AS last_kind
-             FROM workspaces w
-             LEFT JOIN events e ON e.rowid = (
-                 SELECT e2.rowid FROM events e2 JOIN sessions s ON s.id = e2.session_id
-                 WHERE s.workspace_id = w.id ORDER BY e2.ts DESC LIMIT 1)
-             WHERE w.id = ?1",
+            "SELECT w.activity,
+                (SELECT e.ts FROM events e JOIN sessions s ON s.id = e.session_id
+                 WHERE s.workspace_id = w.id
+                 ORDER BY e.ts DESC, s.created_at DESC, e.seq DESC LIMIT 1) AS last_event,
+                (SELECT json_extract(e.payload, '$.type') FROM events e
+                 JOIN sessions s ON s.id = e.session_id
+                 WHERE s.workspace_id = w.id
+                   AND json_extract(e.payload, '$.type') NOT IN ('progress', 'rate_limit', 'token_usage')
+                 ORDER BY e.ts DESC, s.created_at DESC, e.seq DESC LIMIT 1) AS last_kind
+             FROM workspaces w WHERE w.id = ?1",
         )
         .bind(&id)
         .fetch_optional(st.db.pool())
@@ -931,6 +935,10 @@ mod wait_tests {
     use super::*;
 
     async fn quiet_since(last: &str) -> Response {
+        quiet_with(&[last]).await
+    }
+
+    async fn quiet_with(events: &[&str]) -> Response {
         let db = blazar_db::Db::open_in_memory().await.unwrap();
         let st = crate::state::AppState::with_services(
             db,
@@ -948,12 +956,17 @@ mod wait_tests {
             sqlx::query(setup).execute(st.db.pool()).await.unwrap();
         }
         let ten_minutes_ago = (Utc::now() - chrono::Duration::minutes(10)).to_rfc3339();
-        sqlx::query("INSERT INTO events (session_id, seq, ts, payload) VALUES ('s', 1, ?1, ?2)")
+        for (seq, payload) in (1i64..).zip(events) {
+            sqlx::query(
+                "INSERT INTO events (session_id, seq, ts, payload) VALUES ('s', ?1, ?2, ?3)",
+            )
+            .bind(seq)
             .bind(&ten_minutes_ago)
-            .bind(last)
+            .bind(payload)
             .execute(st.db.pool())
             .await
             .unwrap();
+        }
         wait(
             State(st),
             Path("w".into()),
@@ -975,6 +988,34 @@ mod wait_tests {
         assert_eq!(busy.status(), StatusCode::OK);
         let quiet = quiet_since(r#"{"type":"assistant_message","text":"开始训练"}"#).await;
         assert_eq!(quiet.status(), StatusCode::REQUEST_TIMEOUT);
+    }
+
+    const TOOL: &str =
+        r#"{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"sleep 300"}}"#;
+    const PROGRESS: &str = r#"{"type":"progress","text":"running"}"#;
+    const RATE: &str = r#"{"type":"rate_limit","allowed":true,"windows":[]}"#;
+    const SAID: &str = r#"{"type":"assistant_message","text":"好的"}"#;
+
+    #[tokio::test]
+    async fn a_tool_call_sharing_a_timestamp_with_the_event_before_it_is_not_a_stall() {
+        let busy = quiet_with(&[PROGRESS, TOOL]).await;
+        assert_eq!(busy.status(), StatusCode::OK);
+        let busy = quiet_with(&[SAID, PROGRESS, TOOL]).await;
+        assert_eq!(busy.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn bookkeeping_events_after_a_tool_call_do_not_hide_it() {
+        let busy = quiet_with(&[TOOL, PROGRESS]).await;
+        assert_eq!(busy.status(), StatusCode::OK);
+        let busy = quiet_with(&[TOOL, PROGRESS, RATE, PROGRESS]).await;
+        assert_eq!(busy.status(), StatusCode::OK);
+        let quiet = quiet_with(&[TOOL, SAID, PROGRESS]).await;
+        assert_eq!(
+            quiet.status(),
+            StatusCode::REQUEST_TIMEOUT,
+            "工具结束后又安静下来，还是算卡住"
+        );
     }
 
     #[tokio::test]
