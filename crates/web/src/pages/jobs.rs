@@ -82,6 +82,38 @@ fn exit_code(j: &Value) -> String {
     }
 }
 
+fn waits(j: &Value) -> String {
+    let items: Vec<String> = j["waits_for"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|w| {
+            [
+                ("path", "文件"),
+                ("node", "节点"),
+                ("fact", "事实"),
+                ("job", "任务"),
+            ]
+            .into_iter()
+            .find_map(|(k, name)| {
+                w[k].as_str().map(|v| {
+                    let v = if k == "job" {
+                        v.get(..8).unwrap_or(v)
+                    } else {
+                        v
+                    };
+                    format!("{name} {v}")
+                })
+            })
+        })
+        .collect();
+    if items.is_empty() {
+        String::new()
+    } else {
+        format!("等待：{}", items.join(" · "))
+    }
+}
+
 fn owner(j: &Value) -> AnyView {
     match s(j, "owner_kind").as_str() {
         "bot" if !s(j, "bot_handle").is_empty() => view! {
@@ -230,8 +262,13 @@ pub fn JobsPage() -> impl IntoView {
                                                         {label}
                                                     </span>
                                                 </td>
-                                                <td class="jobs-label" title=s(&j, "command")>
-                                                    {s(&j, "label")}
+                                                <td class="jobs-label">
+                                                    <div class="jobs-label-text" title=s(&j, "command")>
+                                                        {s(&j, "label")}
+                                                    </div>
+                                                    <div class="jobs-waits muted" title=waits(&j)>
+                                                        {waits(&j)}
+                                                    </div>
                                                 </td>
                                                 <td>{fmt::machine(&s(&j, "node"))}</td>
                                                 <td>{owner(&j)}</td>

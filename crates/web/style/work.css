@@ -110,7 +110,9 @@
 .jobs-table .tb { min-width: 860px; margin-top: 0; }
 .jobs-table td { vertical-align: middle; }
 .jobs-table td.num { font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--fg-2); }
-.jobs-table .jobs-label { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jobs-table .jobs-label { max-width: 280px; }
+.jobs-table .jobs-label > div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jobs-table .jobs-waits { height: 1.5em; line-height: 1.5em; font-size: var(--font-size-caption); }
 .jobs-table .jobs-actions, .jobs-table .jobs-actions-head { white-space: nowrap; text-align: right; }
 .jobs-table .jobs-actions .btn + .btn { margin-left: var(--space-sm); }
 .jobs-log.dlg.wide { width: min(860px, calc(100vw - 32px)); }
