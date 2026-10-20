@@ -21,6 +21,9 @@ environment:
   HTTP_PROXY, HTTPS_PROXY, ALL_PROXY, NO_PROXY
                    copied into the service when set, so the hub and the agent
                    CLIs it starts reach the model APIs the same way your shell does
+
+The hub keeps its access token in hub.token next to the database, so it
+survives restarts; delete that file and restart the service to rotate it.
 EOF
 }
 
@@ -40,7 +43,9 @@ case "$(uname -s)" in
     ;;
 esac
 db=${BLAZAR_DB:-$data/blazar.sqlite}
+token="$(dirname "$db")/hub.token"
 log="$data/logs/hub.log"
+port=${bind##*:}
 
 need_bin() {
   [ -n "$bin" ] && [ -x "$bin" ] || { echo "blazar-hub not found; set BLAZAR_HUB_BIN" >&2; exit 1; }
@@ -60,6 +65,12 @@ plist_env() {
   proxy_vars | while IFS=$'\t' read -r k v; do
     printf '    <key>%s</key><string>%s</string>\n' "$k" "$v"
   done
+}
+
+connect_hint() {
+  local host
+  host=$(hostname -s)
+  echo "connect from a laptop: ssh -N -L $port:127.0.0.1:$port $host, then run the CLI with BLAZAR_HUB=http://127.0.0.1:$port BLAZAR_HUB_TOKEN=\$(ssh $host cat '$token') so the token is read over ssh and never written to the laptop's disk"
 }
 
 unit_env() {
@@ -86,6 +97,7 @@ case "$(uname -s)" in
   <dict>
     <key>BLAZAR_DB</key><string>$db</string>
     <key>BLAZAR_BIND</key><string>$bind</string>
+    <key>BLAZAR_HUB_TOKEN_FILE</key><string>$token</string>
     <key>PATH</key><string>$HOME/.blazar/bin:$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
 $(plist_env)  </dict>
   <key>RunAtLoad</key><true/>
@@ -100,6 +112,7 @@ EOF
         launchctl bootstrap "gui/$(id -u)" "$plist"
         echo "installed: $plist"
         echo "hub listens on $bind, database $db, log $log"
+        connect_hint
         ;;
       uninstall)
         launchctl bootout "gui/$(id -u)" "$plist" 2>/dev/null || true
@@ -127,6 +140,7 @@ After=network-online.target
 ExecStart=$bin
 Environment=BLAZAR_DB=$db
 Environment=BLAZAR_BIND=$bind
+Environment=BLAZAR_HUB_TOKEN_FILE=$token
 Environment=PATH=$HOME/.blazar/bin:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin
 $(unit_env)Restart=always
 RestartSec=5
@@ -140,6 +154,7 @@ EOF
         systemctl --user enable --now blazar-hub.service
         echo "installed: $unit"
         echo "hub listens on $bind, database $db, log $log"
+        connect_hint
         if command -v loginctl >/dev/null 2>&1 && ! loginctl show-user "$USER" 2>/dev/null | grep -q 'Linger=yes'; then
           echo "run 'sudo loginctl enable-linger $USER' so the service survives logout"
         fi

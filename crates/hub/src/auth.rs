@@ -18,6 +18,17 @@ pub struct Session {
 
 impl Session {
     pub fn new(db: &Path, dev_origin: Option<String>) -> anyhow::Result<Self> {
+        let token_file = std::env::var_os("BLAZAR_HUB_TOKEN_FILE")
+            .filter(|v| !v.is_empty())
+            .map(PathBuf::from);
+        Self::with_token_file(db, dev_origin, token_file.as_deref())
+    }
+
+    pub fn with_token_file(
+        db: &Path,
+        dev_origin: Option<String>,
+        token_file: Option<&Path>,
+    ) -> anyhow::Result<Self> {
         if let Some(origin) = &dev_origin {
             let uri: axum::http::Uri = origin.parse()?;
             let host = uri.host().unwrap_or_default();
@@ -33,10 +44,10 @@ impl Session {
                 "开发源必须是带端口的本机 HTTP 地址"
             );
         }
-        let mut bytes = [0u8; 32];
-        getrandom::fill(&mut bytes)
-            .map_err(|error| anyhow::anyhow!("生成 hub 会话失败：{error}"))?;
-        let token = bytes.iter().map(|b| format!("{b:02x}")).collect();
+        let token = match token_file {
+            Some(path) => persistent_token(path)?,
+            None => random_token()?,
+        };
         let mut hash = std::hash::DefaultHasher::new();
         db.hash(&mut hash);
         Ok(Self {
@@ -121,6 +132,55 @@ impl Session {
                 && uri.query().is_none()
         })
     }
+}
+
+fn random_token() -> anyhow::Result<String> {
+    let mut bytes = [0u8; 32];
+    getrandom::fill(&mut bytes).map_err(|error| anyhow::anyhow!("生成 hub 会话失败：{error}"))?;
+    Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
+}
+
+fn valid_token(text: &str) -> bool {
+    text.len() == 64 && text.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+fn persistent_token(path: &Path) -> anyhow::Result<String> {
+    use anyhow::Context;
+
+    if let Ok(text) = std::fs::read_to_string(path)
+        && valid_token(text.trim())
+    {
+        restrict(path)?;
+        return Ok(text.trim().to_ascii_lowercase());
+    }
+    if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("创建令牌目录 {} 失败", parent.display()))?;
+    }
+    let token = random_token()?;
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    let mut file = options
+        .open(path)
+        .with_context(|| format!("写不了令牌文件 {}", path.display()))?;
+    std::io::Write::write_all(&mut file, format!("{token}\n").as_bytes())
+        .with_context(|| format!("写不了令牌文件 {}", path.display()))?;
+    restrict(path)?;
+    tracing::info!(path = %path.display(), "已生成新的 hub 令牌");
+    Ok(token)
+}
+
+fn restrict(path: &Path) -> anyhow::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+    }
+    #[cfg(not(unix))]
+    let _ = path;
+    Ok(())
 }
 
 fn loopback_peer(request: &Request) -> bool {
@@ -245,4 +305,53 @@ fn host_allowed(host: &str) -> bool {
                 .map(str::trim)
                 .any(|h| !h.is_empty() && h.eq_ignore_ascii_case(name))
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn token_file_keeps_the_token_across_sessions() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("blazar.sqlite");
+        let file = dir.path().join("nested/hub.token");
+        let first = Session::with_token_file(&db, None, Some(&file)).unwrap();
+        let second = Session::with_token_file(&db, None, Some(&file)).unwrap();
+        assert!(valid_token(first.token()));
+        assert_eq!(first.token(), second.token());
+        assert_eq!(
+            std::fs::read_to_string(&file).unwrap().trim(),
+            first.token()
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&file).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o600);
+        }
+    }
+
+    #[test]
+    fn invalid_token_file_is_replaced() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("blazar.sqlite");
+        let file = dir.path().join("hub.token");
+        std::fs::write(&file, "not a token").unwrap();
+        let session = Session::with_token_file(&db, None, Some(&file)).unwrap();
+        assert!(valid_token(session.token()));
+        assert_eq!(
+            std::fs::read_to_string(&file).unwrap().trim(),
+            session.token()
+        );
+    }
+
+    #[test]
+    fn without_token_file_every_session_is_new() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("blazar.sqlite");
+        let first = Session::with_token_file(&db, None, None).unwrap();
+        let second = Session::with_token_file(&db, None, None).unwrap();
+        assert_ne!(first.token(), second.token());
+    }
 }
