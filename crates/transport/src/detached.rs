@@ -14,6 +14,13 @@ alive() {
 }
 "#;
 
+const PROBE_BODY: &str = r#"echo "size=$(wc -c < out.jsonl 2>/dev/null | tr -d ' ')"
+if [ -e exit.code ]; then echo "exited=$(cat exit.code)"
+elif alive; then
+  I=$(stat -c %i in.jsonl 2>/dev/null || stat -f %i in.jsonl 2>/dev/null)
+  [ -n "$I" ] && [ "$I" = "$(cat in.inode 2>/dev/null)" ] && echo alive || echo alive-replaced
+else echo lost; fi"#;
+
 const RUN_SH: &str = r#"D=$1; MODE=$2; RID=$3
 cd "$D" || exit 97
 trap '' HUP
@@ -299,6 +306,71 @@ echo "__BLAZAR_LAUNCHED__ $D"
         })
     }
 
+    pub async fn adopt(
+        transport: Arc<dyn NodeTransport>,
+        root: &std::path::Path,
+        run_id: &str,
+        pid: u32,
+    ) -> Result<Self> {
+        check_run_id(run_id)?;
+        if !root.is_absolute() {
+            return Err(TransportError::Command {
+                code: -1,
+                stderr: "运行目录必须是绝对路径".into(),
+            });
+        }
+        if pid <= 1 {
+            return Err(stop_error("进程号无效"));
+        }
+        let script = format!(
+            r#"{IDENTITY_FNS}
+umask 077
+P={pid}
+kill -0 "$P" 2>/dev/null || ps -p "$P" >/dev/null 2>&1 || {{ echo "这台机器上没有进程 $P" >&2; exit 16; }}
+D={root}/{run_id}
+mkdir -p "$D" && cd "$D" || exit 17
+printf '%s %s %s\n' "$P" "$(boot_of)" "$(start_of "$P")" > pid.tmp && mv pid.tmp pid || exit 17
+echo "__BLAZAR_LAUNCHED__ $D"
+"#,
+            root = shell_quote(&root.to_string_lossy()),
+        );
+        let out = transport.exec(sh(script)).await?;
+        let dir = out
+            .stdout
+            .lines()
+            .find_map(|l| l.strip_prefix("__BLAZAR_LAUNCHED__ "))
+            .map(str::trim)
+            .filter(|d| d.starts_with('/'))
+            .ok_or_else(|| TransportError::Command {
+                code: out.code,
+                stderr: out.stderr.trim().to_owned(),
+            })?
+            .to_owned();
+        Ok(Self {
+            transport,
+            dir,
+            run_id: run_id.to_owned(),
+        })
+    }
+
+    pub async fn stop_adopted(&self) -> Result<()> {
+        let body = format!(
+            r#"{IDENTITY_FNS}
+alive || exit 0
+read -r P B S < pid
+builtin kill -TERM "$P" 2>/dev/null
+i=0; while [ $i -lt 50 ]; do alive || exit 0; sleep 0.1; i=$((i+1)); done
+builtin kill -KILL "$P" 2>/dev/null
+i=0; while [ $i -lt 20 ]; do alive || exit 0; sleep 0.1; i=$((i+1)); done
+echo '进程还在运行，无法确认已经停止' >&2; exit 15"#
+        );
+        self.transport
+            .exec(sh(in_dir(&self.dir, &body)))
+            .await?
+            .ok()?;
+        Ok(())
+    }
+
     pub async fn append(&self, msg_id: &str, json_line: &str) -> Result<Appended> {
         if msg_id.contains(['\t', '\n', '\'', '"']) || json_line.contains('\n') {
             return Err(TransportError::Command {
@@ -352,15 +424,7 @@ echo ok"#,
     }
 
     pub async fn probe(&self) -> Result<RunState> {
-        let body = format!(
-            r#"{IDENTITY_FNS}
-echo "size=$(wc -c < out.jsonl 2>/dev/null | tr -d ' ')"
-if [ -e exit.code ]; then echo "exited=$(cat exit.code)"
-elif alive; then
-  I=$(stat -c %i in.jsonl 2>/dev/null || stat -f %i in.jsonl 2>/dev/null)
-  [ -n "$I" ] && [ "$I" = "$(cat in.inode 2>/dev/null)" ] && echo alive || echo alive-replaced
-else echo lost; fi"#
-        );
+        let body = format!("{IDENTITY_FNS}\n{PROBE_BODY}");
         let out = self.transport.exec(sh(in_dir(&self.dir, &body))).await?;
         if out.code == 94 {
             return Ok(RunState::Missing);
@@ -537,6 +601,124 @@ read -r P B S < pid
             .await?;
         Ok(out.stdout)
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProbeItem {
+    pub dir: String,
+    pub tail_of: Option<String>,
+    pub tail_lines: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Probed {
+    pub state: RunState,
+    pub tail: String,
+    pub exited_at: Option<i64>,
+}
+
+pub async fn probe_many(
+    transport: &Arc<dyn NodeTransport>,
+    items: &[ProbeItem],
+) -> Result<Vec<Probed>> {
+    if items.is_empty() {
+        return Ok(Vec::new());
+    }
+    let marker = format!(
+        "__BLAZAR_PROBE_{}__",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or_default()
+    );
+    let mut script = format!("{IDENTITY_FNS}\n");
+    for (i, item) in items.iter().enumerate() {
+        let tail = item
+            .tail_of
+            .as_deref()
+            .map(|f| {
+                format!(
+                    "echo '{marker} tail'; tail -n {} -- {} 2>/dev/null",
+                    item.tail_lines.max(1),
+                    shell_quote(f)
+                )
+            })
+            .unwrap_or_else(|| ":".into());
+        script.push_str(&format!(
+            r#"echo '{marker} run {i}'
+if cd {dir} 2>/dev/null; then
+  R=$({PROBE_BODY})
+  [ -e exit.code ] && echo "exited_at=$(stat -c %Y exit.code 2>/dev/null || stat -f %m exit.code 2>/dev/null)"
+else R=missing; fi
+printf '%s\n' "$R"
+case "$R" in *alive*) ;; *) {tail} ;; esac
+true
+"#,
+            dir = shell_quote(&item.dir),
+        ));
+    }
+    let out = transport.exec(sh(script)).await?;
+    if out.code != 0 {
+        return Err(TransportError::Command {
+            code: out.code,
+            stderr: out.stderr.trim().to_owned(),
+        });
+    }
+    Ok(parse_many(&out.stdout, &marker, items.len()))
+}
+
+fn parse_many(raw: &str, marker: &str, n: usize) -> Vec<Probed> {
+    let mut blocks: Vec<(String, String)> = vec![(String::new(), String::new()); n];
+    let mut current: Option<(usize, bool)> = None;
+    for line in raw.lines() {
+        if let Some(rest) = line.strip_prefix(marker) {
+            let rest = rest.trim();
+            if let Some(i) = rest
+                .strip_prefix("run ")
+                .and_then(|i| i.parse::<usize>().ok())
+            {
+                current = (i < n).then_some((i, false));
+                continue;
+            }
+            if rest == "tail" {
+                current = current.map(|(i, _)| (i, true));
+                continue;
+            }
+        }
+        if let Some((i, in_tail)) = current {
+            let target = if in_tail {
+                &mut blocks[i].1
+            } else {
+                &mut blocks[i].0
+            };
+            target.push_str(line);
+            target.push('\n');
+        }
+    }
+    blocks
+        .into_iter()
+        .map(|(state, tail)| {
+            let exited_at = state
+                .lines()
+                .find_map(|l| l.trim().strip_prefix("exited_at="))
+                .and_then(|v| v.trim().parse().ok());
+            let body: String = state
+                .lines()
+                .filter(|l| !l.trim().starts_with("exited_at="))
+                .collect::<Vec<_>>()
+                .join("\n");
+            let state = if body.trim() == "missing" || body.trim().is_empty() {
+                RunState::Missing
+            } else {
+                parse_probe(&body)
+            };
+            Probed {
+                state,
+                tail,
+                exited_at,
+            }
+        })
+        .collect()
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -853,6 +1035,140 @@ mod tests {
             tokio::time::sleep(std::time::Duration::from_millis(200)).await;
         }
         run.probe().await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn many_runs_are_probed_in_one_go_with_tails_of_finished_ones() {
+        let transport = local();
+        let done = launch(
+            transport.clone(),
+            &rid("pm-done"),
+            &ExecSpec::new("bash")
+                .arg("-c")
+                .arg("echo one; echo two; exit 3"),
+            None,
+            RunMode::Null,
+        )
+        .await
+        .unwrap();
+        let busy = launch(
+            transport.clone(),
+            &rid("pm-busy"),
+            &ExecSpec::new("bash").arg("-c").arg("sleep 30"),
+            None,
+            RunMode::Null,
+        )
+        .await
+        .unwrap();
+        wait_exit(&done).await;
+        let item = |run: &DetachedRun| ProbeItem {
+            dir: run.dir.clone(),
+            tail_of: Some(format!("{}/out.jsonl", run.dir)),
+            tail_lines: 20,
+        };
+        let items = [
+            item(&done),
+            item(&busy),
+            ProbeItem {
+                dir: "/nonexistent/blazar-probe".into(),
+                tail_of: None,
+                tail_lines: 20,
+            },
+            ProbeItem {
+                dir: done.dir.clone(),
+                tail_of: Some("/nonexistent/blazar-probe/log".into()),
+                tail_lines: 20,
+            },
+        ];
+        let got = probe_many(&transport, &items).await.unwrap();
+        assert!(
+            matches!(got[0].state, RunState::Exited { code: 3, .. }),
+            "{got:?}"
+        );
+        assert!(got[0].tail.contains("one\ntwo\n"), "{got:?}");
+        assert!(matches!(got[1].state, RunState::Alive { .. }), "{got:?}");
+        assert!(got[1].tail.is_empty());
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        assert!(
+            got[0].exited_at.is_some_and(|t| (now - t).abs() < 60),
+            "{got:?}"
+        );
+        assert_eq!(got[1].exited_at, None);
+        assert_eq!(got[2].state, RunState::Missing);
+        assert!(
+            matches!(got[3].state, RunState::Exited { code: 3, .. }),
+            "{got:?}"
+        );
+        assert!(got[3].tail.is_empty());
+        busy.hard_kill().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn an_adopted_process_is_watched_and_can_be_stopped() {
+        let root = tempfile::tempdir().unwrap();
+        let spawn = |secs: u32| {
+            let out = std::process::Command::new("sh")
+                .arg("-c")
+                .arg(format!("sleep {secs} >/dev/null 2>&1 & echo $!"))
+                .output()
+                .unwrap();
+            String::from_utf8_lossy(&out.stdout)
+                .trim()
+                .parse::<u32>()
+                .unwrap()
+        };
+        let transport = local();
+        let long = DetachedRun::adopt(transport.clone(), root.path(), &rid("ad-long"), spawn(30))
+            .await
+            .unwrap();
+        let short = DetachedRun::adopt(transport.clone(), root.path(), &rid("ad-short"), spawn(1))
+            .await
+            .unwrap();
+        let probe = |runs: Vec<String>| {
+            let transport = transport.clone();
+            async move {
+                let items: Vec<ProbeItem> = runs
+                    .into_iter()
+                    .map(|dir| ProbeItem {
+                        dir,
+                        tail_of: None,
+                        tail_lines: 1,
+                    })
+                    .collect();
+                probe_many(&transport, &items).await.unwrap()
+            }
+        };
+        let both = probe(vec![long.dir.clone(), short.dir.clone()]).await;
+        assert!(
+            both.iter()
+                .all(|p| matches!(p.state, RunState::Alive { .. })),
+            "{both:?}"
+        );
+        let mut ended = false;
+        for _ in 0..40 {
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            if matches!(
+                probe(vec![short.dir.clone()]).await[0].state,
+                RunState::Lost { .. }
+            ) {
+                ended = true;
+                break;
+            }
+        }
+        assert!(ended, "自己退出的进程要被看出来");
+        long.stop_adopted().await.unwrap();
+        assert!(matches!(
+            probe(vec![long.dir.clone()]).await[0].state,
+            RunState::Lost { .. }
+        ));
+        assert!(
+            DetachedRun::adopt(transport, root.path(), &rid("ad-none"), 999_999)
+                .await
+                .is_err()
+        );
     }
 
     #[tokio::test]
