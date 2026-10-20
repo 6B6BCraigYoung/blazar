@@ -226,6 +226,7 @@ async function run(command) {
       if (typeof command.value !== 'string') throw new Error('file 需要 value（文件内容），可选 name（文件名）');
       const el = command.ref ? find(command) : document.querySelector(command.selector || 'input[type="file"]');
       if (!(el instanceof HTMLInputElement) || el.type !== 'file') throw new Error('file 只能用在 <input type="file"> 上');
+      guard(el);
       const file = new File([command.value], command.name || 'upload.txt', { type: command.type || '' });
       const files = new DataTransfer();
       files.items.add(file);
