@@ -263,7 +263,7 @@ pub async fn guard(State(st): State<Shared>, request: Request, next: Next) -> Re
     let master = bearer.as_deref().is_some_and(|t| session.matches(t));
     let mut request = request;
     if !master {
-        request.headers_mut().remove(crate::bots::CALLER_HEADER);
+        strip_internal(request.headers_mut());
     }
     if path == "/api/facts/report" && request.method() == Method::POST && !master {
         let ok = match bearer.as_deref() {
@@ -285,6 +285,17 @@ pub async fn guard(State(st): State<Shared>, request: Request, next: Next) -> Re
             .into_response();
     }
     next.run(request).await
+}
+
+const INTERNAL_HEADERS: &[&str] = &[
+    crate::bots::CALLER_HEADER,
+    crate::bots::jobs::SESSION_HEADER,
+];
+
+fn strip_internal(headers: &mut axum::http::HeaderMap) {
+    for name in INTERNAL_HEADERS {
+        headers.remove(*name);
+    }
 }
 
 fn host_allowed(host: &str) -> bool {
@@ -344,6 +355,66 @@ mod tests {
             std::fs::read_to_string(&file).unwrap().trim(),
             session.token()
         );
+    }
+
+    #[tokio::test]
+    async fn only_the_master_token_may_carry_internal_identity_headers() {
+        use tower::ServiceExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let db = blazar_db::Db::open_in_memory().await.unwrap();
+        let st = crate::state::AppState::with_services(
+            db,
+            "local".into(),
+            None,
+            crate::mesh::MeshCtx::new(None, dir.path().to_path_buf()),
+            crate::services::Services::Isolated,
+        );
+        let session = Session::with_token_file(&dir.path().join("hub.sqlite"), None, None).unwrap();
+        let master = session.token().to_owned();
+        let cookie = format!("{}={master}", session.cookie_name);
+        assert!(st.auth.set(session).is_ok());
+        let app = axum::Router::new()
+            .route(
+                "/api/echo",
+                axum::routing::get(|headers: axum::http::HeaderMap| async move {
+                    INTERNAL_HEADERS
+                        .iter()
+                        .filter(|h| headers.contains_key(**h))
+                        .count()
+                        .to_string()
+                }),
+            )
+            .layer(axum::middleware::from_fn_with_state(st.clone(), guard))
+            .with_state(st);
+        let seen = |auth: (header::HeaderName, String)| {
+            let app = app.clone();
+            async move {
+                let request = Request::builder()
+                    .uri("/api/echo")
+                    .header(header::HOST, "127.0.0.1:7777")
+                    .header(auth.0, auth.1)
+                    .header(
+                        crate::bots::CALLER_HEADER,
+                        r#"{"bot":"b","handle":"h","role":"lead"}"#,
+                    )
+                    .header(crate::bots::jobs::SESSION_HEADER, "some-session")
+                    .body(axum::body::Body::empty())
+                    .unwrap();
+                let response = app.oneshot(request).await.unwrap();
+                assert_eq!(response.status(), StatusCode::OK);
+                let body = http_body_util::BodyExt::collect(response.into_body())
+                    .await
+                    .unwrap()
+                    .to_bytes();
+                String::from_utf8(body.to_vec()).unwrap()
+            }
+        };
+        assert_eq!(
+            seen((header::AUTHORIZATION, format!("Bearer {master}"))).await,
+            "2"
+        );
+        assert_eq!(seen((header::COOKIE, cookie)).await, "0");
     }
 
     #[test]
