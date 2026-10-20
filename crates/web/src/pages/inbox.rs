@@ -13,6 +13,7 @@ const KINDS: &[(&str, &str)] = &[
     ("question", "待回答"),
     ("autopilot_paused", "自动化暂停"),
     ("rate_limit", "额度告警"),
+    ("job", "后台任务"),
 ];
 #[component]
 pub fn InboxPage() -> impl IntoView {
@@ -157,6 +158,8 @@ pub fn InboxPage() -> impl IntoView {
                                                 format!("/autopilots?id={}", api::enc(&s(&it, "ref_id")))
                                             } else if k == "rate_limit" {
                                                 "/runtimes".into()
+                                            } else if k == "job" && thread.is_empty() {
+                                                "/jobs".into()
                                             } else if !thread.is_empty() && !ws.is_empty() {
                                                 thread_link(&ws, &thread)
                                             } else if !ws.is_empty() {

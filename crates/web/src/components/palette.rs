@@ -96,6 +96,7 @@ pub fn Palette() -> impl IntoView {
             ("收件箱", "导航", "/inbox", "inbox 通知"),
             ("任务", "导航", "/tasks", "tasks"),
             ("自动化", "导航", "/autopilots", "autopilots 定时 任务"),
+            ("后台任务", "导航", "/jobs", "jobs 后台 训练 进程"),
             ("技能", "导航", "/skills", "skills mcp 智能体"),
             (
                 "接入的软件",

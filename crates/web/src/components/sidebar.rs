@@ -197,7 +197,7 @@ pub fn Sidebar() -> impl IntoView {
                     I_TASKS,
                     "任务",
                     Signal::derive(move || n(app.tasks_open.get())),
-                    &["/tasks", "/autopilots"],
+                    &["/tasks", "/autopilots", "/jobs"],
                 )}
             </div>
             {move || {

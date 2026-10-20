@@ -91,6 +91,7 @@ pub fn work_revision(topic: &'static str) -> RwSignal<u32> {
             ("inbox", ServerEvent::InboxChanged)
                 | ("tasks", ServerEvent::TasksChanged)
                 | ("autopilots", ServerEvent::AutopilotsChanged)
+                | ("jobs", ServerEvent::JobsChanged)
         ) {
             rev.try_update(|n| *n = n.wrapping_add(1));
         }

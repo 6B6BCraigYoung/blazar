@@ -22,6 +22,7 @@ pub struct AppData {
     pub inbox_unread: RwSignal<u64>,
     pub tasks_open: RwSignal<usize>,
     pub autopilots_active: RwSignal<usize>,
+    pub jobs_running: RwSignal<usize>,
     pub agents_n: RwSignal<usize>,
     pub skills_n: RwSignal<usize>,
     pub runtimes_n: RwSignal<usize>,
@@ -258,6 +259,13 @@ impl AppData {
                             .try_set(v.iter().filter(|a| a["status"] == "active").count());
                     }
                 }
+                "jobs" => {
+                    if let Ok(v) = api::get::<Value>("/api/jobs?status=running").await {
+                        let _ = self
+                            .jobs_running
+                            .try_set(v["jobs"].as_array().map_or(0, Vec::len));
+                    }
+                }
                 "agents" => {
                     if let Ok(v) = api::get::<Vec<Value>>("/api/agent-profiles").await {
                         let _ = self.agents_n.try_set(v.len());
@@ -360,6 +368,7 @@ pub fn provide(bus: Bus) -> AppData {
         inbox_unread: RwSignal::new(0),
         tasks_open: RwSignal::new(0),
         autopilots_active: RwSignal::new(0),
+        jobs_running: RwSignal::new(0),
         agents_n: RwSignal::new(0),
         skills_n: RwSignal::new(0),
         runtimes_n: RwSignal::new(0),
@@ -400,6 +409,7 @@ pub fn provide(bus: Bus) -> AppData {
         "inbox",
         "tasks",
         "autopilots",
+        "jobs",
         "agents",
         "skills",
         "runtimes",
@@ -412,6 +422,7 @@ pub fn provide(bus: Bus) -> AppData {
         ServerEvent::InboxChanged => app.load_counts("inbox"),
         ServerEvent::TasksChanged => app.load_counts("tasks"),
         ServerEvent::AutopilotsChanged => app.load_counts("autopilots"),
+        ServerEvent::JobsChanged => app.load_counts("jobs"),
         ServerEvent::AccountsChanged => app.load_counts("runtimes"),
         _ => {}
     });

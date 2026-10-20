@@ -423,6 +423,7 @@ pub fn tool_title(name: &str, input: &Value, root: &str) -> (String, String) {
             "Task" | "Agent" | "Install" => s(input, "description").to_owned(),
             "TodoWrite" | "ExitPlanMode" => String::new(),
             "send_prompt" => short(first_line(s(input, "text")), 140),
+            "job_spawn" | "job_register" => short(s(input, "label"), 100),
             "wait_workspace" | "get_history" | "get_diff" | "list_workspaces" | "list_nodes"
             | "fleet_status" => String::new(),
             "read_file" | "list_files" => s(input, "path").to_owned(),

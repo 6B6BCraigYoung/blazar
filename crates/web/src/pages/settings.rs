@@ -390,6 +390,7 @@ pub(super) const NOTIFY_KINDS: &[(&str, &str)] = &[
     ("question", "需要回答"),
     ("autopilot_paused", "自动化暂停"),
     ("rate_limit", "额度告警"),
+    ("job", "后台任务"),
 ];
 
 #[component]

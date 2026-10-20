@@ -68,6 +68,7 @@ pub fn tasks(current: &'static str) -> impl IntoView {
             tabs=vec![
                 Tab::counted("全部", "/tasks", app.tasks_open.into()),
                 Tab::counted("自动化", "/autopilots", app.autopilots_active.into()),
+                Tab::counted("后台任务", "/jobs", app.jobs_running.into()),
             ]
         />
     }

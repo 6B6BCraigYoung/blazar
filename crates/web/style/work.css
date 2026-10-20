@@ -103,3 +103,14 @@
 .bot-claim-form .input { height: 28px; }
 .bot-page .page-head .linkbtn { white-space: nowrap; }
 .bot-page .page-head .state-pill { align-self: center; }
+.jobs-page .page-head { flex-wrap: wrap; }
+.jobs-table { max-width: 100%; overflow-x: auto; }
+.jobs-table .tb { min-width: 860px; margin-top: 0; }
+.jobs-table td { vertical-align: middle; }
+.jobs-table td.num { font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--fg-2); }
+.jobs-table .jobs-label { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jobs-table .jobs-actions, .jobs-table .jobs-actions-head { white-space: nowrap; text-align: right; }
+.jobs-table .jobs-actions .btn + .btn { margin-left: var(--space-sm); }
+.jobs-log.dlg.wide { width: min(860px, calc(100vw - 32px)); }
+.jobs-log-text { height: min(56vh, 520px); margin: 0; padding: var(--space-md); overflow: auto; border-radius: var(--r-md); background: var(--bg-canvas); border: 1px solid var(--line); font: var(--font-size-label) / 1.5 var(--font-mono); white-space: pre-wrap; word-break: break-all; }
+.jobs-log-note { min-height: 1.5em; margin-top: var(--space-sm); font-size: var(--font-size-caption); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
