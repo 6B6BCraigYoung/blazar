@@ -391,6 +391,7 @@ pub(super) const NOTIFY_KINDS: &[(&str, &str)] = &[
     ("autopilot_paused", "自动化暂停"),
     ("rate_limit", "额度告警"),
     ("job", "后台任务"),
+    ("alert", "提醒规则"),
 ];
 
 #[component]
@@ -517,6 +518,7 @@ fn NotifySettings() -> impl IntoView {
             }
             Some(Ok(p)) => view! { <InboxSettings initial=p /> }.into_any(),
         }}
+        <AlertRuleSettings />
         <section class="card settings-card">
             <h3>"转发到飞书"</h3>
             <a href="/apps/lark">"配置飞书提醒转发 →"</a>
@@ -581,6 +583,129 @@ fn InboxSettings(initial: Value) -> impl IntoView {
                 })
                 .collect_view()}
         </section>
+    }
+}
+
+#[component]
+fn AlertRuleSettings() -> impl IntoView {
+    let data = LocalResource::new(|| api::get::<Value>("/api/alert-rules"));
+    view! {
+        <section class="card settings-card">
+            <h3>"提醒规则"</h3>
+            <p class="muted">
+                "hub 每 30 秒检查一次，事情发生时也会立刻检查。同一件事持续期间只提醒一次，消失后在收件箱里标为已解决。"
+            </p>
+            {move || match data.get() {
+                None => view! { <LoadingState text="正在加载提醒规则…" /> }.into_any(),
+                Some(Err(e)) => {
+                    view! {
+                        <InlineError
+                            message=format!("无法加载提醒规则：{e}")
+                            retry=Callback::new(move |_| data.refetch())
+                        />
+                    }
+                        .into_any()
+                }
+                Some(Ok(v)) => {
+                    rows(&v["rules"])
+                        .into_iter()
+                        .map(|r| view! { <AlertRuleRow rule=r /> })
+                        .collect_view()
+                        .into_any()
+                }
+            }}
+        </section>
+    }
+}
+
+#[component]
+fn AlertRuleRow(rule: Value) -> impl IntoView {
+    let key = text(&rule, "key");
+    let unit = text(&rule, "unit");
+    let (min, max) = (
+        rule["min"].as_i64().unwrap_or(0),
+        rule["max"].as_i64().unwrap_or(0),
+    );
+    let on = RwSignal::new(flag(&rule, "enabled"));
+    let threshold = RwSignal::new(rule["threshold"].as_i64());
+    let busy = RwSignal::new(false);
+    let put = move |key: String, body: Value, undo: Box<dyn FnOnce() + 'static>| {
+        busy.set(true);
+        leptos::task::spawn_local(async move {
+            if !save("PUT", "/api/settings", json!({ "rules": { key: body } })).await {
+                undo();
+            }
+            busy.set(false);
+        });
+    };
+    let switch_key = key.clone();
+    let number_key = key.clone();
+    view! {
+        <div class="settings-row alert-rule">
+            <div class="settings-label">
+                <b>{text(&rule, "label")}</b>
+                <span>{text(&rule, "about")}</span>
+            </div>
+            <div class="settings-actions alert-rule-controls">
+                <span class="alert-rule-threshold">
+                    {threshold
+                        .get_untracked()
+                        .map(|_| {
+                            let key = number_key.clone();
+                            view! {
+                                <input
+                                    id=format!("alert-rule-{key}-threshold")
+                                    class="settings-input"
+                                    type="number"
+                                    min=min
+                                    max=max
+                                    aria-label=format!("「{}」的阈值（{unit}）", text(&rule, "label"))
+                                    disabled=move || busy.get()
+                                    prop:value=move || {
+                                        threshold.get().map(|n| n.to_string()).unwrap_or_default()
+                                    }
+                                    on:change=move |e| {
+                                        let old = threshold.get_untracked();
+                                        match event_target_value(&e).trim().parse::<i64>() {
+                                            Ok(n) if (min..=max).contains(&n) => {
+                                                if old == Some(n) {
+                                                    return;
+                                                }
+                                                threshold.set(Some(n));
+                                                put(
+                                                    key.clone(),
+                                                    json!({ "threshold": n }),
+                                                    Box::new(move || threshold.set(old)),
+                                                );
+                                            }
+                                            _ => {
+                                                event_target::<web_sys::HtmlInputElement>(&e)
+                                                    .set_value(
+                                                        &old.map(|n| n.to_string()).unwrap_or_default(),
+                                                    );
+                                                toast(format!("阈值要在 {min} 到 {max} 之间"));
+                                            }
+                                        }
+                                    }
+                                />
+                                <span class="alert-rule-unit">{unit.clone()}</span>
+                            }
+                        })}
+                </span>
+                <input
+                    id=format!("alert-rule-{switch_key}")
+                    type="checkbox"
+                    aria-label=format!("启用「{}」", text(&rule, "label"))
+                    disabled=move || busy.get()
+                    prop:checked=move || on.get()
+                    on:change=move |e| {
+                        let v = event_target_checked(&e);
+                        on.set(v);
+                        put(switch_key.clone(), json!({ "enabled": v }), Box::new(move || on.set(!v)));
+                    }
+                />
+            </div>
+        </div>
     }
 }
 

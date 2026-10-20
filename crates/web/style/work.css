@@ -48,6 +48,8 @@
 .work-inbox-main > span { font-size: var(--font-size-body); white-space: pre-wrap; }
 .work-inbox-main > small { font-size: var(--font-size-caption); }
 .work-unread { border-left: 3px solid var(--accent, var(--accent-fallback)); }
+.work-resolved .work-inbox-main > strong { color: var(--fg-3); }
+.work-inbox-main > small .gchip { margin-left: var(--space-md); }
 .work-ap-row { display: flex; flex-direction: column; gap: var(--space-control); width: 100%; padding: var(--space-section); margin-bottom: var(--space-control); text-align: left; color: inherit; font: inherit; cursor: pointer; }
 .work-ap-row > .row-actions { width: 100%; flex-wrap: wrap; }
 .work-ap-row strong { font-size: var(--font-size-section-title); }

@@ -14,6 +14,7 @@ const KINDS: &[(&str, &str)] = &[
     ("autopilot_paused", "自动化暂停"),
     ("rate_limit", "额度告警"),
     ("job", "后台任务"),
+    ("alert", "提醒规则"),
 ];
 #[component]
 pub fn InboxPage() -> impl IntoView {
@@ -154,7 +155,27 @@ pub fn InboxPage() -> impl IntoView {
                                                 .to_string();
                                             let ws = s(&it, "workspace_id");
                                             let thread = s(&it, "thread_id");
-                                            let href = if k == "autopilot_paused" {
+                                            let resolved = s(&it, "resolved_at");
+                                            let rule_ref = s(&it, "ref_id");
+                                            let rule = rule_ref
+                                                .strip_prefix("rule:")
+                                                .and_then(|r| r.split_once(':'));
+                                            let href = if let Some((rule, subject)) = rule
+                                                .filter(|(r, _)| {
+                                                    k == "alert"
+                                                        && matches!(
+                                                            *r,
+                                                            "quota_high" | "job_orphan" | "node_offline" | "bot_stuck"
+                                                        )
+                                                })
+                                            {
+                                                match rule {
+                                                    "quota_high" => "/runtimes".into(),
+                                                    "job_orphan" => "/jobs".into(),
+                                                    "node_offline" => format!("/nodes/{}", api::enc(subject)),
+                                                    _ => format!("/bots/{}", api::enc(subject)),
+                                                }
+                                            } else if k == "autopilot_paused" {
                                                 format!("/autopilots?id={}", api::enc(&s(&it, "ref_id")))
                                             } else if k == "rate_limit" {
                                                 "/runtimes".into()
@@ -172,6 +193,7 @@ pub fn InboxPage() -> impl IntoView {
                                                 <article
                                                     class="card work-inbox-row"
                                                     class:work-unread=!read
+                                                    class:work-resolved=!resolved.is_empty()
                                                 >
                                                     <a
                                                         class="work-inbox-main"
@@ -190,6 +212,14 @@ pub fn InboxPage() -> impl IntoView {
                                                                 label,
                                                                 fmt::ago(&s(&it, "created_at")),
                                                             )}
+                                                            {(!resolved.is_empty())
+                                                                .then(|| {
+                                                                    view! {
+                                                                        <span class="gchip ok">
+                                                                            {format!("已解决 · {}", fmt::ago(&resolved))}
+                                                                        </span>
+                                                                    }
+                                                                })}
                                                         </small>
                                                     </a>
                                                     <div class="row-actions">

@@ -10,6 +10,10 @@
 .settings-row:last-child { border-bottom: 0; }
 .settings-row > .settings-label { flex: 1; min-width: 140px; }
 .settings-label > span { display: block; color: var(--fg-3); font-size: var(--font-size-label); overflow-wrap: anywhere; }
+.alert-rule-controls { flex-wrap: nowrap; flex: 0 0 auto; }
+.alert-rule-threshold { display: inline-flex; align-items: center; justify-content: flex-end; gap: var(--space-sm); width: 128px; }
+.alert-rule-threshold .settings-input { width: 76px; text-align: right; font-variant-numeric: tabular-nums; }
+.alert-rule-unit { width: 2.5em; color: var(--fg-3); font-size: var(--font-size-label); }
 .settings-actions { display: flex; gap: var(--space-md); align-items: center; flex-wrap: wrap; }
 .settings-actions .grow { flex: 1; }
 .settings-actions h2, .usage-page h2 { font-size: var(--font-size-section-title); margin: 0 var(--space-md) 0 0; }
