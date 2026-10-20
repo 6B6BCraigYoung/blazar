@@ -114,6 +114,15 @@ pub async fn send<T: DeserializeOwned>(
     read(req.send().await).await
 }
 
+pub async fn post_text<T: DeserializeOwned>(path: &str, body: String) -> Result<T, ApiError> {
+    session().await?;
+    let req = Request::post(path)
+        .header("Content-Type", "application/json")
+        .body(body)
+        .map_err(|e| ApiError::new(format!("请求编不出来：{e}")))?;
+    read(req.send().await).await
+}
+
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct Machine {
     pub hostname: String,

@@ -151,6 +151,7 @@ pub fn SettingsPage() -> impl IntoView {
                             "about" => {
                                 view! {
                                     <HubSettings />
+                                    <super::transfer::TransferSettings />
                                     <AboutSettings />
                                 }
                                     .into_any()

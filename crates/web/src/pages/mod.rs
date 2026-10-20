@@ -8,6 +8,7 @@ pub mod runtimes;
 mod settings;
 mod skills;
 mod tasks;
+mod transfer;
 mod usage;
 mod work_shared;
 mod workspace;

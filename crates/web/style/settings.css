@@ -27,6 +27,20 @@
 .settings-checks label { display: inline-flex; align-items: center; gap: var(--space-icon); }
 .settings-card p.settings-status { height: 20px; margin: var(--space-md) 0 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--fg-3); font-size: var(--font-size-caption-readable); }
 .settings-card p.settings-status.bad { color: var(--err-fg); }
+.transfer-file { margin: 0 0 var(--space-lg); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.transfer-groups { display: flex; flex-direction: column; border-top: 1px solid var(--line); }
+.transfer-group { border-bottom: 1px solid var(--line); }
+.transfer-group > summary { display: flex; align-items: center; justify-content: space-between; gap: var(--space-lg); padding: var(--space-lg) 0; cursor: pointer; font-weight: var(--font-weight-medium); }
+.transfer-count { color: var(--fg-3); font-variant-numeric: tabular-nums; font-weight: var(--font-weight-regular); }
+.transfer-items { list-style: none; margin: 0 0 var(--space-lg); padding: 0; max-height: 220px; overflow-y: auto; overscroll-behavior: contain; }
+.transfer-items li { display: grid; grid-template-columns: 7em minmax(0, 1fr); gap: 0 var(--space-lg); padding: var(--space-sm) 0; font-size: var(--font-size-label); }
+.transfer-section { color: var(--fg-3); }
+.transfer-key { overflow-wrap: anywhere; }
+.transfer-detail { grid-column: 2; color: var(--fg-3); overflow-wrap: anywhere; }
+.transfer-notes { margin: var(--space-lg) 0 0; padding-left: var(--space-xl); color: var(--fg-2); font-size: var(--font-size-label); }
+.transfer-notes li + li { margin-top: var(--space-xs); }
+.transfer-status { height: 20px; margin: var(--space-md) 0 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--fg-3); font-size: var(--font-size-caption-readable); }
+.transfer-status.bad { color: var(--err-fg); }
 .usage-kpis { display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); gap: var(--space-control); }
 .usage-kpi { display: flex; flex-direction: column; padding: var(--space-card); }
 .usage-kpi strong { font-size: var(--font-size-heading); font-weight: var(--font-weight-medium); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
