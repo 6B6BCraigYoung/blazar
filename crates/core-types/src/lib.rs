@@ -5,6 +5,7 @@ pub mod http;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod private_storage;
 pub mod sanitize;
+pub mod transfer;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};

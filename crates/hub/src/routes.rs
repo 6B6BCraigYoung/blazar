@@ -211,6 +211,13 @@ pub fn build_router(st: Arc<AppState>) -> Router {
             get(office::get_prefs).put(office::put_prefs),
         )
         .route("/api/about", get(office::about))
+        .route("/api/export", get(crate::transfer::export_handler))
+        .route(
+            "/api/import",
+            post(crate::transfer::import_handler).layer(axum::extract::DefaultBodyLimit::max(
+                blazar_core_types::transfer::MAX_IMPORT_BYTES,
+            )),
+        )
         .route("/api/office/lark", get(office::lark_status))
         .route("/api/office/lark/settings", put(office::put_lark_settings))
         .route("/api/office/lark/run", post(office::lark_run))

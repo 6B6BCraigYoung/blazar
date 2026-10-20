@@ -224,7 +224,7 @@ pub struct RuleBody {
     pub workspace_id: Option<String>,
 }
 
-fn check(b: &RuleBody) -> Result<(), String> {
+pub(crate) fn check(b: &RuleBody) -> Result<(), String> {
     let t = b.tool.trim();
     if t.is_empty() || t.len() > 120 || t.chars().any(|c| c.is_whitespace() || c.is_control()) {
         return Err("工具名不能为空、不能带空白".into());

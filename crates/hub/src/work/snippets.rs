@@ -15,7 +15,7 @@ fn fail(status: StatusCode, msg: impl Into<String>) -> Response {
     (status, Json(json!({ "error": msg.into() }))).into_response()
 }
 
-fn check(name: &str, body: &str) -> Result<(), String> {
+pub(crate) fn check(name: &str, body: &str) -> Result<(), String> {
     let n = name.trim();
     if n.is_empty() || n.chars().count() > 40 {
         return Err("名字要 1–40 个字".into());

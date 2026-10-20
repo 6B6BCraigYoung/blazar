@@ -469,7 +469,7 @@ pub struct McpBody {
     pub headers: Option<BTreeMap<String, String>>,
 }
 
-fn check_mcp(b: &McpBody) -> Result<(), String> {
+pub(crate) fn check_mcp(b: &McpBody) -> Result<(), String> {
     if !valid_name(b.name.trim()) {
         return Err("名字只能用字母、数字、- 和 _（它会成为配置键）".into());
     }

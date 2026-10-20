@@ -18,6 +18,7 @@ pub mod office;
 mod routes;
 pub mod sims;
 mod skills;
+pub mod transfer;
 mod work;
 pub use agent::{
     accounts, agents, catalog, chat, checkpoint, codex_proxy, proxy, remote_cli, run, titles,

@@ -94,7 +94,7 @@ fn fail(status: StatusCode, msg: impl Into<String>) -> Response {
     (status, Json(serde_json::json!({ "error": msg.into() }))).into_response()
 }
 
-fn validate(a: &Agent) -> Result<(), String> {
+pub(crate) fn validate(a: &Agent) -> Result<(), String> {
     let name = a.name.trim();
     if name.is_empty() || name.chars().count() > 40 || name.chars().any(char::is_control) {
         return Err("名字 1–40 个字".into());
@@ -174,7 +174,7 @@ fn validate(a: &Agent) -> Result<(), String> {
     Ok(())
 }
 
-fn normalize(mut a: Agent) -> Agent {
+pub(crate) fn normalize(mut a: Agent) -> Agent {
     a.name = a.name.trim().to_owned();
     a.description = a.description.trim().to_owned();
     a.avatar = a.avatar.trim().to_owned();

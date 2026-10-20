@@ -6,8 +6,8 @@ use blazar_core_types::{SessionId, WorkspaceId};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use sqlx::Row;
 use sqlx::sqlite::SqliteRow;
+use sqlx::{Row, SqliteConnection};
 
 use crate::api::Shared;
 use crate::state::ServerEvent;
@@ -312,25 +312,28 @@ pub async fn by_session(st: &Shared, sid: SessionId) -> Option<Bot> {
     .map(|r| bot_of(&r))
 }
 
-pub async fn ensure_local_workspace(st: &Shared, path: &str, name: &str) -> Result<String, String> {
+pub async fn ensure_local_workspace(
+    conn: &mut SqliteConnection,
+    path: &str,
+    name: &str,
+) -> Result<String, String> {
     let path = path.trim().trim_end_matches('/');
     if path.is_empty() || !path.starts_with('/') {
         return Err("家目录要用绝对路径".into());
     }
     std::fs::create_dir_all(path).map_err(|e| format!("创建家目录 {path} 失败：{e}"))?;
     let now = Utc::now().to_rfc3339();
-    let pool = st.db.pool();
     sqlx::query(
         "INSERT INTO nodes (id, name, transport, status, created_at)
          VALUES (?1, 'local', 'local', 'online', ?2) ON CONFLICT (name) DO NOTHING",
     )
     .bind(blazar_core_types::NodeId::new().to_string())
     .bind(&now)
-    .execute(pool)
+    .execute(&mut *conn)
     .await
     .map_err(|e| e.to_string())?;
     let node_id: String = sqlx::query_scalar("SELECT id FROM nodes WHERE name = 'local'")
-        .fetch_one(pool)
+        .fetch_one(&mut *conn)
         .await
         .map_err(|e| e.to_string())?;
     sqlx::query(
@@ -342,13 +345,13 @@ pub async fn ensure_local_workspace(st: &Shared, path: &str, name: &str) -> Resu
     .bind(name)
     .bind(path)
     .bind(&now)
-    .execute(pool)
+    .execute(&mut *conn)
     .await
     .map_err(|e| e.to_string())?;
     sqlx::query_scalar("SELECT id FROM workspaces WHERE node_id = ?1 AND path = ?2")
         .bind(&node_id)
         .bind(path)
-        .fetch_one(pool)
+        .fetch_one(&mut *conn)
         .await
         .map_err(|e| e.to_string())
 }
@@ -384,34 +387,108 @@ pub struct NewBot {
     pub runtimes: Option<Vec<Value>>,
 }
 
-pub async fn create(st: &Shared, req: NewBot) -> Result<Bot, String> {
-    let handle = req.handle.trim().to_owned();
-    if !valid_handle(&handle) {
+fn validate_new(req: &NewBot) -> Result<(), String> {
+    if !valid_handle(req.handle.trim()) {
         return Err("handle 只能用小写字母、数字和连字符，1–32 个字符".into());
     }
-    if let Some(taken) = get(st, &handle).await {
-        return Err(if taken.archived_at.is_some() {
-            format!("handle「{handle}」被一个已归档的 bot 占着，恢复它或者换个名字")
-        } else {
-            format!("handle「{handle}」已经有了")
-        });
-    }
-    let role = req.role.unwrap_or_else(|| "worker".into());
-    if !ROLES.contains(&role.as_str()) {
+    if let Some(role) = &req.role
+        && !ROLES.contains(&role.as_str())
+    {
         return Err(format!("未知角色 {role}"));
     }
-    let brain = req.brain.unwrap_or_else(|| "hub".into());
-    if !BRAINS.contains(&brain.as_str()) {
+    if let Some(brain) = &req.brain
+        && !BRAINS.contains(&brain.as_str())
+    {
         return Err(format!("未知思考位置 {brain}"));
     }
-    let priority = req.priority.unwrap_or_else(|| "P1".into());
-    if !PRIORITIES.contains(&priority.as_str()) {
+    if let Some(priority) = &req.priority
+        && !PRIORITIES.contains(&priority.as_str())
+    {
         return Err(format!("未知优先级 {priority}"));
     }
-    let lifetime = req.lifetime.unwrap_or_else(|| "fixed".into());
-    if !LIFETIMES.contains(&lifetime.as_str()) {
+    if let Some(lifetime) = &req.lifetime
+        && !LIFETIMES.contains(&lifetime.as_str())
+    {
         return Err(format!("未知生命周期 {lifetime}，可用 fixed / temporary"));
     }
+    if req
+        .display_name
+        .as_deref()
+        .is_some_and(|n| n.trim().chars().count() > 40)
+    {
+        return Err("名字最多 40 个字".into());
+    }
+    Ok(())
+}
+
+async fn handle_free(conn: &mut SqliteConnection, handle: &str) -> Result<(), String> {
+    let taken: Option<Option<String>> =
+        sqlx::query_scalar("SELECT archived_at FROM bots WHERE handle = ?1 LIMIT 1")
+            .bind(handle)
+            .fetch_optional(&mut *conn)
+            .await
+            .map_err(|e| e.to_string())?;
+    match taken {
+        Some(Some(_)) => Err(format!(
+            "handle「{handle}」被一个已归档的 bot 占着，恢复它或者换个名字"
+        )),
+        Some(None) => Err(format!("handle「{handle}」已经有了")),
+        None => Ok(()),
+    }
+}
+
+pub async fn create(st: &Shared, mut req: NewBot) -> Result<Bot, String> {
+    validate_new(&req)?;
+    let handle = req.handle.trim().to_owned();
+    {
+        let mut conn = st.db.pool().acquire().await.map_err(|e| e.to_string())?;
+        handle_free(&mut conn, &handle).await?;
+    }
+    if req.agent_id.trim().is_empty() {
+        let duty = req
+            .duty
+            .as_deref()
+            .map(str::trim)
+            .filter(|d| !d.is_empty())
+            .ok_or("给它一句职责，或者选一个智能体档案")?;
+        if duty.chars().count() > 2000 {
+            return Err("职责最多 2000 字".into());
+        }
+        let runtime = req.runtime.clone().unwrap_or_else(|| "claude".into());
+        let summary: String = duty
+            .lines()
+            .next()
+            .unwrap_or("")
+            .chars()
+            .take(255)
+            .collect();
+        req.agent_id =
+            crate::agents::ensure_profile(st, &format!("bot:{handle}"), &runtime, &summary, duty)
+                .await?
+                .id;
+    }
+    let mut tx = st
+        .db
+        .pool()
+        .begin_with("BEGIN IMMEDIATE")
+        .await
+        .map_err(|e| e.to_string())?;
+    let id = insert(&mut tx, req).await?;
+    tx.commit().await.map_err(|e| e.to_string())?;
+    changed(st);
+    get(st, &id)
+        .await
+        .ok_or_else(|| "刚建的 bot 读不回来".into())
+}
+
+pub(crate) async fn insert(conn: &mut SqliteConnection, req: NewBot) -> Result<String, String> {
+    validate_new(&req)?;
+    let handle = req.handle.trim().to_owned();
+    handle_free(conn, &handle).await?;
+    let role = req.role.unwrap_or_else(|| "worker".into());
+    let brain = req.brain.unwrap_or_else(|| "hub".into());
+    let priority = req.priority.unwrap_or_else(|| "P1".into());
+    let lifetime = req.lifetime.unwrap_or_else(|| "fixed".into());
     let idle_ttl = if lifetime == "temporary" {
         Some(
             req.idle_ttl_secs
@@ -422,39 +499,20 @@ pub async fn create(st: &Shared, req: NewBot) -> Result<Bot, String> {
     } else {
         None
     };
-    let duty = req
-        .duty
-        .as_deref()
-        .map(str::trim)
-        .filter(|d| !d.is_empty())
-        .map(str::to_owned);
-    let agent = if !req.agent_id.trim().is_empty() {
-        let a = crate::agents::get(st, req.agent_id.trim())
+    let agent: Option<(String, Option<String>)> =
+        sqlx::query_as("SELECT name, archived_at FROM agents WHERE id = ?1")
+            .bind(req.agent_id.trim())
+            .fetch_optional(&mut *conn)
             .await
-            .ok_or("没有这个智能体档案")?;
-        if a.archived_at.is_some() {
-            return Err(format!("智能体「{}」已归档", a.name));
-        }
-        a
-    } else {
-        let duty = duty.clone().ok_or("给它一句职责，或者选一个智能体档案")?;
-        if duty.chars().count() > 2000 {
-            return Err("职责最多 2000 字".into());
-        }
-        let runtime = req.runtime.unwrap_or_else(|| "claude".into());
-        let summary: String = duty
-            .lines()
-            .next()
-            .unwrap_or("")
-            .chars()
-            .take(255)
-            .collect();
-        crate::agents::ensure_profile(st, &format!("bot:{handle}"), &runtime, &summary, &duty)
-            .await?
-    };
+            .map_err(|e| e.to_string())?;
+    match agent {
+        None => return Err("没有这个智能体档案".into()),
+        Some((name, Some(_))) => return Err(format!("智能体「{name}」已归档")),
+        Some(_) => {}
+    }
     if brain == "node" {
         let ws = req.brain_ws_id.as_deref().unwrap_or_default();
-        if crate::api::locate(st, ws).await.is_err() {
+        if !workspace_exists(conn, ws).await? {
             return Err("在工作机器上思考需要指定一个存在的工作区".into());
         }
     }
@@ -463,19 +521,16 @@ pub async fn create(st: &Shared, req: NewBot) -> Result<Bot, String> {
         .map(|n| n.trim().to_owned())
         .filter(|n| !n.is_empty())
         .unwrap_or_else(|| handle.clone());
-    if display_name.chars().count() > 40 {
-        return Err("名字最多 40 个字".into());
-    }
     let home_ws_id = match req.home_ws_id.filter(|w| !w.trim().is_empty()) {
         Some(ws) => {
-            crate::api::locate(st, &ws)
-                .await
-                .map_err(|_| "家工作区不存在".to_owned())?;
+            if !workspace_exists(conn, &ws).await? {
+                return Err("家工作区不存在".into());
+            }
             ws
         }
         None => {
             let path = req.home_path.unwrap_or_else(|| default_home(&handle));
-            ensure_local_workspace(st, &path, &format!("bot:{handle}")).await?
+            ensure_local_workspace(conn, &path, &format!("bot:{handle}")).await?
         }
     };
     let now = Utc::now().to_rfc3339();
@@ -489,7 +544,7 @@ pub async fn create(st: &Shared, req: NewBot) -> Result<Bot, String> {
     .bind(&handle)
     .bind(&display_name)
     .bind(&role)
-    .bind(&agent.id)
+    .bind(req.agent_id.trim())
     .bind(&home_ws_id)
     .bind(&brain)
     .bind(req.brain_ws_id.filter(|_| brain == "node"))
@@ -498,14 +553,20 @@ pub async fn create(st: &Shared, req: NewBot) -> Result<Bot, String> {
     .bind(&now)
     .bind(&lifetime)
     .bind(idle_ttl)
-    .execute(st.db.pool())
+    .execute(&mut *conn)
     .await
     .map_err(|e| e.to_string())?;
-    open_thread(st, &id, "main", "").await?;
-    changed(st);
-    get(st, &id)
+    insert_thread(conn, &id, "main", "").await?;
+    Ok(id)
+}
+
+async fn workspace_exists(conn: &mut SqliteConnection, id: &str) -> Result<bool, String> {
+    sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM workspaces WHERE id = ?1")
+        .bind(id)
+        .fetch_one(&mut *conn)
         .await
-        .ok_or_else(|| "刚建的 bot 读不回来".into())
+        .map(|n| n > 0)
+        .map_err(|e| e.to_string())
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -827,6 +888,19 @@ pub async fn open_thread(
     if !THREAD_KINDS.contains(&kind) {
         return Err(format!("未知线程类型 {kind}"));
     }
+    let id = {
+        let mut conn = st.db.pool().acquire().await.map_err(|e| e.to_string())?;
+        insert_thread(&mut conn, bot_id, kind, title).await?
+    };
+    thread(st, &id).await.ok_or_else(|| "线程读不回来".into())
+}
+
+async fn insert_thread(
+    conn: &mut SqliteConnection,
+    bot_id: &str,
+    kind: &str,
+    title: &str,
+) -> Result<String, String> {
     let id = uuid::Uuid::now_v7().to_string();
     let now = Utc::now().to_rfc3339();
     sqlx::query(
@@ -838,10 +912,10 @@ pub async fn open_thread(
     .bind(kind)
     .bind(title.chars().take(120).collect::<String>())
     .bind(&now)
-    .execute(st.db.pool())
+    .execute(&mut *conn)
     .await
     .map_err(|e| e.to_string())?;
-    thread(st, &id).await.ok_or_else(|| "线程读不回来".into())
+    Ok(id)
 }
 
 pub async fn bind_thread(st: &Shared, id: &str, thread_id: &str, runtime: &str) {

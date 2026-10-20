@@ -303,7 +303,7 @@ pub struct Body {
     pub status: Option<String>,
 }
 
-fn validate(b: &Body) -> Result<(), String> {
+pub(crate) fn validate(b: &Body) -> Result<(), String> {
     if let Some(n) = &b.name
         && (n.trim().is_empty() || n.chars().count() > 80)
     {

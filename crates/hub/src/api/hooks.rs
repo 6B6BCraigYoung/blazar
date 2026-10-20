@@ -27,7 +27,9 @@ pub(crate) const fn tru() -> bool {
 }
 
 impl HookInput {
-    fn validate(&self) -> Result<(blazar_hooks::HookEvent, blazar_hooks::HookTarget, u64), String> {
+    pub(crate) fn validate(
+        &self,
+    ) -> Result<(blazar_hooks::HookEvent, blazar_hooks::HookTarget, u64), String> {
         let event = serde_json::from_value(serde_json::Value::String(self.event.clone()))
             .map_err(|_| "钩子事件不合法".to_owned())?;
         let target = serde_json::from_value(serde_json::Value::String(self.target.clone()))
