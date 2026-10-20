@@ -726,6 +726,7 @@ async fn check_node(st: &Shared, node: String, jobs: Vec<Job>) -> bool {
             dir: j.run_dir.clone().unwrap_or_default(),
             tail_of: j.log_file(),
             tail_lines: SUMMARY_LINES,
+            exists: Vec::new(),
         })
         .collect();
     let transport = st.transport(&node);

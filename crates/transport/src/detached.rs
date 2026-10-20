@@ -603,11 +603,12 @@ read -r P B S < pid
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ProbeItem {
     pub dir: String,
     pub tail_of: Option<String>,
     pub tail_lines: usize,
+    pub exists: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -615,6 +616,7 @@ pub struct Probed {
     pub state: RunState,
     pub tail: String,
     pub exited_at: Option<i64>,
+    pub present: Vec<Option<bool>>,
 }
 
 pub async fn probe_many(
@@ -644,9 +646,20 @@ pub async fn probe_many(
                 )
             })
             .unwrap_or_else(|| ":".into());
+        let exists: String = item
+            .exists
+            .iter()
+            .enumerate()
+            .map(|(j, path)| {
+                format!(
+                    "if [ -e {} ]; then echo 'present={j}:1'; else echo 'present={j}:0'; fi\n",
+                    shell_quote(path)
+                )
+            })
+            .collect();
         script.push_str(&format!(
             r#"echo '{marker} run {i}'
-if cd {dir} 2>/dev/null; then
+{exists}if cd {dir} 2>/dev/null; then
   R=$({PROBE_BODY})
   [ -e exit.code ] && echo "exited_at=$(stat -c %Y exit.code 2>/dev/null || stat -f %m exit.code 2>/dev/null)"
 else R=missing; fi
@@ -664,7 +677,25 @@ true
             stderr: out.stderr.trim().to_owned(),
         });
     }
-    Ok(parse_many(&out.stdout, &marker, items.len()))
+    let mut probed = parse_many(&out.stdout, &marker, items.len());
+    for (p, item) in probed.iter_mut().zip(items) {
+        p.present.resize(item.exists.len(), None);
+    }
+    Ok(probed)
+}
+
+fn parse_present(state: &str) -> Vec<Option<bool>> {
+    let mut out: Vec<Option<bool>> = Vec::new();
+    for (j, have) in state.lines().filter_map(|l| {
+        let (j, have) = l.trim().strip_prefix("present=")?.split_once(':')?;
+        Some((j.parse::<usize>().ok()?, have == "1"))
+    }) {
+        if j >= out.len() {
+            out.resize(j + 1, None);
+        }
+        out[j] = Some(have);
+    }
+    out
 }
 
 fn parse_many(raw: &str, marker: &str, n: usize) -> Vec<Probed> {
@@ -702,9 +733,12 @@ fn parse_many(raw: &str, marker: &str, n: usize) -> Vec<Probed> {
                 .lines()
                 .find_map(|l| l.trim().strip_prefix("exited_at="))
                 .and_then(|v| v.trim().parse().ok());
+            let present = parse_present(&state);
             let body: String = state
                 .lines()
-                .filter(|l| !l.trim().starts_with("exited_at="))
+                .filter(|l| {
+                    !l.trim().starts_with("exited_at=") && !l.trim().starts_with("present=")
+                })
                 .collect::<Vec<_>>()
                 .join("\n");
             let state = if body.trim() == "missing" || body.trim().is_empty() {
@@ -716,6 +750,7 @@ fn parse_many(raw: &str, marker: &str, n: usize) -> Vec<Probed> {
                 state,
                 tail,
                 exited_at,
+                present,
             }
         })
         .collect()
@@ -1065,6 +1100,7 @@ mod tests {
             dir: run.dir.clone(),
             tail_of: Some(format!("{}/out.jsonl", run.dir)),
             tail_lines: 20,
+            exists: vec![run.dir.clone(), "/nonexistent/blazar-probe".into()],
         };
         let items = [
             item(&done),
@@ -1073,11 +1109,13 @@ mod tests {
                 dir: "/nonexistent/blazar-probe".into(),
                 tail_of: None,
                 tail_lines: 20,
+                exists: vec![done.dir.clone()],
             },
             ProbeItem {
                 dir: done.dir.clone(),
                 tail_of: Some("/nonexistent/blazar-probe/log".into()),
                 tail_lines: 20,
+                ..ProbeItem::default()
             },
         ];
         let got = probe_many(&transport, &items).await.unwrap();
@@ -1098,6 +1136,10 @@ mod tests {
         );
         assert_eq!(got[1].exited_at, None);
         assert_eq!(got[2].state, RunState::Missing);
+        assert_eq!(got[0].present, [Some(true), Some(false)]);
+        assert_eq!(got[1].present, [Some(true), Some(false)]);
+        assert_eq!(got[2].present, [Some(true)]);
+        assert!(got[3].present.is_empty());
         assert!(
             matches!(got[3].state, RunState::Exited { code: 3, .. }),
             "{got:?}"
@@ -1136,6 +1178,7 @@ mod tests {
                         dir,
                         tail_of: None,
                         tail_lines: 1,
+                        ..ProbeItem::default()
                     })
                     .collect();
                 probe_many(&transport, &items).await.unwrap()
