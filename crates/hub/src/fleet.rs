@@ -25,7 +25,13 @@ const PROTOCOL_VERSION: &str = "2025-06-18";
 const TUNNEL_TIMEOUT: Duration = Duration::from_secs(25);
 const WATCHDOG_EVERY: Duration = Duration::from_secs(20);
 
-const WORKER_WRITE_TOOLS: &[&str] = &["send_prompt", "copy_files", "wait_workspace", "job_spawn"];
+const WORKER_WRITE_TOOLS: &[&str] = &[
+    "send_prompt",
+    "copy_files",
+    "wait_workspace",
+    "job_spawn",
+    "job_register",
+];
 const WORKER_OWN_JOB_TOOLS: &[&str] = &["job_log", "job_kill"];
 const WORKER_DENIED_TOOLS: &[&str] = &[
     "spawn_bot",
@@ -564,14 +570,20 @@ async fn handle(st: &Shared, grant: Option<&Grant>, req: &Value) -> Option<Value
     })
 }
 
-fn workspace_args(name: &str, args: &Value) -> Vec<String> {
+fn workspace_args(name: &str, args: &Value) -> Result<Vec<String>, String> {
     let keys: &[&str] = match name {
         "copy_files" => &["from_workspace_id", "to_workspace_id"],
         _ => &["workspace_id"],
     };
     keys.iter()
-        .filter_map(|k| args.get(*k).and_then(Value::as_str))
-        .map(str::to_owned)
+        .map(|k| {
+            args.get(*k)
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+                .map(str::to_owned)
+                .ok_or_else(|| format!("worker 用 {name} 要给 {k}，而且要在你的认领里"))
+        })
         .collect()
 }
 
@@ -589,24 +601,21 @@ pub async fn allowed(st: &Shared, caller: &Caller, name: &str, args: &Value) -> 
             .get("job_id")
             .and_then(Value::as_str)
             .unwrap_or_default();
-        let owner = crate::bots::jobs::get(st, id).await.and_then(|j| j.bot_id);
-        if owner.as_deref() != Some(caller.bot.as_str()) {
+        let job = crate::bots::jobs::get(st, id).await;
+        if job.as_ref().and_then(|j| j.bot_id.as_deref()) != Some(caller.bot.as_str()) {
             return Err(format!(
                 "后台任务 {id} 不是你发起的；worker 只能看、只能停自己的后台任务"
             ));
         }
+        if name == "job_kill"
+            && let Some(j) = &job
+        {
+            crate::bots::jobs::may_kill(j, Some(caller))?;
+        }
     }
     if WORKER_WRITE_TOOLS.contains(&name) {
-        let mine = crate::bots::claims::workspaces_of(st, &caller.bot).await;
-        let home: Option<String> = crate::bots::get(st, &caller.bot)
-            .await
-            .map(|b| b.home_ws_id);
-        for ws in workspace_args(name, args) {
-            if !mine.contains(&ws) && home.as_deref() != Some(ws.as_str()) {
-                return Err(format!(
-                    "工作区 {ws} 不在你的认领里；先 claim 它，或者 send_message 给它的 owner"
-                ));
-            }
+        for ws in workspace_args(name, args)? {
+            crate::bots::claims::may_use(st, caller, &ws).await?;
         }
     }
     Ok(())

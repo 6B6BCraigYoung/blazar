@@ -173,12 +173,13 @@ async fn a_registered_process_ends_as_done_with_an_unknown_code_and_mails_its_bo
     let job = register(
         &h.st,
         Register {
-            node: "local".into(),
+            workspace_id: Some(b.home_ws_id.clone()),
             pid: detached_pid(1),
             label: "nap".into(),
             ..Register::default()
         },
         &bot_owner(&b),
+        Some(&caller(&b)),
     )
     .await
     .unwrap();
@@ -200,12 +201,13 @@ async fn a_registered_process_ends_as_done_with_an_unknown_code_and_mails_its_bo
         register(
             &h.st,
             Register {
-                node: "local".into(),
+                node: Some("local".into()),
                 pid: 999_999,
                 label: "ghost".into(),
                 ..Register::default()
             },
             &Owner::User,
+            None,
         )
         .await
         .is_err()
@@ -284,6 +286,136 @@ async fn kill_marks_killed_and_workers_cannot_stop_others() {
         kill(&h.st, &job.id, None, &Owner::User).await.is_err(),
         "已经结束的不能再停"
     );
+}
+
+#[tokio::test]
+async fn workers_register_only_inside_their_claims_and_cannot_stop_registered_jobs() {
+    let h = hub().await;
+    let w = h.bot("trainer", "worker").await;
+    let lead = h.bot("boss", "lead").await;
+    sqlx::query(
+        "INSERT INTO nodes (id, name, transport, status, created_at)
+         VALUES ('n-far', 'far', 'ssh', 'online', '0')",
+    )
+    .execute(h.st.db.pool())
+    .await
+    .unwrap();
+    let pid = detached_pid(30);
+    let req = |ws: Option<&str>, node: Option<&str>| Register {
+        workspace_id: ws.map(str::to_owned),
+        node: node.map(str::to_owned),
+        pid,
+        label: "watched".into(),
+        ..Register::default()
+    };
+    let me = Some(caller(&w));
+    let no_ws = register(&h.st, req(None, Some("local")), &bot_owner(&w), me.as_ref())
+        .await
+        .unwrap_err();
+    assert!(no_ws.contains("workspace_id"), "{no_ws}");
+    let outside = register(&h.st, req(Some(&h.ws), None), &bot_owner(&w), me.as_ref())
+        .await
+        .unwrap_err();
+    assert!(outside.contains("认领"), "{outside}");
+    let wrong_node = register(
+        &h.st,
+        req(Some(&w.home_ws_id), Some("far")),
+        &bot_owner(&w),
+        me.as_ref(),
+    )
+    .await
+    .unwrap_err();
+    assert!(wrong_node.contains("far"), "{wrong_node}");
+    for args in [
+        json!({ "node": "local", "pid": pid, "label": "x" }),
+        json!({ "workspace_id": h.ws, "pid": pid, "label": "x" }),
+    ] {
+        assert!(
+            crate::fleet::allowed(&h.st, &caller(&w), "job_register", &args)
+                .await
+                .is_err(),
+            "{args}"
+        );
+    }
+    assert!(
+        crate::fleet::allowed(
+            &h.st,
+            &caller(&w),
+            "job_register",
+            &json!({ "workspace_id": w.home_ws_id, "pid": pid, "label": "x" })
+        )
+        .await
+        .is_ok()
+    );
+    let job = register(
+        &h.st,
+        req(Some(&w.home_ws_id), None),
+        &bot_owner(&w),
+        me.as_ref(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        (job.node.as_str(), job.kind.as_str()),
+        ("local", "register")
+    );
+    let refused = kill(&h.st, &job.id, me.as_ref(), &bot_owner(&w))
+        .await
+        .unwrap_err();
+    assert!(refused.contains("登记"), "{refused}");
+    assert!(
+        crate::fleet::allowed(&h.st, &caller(&w), "job_kill", &json!({ "job_id": job.id }))
+            .await
+            .is_err()
+    );
+    assert!(
+        crate::fleet::allowed(&h.st, &caller(&w), "job_log", &json!({ "job_id": job.id }))
+            .await
+            .is_ok()
+    );
+    let mut headers = HeaderMap::new();
+    let (k, v) = crate::bots::api::caller_header(&caller(&w));
+    headers.insert(
+        axum::http::HeaderName::from_bytes(k.as_bytes()).unwrap(),
+        v.parse().unwrap(),
+    );
+    let r = crate::bots::api::kill_job(
+        axum::extract::State(h.st.clone()),
+        axum::extract::Path(job.id.clone()),
+        headers.clone(),
+    )
+    .await;
+    assert!(!r.status().is_success());
+    let r = crate::bots::api::register_job(
+        axum::extract::State(h.st.clone()),
+        headers.clone(),
+        axum::Json(req(None, Some("local"))),
+    )
+    .await;
+    assert!(!r.status().is_success());
+    let r = crate::bots::api::spawn_job(
+        axum::extract::State(h.st.clone()),
+        headers,
+        axum::Json(Spawn {
+            workspace_id: h.ws.clone(),
+            command: "true".into(),
+            ..Spawn::default()
+        }),
+    )
+    .await;
+    assert_eq!(r.status(), axum::http::StatusCode::FORBIDDEN);
+    assert_eq!(get(&h.st, &job.id).await.unwrap().status, "running");
+    let killed = kill(&h.st, &job.id, Some(&caller(&lead)), &bot_owner(&lead))
+        .await
+        .unwrap();
+    assert_eq!(killed.status, "killed");
+    let again = Register {
+        pid: detached_pid(30),
+        ..req(None, Some("local"))
+    };
+    let again = register(&h.st, again, &Owner::User, None).await.unwrap();
+    assert_eq!(again.workspace_id, None);
+    kill(&h.st, &again.id, None, &Owner::User).await.unwrap();
 }
 
 #[tokio::test]

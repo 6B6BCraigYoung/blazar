@@ -488,6 +488,11 @@ pub async fn spawn_job(
     headers: HeaderMap,
     Json(req): Json<jobs::Spawn>,
 ) -> Response {
+    if let Some(c) = caller_of(&headers)
+        && let Err(e) = claims::may_use(&st, &c, req.workspace_id.trim()).await
+    {
+        return fail(StatusCode::FORBIDDEN, e);
+    }
     let owner = jobs::owner_of(&st, &headers).await;
     match jobs::spawn(&st, req, &owner).await {
         Ok(j) => Json(json!(j)).into_response(),
@@ -501,7 +506,7 @@ pub async fn register_job(
     Json(req): Json<jobs::Register>,
 ) -> Response {
     let owner = jobs::owner_of(&st, &headers).await;
-    match jobs::register(&st, req, &owner).await {
+    match jobs::register(&st, req, &owner, caller_of(&headers).as_ref()).await {
         Ok(j) => Json(json!(j)).into_response(),
         Err(e) => bad(e),
     }

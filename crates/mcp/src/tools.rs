@@ -537,23 +537,25 @@ pub const TOOLS: &[Tool] = &[
     },
     Tool {
         name: "job_register",
-        description: "把一台机器上已经在跑的进程登记成后台任务，hub 替你盯着它，结束时通知你。这种任务拿不到退出码，结束一律按 done 记。",
+        description: "把一台机器上已经在跑的进程登记成后台任务，hub 替你盯着它，结束时通知你。这种任务拿不到退出码，结束一律按 done 记。worker 必须给自己认领或家工作区的 workspace_id，机器从工作区推出来；登记来的任务 worker 不能结束，只有总控和用户能。",
         schema: || {
             obj(
                 json!({
-                    "node": s("string", "机器名，本机用 local"),
+                    "workspace_id": s("string", "进程所在机器上的工作区 id，决定是哪台机器；worker 必填"),
+                    "node": s("string", "机器名，只有总控在不给工作区时用"),
                     "pid": s("integer", "进程号"),
                     "label": s("string", "一句话标签"),
                     "log_path": s("string", "它的日志文件（绝对路径），可省；给了才能用 job_log 看"),
                     "deadline_mins": s("integer", "多少分钟后还没结束就提醒一次"),
                     "notify": s("string", "wake（默认）/ inbox / none"),
-                    "workspace_id": s("string", "归到哪个工作区，可省"),
                 }),
-                &["node", "pid", "label"],
+                &["pid", "label"],
             )
         },
         build: |v| {
-            arg(v, "node")?;
+            if arg(v, "workspace_id").is_err() && arg(v, "node").is_err() {
+                anyhow::bail!("要给 workspace_id（或 node）");
+            }
             arg(v, "label")?;
             if !v.get("pid").is_some_and(Value::is_u64) {
                 anyhow::bail!("缺少必填参数 pid");
@@ -927,6 +929,14 @@ mod tests {
             (find("job_register").unwrap().build)(&json!({ "node": "local", "label": "x" }))
                 .is_err()
         );
+        assert!(
+            (find("job_register").unwrap().build)(&json!({ "pid": 42, "label": "x" })).is_err()
+        );
+        let (_, url, _) = (find("job_register").unwrap().build)(
+            &json!({ "workspace_id": "w1", "pid": 42, "label": "x" }),
+        )
+        .unwrap();
+        assert_eq!(url, "/api/jobs/register");
         let (_, url, _) =
             (find("job_log").unwrap().build)(&json!({ "job_id": "j/1", "tail": 9999 })).unwrap();
         assert_eq!(url, "/api/jobs/j%2F1/log?tail=2000");

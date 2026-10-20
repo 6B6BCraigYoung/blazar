@@ -183,6 +183,19 @@ pub async fn workspaces_of(st: &Shared, bot_id: &str) -> BTreeSet<String> {
         .collect()
 }
 
+pub async fn may_use(st: &Shared, caller: &Caller, ws: &str) -> Result<(), String> {
+    if caller.is_lead() {
+        return Ok(());
+    }
+    let home = super::get(st, &caller.bot).await.map(|b| b.home_ws_id);
+    if home.as_deref() == Some(ws) || workspaces_of(st, &caller.bot).await.contains(ws) {
+        return Ok(());
+    }
+    Err(format!(
+        "工作区 {ws} 不在你的认领里；先 claim 它，或者 send_message 给它的 owner"
+    ))
+}
+
 #[derive(Debug, Default, Deserialize)]
 pub struct NewClaim {
     #[serde(default)]

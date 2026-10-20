@@ -489,7 +489,8 @@ pub async fn spawn(st: &Shared, req: Spawn, owner: &Owner) -> Result<Job, String
 
 #[derive(Debug, Default, Deserialize)]
 pub struct Register {
-    pub node: String,
+    #[serde(default)]
+    pub node: Option<String>,
     pub pid: i64,
     pub label: String,
     #[serde(default)]
@@ -502,7 +503,59 @@ pub struct Register {
     pub workspace_id: Option<String>,
 }
 
-pub async fn register(st: &Shared, req: Register, owner: &Owner) -> Result<Job, String> {
+async fn register_target(
+    st: &Shared,
+    req: &Register,
+    owner: &Owner,
+    by: Option<&Caller>,
+) -> Result<(String, Option<String>), String> {
+    let ws = nonempty(req.workspace_id.as_deref());
+    let asked = nonempty(req.node.as_deref());
+    if let Some(c) = by.filter(|c| !c.is_lead()) {
+        let ws = ws.ok_or(
+            "worker 登记后台任务要给 workspace_id，而且要在你的认领或家工作区里；机器从工作区推出来",
+        )?;
+        super::claims::may_use(st, c, ws).await?;
+    }
+    match ws {
+        Some(ws) => {
+            let (node, _) = crate::api::locate(st, ws)
+                .await
+                .map_err(|e| e.to_string())?;
+            if let Some(n) = asked.filter(|n| *n != node) {
+                return Err(format!("工作区 {ws} 在 {node} 上，不在 {n} 上"));
+            }
+            Ok((node, Some(ws.to_owned())))
+        }
+        None => {
+            let node = asked.ok_or("要给 workspace_id（或 node）")?;
+            let ws = match owner {
+                Owner::Session { workspace, .. } if !workspace.is_empty() => {
+                    Some(workspace.clone())
+                }
+                _ => None,
+            };
+            Ok((node.to_owned(), ws))
+        }
+    }
+}
+
+pub fn may_kill(job: &Job, by: Option<&Caller>) -> Result<(), String> {
+    if !visible_to(job, by) {
+        return Err("worker 只能结束自己发起的后台任务".into());
+    }
+    if job.kind == "register" && by.is_some_and(|c| !c.is_lead()) {
+        return Err("登记来的后台任务只有总控 bot 和用户能结束".into());
+    }
+    Ok(())
+}
+
+pub async fn register(
+    st: &Shared,
+    req: Register,
+    owner: &Owner,
+    by: Option<&Caller>,
+) -> Result<Job, String> {
     let label = req.label.trim();
     if label.is_empty() {
         return Err("label 不能为空".into());
@@ -517,20 +570,9 @@ pub async fn register(st: &Shared, req: Register, owner: &Owner) -> Result<Job, 
     if log_path.as_deref().is_some_and(|p| !p.starts_with('/')) {
         return Err("日志路径要用绝对路径".into());
     }
-    let node = req.node.trim();
+    let (node, workspace_id) = register_target(st, &req, owner, by).await?;
+    let node = node.as_str();
     let node_id = node_id(st, node).await?;
-    let workspace_id = match nonempty(req.workspace_id.as_deref()) {
-        Some(ws) => {
-            crate::api::locate(st, ws)
-                .await
-                .map_err(|e| e.to_string())?;
-            Some(ws.to_owned())
-        }
-        None => match owner {
-            Owner::Session { workspace, .. } if !workspace.is_empty() => Some(workspace.clone()),
-            _ => None,
-        },
-    };
     let id = uuid::Uuid::now_v7().to_string();
     let root = root(st, node).await?;
     let run = DetachedRun::adopt(st.transport(node), &root, &id, pid)
@@ -614,9 +656,7 @@ pub async fn kill(
     killer: &Owner,
 ) -> Result<Job, String> {
     let job = get(st, id).await.ok_or("没有这个后台任务")?;
-    if !visible_to(&job, by) {
-        return Err("worker 只能结束自己发起的后台任务".into());
-    }
+    may_kill(&job, by)?;
     if job.status != "running" {
         return Err(format!("这个任务已经是 {} 状态", job.status));
     }
