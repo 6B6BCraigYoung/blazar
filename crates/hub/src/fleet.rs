@@ -25,7 +25,8 @@ const PROTOCOL_VERSION: &str = "2025-06-18";
 const TUNNEL_TIMEOUT: Duration = Duration::from_secs(25);
 const WATCHDOG_EVERY: Duration = Duration::from_secs(20);
 
-const WORKER_WRITE_TOOLS: &[&str] = &["send_prompt", "copy_files", "wait_workspace"];
+const WORKER_WRITE_TOOLS: &[&str] = &["send_prompt", "copy_files", "wait_workspace", "job_spawn"];
+const WORKER_OWN_JOB_TOOLS: &[&str] = &["job_log", "job_kill"];
 const WORKER_DENIED_TOOLS: &[&str] = &[
     "spawn_bot",
     "create_workspace",
@@ -583,6 +584,18 @@ pub async fn allowed(st: &Shared, caller: &Caller, name: &str, args: &Value) -> 
             "worker 不能用 {name}；要派活请 send_message 给总控 bot"
         ));
     }
+    if WORKER_OWN_JOB_TOOLS.contains(&name) {
+        let id = args
+            .get("job_id")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let owner = crate::bots::jobs::get(st, id).await.and_then(|j| j.bot_id);
+        if owner.as_deref() != Some(caller.bot.as_str()) {
+            return Err(format!(
+                "后台任务 {id} 不是你发起的；worker 只能看、只能停自己的后台任务"
+            ));
+        }
+    }
     if WORKER_WRITE_TOOLS.contains(&name) {
         let mine = crate::bots::claims::workspaces_of(st, &caller.bot).await;
         let home: Option<String> = crate::bots::get(st, &caller.bot)
@@ -616,6 +629,12 @@ async fn call(st: &Shared, grant: Option<&Grant>, params: Option<&Value>) -> Res
     if let Some(c) = &caller {
         let (k, v) = crate::bots::api::caller_header(c);
         extra.push((k, v));
+    }
+    if let Some(g) = grant {
+        extra.push((
+            crate::bots::jobs::SESSION_HEADER.to_owned(),
+            g.session.to_string(),
+        ));
     }
     let (ok, text) = internal_request(st, method, &path, body, &extra).await?;
     Ok(json!({

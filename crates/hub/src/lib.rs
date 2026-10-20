@@ -111,6 +111,7 @@ pub async fn build_state_with_services(
     services.spawn(autopilot::scheduler(st.clone()));
     services.spawn(bots::dispatch::scheduler(st.clone()));
     services.spawn(fleet::watchdog(st.clone()));
+    services.spawn(bots::jobs::watch(st.clone()));
     Ok(st)
 }
 

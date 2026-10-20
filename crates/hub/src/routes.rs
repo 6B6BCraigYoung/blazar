@@ -358,6 +358,14 @@ pub fn build_router(st: Arc<AppState>) -> Router {
         .route("/api/mail/{id}", get(bots::api::get_mail))
         .route("/api/mail/{id}/reply", post(bots::api::reply_mail))
         .route("/api/mail/{id}/wait", get(bots::api::wait_mail))
+        .route(
+            "/api/jobs",
+            get(bots::api::list_jobs).post(bots::api::spawn_job),
+        )
+        .route("/api/jobs/register", post(bots::api::register_job))
+        .route("/api/jobs/{id}", get(bots::api::get_job))
+        .route("/api/jobs/{id}/log", get(bots::api::job_log))
+        .route("/api/jobs/{id}/kill", post(bots::api::kill_job))
         .route("/api/facts", get(bots::api::list_facts))
         .route("/api/facts/report", post(bots::api::report_facts))
         .route(

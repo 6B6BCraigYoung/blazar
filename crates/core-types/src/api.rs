@@ -185,6 +185,7 @@ pub enum ServerEvent {
     InboxChanged,
     BotsChanged,
     FactsChanged,
+    JobsChanged,
 
     ScriptsChanged {
         workspace_id: WorkspaceId,

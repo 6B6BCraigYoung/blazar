@@ -203,6 +203,11 @@ pub async fn bot_status(st: &Shared, bot: &Bot, recent: usize) -> Value {
         "pending_mail": pending.get(&bot.id).copied().unwrap_or(0),
         "claims": claims,
         "threads": open_threads,
+        "jobs": super::jobs::running_of_bot(st, &bot.id)
+            .await
+            .iter()
+            .map(super::jobs::brief)
+            .collect::<Vec<_>>(),
         "last_active_at": bot.last_active_at,
         "created_at": bot.created_at,
     })
@@ -263,6 +268,7 @@ pub async fn fleet_status(st: &Shared, recent: usize) -> Value {
         "quota": quota,
         "alerts": alerts,
         "unhealthy_facts": facts,
+        "jobs": super::jobs::fleet_brief(st).await,
     })
 }
 

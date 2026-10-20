@@ -5,7 +5,7 @@ use axum::response::{IntoResponse, Response};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::{Caller, caller_of, claims, facts, memory, status};
+use super::{Caller, caller_of, claims, facts, jobs, memory, status};
 use crate::api::Shared;
 
 fn fail(status: StatusCode, msg: impl Into<String>) -> Response {
@@ -468,6 +468,105 @@ pub async fn archive_memory(
 ) -> Response {
     match memory::archive(&st, &id, caller_of(&headers).as_ref()).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(e) => bad(e),
+    }
+}
+
+pub async fn list_jobs(
+    State(st): State<Shared>,
+    headers: HeaderMap,
+    Query(f): Query<jobs::Filter>,
+) -> Response {
+    match jobs::list(&st, &f, caller_of(&headers).as_ref()).await {
+        Ok(list) => Json(json!({ "jobs": list })).into_response(),
+        Err(e) => bad(e),
+    }
+}
+
+pub async fn spawn_job(
+    State(st): State<Shared>,
+    headers: HeaderMap,
+    Json(req): Json<jobs::Spawn>,
+) -> Response {
+    let owner = jobs::owner_of(&st, &headers).await;
+    match jobs::spawn(&st, req, &owner).await {
+        Ok(j) => Json(json!(j)).into_response(),
+        Err(e) => bad(e),
+    }
+}
+
+pub async fn register_job(
+    State(st): State<Shared>,
+    headers: HeaderMap,
+    Json(req): Json<jobs::Register>,
+) -> Response {
+    let owner = jobs::owner_of(&st, &headers).await;
+    match jobs::register(&st, req, &owner).await {
+        Ok(j) => Json(json!(j)).into_response(),
+        Err(e) => bad(e),
+    }
+}
+
+async fn visible_job(st: &Shared, id: &str, headers: &HeaderMap) -> Result<jobs::Job, Response> {
+    match jobs::get(st, id).await {
+        Some(j) if jobs::visible_to(&j, caller_of(headers).as_ref()) => Ok(j),
+        Some(_) => Err(fail(
+            StatusCode::FORBIDDEN,
+            "worker 只能看自己发起的后台任务",
+        )),
+        None => Err(not_found("没有这个后台任务")),
+    }
+}
+
+pub async fn get_job(
+    State(st): State<Shared>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    match visible_job(&st, &id, &headers).await {
+        Ok(j) => Json(json!(j)).into_response(),
+        Err(r) => r,
+    }
+}
+
+#[derive(Deserialize)]
+pub struct LogQuery {
+    #[serde(default)]
+    pub tail: Option<usize>,
+}
+
+pub async fn job_log(
+    State(st): State<Shared>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Query(q): Query<LogQuery>,
+) -> Response {
+    let job = match visible_job(&st, &id, &headers).await {
+        Ok(j) => j,
+        Err(r) => return r,
+    };
+    let lines = q.tail.unwrap_or(200).clamp(1, jobs::MAX_TAIL);
+    match jobs::log(&st, &job, lines).await {
+        Ok(text) => Json(json!({
+            "id": job.id,
+            "path": job.log_file(),
+            "status": job.status,
+            "lines": lines,
+            "log": text,
+        }))
+        .into_response(),
+        Err(e) => fail(StatusCode::BAD_GATEWAY, e),
+    }
+}
+
+pub async fn kill_job(
+    State(st): State<Shared>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let killer = jobs::owner_of(&st, &headers).await;
+    match jobs::kill(&st, &id, caller_of(&headers).as_ref(), &killer).await {
+        Ok(j) => Json(json!(j)).into_response(),
         Err(e) => bad(e),
     }
 }

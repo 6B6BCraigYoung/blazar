@@ -29,7 +29,7 @@ fn q(s: &str) -> String {
     format!("'{}'", s.replace('\'', r"'\''"))
 }
 
-fn cd_target(path: &str) -> String {
+pub(crate) fn cd_target(path: &str) -> String {
     let p = path.trim();
     match p.strip_prefix("~/") {
         Some(rest) => format!("~/{}", q(rest)),
