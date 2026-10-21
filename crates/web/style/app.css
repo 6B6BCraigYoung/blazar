@@ -304,6 +304,8 @@ b.mk { font: var(--font-weight-semibold) var(--font-size-caption) var(--font-mon
 .pv-stage[data-device="mobile"] { padding: var(--space-lg) 0; }
 .pv-stage[data-device="mobile"] iframe { border-radius: var(--radius-device); box-shadow: var(--shadow-device-edge); }
 .pv-log { margin: 0; flex: 0 0 auto; max-height: 40%; overflow: auto; padding: var(--space-md) var(--space-lg); border-top: 1px solid var(--line); background: var(--bg-code); font: var(--font-size-caption-readable)/var(--line-height-compact) var(--font-mono); color: var(--fg-2); white-space: pre-wrap; }
+.pv-origin { flex: 0 0 auto; height: 22px; line-height: 22px; padding: 0 var(--space-lg); border-top: 1px solid var(--line); background: var(--bg-code); font-size: var(--font-size-caption-readable); color: var(--fg-4); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pv-origin + .pv-log { border-top: 0; padding-top: 0; }
 .sc-runs { max-height: 220px; overflow: auto; }
 .sc-run summary { cursor: pointer; display: flex; align-items: center; gap: var(--space-md); padding: var(--space-xs) 0; font-size: var(--font-size-label); }
 .sc-run summary .grow { flex: 1; }

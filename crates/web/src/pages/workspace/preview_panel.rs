@@ -13,6 +13,7 @@ use crate::realtime::use_bus;
 use crate::storage;
 use crate::{desktop, fmt};
 
+mod origin;
 mod script_draft;
 use script_draft::{ScriptDraft, Scripts};
 
@@ -26,6 +27,8 @@ struct Dev {
     tunnel_error: Option<String>,
     node: String,
     port: Option<u32>,
+    ports: Vec<u16>,
+    source: Option<String>,
     log: String,
 }
 
@@ -385,7 +388,8 @@ pub fn PreviewBar(
                     return view! { <LoadingState text="读取预览状态…" /> }.into_any();
                 }
                 let d = dev.get().unwrap_or_default();
-                let log = (p.log && !d.log.is_empty())
+                let log = p
+                    .log
                     .then(|| {
                         let tail: String = d
                             .log
@@ -396,7 +400,13 @@ pub fn PreviewBar(
                             .into_iter()
                             .rev()
                             .collect();
-                        view! { <pre class="pv-log">{tail}</pre> }
+                        let origin = origin::describe(d.source.as_deref(), d.port, &d.ports, d.running);
+                        view! {
+                            <div class="pv-origin">{origin}</div>
+                            <pre class="pv-log">
+                                {if tail.is_empty() { "（还没有输出）".to_owned() } else { tail }}
+                            </pre>
+                        }
                     });
                 if u.is_empty() {
                     if let Some(error) = forwarding.error {
@@ -507,7 +517,7 @@ fn ScriptsDialog(
             .map_err(api::ApiError::new);
         async move {
             let c = c?;
-            api::send::<Value>("PUT", &format!("/api/workspaces/{id}/scripts"), &json!({ "setup": c.setup, "cleanup": c.cleanup, "dev": c.dev, "copy_files": c.copy_files })).await
+            api::send::<Value>("PUT", &format!("/api/workspaces/{id}/scripts"), &json!({ "setup": c.setup, "cleanup": c.cleanup, "dev": c.dev, "copy_files": c.copy_files, "preview_port": c.preview_port })).await
         }
     };
     let blocked = move || busy.get() || !cfg.with(ScriptDraft::ready);
@@ -620,6 +630,20 @@ fn ScriptsDialog(
                 |c| c.dev.clone(),
                 |c, v| c.dev = v,
             )}
+            <label class="field" title="填了就直接用这个端口拼预览地址，不再从日志或监听端口识别。">
+                "预览端口（可选）"
+                <input
+                    class="mono"
+                    inputmode="numeric"
+                    placeholder="留空则自动识别"
+                    disabled=blocked
+                    prop:value=move || cfg.with(|draft| draft.port.clone())
+                    on:input=move |e| {
+                        let v = event_target_value(&e);
+                        cfg.update(|draft| draft.port = v);
+                    }
+                />
+            </label>
             {field(
                 "复制文件",
                 "创建独立工作区时从源仓库复制被 Git 忽略的文件；每行一个路径，支持 glob。",

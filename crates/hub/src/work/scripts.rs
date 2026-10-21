@@ -1,6 +1,6 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::OnceLock;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use axum::Json;
 use axum::extract::{Path, State};
@@ -20,6 +20,8 @@ const MAX_SCRIPT: usize = 8000;
 const KEEP_OUTPUT: usize = 64 * 1024;
 const SETUP_TIMEOUT: u64 = 900;
 const CLEANUP_TIMEOUT: u64 = 300;
+const LISTEN_AFTER_SECS: u64 = 5;
+const LISTEN_RETRY: Duration = Duration::from_secs(10);
 
 fn fail(status: StatusCode, msg: impl Into<String>) -> Response {
     (status, Json(json!({ "error": msg.into() }))).into_response()
@@ -68,7 +70,7 @@ async fn place(st: &Shared, ws: &str) -> Option<Place> {
 }
 
 async fn load(st: &Shared, ws: &str) -> Value {
-    let r = sqlx::query("SELECT setup, cleanup, dev, copy_files, updated_at FROM workspace_scripts WHERE workspace_id = ?1")
+    let r = sqlx::query("SELECT setup, cleanup, dev, copy_files, preview_port, updated_at FROM workspace_scripts WHERE workspace_id = ?1")
         .bind(ws)
         .fetch_optional(st.db.pool())
         .await
@@ -80,7 +82,31 @@ async fn load(st: &Shared, ws: &str) -> Value {
             .unwrap_or_default()
     };
     json!({ "setup": s("setup"), "cleanup": s("cleanup"), "dev": s("dev"), "copy_files": s("copy_files"),
+            "preview_port": r.as_ref().and_then(|r| r.try_get::<Option<i64>, _>("preview_port").ok().flatten()),
             "updated_at": r.as_ref().and_then(|r| r.try_get::<String, _>("updated_at").ok()) })
+}
+
+fn preview_port_of(v: Option<i64>) -> Result<Option<u16>, String> {
+    match v {
+        None => Ok(None),
+        Some(p) => u16::try_from(p)
+            .ok()
+            .filter(|p| *p > 0)
+            .map(Some)
+            .ok_or_else(|| "预览端口要在 1 到 65535 之间".to_owned()),
+    }
+}
+
+async fn preview_port(st: &Shared, ws: &str) -> Option<u16> {
+    let v: Option<i64> =
+        sqlx::query_scalar("SELECT preview_port FROM workspace_scripts WHERE workspace_id = ?1")
+            .bind(ws)
+            .fetch_optional(st.db.pool())
+            .await
+            .ok()
+            .flatten()
+            .flatten();
+    preview_port_of(v).ok().flatten()
 }
 
 pub async fn get(State(st): State<Shared>, Path(id): Path<String>) -> Response {
@@ -97,6 +123,8 @@ pub struct ScriptsBody {
     pub dev: String,
     #[serde(default)]
     pub copy_files: String,
+    #[serde(default)]
+    pub preview_port: Option<i64>,
 }
 
 fn check_copy(list: &str) -> Result<(), String> {
@@ -132,17 +160,23 @@ pub async fn put(
     if let Err(e) = check_copy(&b.copy_files) {
         return fail(StatusCode::BAD_REQUEST, e);
     }
+    let port = match preview_port_of(b.preview_port) {
+        Ok(p) => p.map(i64::from),
+        Err(e) => return fail(StatusCode::BAD_REQUEST, e),
+    };
     let r = sqlx::query(
-        "INSERT INTO workspace_scripts (workspace_id, setup, cleanup, dev, copy_files, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+        "INSERT INTO workspace_scripts (workspace_id, setup, cleanup, dev, copy_files, preview_port, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
          ON CONFLICT (workspace_id) DO UPDATE SET setup = excluded.setup, cleanup = excluded.cleanup,
-             dev = excluded.dev, copy_files = excluded.copy_files, updated_at = excluded.updated_at",
+             dev = excluded.dev, copy_files = excluded.copy_files, preview_port = excluded.preview_port,
+             updated_at = excluded.updated_at",
     )
     .bind(&id)
     .bind(b.setup.trim())
     .bind(b.cleanup.trim())
     .bind(b.dev.trim())
     .bind(b.copy_files.trim())
+    .bind(port)
     .bind(Utc::now().to_rfc3339())
     .execute(st.db.pool())
     .await;
@@ -339,8 +373,8 @@ pub async fn on_workspace_created(st: Shared, ws: String, repo_root: String) {
     .flatten();
     let Some(prev) = prev else { return };
     let _ = sqlx::query(
-        "INSERT OR IGNORE INTO workspace_scripts (workspace_id, setup, cleanup, dev, copy_files, updated_at)
-         SELECT ?1, setup, cleanup, dev, copy_files, ?3 FROM workspace_scripts WHERE workspace_id = ?2",
+        "INSERT OR IGNORE INTO workspace_scripts (workspace_id, setup, cleanup, dev, copy_files, preview_port, updated_at)
+         SELECT ?1, setup, cleanup, dev, copy_files, preview_port, ?3 FROM workspace_scripts WHERE workspace_id = ?2",
     )
     .bind(&ws)
     .bind(&prev)
@@ -455,6 +489,214 @@ pub fn detect_url(log: &str) -> Option<(u16, String, bool)> {
         ));
     }
     found
+}
+
+struct Running {
+    pid: String,
+    age: u64,
+}
+
+fn running_of(head: &str) -> Option<Running> {
+    let mut it = head.split_whitespace();
+    (it.next()? == "__RUNNING__").then(|| Running {
+        pid: it.next().unwrap_or_default().to_owned(),
+        age: it.next().and_then(|a| a.parse().ok()).unwrap_or(u64::MAX),
+    })
+}
+
+fn listen_script(dir: &str) -> String {
+    format!(
+        r#"D={dir}; [ -f "$D/pid" ] || exit 0
+echo "__ROOT__ $(cat "$D/pid")"
+echo __PS__
+ps -eo pid=,ppid=
+if [ "$(uname -s)" = Darwin ] || ! command -v ss >/dev/null 2>&1; then echo __LSOF__; lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null
+else echo __SS__; ss -ltnpH 2>/dev/null; fi
+exit 0"#
+    )
+}
+
+pub fn descendants(root: u32, tree: &[(u32, u32)]) -> HashSet<u32> {
+    let mut found = HashSet::from([root]);
+    let mut queue = vec![root];
+    while let Some(parent) = queue.pop() {
+        for &(pid, ppid) in tree {
+            if ppid == parent && found.insert(pid) {
+                queue.push(pid);
+            }
+        }
+    }
+    found
+}
+
+fn parse_ps(s: &str) -> Vec<(u32, u32)> {
+    s.lines()
+        .filter_map(|l| {
+            let mut it = l.split_whitespace();
+            Some((it.next()?.parse().ok()?, it.next()?.parse().ok()?))
+        })
+        .collect()
+}
+
+fn port_of(addr: &str) -> Option<u16> {
+    addr.rsplit_once(':')?.1.parse().ok()
+}
+
+pub fn parse_lsof(s: &str) -> Vec<(u32, u16)> {
+    s.lines()
+        .filter_map(|l| {
+            let f: Vec<&str> = l.split_whitespace().collect();
+            if f.len() < 9 || !l.contains("(LISTEN)") {
+                return None;
+            }
+            Some((f[1].parse().ok()?, port_of(f[f.len() - 2])?))
+        })
+        .collect()
+}
+
+pub fn parse_ss(s: &str) -> Vec<(u32, u16)> {
+    let pids = |l: &str| {
+        l.split("pid=")
+            .skip(1)
+            .filter_map(|p| {
+                p.split(|c: char| !c.is_ascii_digit())
+                    .next()?
+                    .parse::<u32>()
+                    .ok()
+            })
+            .collect::<Vec<_>>()
+    };
+    let mut out = Vec::new();
+    let mut port = None;
+    for l in s.lines() {
+        if let Some(p) = l
+            .strip_prefix("LISTEN")
+            .and_then(|r| r.split_whitespace().nth(2))
+            .and_then(port_of)
+        {
+            port = Some(p);
+        }
+        if let Some(p) = port {
+            out.extend(pids(l).into_iter().map(|pid| (pid, p)));
+        }
+    }
+    out
+}
+
+pub fn listening_ports(out: &str) -> Vec<u16> {
+    let root: Option<u32> = out
+        .lines()
+        .find_map(|l| l.strip_prefix("__ROOT__"))
+        .and_then(|r| r.trim().parse().ok());
+    let section = |name: &str, end: &[&str]| -> String {
+        let mut lines = out.lines().skip_while(|l| *l != name).skip(1);
+        lines
+            .by_ref()
+            .take_while(|l| !end.contains(l))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    let Some(root) = root else {
+        return Vec::new();
+    };
+    let tree = descendants(root, &parse_ps(&section("__PS__", &["__LSOF__", "__SS__"])));
+    let sockets = if out.lines().any(|l| l == "__SS__") {
+        parse_ss(&section("__SS__", &[]))
+    } else {
+        parse_lsof(&section("__LSOF__", &[]))
+    };
+    let mut ports: Vec<u16> = sockets
+        .into_iter()
+        .filter(|(pid, _)| tree.contains(pid))
+        .map(|(_, port)| port)
+        .collect();
+    ports.sort_unstable();
+    ports.dedup();
+    ports
+}
+
+struct Listen {
+    pid: String,
+    ports: Vec<u16>,
+    at: Instant,
+}
+
+fn listens() -> &'static std::sync::Mutex<HashMap<String, Listen>> {
+    static L: OnceLock<std::sync::Mutex<HashMap<String, Listen>>> = OnceLock::new();
+    L.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
+}
+
+async fn listening(st: &Shared, node: &str, ws: &str, pid: &str) -> Vec<u16> {
+    let cached = listens()
+        .lock()
+        .unwrap()
+        .get(ws)
+        .filter(|l| l.pid == pid && (!l.ports.is_empty() || l.at.elapsed() < LISTEN_RETRY))
+        .map(|l| l.ports.clone());
+    if let Some(ports) = cached {
+        return ports;
+    }
+    let out = st
+        .transport(node)
+        .exec(
+            ExecSpec::new("bash")
+                .arg("-lc")
+                .arg(listen_script(&dev_dir(ws))),
+        )
+        .await
+        .map(|o| o.stdout)
+        .unwrap_or_default();
+    let ports = listening_ports(&out);
+    listens().lock().unwrap().insert(
+        ws.to_owned(),
+        Listen {
+            pid: pid.to_owned(),
+            ports: ports.clone(),
+            at: Instant::now(),
+        },
+    );
+    ports
+}
+
+fn forget_listen(ws: &str) {
+    listens().lock().unwrap().remove(ws);
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct Address {
+    pub port: u16,
+    pub path: String,
+    pub https: bool,
+    pub source: &'static str,
+}
+
+pub fn choose_address(
+    manual: Option<u16>,
+    from_log: Option<(u16, String, bool)>,
+    listening: &[u16],
+) -> Option<Address> {
+    if let Some(port) = manual {
+        return Some(Address {
+            port,
+            path: "/".into(),
+            https: false,
+            source: "manual",
+        });
+    }
+    if let Some((port, path, https)) = from_log {
+        return Some(Address {
+            port,
+            path,
+            https,
+            source: "log",
+        });
+    }
+    listening.iter().min().map(|&port| Address {
+        port,
+        path: "/".into(),
+        https: false,
+        source: "listen",
+    })
 }
 
 struct Tunnel {
@@ -597,7 +839,10 @@ async fn probe_dev(st: &Shared, ws: &str) -> Value {
     };
     let script = format!(
         r#"D={dir}
-if [ -f "$D/pid" ] && kill -0 "$(cat "$D/pid")" 2>/dev/null; then echo "__RUNNING__ $(cat "$D/pid")"; else echo "__STOPPED__"; fi
+if [ -f "$D/pid" ] && kill -0 "$(cat "$D/pid")" 2>/dev/null; then
+  M=$(stat -c %Y "$D/pid" 2>/dev/null || stat -f %m "$D/pid" 2>/dev/null || echo 0)
+  echo "__RUNNING__ $(cat "$D/pid") $(( $(date +%s) - M ))"
+else echo "__STOPPED__"; fi
 [ -f "$D/log" ] && tail -c 24000 "$D/log""#,
         dir = dev_dir(ws)
     );
@@ -610,14 +855,27 @@ if [ -f "$D/pid" ] && kill -0 "$(cat "$D/pid")" 2>/dev/null; then echo "__RUNNIN
         Err(e) => return json!({ "running": false, "reason": format!("连不上 {}：{e}", p.node) }),
     };
     let (head, log) = out.split_once('\n').unwrap_or((&out, ""));
-    let running = head.starts_with("__RUNNING__");
+    let running = running_of(head);
     let log = strip_ansi(log);
-    let mut v = json!({ "running": running, "node": p.node, "log": log });
-    if let Some((port, path, https)) = detect_url(&log) {
-        v["port"] = json!(port);
-        v["path"] = json!(path);
-        if running {
-            let scheme = if https { "https" } else { "http" };
+    let manual = preview_port(st, ws).await;
+    let from_log = detect_url(&log);
+    let ports = match (&manual, &from_log, &running) {
+        (None, None, Some(r)) if r.age >= LISTEN_AFTER_SECS => {
+            listening(st, &p.node, ws, &r.pid).await
+        }
+        _ => Vec::new(),
+    };
+    let mut v = json!({ "running": running.is_some(), "node": p.node, "log": log });
+    if let Some(a) = choose_address(manual, from_log, &ports) {
+        v["port"] = json!(a.port);
+        v["path"] = json!(a.path);
+        v["source"] = json!(a.source);
+        if a.source == "listen" {
+            v["ports"] = json!(ports);
+        }
+        if running.is_some() {
+            let (port, path) = (a.port, a.path);
+            let scheme = if a.https { "https" } else { "http" };
             if p.node == "local" {
                 v["preview_url"] = json!(format!("{scheme}://localhost:{port}{path}"));
             } else {
@@ -631,7 +889,8 @@ if [ -f "$D/pid" ] && kill -0 "$(cat "$D/pid")" 2>/dev/null; then echo "__RUNNIN
             }
         }
     }
-    if !running {
+    if running.is_none() {
+        forget_listen(ws);
         close_tunnel(ws).await;
     }
     v
@@ -719,6 +978,7 @@ rm -f "$D/pid"; echo "[blazar] 已停止" >> "$D/log""#,
         .transport(&p.node)
         .exec(ExecSpec::new("bash").arg("-lc").arg(script))
         .await;
+    forget_listen(&id);
     close_tunnel(&id).await;
     changed(&st, &id);
     Json(dev_status(&st, &id).await).into_response()
@@ -795,8 +1055,7 @@ mod tests {
         (status, serde_json::from_slice(&body).unwrap())
     }
 
-    #[tokio::test]
-    async fn loopback_ports_list_running_previews_and_refuse_bots() {
+    async fn preview_fixture(dev: &str) -> (Shared, String, tempfile::TempDir) {
         let db = blazar_db::Db::open_in_memory().await.unwrap();
         let root = tempfile::tempdir().unwrap();
         let st = crate::state::AppState::with_services(
@@ -815,25 +1074,182 @@ mod tests {
             ),
             format!(
                 "INSERT INTO workspace_scripts (workspace_id, setup, cleanup, dev, copy_files, updated_at)
-                 VALUES ('{ws}', '', '', 'exec python3 -u -m http.server 0 --bind 127.0.0.1', '', '0')"
+                 VALUES ('{ws}', '', '', '{dev}', '', '0')"
             ),
         ] {
             sqlx::query(&q).execute(st.db.pool()).await.unwrap();
         }
+        (st, ws, root)
+    }
+
+    async fn wait_for_address(st: &Shared, ws: &str) -> Value {
+        for _ in 0..30 {
+            let v = dev_status(st, ws).await;
+            if v["preview_url"].is_string() {
+                return v;
+            }
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+        panic!("the preview never got an address");
+    }
+
+    #[test]
+    fn listening_ports_come_from_the_dev_process_tree_on_macos() {
+        let out = "__ROOT__ 500\n__PS__\n  500     1\n  501   500\n  502   501\n  777     1\n__LSOF__\n\
+COMMAND   PID  USER   FD   TYPE             DEVICE SIZE/OFF NODE NAME\n\
+Python    502 craig    4u  IPv4 0xafaa59714fcb7f25      0t0  TCP 127.0.0.1:8765 (LISTEN)\n\
+node      501 craig   22u  IPv6 0x5f6946e4331ab31a      0t0  TCP [::1]:5173 (LISTEN)\n\
+node      501 craig   23u  IPv4 0x5f6946e4331ab31b      0t0  TCP *:24678 (LISTEN)\n\
+node      501 craig   24u  IPv6 0x5f6946e4331ab31c      0t0  TCP *:24678 (LISTEN)\n\
+rapportd  777 craig   16u  IPv4 0xae788ff549d6b72e      0t0  TCP *:52719 (LISTEN)\n";
+        assert_eq!(listening_ports(out), vec![5173, 8765, 24678]);
+        assert_eq!(
+            listening_ports("__PS__\n1 0\n__LSOF__\n"),
+            Vec::<u16>::new()
+        );
+    }
+
+    #[test]
+    fn listening_ports_come_from_the_dev_process_tree_on_linux() {
+        let out = "__ROOT__ 41200\n__PS__\n41200 1\n41234 41200\n41301 41200\n41355 41301\n1000 1\n__SS__\n\
+LISTEN 0      4096       127.0.0.1:8000       0.0.0.0:*    users:((\"python3\",pid=41234,fd=3))\n\
+LISTEN 0      511                *:5173             *:*    users:((\"node\",pid=41301,fd=22))\n\
+LISTEN 0      511          0.0.0.0:3000       0.0.0.0:*    users:((\"node\",pid=41301,fd=23),(\"node\",pid=41355,fd=23))\n\
+LISTEN 0      128          0.0.0.0:22         0.0.0.0:*    users:((\"sshd\",pid=1000,fd=3))\n\
+LISTEN 0      4096   [::ffff:127.0.0.1]:9229       *:*\n\
+                                                             users:((\"node\",pid=41301,fd=19))\n\
+LISTEN 0      128             [::]:22            [::]:*    users:((\"sshd\",pid=1000,fd=4))\n";
+        assert_eq!(listening_ports(out), vec![3000, 5173, 8000, 9229]);
+    }
+
+    #[test]
+    fn descendants_include_every_generation_but_not_siblings() {
+        let tree = [
+            (1, 0),
+            (10, 1),
+            (11, 10),
+            (12, 11),
+            (13, 11),
+            (20, 1),
+            (21, 20),
+        ];
+        assert_eq!(descendants(10, &tree), HashSet::from([10, 11, 12, 13]));
+        assert_eq!(descendants(21, &tree), HashSet::from([21]));
+        assert_eq!(descendants(99, &[(5, 99), (99, 5)]), HashSet::from([99, 5]));
+    }
+
+    #[test]
+    fn a_manual_port_beats_the_log_and_the_log_beats_listening_ports() {
+        let logged = Some((3000, "/app".to_owned(), true));
+        assert_eq!(
+            choose_address(Some(4000), logged.clone(), &[8000]),
+            Some(Address {
+                port: 4000,
+                path: "/".into(),
+                https: false,
+                source: "manual"
+            })
+        );
+        assert_eq!(
+            choose_address(None, logged, &[8000]),
+            Some(Address {
+                port: 3000,
+                path: "/app".into(),
+                https: true,
+                source: "log"
+            })
+        );
+        assert_eq!(
+            choose_address(None, None, &[8001, 8000, 35729]),
+            Some(Address {
+                port: 8000,
+                path: "/".into(),
+                https: false,
+                source: "listen"
+            })
+        );
+        assert_eq!(choose_address(None, None, &[]), None);
+        assert_eq!(preview_port_of(None), Ok(None));
+        assert_eq!(preview_port_of(Some(3000)), Ok(Some(3000)));
+        assert!(preview_port_of(Some(0)).is_err());
+        assert!(preview_port_of(Some(70000)).is_err());
+        assert!(running_of("__STOPPED__").is_none());
+        let r = running_of("__RUNNING__ 4242 7").unwrap();
+        assert_eq!((r.pid.as_str(), r.age), ("4242", 7));
+        assert_eq!(running_of("__RUNNING__ 4242").unwrap().age, u64::MAX);
+    }
+
+    #[tokio::test]
+    async fn a_server_that_never_logs_its_address_is_found_by_its_listening_port() {
+        let (st, ws, _root) =
+            preview_fixture("exec python3 -m http.server 0 --bind 127.0.0.1").await;
+        dev_start(State(st.clone()), Path(ws.clone())).await;
+        let v = wait_for_address(&st, &ws).await;
+        assert_eq!(v["source"], "listen");
+        let port = v["port"].as_u64().unwrap();
+        assert!(v["ports"].as_array().unwrap().contains(&json!(port)));
+        assert_eq!(v["preview_url"], format!("http://localhost:{port}/"));
+        let (_, list) = ports(&st, HeaderMap::new()).await;
+        assert!(
+            list["ports"]
+                .as_array()
+                .unwrap()
+                .contains(&json!({ "port": port, "workspace_id": ws, "purpose": "preview" }))
+        );
+        dev_stop(State(st.clone()), Path(ws.clone())).await;
+        let (_, after) = ports(&st, HeaderMap::new()).await;
+        assert!(!after.to_string().contains(&ws));
+    }
+
+    #[tokio::test]
+    async fn a_manual_preview_port_is_used_without_guessing() {
+        let (st, ws, _root) = preview_fixture("exec sleep 30").await;
+        let bad = put(
+            State(st.clone()),
+            Path(ws.clone()),
+            Json(ScriptsBody {
+                preview_port: Some(70000),
+                ..ScriptsBody::default()
+            }),
+        )
+        .await;
+        assert_eq!(bad.status(), StatusCode::BAD_REQUEST);
+        put(
+            State(st.clone()),
+            Path(ws.clone()),
+            Json(ScriptsBody {
+                dev: "exec sleep 30".into(),
+                preview_port: Some(4321),
+                ..ScriptsBody::default()
+            }),
+        )
+        .await;
+        assert_eq!(load(&st, &ws).await["preview_port"], 4321);
+        dev_start(State(st.clone()), Path(ws.clone())).await;
+        let v = dev_status(&st, &ws).await;
+        assert_eq!(v["source"], "manual");
+        assert_eq!(v["preview_url"], "http://localhost:4321/");
+        let (_, list) = ports(&st, HeaderMap::new()).await;
+        assert!(
+            list["ports"]
+                .as_array()
+                .unwrap()
+                .contains(&json!({ "port": 4321, "workspace_id": ws, "purpose": "preview" }))
+        );
+        dev_stop(State(st.clone()), Path(ws.clone())).await;
+    }
+
+    #[tokio::test]
+    async fn loopback_ports_list_running_previews_and_refuse_bots() {
+        let (st, ws, _root) =
+            preview_fixture("exec python3 -u -m http.server 0 --bind 127.0.0.1").await;
         let (_, before) = ports(&st, HeaderMap::new()).await;
         assert!(!before.to_string().contains(&ws));
 
         dev_start(State(st.clone()), Path(ws.clone())).await;
-        let mut port = None;
-        for _ in 0..20 {
-            let v = dev_status(&st, &ws).await;
-            if v["preview_url"].is_string() {
-                port = v["port"].as_u64();
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(300)).await;
-        }
-        let port = port.expect("dev server should print its address");
+        let v = wait_for_address(&st, &ws).await;
+        assert_eq!(v["source"], "log");
+        let port = v["port"].as_u64().unwrap();
 
         let (status, list) = ports(&st, HeaderMap::new()).await;
         assert_eq!(status, StatusCode::OK);
