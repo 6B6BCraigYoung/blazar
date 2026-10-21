@@ -169,6 +169,15 @@ impl AppState {
         EasyTierMesh::new(self.transport(&self.mesh_via), invocation)
     }
 
+    pub fn mesh_is_hub_host(&self) -> bool {
+        self.mesh_via == "local"
+            && self.mesh_container.is_none()
+            && self
+                .mesh_ctx
+                .topology_source()
+                .is_none_or(|(via, _)| via == "local")
+    }
+
     pub fn emit(&self, mut ev: ServerEvent) {
         if let ServerEvent::Entry { entry, .. } = &mut ev {
             blazar_core_types::sanitize::sanitize(&mut entry.kind);

@@ -817,6 +817,21 @@ pub async fn plan(
     opts: &Options,
 ) -> Result<Plan, String> {
     let (local_node, self_node) = node_names(opts)?;
+    let stored = match self_node {
+        Some(_) => None,
+        None => sqlx::query_scalar::<_, String>("SELECT value FROM kv_settings WHERE key = ?1")
+            .bind(crate::mesh::SELF_HOSTNAME_KEY)
+            .fetch_optional(&mut *conn)
+            .await
+            .map_err(|e| e.to_string())?
+            .and_then(|v| serde_json::from_str::<String>(&v).ok())
+            .and_then(|n| trimmed(Some(&n)))
+            .filter(|n| local_node.as_ref() != Some(n)),
+    };
+    let mentioned = stored.as_ref().is_some_and(|n| {
+        file.nodes.iter().any(|x| &x.name == n) || file.workspaces.iter().any(|w| &w.node == n)
+    });
+    let self_node = self_node.or(stored);
     let mut planner = Planner {
         conn,
         local_node,
@@ -828,6 +843,12 @@ pub async fn plan(
         ops: Vec::new(),
         planned: Planned::default(),
     };
+    if mentioned {
+        let name = planner.self_node.clone().unwrap_or_default();
+        planner.report.notes.push(format!(
+            "「{name}」是这台 hub 在组网里的名字，它上面的工作区放到本机（local）"
+        ));
+    }
     planner.plan(file).await.map_err(|e| e.to_string())?;
     Ok(Plan {
         report: planner.report,

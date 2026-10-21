@@ -22,6 +22,8 @@ use sqlx::Row;
 use crate::api::Shared;
 use crate::state::ServerEvent;
 
+pub const SELF_HOSTNAME_KEY: &str = "mesh.self_hostname";
+
 pub struct MeshCtx {
     pub layout: EngineLayout,
     pub bundle: Option<BundledEngine>,

@@ -703,3 +703,45 @@ async fn self_node_and_local_node_must_differ() {
     .await;
     assert_eq!(r.status(), StatusCode::BAD_REQUEST);
 }
+
+#[tokio::test]
+async fn the_hub_mesh_name_is_the_default_self_node() {
+    let a = hub().await;
+    seed_self(&a).await;
+    let file = a.export().await;
+
+    let b = hub().await;
+    sql(
+        &b.st,
+        r#"INSERT INTO kv_settings (key, value, updated_at) VALUES ('mesh.self_hostname', '"mini"', '0')"#,
+    )
+    .await;
+    let report = b.import(&file, None).await;
+    assert_eq!(node_of(&b, "/srv/app").await, vec!["local"]);
+    let node = report
+        .items
+        .iter()
+        .find(|i| i.section == "nodes" && i.key == "mini")
+        .unwrap();
+    assert_eq!(node.detail, "就是这台 hub");
+    assert!(
+        report.notes.iter().any(|n| n.contains("「mini」")),
+        "{:#?}",
+        report.notes
+    );
+
+    let c = hub().await;
+    sql(
+        &c.st,
+        r#"INSERT INTO kv_settings (key, value, updated_at) VALUES ('mesh.self_hostname', '"mini"', '0')"#,
+    )
+    .await;
+    let report = import(&c.st, &file, &c.opts(Some("mini")), true)
+        .await
+        .unwrap();
+    assert!(report.notes.iter().all(|n| !n.contains("「mini」")));
+    let explicit = import(&c.st, &file, &mapped("laptop", "other"), true)
+        .await
+        .unwrap();
+    assert!(explicit.notes.iter().all(|n| !n.contains("「mini」")));
+}
