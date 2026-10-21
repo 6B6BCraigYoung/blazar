@@ -172,6 +172,8 @@ enum Command {
         dry_run: bool,
         #[arg(long)]
         local_node: Option<String>,
+        #[arg(long)]
+        self_node: Option<String>,
         #[arg(long, env = "BLAZAR_HUB", default_value = "auto")]
         hub: String,
     },
@@ -251,9 +253,19 @@ async fn main() -> Result<()> {
             file,
             dry_run,
             local_node,
+            self_node,
             hub,
         } => {
-            std::process::exit(transfer::import(hub, file, *dry_run, local_node.as_deref()).await?);
+            std::process::exit(
+                transfer::import(
+                    hub,
+                    file,
+                    *dry_run,
+                    local_node.as_deref(),
+                    self_node.as_deref(),
+                )
+                .await?,
+            );
         }
         Command::MeshStatus => return join::status().await,
         _ => {}

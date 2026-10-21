@@ -32,6 +32,7 @@ impl Hub {
     fn opts(&self, local_node: Option<&str>) -> Options {
         Options {
             local_node: local_node.map(str::to_owned),
+            self_node: None,
             bot_home: Some(self.root.path().join("bots")),
         }
     }
@@ -537,6 +538,7 @@ async fn bots_cannot_export_or_import() {
         Query(ImportQuery {
             dry_run: Some(true),
             local_node: None,
+            self_node: None,
         }),
         Bytes::from_static(b"{}"),
     )
@@ -548,4 +550,156 @@ async fn bots_cannot_export_or_import() {
     let disposition = r.headers()[header::CONTENT_DISPOSITION].to_str().unwrap();
     assert!(disposition.starts_with("attachment; filename=\"blazar-export-"));
     assert!(disposition.ends_with(".json\""));
+}
+
+async fn seed_self(h: &Hub) {
+    for q in [
+        "INSERT INTO nodes (id, name, transport, created_at) VALUES ('n-mini', 'mini', 'ssh', '0')",
+        "INSERT INTO workspaces (id, node_id, name, path, created_at)
+         VALUES ('w-mini', 'n-mini', '总控', '/srv/app', '0')",
+        "INSERT INTO approval_rules (id, tool, pattern, workspace_id, created_at)
+         VALUES ('r-mini', 'Write', 'src/', 'w-mini', '0')",
+    ] {
+        sql(&h.st, q).await;
+    }
+}
+
+fn mapped(local_node: &str, self_node: &str) -> Options {
+    Options {
+        local_node: Some(local_node.into()),
+        self_node: Some(self_node.into()),
+        bot_home: None,
+    }
+}
+
+async fn node_of(h: &Hub, path: &str) -> Vec<String> {
+    sqlx::query_scalar(
+        "SELECT n.name FROM workspaces w JOIN nodes n ON n.id = w.node_id WHERE w.path = ?1",
+    )
+    .bind(path)
+    .fetch_all(h.st.db.pool())
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+async fn self_node_maps_to_local_alongside_local_node() {
+    let a = hub().await;
+    seed(&a).await;
+    seed_local(&a).await;
+    seed_self(&a).await;
+    let file = a.export().await;
+    assert!(file.nodes.iter().any(|n| n.name == "mini"));
+
+    let b = hub().await;
+    sql(
+        &b.st,
+        "INSERT INTO nodes (id, name, transport, created_at) VALUES ('n-laptop', 'laptop', 'ssh', '0')",
+    )
+    .await;
+    let opts = Options {
+        bot_home: Some(b.root.path().join("bots")),
+        ..mapped("laptop", "mini")
+    };
+    let report = import(&b.st, &file, &opts, false).await.unwrap();
+
+    let node = report
+        .items
+        .iter()
+        .find(|i| i.section == "nodes" && i.key == "mini")
+        .unwrap();
+    assert_eq!(node.action, ImportAction::Skip);
+    assert_eq!(node.detail, "就是这台 hub");
+    assert_eq!(
+        b.count("SELECT COUNT(*) FROM nodes WHERE name = 'mini'")
+            .await,
+        0
+    );
+
+    assert_eq!(node_of(&b, "/srv/app").await, vec!["local"]);
+    assert_eq!(node_of(&b, "/Users/me/proj").await, vec!["laptop"]);
+    assert_eq!(node_of(&b, "/data/repo").await, vec!["gpu-1"]);
+    for (section, key) in [
+        ("workspaces", "local:/srv/app"),
+        ("workspaces", "laptop:/Users/me/proj"),
+        ("approval_rules", "Write src/ @ mini:/srv/app"),
+        ("approval_rules", "Edit docs/ @ local:/Users/me/proj"),
+    ] {
+        let item = report
+            .items
+            .iter()
+            .find(|i| i.section == section && i.key == key)
+            .unwrap_or_else(|| panic!("{section} {key} missing: {:#?}", report.items));
+        assert_eq!(item.action, ImportAction::Create, "{item:#?}");
+    }
+    assert_eq!(
+        b.count(
+            "SELECT COUNT(*) FROM approval_rules r JOIN workspaces w ON w.id = r.workspace_id
+             JOIN nodes n ON n.id = w.node_id
+             WHERE r.tool = 'Write' AND n.name = 'local' AND w.path = '/srv/app'"
+        )
+        .await,
+        1
+    );
+    assert_eq!(
+        b.count(
+            "SELECT COUNT(*) FROM approval_rules r JOIN workspaces w ON w.id = r.workspace_id
+             JOIN nodes n ON n.id = w.node_id
+             WHERE r.tool = 'Edit' AND n.name = 'laptop' AND w.path = '/Users/me/proj'"
+        )
+        .await,
+        1
+    );
+}
+
+#[tokio::test]
+async fn self_node_does_not_chain_into_local_node() {
+    let a = hub().await;
+    seed_self(&a).await;
+    let file = a.export().await;
+
+    let b = hub().await;
+    sql(
+        &b.st,
+        "INSERT INTO nodes (id, name, transport, created_at) VALUES ('n-laptop', 'laptop', 'ssh', '0')",
+    )
+    .await;
+    import(&b.st, &file, &mapped("laptop", "mini"), false)
+        .await
+        .unwrap();
+    assert_eq!(node_of(&b, "/srv/app").await, vec!["local"]);
+    assert_eq!(
+        b.count("SELECT COUNT(*) FROM workspaces w JOIN nodes n ON n.id = w.node_id WHERE n.name = 'laptop'")
+            .await,
+        0
+    );
+}
+
+#[tokio::test]
+async fn self_node_and_local_node_must_differ() {
+    let a = hub().await;
+    seed_self(&a).await;
+    let file = a.export().await;
+    let b = hub().await;
+
+    for dry_run in [true, false] {
+        let err = import(&b.st, &file, &mapped("mini", " mini "), dry_run)
+            .await
+            .unwrap_err();
+        assert!(err.contains("不能是同一个节点"), "{err}");
+    }
+    assert_eq!(b.count("SELECT COUNT(*) FROM workspaces").await, 0);
+
+    let r = import_handler(
+        State(b.st.clone()),
+        HeaderMap::new(),
+        Query(ImportQuery {
+            dry_run: Some(true),
+            local_node: Some("mini".into()),
+            self_node: Some("mini".into()),
+        }),
+        Bytes::from(serde_json::to_vec(&file).unwrap()),
+    )
+    .await;
+    assert_eq!(r.status(), StatusCode::BAD_REQUEST);
 }

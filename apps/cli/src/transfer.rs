@@ -89,6 +89,7 @@ pub async fn import(
     file: &Path,
     dry_run: bool,
     local_node: Option<&str>,
+    self_node: Option<&str>,
 ) -> Result<i32> {
     let size = std::fs::metadata(file)
         .with_context(|| format!("读不了 {}", file.display()))?
@@ -105,6 +106,9 @@ pub async fn import(
     let mut path = format!("/api/import?dry_run={dry_run}");
     if let Some(node) = local_node {
         path.push_str(&format!("&local_node={}", enc(node)));
+    }
+    if let Some(node) = self_node {
+        path.push_str(&format!("&self_node={}", enc(node)));
     }
     let r = send(hub, "POST", &path, Some(text)).await?;
     if !(200..300).contains(&r.status) {

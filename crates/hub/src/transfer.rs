@@ -59,6 +59,7 @@ pub fn parse(bytes: &[u8]) -> Result<ExportFile, String> {
 #[derive(Debug, Clone, Default)]
 pub struct Options {
     pub local_node: Option<String>,
+    pub self_node: Option<String>,
     pub bot_home: Option<std::path::PathBuf>,
 }
 
@@ -154,6 +155,8 @@ pub struct ImportQuery {
     pub dry_run: Option<bool>,
     #[serde(default)]
     pub local_node: Option<String>,
+    #[serde(default)]
+    pub self_node: Option<String>,
 }
 
 pub async fn import_handler(
@@ -171,8 +174,12 @@ pub async fn import_handler(
     };
     let opts = Options {
         local_node: q.local_node,
+        self_node: q.self_node,
         bot_home: None,
     };
+    if let Err(e) = plan::node_names(&opts) {
+        return fail(StatusCode::BAD_REQUEST, e);
+    }
     match import(&st, &file, &opts, q.dry_run.unwrap_or(true)).await {
         Ok(report) => Json(report).into_response(),
         Err(e) => fail(StatusCode::INTERNAL_SERVER_ERROR, e),

@@ -26,6 +26,7 @@ struct Planned {
 struct Planner<'c> {
     conn: &'c mut SqliteConnection,
     local_node: Option<String>,
+    self_node: Option<String>,
     report: ImportReport,
     ops: Vec<Op>,
     planned: Planned,
@@ -89,6 +90,11 @@ impl Planner<'_> {
                     r.path
                 )),
             }
+        } else if self.self_node.as_deref() == Some(r.node.as_str()) {
+            Ok(WorkspaceRef {
+                node: "local".into(),
+                path: r.path.clone(),
+            })
         } else {
             Ok(r.clone())
         }
@@ -211,7 +217,9 @@ impl Planner<'_> {
                 self.refuse("nodes", key, "节点角色只能是 dev 或 personal");
                 continue;
             }
-            if self.planned.nodes.contains(key) {
+            if self.self_node.as_deref() == Some(key) {
+                self.skip("nodes", key, "就是这台 hub");
+            } else if self.planned.nodes.contains(key) {
                 self.skip("nodes", key, "文件里重复");
             } else if self
                 .count("SELECT COUNT(*) FROM nodes WHERE name = ?1", &[Some(key)])
@@ -785,19 +793,34 @@ impl Planner<'_> {
     }
 }
 
+fn trimmed(name: Option<&str>) -> Option<String> {
+    name.map(str::trim)
+        .filter(|n| !n.is_empty())
+        .map(str::to_owned)
+}
+
+pub fn node_names(opts: &Options) -> Result<(Option<String>, Option<String>), String> {
+    let local_node = trimmed(opts.local_node.as_deref());
+    let self_node = trimmed(opts.self_node.as_deref());
+    if local_node.is_some() && local_node == self_node {
+        return Err(format!(
+            "--local-node 和 --self-node 不能是同一个节点「{}」：原 hub 的本机和这台 hub 是两台机器",
+            self_node.unwrap_or_default()
+        ));
+    }
+    Ok((local_node, self_node))
+}
+
 pub async fn plan(
     conn: &mut SqliteConnection,
     file: &ExportFile,
     opts: &Options,
 ) -> Result<Plan, String> {
+    let (local_node, self_node) = node_names(opts)?;
     let mut planner = Planner {
         conn,
-        local_node: opts
-            .local_node
-            .as_deref()
-            .map(str::trim)
-            .filter(|n| !n.is_empty())
-            .map(str::to_owned),
+        local_node,
+        self_node,
         report: ImportReport {
             dry_run: true,
             ..ImportReport::default()
