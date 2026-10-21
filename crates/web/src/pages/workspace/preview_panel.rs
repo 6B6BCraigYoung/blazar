@@ -8,9 +8,10 @@ use serde_json::{Value, json};
 
 use crate::api;
 use crate::components::toast::toast;
-use crate::fmt;
+use crate::loopback::{away_from_page, forwarded, loopback_port};
 use crate::realtime::use_bus;
 use crate::storage;
+use crate::{desktop, fmt};
 
 mod script_draft;
 use script_draft::{ScriptDraft, Scripts};
@@ -21,11 +22,41 @@ struct Dev {
     running: bool,
     preview_url: Option<String>,
     reason: String,
-    tunnel: Option<String>,
+    tunnel: Option<u16>,
     tunnel_error: Option<String>,
     node: String,
     port: Option<u32>,
     log: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+struct Shown {
+    url: String,
+    waiting: bool,
+    error: Option<String>,
+}
+
+impl Shown {
+    fn at(url: String) -> Self {
+        Self {
+            url,
+            ..Self::default()
+        }
+    }
+
+    fn failed(error: String) -> Self {
+        Self {
+            error: Some(error),
+            ..Self::default()
+        }
+    }
+
+    fn waiting() -> Self {
+        Self {
+            waiting: true,
+            ..Self::default()
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -159,16 +190,61 @@ pub fn PreviewBar(
             let _ = busy.try_set(None);
         });
     };
-    let url = move || {
+    let hub_url = Memo::new(move |_| {
         let o = url_override.get();
-        let raw = if o.is_empty() {
+        if o.is_empty() {
             dev.with(|d| d.as_ref().and_then(|d| d.preview_url.clone()))
                 .unwrap_or_default()
         } else {
             o
-        };
-        crate::loopback::away_from_page(&raw, &window().location().hostname().unwrap_or_default())
+        }
+    });
+    let remote = RwSignal::new((!desktop::available()).then_some(false));
+    if remote.get_untracked().is_none() {
+        spawn_local(async move {
+            let _ = remote.try_set(Some(desktop::remote_hub().await));
+        });
+    }
+    let shown = RwSignal::new(Shown::default());
+    let show = move |next: Shown| {
+        if shown.try_with_untracked(|s| *s != next) == Some(true) {
+            shown.set(next);
+        }
     };
+    let forward_retry = RwSignal::new(0u32);
+    let generation = RwSignal::new(0u32);
+    Effect::new(move |_| {
+        forward_retry.track();
+        let raw = hub_url.get();
+        let host = window().location().hostname().unwrap_or_default();
+        let mine = generation.get_untracked().wrapping_add(1);
+        generation.set(mine);
+        match (loopback_port(&raw), remote.get()) {
+            (Some(_), None) => show(Shown::waiting()),
+            (Some(port), Some(true)) => {
+                show(Shown::waiting());
+                spawn_local(async move {
+                    let next = match desktop::invoke("forward_port", &json!({ "port": port })).await
+                    {
+                        Ok(v) => match v.as_u64().and_then(|p| u16::try_from(p).ok()) {
+                            Some(local) => {
+                                Shown::at(away_from_page(&forwarded(&raw, local), &host))
+                            }
+                            None => Shown::failed(
+                                "预览没能转发到这台电脑：桌面端没有给出本地端口".into(),
+                            ),
+                        },
+                        Err(e) => Shown::failed(format!("预览没能转发到这台电脑：{e}")),
+                    };
+                    if generation.try_get_untracked() == Some(mine) {
+                        show(next);
+                    }
+                });
+            }
+            _ => show(Shown::at(away_from_page(&raw, &host))),
+        }
+    });
+    let url = move || shown.with(|s| s.url.clone());
     let running = move || dev.with(|d| d.as_ref().is_some_and(|d| d.running));
 
     view! {
@@ -197,7 +273,10 @@ pub fn PreviewBar(
                 }
                 on:keydown=move |e| {
                     if e.key() == "Enter" && !e.is_composing() {
-                        url_override.set(event_target_value(&e).trim().to_owned());
+                        let typed = event_target_value(&e).trim().to_owned();
+                        if typed != shown.with_untracked(|s| s.url.clone()) {
+                            url_override.set(typed);
+                        }
                         reload.update(|n| *n += 1);
                     }
                 }
@@ -233,7 +312,6 @@ pub fn PreviewBar(
                 dev.get()
                     .and_then(|d| {
                         d.tunnel
-                            .clone()
                             .map(|t| {
                                 view! {
                                     <span
@@ -302,7 +380,8 @@ pub fn PreviewBar(
             {move || {
                 let u = url();
                 let p = prefs.get();
-                if dev.get().is_none() && u.is_empty() {
+                let forwarding = shown.get();
+                if dev.get().is_none() && u.is_empty() && forwarding.error.is_none() {
                     return view! { <LoadingState text="读取预览状态…" /> }.into_any();
                 }
                 let d = dev.get().unwrap_or_default();
@@ -320,6 +399,24 @@ pub fn PreviewBar(
                         view! { <pre class="pv-log">{tail}</pre> }
                     });
                 if u.is_empty() {
+                    if let Some(error) = forwarding.error {
+                        return view! {
+                            <InlineError
+                                message=error
+                                class="empty"
+                                retry=Callback::new(move |_| forward_retry.update(|n| *n += 1))
+                            />
+                            {log}
+                        }
+                            .into_any();
+                    }
+                    if forwarding.waiting {
+                        return view! {
+                            <LoadingState text="正在把预览转发到这台电脑…" />
+                            {log}
+                        }
+                            .into_any();
+                    }
                     if let Some(error) = load_error.get() {
                         return view! {
                             <InlineError

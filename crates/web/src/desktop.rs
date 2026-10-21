@@ -53,3 +53,21 @@ pub async fn invoke(command: &str, args: &Value) -> Result<Value, String> {
         .unwrap_or_default();
     serde_json::from_str(&text).map_err(|e| e.to_string())
 }
+
+pub async fn remote_hub() -> bool {
+    thread_local! {
+        static REMOTE: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) };
+    }
+    if let Some(known) = REMOTE.with(std::cell::Cell::get) {
+        return known;
+    }
+    if !available() {
+        return false;
+    }
+    let Ok(mode) = invoke("hub_mode", &serde_json::json!({})).await else {
+        return false;
+    };
+    let remote = mode["mode"].as_str() == Some("remote");
+    REMOTE.with(|r| r.set(Some(remote)));
+    remote
+}
