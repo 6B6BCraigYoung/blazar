@@ -3,6 +3,11 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DI="$ROOT/scripts/dev-instance.sh"
+case "${1:-}" in
+  seed) exec python3 -I "$ROOT/scripts/ui_audit.py" seed ;;
+  shots) exec python3 -I "$ROOT/scripts/ui_audit.py" shots "${2:?用法：ui-audit.sh shots <目录> empty|data}" "${3:-empty}" ;;
+  index) exec python3 -I "$ROOT/scripts/ui_audit.py" index "${2:?用法：ui-audit.sh index <目录>}" ;;
+esac
 read -r -a ROUTES <<<"${BLAZAR_AUDIT_ROUTES:-/ /inbox /tasks /autopilots /runtimes /agents /skills /apps /nodes /usage /settings}"
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
