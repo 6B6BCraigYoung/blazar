@@ -2,39 +2,21 @@ use super::*;
 
 mod resync;
 
-pub async fn ws_handler(ws: WebSocketUpgrade, State(st): State<Shared>) -> Response {
+#[derive(Debug, Deserialize)]
+pub struct WsQuery {
+    pub since: Option<i64>,
+}
+
+pub async fn ws_handler(
+    ws: WebSocketUpgrade,
+    State(st): State<Shared>,
+    Query(q): Query<WsQuery>,
+) -> Response {
     ws.on_upgrade(move |socket| async move {
         let _page = st.ui_driver.page_connected();
-        let (mut tx, mut rx) = socket.split();
-        let mut bus = st.bus.subscribe();
-
-        let send = tokio::spawn(async move {
-            loop {
-                match bus.recv().await {
-                    Ok(ev) => {
-                        let Ok(text) = serde_json::to_string(&ev) else {
-                            continue;
-                        };
-                        if tx.send(ws::Message::Text(text.into())).await.is_err() {
-                            break;
-                        }
-                    }
-
-                    Err(broadcast::error::RecvError::Lagged(n)) => {
-                        tracing::warn!("WS 订阅者落后 {n} 条，触发全量刷新");
-                        for event in [resync::lag_notification(), ServerEvent::WorkspacesChanged] {
-                            let Ok(text) = serde_json::to_string(&event) else {
-                                continue;
-                            };
-                            if tx.send(ws::Message::Text(text.into())).await.is_err() {
-                                return;
-                            }
-                        }
-                    }
-                    Err(broadcast::error::RecvError::Closed) => break,
-                }
-            }
-        });
+        let (tx, mut rx) = socket.split();
+        let bus = st.bus.subscribe();
+        let send = tokio::spawn(forward(st.clone(), q.since, bus, tx));
 
         while let Some(Ok(msg)) = rx.next().await {
             if matches!(msg, ws::Message::Close(_)) {
@@ -43,6 +25,71 @@ pub async fn ws_handler(ws: WebSocketUpgrade, State(st): State<Shared>) -> Respo
         }
         send.abort();
     })
+}
+
+pub(crate) async fn forward<S>(
+    st: Shared,
+    since: Option<i64>,
+    mut bus: broadcast::Receiver<crate::state::EventFrame>,
+    mut tx: S,
+) where
+    S: futures::Sink<ws::Message> + Unpin,
+{
+    let mut replayed = 0;
+    if let Some(since) = since {
+        let frames = match crate::events::replay(&st.db, since, st.events.boot()).await {
+            Ok(crate::events::Replay::Events(frames)) => frames,
+            Ok(crate::events::Replay::Gap) => {
+                vec![crate::state::EventFrame::live(resync::lag_notification())]
+            }
+            Err(error) => {
+                tracing::warn!("WS 补发查询失败，改为全量刷新: {error:#}");
+                vec![crate::state::EventFrame::live(resync::lag_notification())]
+            }
+        };
+        for frame in frames {
+            replayed = frame.event_id.unwrap_or(replayed);
+            if !send_frame(&mut tx, &frame).await {
+                return;
+            }
+        }
+    }
+    loop {
+        match bus.recv().await {
+            Ok(frame) => {
+                if frame.event_id.is_some_and(|id| id <= replayed) {
+                    continue;
+                }
+                if !send_frame(&mut tx, &frame).await {
+                    return;
+                }
+            }
+            Err(broadcast::error::RecvError::Lagged(n)) => {
+                tracing::warn!("WS 订阅者落后 {n} 条，触发全量刷新");
+                for event in [resync::lag_notification(), ServerEvent::WorkspacesChanged] {
+                    if !send_frame(&mut tx, &crate::state::EventFrame::live(event)).await {
+                        return;
+                    }
+                }
+            }
+            Err(broadcast::error::RecvError::Closed) => return,
+        }
+    }
+}
+
+async fn send_frame<S>(tx: &mut S, frame: &crate::state::EventFrame) -> bool
+where
+    S: futures::Sink<ws::Message> + Unpin,
+{
+    let Ok(text) = serde_json::to_string(frame) else {
+        return true;
+    };
+    tx.send(ws::Message::Text(text.into())).await.is_ok()
+}
+
+pub async fn event_head(State(st): State<Shared>) -> ApiResult<Json<serde_json::Value>> {
+    let id = crate::events::head(&st.db).await?;
+    Ok(Json(serde_json::json!({ "id": id })))
 }
 
 use tokio::sync::broadcast;

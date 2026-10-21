@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use blazar_hub::accounts::{self, MenuChoice, MenuProvider};
-use blazar_hub::state::{AppState, ServerEvent};
+use blazar_hub::state::{AppState, EventFrame, ServerEvent};
 use reqwest::Method;
 use serde_json::{Value, json};
 use tokio::sync::{Notify, broadcast};
@@ -17,7 +17,7 @@ pub enum Hub {
 }
 
 pub struct Watch {
-    bus: Option<broadcast::Receiver<ServerEvent>>,
+    bus: Option<broadcast::Receiver<EventFrame>>,
     wanted: fn(&ServerEvent) -> bool,
     kick: Option<Arc<Notify>>,
     every: Option<Duration>,
@@ -52,7 +52,7 @@ impl Watch {
                 () = &mut tick => return true,
                 () = &mut kicked => return true,
                 event = bus.recv() => match event {
-                    Ok(e) if (self.wanted)(&e) => return true,
+                    Ok(e) if (self.wanted)(&e.event) => return true,
                     Ok(_) => {}
                     Err(broadcast::error::RecvError::Lagged(_)) => return true,
                     Err(broadcast::error::RecvError::Closed) => return false,

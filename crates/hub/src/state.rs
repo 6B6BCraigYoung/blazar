@@ -7,7 +7,7 @@ use blazar_netmesh::{CliInvocation, EasyTierMesh};
 use blazar_transport::{LocalTransport, NodeTransport, SshTransport};
 use tokio::sync::{RwLock, broadcast};
 
-pub use blazar_core_types::api::ServerEvent;
+pub use blazar_core_types::api::{EventFrame, ServerEvent};
 
 pub fn ssh_control_dir() -> std::path::PathBuf {
     std::env::var_os("HOME")
@@ -43,7 +43,8 @@ pub struct AppState {
     pub auth: std::sync::OnceLock<crate::auth::Session>,
     pub services: crate::services::Services,
     pub db: Db,
-    pub bus: broadcast::Sender<ServerEvent>,
+    pub bus: broadcast::Sender<EventFrame>,
+    pub events: crate::events::EventLog,
     pub running: RwLock<HashMap<SessionId, RunningSession>>,
 
     pending: Arc<Mutex<HashSet<WorkspaceId>>>,
@@ -86,11 +87,14 @@ impl AppState {
         services: crate::services::Services,
     ) -> Arc<Self> {
         let (bus, _) = broadcast::channel(4096);
+        let events = crate::events::EventLog::default();
+        events.start(db.clone(), bus.clone());
         Arc::new(Self {
             auth: std::sync::OnceLock::new(),
             services,
             db,
             bus,
+            events,
             running: RwLock::new(HashMap::new()),
             pending: Arc::new(Mutex::new(HashSet::new())),
             mesh_via,
@@ -169,6 +173,14 @@ impl AppState {
         if let ServerEvent::Entry { entry, .. } = &mut ev {
             blazar_core_types::sanitize::sanitize(&mut entry.kind);
         }
-        let _ = self.bus.send(ev);
+        let ev = if ev.persisted() {
+            match self.events.publish(ev) {
+                Ok(()) => return,
+                Err(ev) => ev,
+            }
+        } else {
+            ev
+        };
+        let _ = self.bus.send(EventFrame::live(ev));
     }
 }

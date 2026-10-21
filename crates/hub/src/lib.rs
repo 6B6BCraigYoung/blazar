@@ -25,6 +25,7 @@ pub use agent::{
 };
 pub use skills::{library, skillhub};
 pub use work::{analytics, autopilot, inbox, rules, scripts, snippets, tasks};
+pub mod events;
 pub mod services;
 pub mod state;
 pub mod ui_driver;

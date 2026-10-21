@@ -752,7 +752,7 @@ mod queue_tests {
         assert_eq!(response.status(), StatusCode::NO_CONTENT);
         assert!(queue_contents(&st).await.is_empty());
         assert!(
-            matches!(events.try_recv(), Ok(ServerEvent::QueueChanged { workspace_id }) if workspace_id == ws)
+            matches!(events.try_recv().map(|f| f.event), Ok(ServerEvent::QueueChanged { workspace_id }) if workspace_id == ws)
         );
         assert!(matches!(
             events.try_recv(),

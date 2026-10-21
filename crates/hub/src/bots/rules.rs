@@ -706,6 +706,13 @@ pub async fn offline_node_of(st: &Shared, bot: &Bot) -> Option<String> {
 pub async fn run_once(st: &Shared) {
     let cfg = settings(st).await;
     let on = |k: &str| cfg.get(k).copied().filter(|c| c.enabled);
+    crate::events::prune(
+        &st.db,
+        Utc::now(),
+        crate::events::KEEP_SECS,
+        crate::events::KEEP_ROWS,
+    )
+    .await;
     super::facts::sweep(st, on("fact_stale").is_some()).await;
     if let Some(c) = on("claim_expired") {
         super::claims::sweep(st, c.threshold).await;
@@ -770,7 +777,7 @@ pub async fn watch(st: Shared) {
             tokio::select! {
                 () = &mut sleep => break,
                 ev = rx.recv() => match ev {
-                    Ok(ev) if triggers(&ev) => {
+                    Ok(ev) if triggers(&ev.event) => {
                         tokio::time::sleep(SETTLE).await;
                         while rx.try_recv().is_ok() {}
                         break;

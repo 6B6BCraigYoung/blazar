@@ -396,6 +396,7 @@ pub fn build_router(st: Arc<AppState>) -> Router {
         .route("/api/search", get(api::search))
         .route("/api/workspaces/{id}/terminal/ws", get(api::terminal_ws))
         .route("/api/ws", get(api::ws_handler))
+        .route("/api/events/head", get(api::event_head))
         .nest(
             "/ws",
             Router::new()
