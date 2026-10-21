@@ -77,9 +77,17 @@ status() {
 }
 
 shot() {
-  local out="${1:-$ROOT/target/dev-instance/$PROFILE/shot.png}" p id
+  local name="${1:-}" p id reply path
   p=$(pid)
   [ -z "$p" ] && { echo "开发实例没有运行" >&2; return 1; }
+  reply=$(ui "$(jq -cn --arg name "$name" '{action: "shot"} + (if $name == "" then {} else {name: $name} end)')" 2>/dev/null || true)
+  path=$(jq -r '.path // empty' <<<"$reply" 2>/dev/null || true)
+  if [ -n "$path" ]; then
+    echo "$path"
+    return 0
+  fi
+  echo "界面驱动没有截到图，改用 screencapture：$(jq -r '.error // empty' <<<"$reply" 2>/dev/null || echo "$reply")" >&2
+  local out="$ROOT/target/dev-instance/$PROFILE/${name:-shot.png}"
   id=$(swift - "$p" <<'EOF'
 import CoreGraphics
 let pid = Int(CommandLine.arguments[1]) ?? 0
@@ -124,5 +132,5 @@ case "${1:-status}" in
   url) url ;;
   shot) shot "${2:-}" ;;
   ui) ui "${2:?用法：dev-instance.sh ui '<JSON 命令>'}" ;;
-  *) echo "用法：dev-instance.sh build|start|stop|restart|status|url|shot [文件]|ui '<JSON>'" >&2; exit 2 ;;
+  *) echo "用法：dev-instance.sh build|start|stop|restart|status|url|shot [文件名]|ui '<JSON>'" >&2; exit 2 ;;
 esac

@@ -329,6 +329,14 @@ async function run(command) {
       await sleep(settle);
       return { ok: true, length: command.value.length };
     }
+    case 'shot': {
+      const invoke = window.__TAURI__?.core?.invoke;
+      if (typeof invoke !== 'function') throw new Error('shot 只能在桌面端里用：当前页面没有 Tauri（比如在浏览器或无界面 Chrome 里）');
+      if (command.name !== undefined && typeof command.name !== 'string') throw new Error('shot 的 name 必须是文件名字符串');
+      await sleep(command.settle_ms ?? 0);
+      const shot = await invoke('snapshot_webview', { name: command.name || null });
+      return { ok: true, path: shot.path, width: shot.width, height: shot.height };
+    }
     default:
       throw new Error(`不认识的 action：${command.action}`);
   }
