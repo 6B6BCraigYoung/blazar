@@ -124,7 +124,7 @@ pub fn loopback_url(raw: &str) -> Option<String> {
     plain.then(|| format!("http://{host}:{port}"))
 }
 
-pub fn ssh_args(alias: &str, local_port: u16, remote_port: u16) -> Vec<String> {
+pub fn ssh_args(alias: &str, local_port: u16, dest: &str, remote_port: u16) -> Vec<String> {
     let mut args: Vec<String> = [
         "-N",
         "-o",
@@ -142,7 +142,7 @@ pub fn ssh_args(alias: &str, local_port: u16, remote_port: u16) -> Vec<String> {
     .into_iter()
     .map(str::to_owned)
     .collect();
-    args.push(format!("127.0.0.1:{local_port}:127.0.0.1:{remote_port}"));
+    args.push(format!("127.0.0.1:{local_port}:{dest}:{remote_port}"));
     args.push("--".into());
     args.push(alias.to_owned());
     args
@@ -247,7 +247,7 @@ mod tests {
     #[test]
     fn ssh_forwards_one_loopback_port() {
         assert_eq!(
-            ssh_args("hub-host", 51000, 7777),
+            ssh_args("hub-host", 51000, "127.0.0.1", 7777),
             [
                 "-N",
                 "-o",
@@ -265,6 +265,10 @@ mod tests {
                 "--",
                 "hub-host",
             ]
+        );
+        assert!(
+            ssh_args("hub-host", 52000, "localhost", 5173)
+                .contains(&"127.0.0.1:52000:localhost:5173".to_owned())
         );
     }
 }

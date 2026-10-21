@@ -2,3 +2,8 @@
 identifier = "hub-mode"
 description = "Read and change which hub this desktop app uses."
 commands.allow = ["hub_mode", "test_remote_hub", "set_hub_mode", "retry_hub"]
+
+[[permission]]
+identifier = "remote-forward"
+description = "Forward a preview port the remote hub handed out to this computer."
+commands.allow = ["forward_port"]

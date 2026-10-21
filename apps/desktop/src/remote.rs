@@ -9,6 +9,7 @@ use tokio::io::AsyncBufReadExt;
 use tokio::process::Child;
 use tokio::sync::Notify;
 
+use crate::forward::Forwards;
 use crate::hub_mode::{Target, ssh_args};
 
 const BACKOFF: [u64; 5] = [1, 2, 5, 10, 30];
@@ -50,9 +51,17 @@ pub fn tunnel_port(file: &Path, alias: &str, remote: u16) -> std::io::Result<u16
     Ok(port)
 }
 
-fn spawn_ssh(alias: &str, local: u16, remote: u16) -> std::io::Result<Child> {
-    tokio::process::Command::new("ssh")
-        .args(ssh_args(alias, local, remote))
+pub const HUB_HOST: &str = "127.0.0.1";
+
+fn spawn_ssh(
+    program: &std::ffi::OsStr,
+    alias: &str,
+    local: u16,
+    dest: &str,
+    remote: u16,
+) -> std::io::Result<Child> {
+    tokio::process::Command::new(program)
+        .args(ssh_args(alias, local, dest, remote))
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped())
@@ -68,7 +77,7 @@ const FATAL: [&str; 5] = [
     "Host key verification failed",
 ];
 
-fn fatal(line: &str) -> bool {
+pub fn fatal(line: &str) -> bool {
     FATAL.iter().any(|pattern| line.contains(pattern))
 }
 
@@ -88,7 +97,9 @@ fn capture_stderr(child: &mut Child, last: Arc<Mutex<String>>) -> tokio::task::J
 }
 
 pub struct Tunnel {
+    program: std::ffi::OsString,
     alias: String,
+    dest: &'static str,
     local: u16,
     remote: u16,
     child: Mutex<Option<Child>>,
@@ -99,8 +110,20 @@ pub struct Tunnel {
 
 impl Tunnel {
     pub fn start(alias: &str, remote: u16, local: u16) -> Arc<Self> {
+        Self::spawn("ssh".as_ref(), alias, HUB_HOST, remote, local)
+    }
+
+    pub fn spawn(
+        program: &std::ffi::OsStr,
+        alias: &str,
+        dest: &'static str,
+        remote: u16,
+        local: u16,
+    ) -> Arc<Self> {
         let tunnel = Arc::new(Self {
+            program: program.to_owned(),
             alias: alias.to_owned(),
+            dest,
             local,
             remote,
             child: Mutex::new(None),
@@ -143,7 +166,13 @@ impl Tunnel {
                 return;
             }
             let started = Instant::now();
-            match spawn_ssh(&self.alias, self.local, self.remote) {
+            match spawn_ssh(
+                &self.program,
+                &self.alias,
+                self.local,
+                self.dest,
+                self.remote,
+            ) {
                 Ok(mut child) => {
                     tracing::info!(
                         alias = %self.alias,
@@ -248,7 +277,8 @@ pub const NOT_A_HUB: &str = "那个端口上不是 Blazar hub";
 
 pub async fn probe(alias: &str, port: u16) -> Result<(), String> {
     let local = free_port().map_err(|e| format!("找不到空闲端口：{e}"))?;
-    let mut child = spawn_ssh(alias, local, port).map_err(|e| format!("启动 ssh 失败：{e}"))?;
+    let mut child = spawn_ssh("ssh".as_ref(), alias, local, HUB_HOST, port)
+        .map_err(|e| format!("启动 ssh 失败：{e}"))?;
     let last = Arc::new(Mutex::new(String::new()));
     let reader = capture_stderr(&mut child, last.clone());
     let base = format!("http://127.0.0.1:{local}");
@@ -305,6 +335,7 @@ pub struct RemoteHub {
     pub target: Target,
     pub base: String,
     pub tunnel: Option<Arc<Tunnel>>,
+    pub forwards: Option<Forwards>,
     client: reqwest::Client,
     cookie: tokio::sync::Mutex<Option<String>>,
     phase: Mutex<Phase>,
@@ -316,14 +347,18 @@ pub struct RemoteHub {
 
 impl RemoteHub {
     pub fn new(target: Target, ports: &Path) -> std::io::Result<Self> {
-        let (base, tunnel) = match &target {
-            Target::Direct(url) => (url.clone(), None),
+        let (base, tunnel, forwards) = match &target {
+            Target::Direct(url) => (url.clone(), None, None),
             Target::Ssh { alias, port } => {
                 let local = tunnel_port(ports, alias, *port)?;
                 let tunnel = Tunnel::start(alias, *port, local);
                 (
                     format!("http://127.0.0.1:{}", tunnel.local_port()),
                     Some(tunnel),
+                    Some(Forwards::new(
+                        alias,
+                        ports.with_file_name(crate::forward::PORTS_FILE),
+                    )),
                 )
             }
         };
@@ -331,6 +366,7 @@ impl RemoteHub {
             target,
             base,
             tunnel,
+            forwards,
             client: client(),
             cookie: tokio::sync::Mutex::new(None),
             phase: Mutex::new(Phase::Connecting),
@@ -374,6 +410,40 @@ impl RemoteHub {
     pub fn shutdown(&self) {
         if let Some(tunnel) = &self.tunnel {
             tunnel.shutdown();
+        }
+        if let Some(forwards) = &self.forwards {
+            forwards.shutdown();
+        }
+    }
+
+    pub fn kick(&self) {
+        if let Some(tunnel) = &self.tunnel {
+            tunnel.kick();
+        }
+        if let Some(forwards) = &self.forwards {
+            forwards.kick();
+        }
+    }
+
+    pub async fn loopback_ports(&self) -> Result<Vec<u16>, String> {
+        let list = self
+            .request(reqwest::Method::GET, crate::forward::LIST_PATH, None)
+            .await?;
+        Ok(crate::forward::allowed_ports(&list))
+    }
+
+    pub async fn forward(&self, port: u16) -> Result<u16, String> {
+        let allowed = self.loopback_ports().await?;
+        let Some(forwards) = &self.forwards else {
+            return crate::forward::check(port, &allowed).map(|()| port);
+        };
+        let tunnel = forwards.open(port, &allowed)?;
+        match crate::forward::wait_listening(&tunnel).await {
+            Ok(()) => Ok(tunnel.local_port()),
+            Err(e) => {
+                forwards.close(port);
+                Err(e)
+            }
         }
     }
 
@@ -430,11 +500,15 @@ impl Drop for RemoteHub {
 }
 
 #[cfg(test)]
+pub static TEST_PORTS: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn tunnel_port_is_kept_per_target_while_it_is_free() {
+        let _ports = TEST_PORTS.blocking_lock();
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join(PORTS_FILE);
         let first = tunnel_port(&file, "hub-host", 7777).unwrap();
@@ -447,6 +521,7 @@ mod tests {
 
     #[test]
     fn busy_tunnel_port_is_replaced_and_remembered() {
+        let _ports = TEST_PORTS.blocking_lock();
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join(PORTS_FILE);
         let first = tunnel_port(&file, "hub-host", 7777).unwrap();
@@ -459,6 +534,7 @@ mod tests {
 
     #[test]
     fn unreadable_port_file_starts_over() {
+        let _ports = TEST_PORTS.blocking_lock();
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join(PORTS_FILE);
         std::fs::write(&file, "not json").unwrap();
@@ -496,8 +572,55 @@ mod tests {
         base
     }
 
+    async fn fake_hub(list: &'static str) -> String {
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move {
+            while let Ok((mut socket, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    let mut buf = [0u8; 4096];
+                    let n = tokio::io::AsyncReadExt::read(&mut socket, &mut buf)
+                        .await
+                        .unwrap_or(0);
+                    let request = String::from_utf8_lossy(&buf[..n]);
+                    let response = if request.starts_with("POST /api/auth/session ") {
+                        "HTTP/1.1 204 No Content\r\nSet-Cookie: blazar_session_ab12=tok; Path=/\r\nConnection: close\r\n\r\n".to_owned()
+                    } else if request.starts_with("GET /api/loopback-ports ")
+                        && request.contains("blazar_session_ab12=tok")
+                    {
+                        format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{list}",
+                            list.len()
+                        )
+                    } else {
+                        "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                            .to_owned()
+                    };
+                    let _ =
+                        tokio::io::AsyncWriteExt::write_all(&mut socket, response.as_bytes()).await;
+                });
+            }
+        });
+        base
+    }
+
+    #[tokio::test]
+    async fn forward_only_accepts_ports_on_the_hub_list() {
+        let _ports = TEST_PORTS.lock().await;
+        let base =
+            fake_hub(r#"{"ports":[{"port":5173,"workspace_id":"w1","purpose":"preview"}]}"#).await;
+        let dir = tempfile::tempdir().unwrap();
+        let hub = RemoteHub::new(Target::Direct(base), &dir.path().join(PORTS_FILE)).unwrap();
+        assert_eq!(hub.forward(5173).await, Ok(5173));
+        let refused = hub.forward(22).await.unwrap_err();
+        assert!(refused.contains("22"), "{refused}");
+    }
+
     #[tokio::test]
     async fn session_cookie_needs_a_blazar_session() {
+        let _ports = TEST_PORTS.lock().await;
         let ok = serve_once(
             "HTTP/1.1 204 No Content\r\nSet-Cookie: blazar_session_ab12=tok; Path=/; HttpOnly\r\nConnection: close\r\n\r\n",
         )

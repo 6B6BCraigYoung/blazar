@@ -12,6 +12,7 @@ use crate::remote::{Phase, RemoteHub};
 
 mod backend;
 mod commands;
+mod forward;
 mod hub_mode;
 mod menu;
 mod profile;
@@ -117,6 +118,7 @@ fn run() -> Result<()> {
             commands::test_remote_hub,
             commands::set_hub_mode,
             commands::retry_hub,
+            commands::forward_port,
         ])
         .setup(move |app| {
             let hub = setup_hub;
@@ -205,15 +207,19 @@ fn run() -> Result<()> {
             });
             if let Some(r) = hub.remote() {
                 rt_handle.spawn(watch_remote(r.clone(), app.handle().clone()));
+                rt_handle.spawn(forward::keep_in_sync(r.clone()));
                 rt_handle.spawn(quit_on_signal(app.handle().clone()));
             }
-            app.add_capability(
-                tauri::ipc::CapabilityBuilder::new("hub-page")
-                    .remote(format!("{}/*", hub.url()))
-                    .local(false)
-                    .window("main")
-                    .permission("hub-mode"),
-            )?;
+            let page = tauri::ipc::CapabilityBuilder::new("hub-page")
+                .remote(format!("{}/*", hub.url()))
+                .local(false)
+                .window("main")
+                .permission("hub-mode");
+            app.add_capability(if hub.remote().is_some() {
+                page.permission("remote-forward")
+            } else {
+                page
+            })?;
             app.manage(hub.clone());
             menu::install(app.handle(), hub, rt_handle.clone(), !dev)?;
             Ok(())
@@ -344,6 +350,9 @@ async fn watch_remote(r: Arc<RemoteHub>, app: tauri::AppHandle) {
             tracing::info!("远程 hub 已连上：{}", r.base);
             r.set_phase(Phase::Connected);
             point_window(&app, &r.base);
+            if let Some(forwards) = &r.forwards {
+                forwards.kick();
+            }
             r.inbox_kick.notify_one();
             r.accounts_kick.notify_one();
             let mut misses = 0;
@@ -365,9 +374,7 @@ async fn watch_remote(r: Arc<RemoteHub>, app: tauri::AppHandle) {
             () = r.retry.notified() => {}
             () = tokio::time::sleep(std::time::Duration::from_secs(30)) => {}
         }
-        if let Some(tunnel) = &r.tunnel {
-            tunnel.kick();
-        }
+        r.kick();
     }
 }
 

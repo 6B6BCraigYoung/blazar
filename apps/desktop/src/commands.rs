@@ -107,3 +107,11 @@ pub async fn retry_hub(hub: State<'_, Arc<Hub>>) -> Result<(), String> {
         .await
         .unwrap_or_else(|_| Err(r.failure()))
 }
+
+#[tauri::command]
+pub async fn forward_port(hub: State<'_, Arc<Hub>>, port: u16) -> Result<u16, String> {
+    let Some(r) = hub.remote().cloned() else {
+        return Err("只有远程模式需要转发端口".into());
+    };
+    r.forward(port).await
+}
