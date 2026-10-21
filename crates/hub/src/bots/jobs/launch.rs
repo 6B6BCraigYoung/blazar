@@ -1,0 +1,456 @@
+use std::path::PathBuf;
+
+use blazar_transport::detached::{DetachedRun, RunMode};
+use blazar_transport::{ExecSpec, shell_quote};
+use chrono::{DateTime, Utc};
+use serde::Deserialize;
+use serde_json::{Value, json};
+
+use crate::api::Shared;
+use crate::bots::Caller;
+
+use super::announce::announce;
+use super::{
+    Job, MAX_TAIL, NOTIFY, Owner, SUMMARY_LINES, WAIT_KINDS, changed, get, nonempty, visible_to,
+};
+
+const MAX_COMMAND: usize = 8000;
+const MAX_DEADLINE_MINS: i64 = 30 * 24 * 60;
+const MAX_WAITS: usize = 20;
+
+fn check_notify(n: Option<&str>) -> Result<String, String> {
+    let n = nonempty(n).unwrap_or("wake");
+    if NOTIFY.contains(&n) {
+        Ok(n.to_owned())
+    } else {
+        Err(format!("notify 只能是 {}", NOTIFY.join(" / ")))
+    }
+}
+
+fn deadline(mins: Option<i64>) -> Result<Option<String>, String> {
+    match mins {
+        None => Ok(None),
+        Some(m) if (1..=MAX_DEADLINE_MINS).contains(&m) => Ok(Some(
+            (Utc::now() + chrono::Duration::minutes(m)).to_rfc3339(),
+        )),
+        Some(_) => Err(format!("deadline_mins 要在 1 到 {MAX_DEADLINE_MINS} 之间")),
+    }
+}
+
+pub async fn check_waits(st: &Shared, items: &[Value]) -> Result<String, String> {
+    if items.len() > MAX_WAITS {
+        return Err(format!("waits_for 最多 {MAX_WAITS} 项"));
+    }
+    let mut out = Vec::new();
+    for item in items {
+        let fields = item
+            .as_object()
+            .filter(|o| o.len() == 1)
+            .ok_or_else(|| format!("waits_for 的每一项只能有一个键：{}", WAIT_KINDS.join(" / ")))?;
+        let (kind, value) = fields.iter().next().ok_or("waits_for 有空项")?;
+        let value = value
+            .as_str()
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .ok_or_else(|| format!("waits_for 里 {kind} 的值要是非空字符串"))?;
+        match kind.as_str() {
+            "node" => {
+                node_id(st, value).await?;
+            }
+            "fact" => {
+                if !crate::bots::facts::valid_key(value) {
+                    return Err(format!("事实 key 不合法：{value}"));
+                }
+            }
+            "path" => {
+                if !value.starts_with('/') {
+                    return Err(format!("waits_for 里的 path 要用绝对路径：{value}"));
+                }
+            }
+            "job" => {
+                get(st, value)
+                    .await
+                    .ok_or_else(|| format!("没有这个后台任务 {value}"))?;
+            }
+            other => {
+                return Err(format!(
+                    "waits_for 不认识 {other}，可用 {}",
+                    WAIT_KINDS.join(" / ")
+                ));
+            }
+        }
+        out.push(json!({ kind.as_str(): value }));
+    }
+    Ok(Value::Array(out).to_string())
+}
+
+pub async fn root(st: &Shared, node: &str) -> Result<PathBuf, String> {
+    if let Some(r) = st
+        .bots
+        .jobs
+        .root
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone()
+    {
+        return Ok(r);
+    }
+    let out = st
+        .transport(node)
+        .exec(
+            ExecSpec::new("bash")
+                .arg("-lc")
+                .arg("printf '__BLAZAR_JOBS_ROOT__ %s\\n' \"$HOME/.blazar/jobs\""),
+        )
+        .await
+        .map_err(|e| format!("连不上 {node}：{e}"))?;
+    out.stdout
+        .lines()
+        .find_map(|l| l.strip_prefix("__BLAZAR_JOBS_ROOT__ "))
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
+        .ok_or_else(|| format!("无法确定 {node} 上的任务目录"))
+}
+
+async fn node_id(st: &Shared, node: &str) -> Result<String, String> {
+    sqlx::query_scalar("SELECT id FROM nodes WHERE name = ?1")
+        .bind(node)
+        .fetch_optional(st.db.pool())
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("没有这台机器 {node}"))
+}
+
+struct NewJob {
+    id: String,
+    owner: Owner,
+    workspace_id: Option<String>,
+    node_id: String,
+    kind: &'static str,
+    label: String,
+    command: Option<String>,
+    cwd: Option<String>,
+    run_dir: String,
+    pid: Option<i64>,
+    log_path: Option<String>,
+    waits_for: String,
+    deadline_at: Option<String>,
+    notify: String,
+}
+
+async fn insert(st: &Shared, j: NewJob) -> Result<(), String> {
+    let (bot, thread) = match &j.owner {
+        Owner::Bot { bot, thread } => (Some(bot.clone()), thread.clone()),
+        Owner::Session { thread, .. } => (None, Some(thread.clone())),
+        Owner::User => (None, None),
+    };
+    let now = Utc::now().to_rfc3339();
+    sqlx::query(
+        "INSERT INTO jobs (id, owner_kind, bot_id, session_id, workspace_id, node_id, kind, label,
+                           command, cwd, run_dir, pid, log_path, deadline_at, notify,
+                           waits_for, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?17)",
+    )
+    .bind(&j.id)
+    .bind(j.owner.kind())
+    .bind(bot)
+    .bind(thread)
+    .bind(&j.workspace_id)
+    .bind(&j.node_id)
+    .bind(j.kind)
+    .bind(&j.label)
+    .bind(&j.command)
+    .bind(&j.cwd)
+    .bind(&j.run_dir)
+    .bind(j.pid)
+    .bind(&j.log_path)
+    .bind(&j.deadline_at)
+    .bind(&j.notify)
+    .bind(&j.waits_for)
+    .bind(now)
+    .execute(st.db.pool())
+    .await
+    .map(drop)
+    .map_err(|e| e.to_string())
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct Spawn {
+    pub workspace_id: String,
+    pub command: String,
+    #[serde(default)]
+    pub label: Option<String>,
+    #[serde(default)]
+    pub cwd: Option<String>,
+    #[serde(default)]
+    pub deadline_mins: Option<i64>,
+    #[serde(default)]
+    pub notify: Option<String>,
+    #[serde(default)]
+    pub waits_for: Vec<Value>,
+}
+
+fn label_of(label: Option<&str>, fallback: &str) -> String {
+    nonempty(label)
+        .unwrap_or_else(|| fallback.lines().next().unwrap_or_default().trim())
+        .chars()
+        .take(120)
+        .collect()
+}
+
+pub async fn spawn(st: &Shared, req: Spawn, owner: &Owner) -> Result<Job, String> {
+    let command = req.command.trim();
+    if command.is_empty() {
+        return Err("command 不能为空".into());
+    }
+    if command.chars().count() > MAX_COMMAND {
+        return Err(format!("command 最多 {MAX_COMMAND} 字"));
+    }
+    let notify = check_notify(req.notify.as_deref())?;
+    let deadline_at = deadline(req.deadline_mins)?;
+    let waits_for = check_waits(st, &req.waits_for).await?;
+    let (node, path) = crate::api::locate(st, req.workspace_id.trim())
+        .await
+        .map_err(|e| e.to_string())?;
+    let node_id = node_id(st, &node).await?;
+    let cwd = match nonempty(req.cwd.as_deref()) {
+        Some(c) if c.starts_with('/') || c.starts_with('~') => c.to_owned(),
+        Some(c) => format!("{}/{c}", path.trim_end_matches('/')),
+        None => path,
+    };
+    let id = uuid::Uuid::now_v7().to_string();
+    let root = root(st, &node).await?;
+    let log = root.join(&id).join("log").display().to_string();
+    let script = format!(
+        "exec >>{} 2>&1\ncd {} || exit 96\n{command}\n",
+        shell_quote(&log),
+        crate::scripts::cd_target(&cwd)
+    );
+    let spec = ExecSpec::new("bash").arg("-lc").arg(script);
+    let run = DetachedRun::launch_in(st.transport(&node), &root, &id, &spec, None, RunMode::Null)
+        .await
+        .map_err(|e| format!("在 {node} 上启动失败：{e}"))?;
+    let saved = insert(
+        st,
+        NewJob {
+            id: id.clone(),
+            owner: owner.clone(),
+            workspace_id: Some(req.workspace_id.trim().to_owned()),
+            node_id,
+            kind: "spawn",
+            label: label_of(req.label.as_deref(), command),
+            command: Some(command.to_owned()),
+            cwd: Some(cwd),
+            run_dir: run.dir.clone(),
+            pid: None,
+            log_path: Some(log),
+            waits_for,
+            deadline_at,
+            notify,
+        },
+    )
+    .await;
+    if let Err(e) = saved {
+        let _ = run.hard_kill().await;
+        return Err(format!("登记失败，已停掉刚起的进程：{e}"));
+    }
+    changed(st);
+    get(st, &id).await.ok_or_else(|| "任务读不回来".into())
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct Register {
+    #[serde(default)]
+    pub node: Option<String>,
+    pub pid: i64,
+    pub label: String,
+    #[serde(default)]
+    pub log_path: Option<String>,
+    #[serde(default)]
+    pub deadline_mins: Option<i64>,
+    #[serde(default)]
+    pub notify: Option<String>,
+    #[serde(default)]
+    pub workspace_id: Option<String>,
+    #[serde(default)]
+    pub waits_for: Vec<Value>,
+}
+
+async fn register_target(
+    st: &Shared,
+    req: &Register,
+    owner: &Owner,
+    by: Option<&Caller>,
+) -> Result<(String, Option<String>), String> {
+    let ws = nonempty(req.workspace_id.as_deref());
+    let asked = nonempty(req.node.as_deref());
+    if let Some(c) = by.filter(|c| !c.is_lead()) {
+        let ws = ws.ok_or(
+            "worker 登记后台任务要给 workspace_id，而且要在你的认领或家工作区里；机器从工作区推出来",
+        )?;
+        crate::bots::claims::may_use(st, c, ws).await?;
+    }
+    match ws {
+        Some(ws) => {
+            let (node, _) = crate::api::locate(st, ws)
+                .await
+                .map_err(|e| e.to_string())?;
+            if let Some(n) = asked.filter(|n| *n != node) {
+                return Err(format!("工作区 {ws} 在 {node} 上，不在 {n} 上"));
+            }
+            Ok((node, Some(ws.to_owned())))
+        }
+        None => {
+            let node = asked.ok_or("要给 workspace_id（或 node）")?;
+            let ws = match owner {
+                Owner::Session { workspace, .. } if !workspace.is_empty() => {
+                    Some(workspace.clone())
+                }
+                _ => None,
+            };
+            Ok((node.to_owned(), ws))
+        }
+    }
+}
+
+pub fn may_kill(job: &Job, by: Option<&Caller>) -> Result<(), String> {
+    if !visible_to(job, by) {
+        return Err("worker 只能结束自己发起的后台任务".into());
+    }
+    if job.kind == "register" && by.is_some_and(|c| !c.is_lead()) {
+        return Err("登记来的后台任务只有总控 bot 和用户能结束".into());
+    }
+    Ok(())
+}
+
+pub async fn register(
+    st: &Shared,
+    req: Register,
+    owner: &Owner,
+    by: Option<&Caller>,
+) -> Result<Job, String> {
+    let label = req.label.trim();
+    if label.is_empty() {
+        return Err("label 不能为空".into());
+    }
+    let pid = u32::try_from(req.pid)
+        .ok()
+        .filter(|p| *p > 1)
+        .ok_or("pid 无效")?;
+    let notify = check_notify(req.notify.as_deref())?;
+    let deadline_at = deadline(req.deadline_mins)?;
+    let waits_for = check_waits(st, &req.waits_for).await?;
+    let log_path = nonempty(req.log_path.as_deref()).map(str::to_owned);
+    if log_path.as_deref().is_some_and(|p| !p.starts_with('/')) {
+        return Err("日志路径要用绝对路径".into());
+    }
+    let (node, workspace_id) = register_target(st, &req, owner, by).await?;
+    let node = node.as_str();
+    let node_id = node_id(st, node).await?;
+    let id = uuid::Uuid::now_v7().to_string();
+    let root = root(st, node).await?;
+    let run = DetachedRun::adopt(st.transport(node), &root, &id, pid)
+        .await
+        .map_err(|e| format!("在 {node} 上登记失败：{e}"))?;
+    insert(
+        st,
+        NewJob {
+            id: id.clone(),
+            owner: owner.clone(),
+            workspace_id,
+            node_id,
+            kind: "register",
+            label: label.chars().take(120).collect(),
+            command: None,
+            cwd: None,
+            run_dir: run.dir,
+            pid: Some(i64::from(pid)),
+            log_path,
+            waits_for,
+            deadline_at,
+            notify,
+        },
+    )
+    .await?;
+    changed(st);
+    get(st, &id).await.ok_or_else(|| "任务读不回来".into())
+}
+
+pub(super) async fn finish(
+    st: &Shared,
+    id: &str,
+    status: &str,
+    code: Option<i32>,
+    exited_at: Option<i64>,
+) -> bool {
+    let now = Utc::now();
+    let ended = exited_at
+        .and_then(|t| DateTime::from_timestamp(t, 0))
+        .filter(|t| *t <= now)
+        .unwrap_or(now);
+    sqlx::query(
+        "UPDATE jobs SET status = ?2, exit_code = ?3, ended_at = ?4, updated_at = ?5,
+                         last_checked_at = ?5, last_error = NULL
+         WHERE id = ?1 AND status = 'running'",
+    )
+    .bind(id)
+    .bind(status)
+    .bind(code)
+    .bind(ended.to_rfc3339())
+    .bind(now.to_rfc3339())
+    .execute(st.db.pool())
+    .await
+    .is_ok_and(|r| r.rows_affected() == 1)
+}
+
+pub async fn log(st: &Shared, job: &Job, lines: usize) -> Result<String, String> {
+    let Some(file) = job.log_file() else {
+        return Ok(String::new());
+    };
+    let out = st
+        .transport(&job.node)
+        .exec(
+            ExecSpec::new("tail")
+                .arg("-n")
+                .arg(lines.clamp(1, MAX_TAIL).to_string())
+                .arg("--")
+                .arg(file),
+        )
+        .await
+        .map_err(|e| format!("连不上 {}：{e}", job.node))?;
+    if out.code != 0 && out.stdout.is_empty() {
+        return Err(format!("读不到日志：{}", out.stderr.trim()));
+    }
+    Ok(out.stdout)
+}
+
+pub async fn kill(
+    st: &Shared,
+    id: &str,
+    by: Option<&Caller>,
+    killer: &Owner,
+) -> Result<Job, String> {
+    let job = get(st, id).await.ok_or("没有这个后台任务")?;
+    may_kill(&job, by)?;
+    if job.status != "running" {
+        return Err(format!("这个任务已经是 {} 状态", job.status));
+    }
+    let dir = job.run_dir.clone().ok_or("这个任务没有任务目录")?;
+    let run = DetachedRun::attach(st.transport(&job.node), dir, job.id.clone());
+    let stopped = if job.kind == "register" {
+        run.stop_adopted().await
+    } else {
+        run.hard_kill().await
+    };
+    stopped.map_err(|e| format!("结束失败：{e}"))?;
+    if finish(st, &job.id, "killed", None, None).await {
+        changed(st);
+        if let Some(done) = get(st, &job.id).await
+            && !done.owner().same(killer)
+        {
+            let tail = log(st, &done, SUMMARY_LINES).await.unwrap_or_default();
+            announce(st, &done, &tail).await;
+        }
+    }
+    get(st, id).await.ok_or_else(|| "任务读不回来".into())
+}
