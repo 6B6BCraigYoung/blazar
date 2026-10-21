@@ -2,6 +2,7 @@ mod composer;
 mod dock;
 mod log;
 pub mod state;
+mod turns;
 
 use leptos::prelude::*;
 

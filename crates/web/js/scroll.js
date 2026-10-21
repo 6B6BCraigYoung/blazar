@@ -19,7 +19,8 @@ export function keepScroll(el) {
     anchor = null;
     if (bottom) return;
     const top = el.getBoundingClientRect().top;
-    const rows = el.querySelector(':scope > .cc-flow')?.children ?? el.children;
+    const flow = el.querySelector(':scope > .cc-flow') ?? el;
+    const rows = [...flow.children].flatMap(n => n.classList.contains('cc-turn') ? [...n.children] : [n]);
     const row = firstVisible(rows, top);
     if (!row) return;
     anchor = firstVisible(row[0].querySelectorAll('.cc-md > *'), top) || row;

@@ -12,6 +12,7 @@ use crate::components::toast::toast;
 use crate::md;
 
 use super::state::{Chat, SubLoad};
+use super::turns::{Turn, group_turns};
 
 #[derive(Clone, Copy)]
 pub struct Opened(RwSignal<HashSet<String>>);
@@ -1010,13 +1011,24 @@ pub fn Log(chat: Chat, tick: RwSignal<u32>) -> impl IntoView {
             .unwrap_or_else(|| len.saturating_sub(WINDOW))
             .min(len)
     };
-    let keys = move || {
+    let turns = Memo::new(move |_| {
         chat.transcript.with(|t| {
-            t.items[start(t.items.len())..]
-                .iter()
-                .map(|it| it.key.clone())
-                .collect::<Vec<_>>()
+            group_turns(
+                t.items[start(t.items.len())..]
+                    .iter()
+                    .map(|it| (it.key.clone(), matches!(it.body, Body::User { .. }))),
+            )
         })
+    });
+    let turn_keys = move |head: String| {
+        move || {
+            turns.with(|ts| {
+                ts.iter()
+                    .find(|t| t.head == head)
+                    .map(|t| t.keys.clone())
+                    .unwrap_or_default()
+            })
+        }
     };
     let earlier = move || chat.transcript.with(|t| start(t.items.len()));
     let show_earlier = move |_| {
@@ -1094,14 +1106,27 @@ pub fn Log(chat: Chat, tick: RwSignal<u32>) -> impl IntoView {
                         {move || format!("Show {} earlier", earlier().min(WINDOW))}
                     </button>
                 </Show>
-                <For each=keys key=|k| k.clone() let:k>
-                    {item_slot(k, chat, opened, ws.clone())}
-                </For>
+                <For
+                    each=move || turns.get()
+                    key=|t| t.head.clone()
+                    children=move |turn: Turn| {
+                        let ws = ws.clone();
+                        view! {
+                            <div class="cc-turn">
+                                <For each=turn_keys(turn.head) key=|k| k.clone() let:k>
+                                    {item_slot(k, chat, opened, ws.clone())}
+                                </For>
+                            </div>
+                        }
+                    }
+                />
                 <For each=move || chat.pending.get() key=|p| p.id let:p>
-                    <div class="cc-user pending">
-                        <div class="cc-ut">
-                            {p.text.clone()}
-                            {(p.images > 0).then(|| format!("\n[{} attachments]", p.images))}
+                    <div class="cc-turn">
+                        <div class="cc-user pending">
+                            <div class="cc-ut">
+                                {p.text.clone()}
+                                {(p.images > 0).then(|| format!("\n[{} attachments]", p.images))}
+                            </div>
                         </div>
                     </div>
                 </For>

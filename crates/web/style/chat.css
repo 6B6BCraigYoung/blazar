@@ -10,9 +10,9 @@
 .ctab .x:hover { color: var(--fg); }
 .ctab.add { padding: 0 var(--space-md); }
 .menu.hist { width: 300px; right: -60px; max-height: 420px; }
-.hist-row { all: unset; cursor: pointer; display: flex; flex-direction: column; gap: var(--space-hairline); padding: var(--space-sm) var(--space-control); border-radius: var(--r-sm); }
-.hist-row:hover, .hist-row[data-sel="true"] { background: var(--bg-hover); }
-.hist-row b { font-weight: var(--font-weight-medium); font-size: var(--font-size-label-readable); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.menu .hist-row { all: unset; cursor: pointer; display: flex; flex-direction: column; gap: var(--space-2xs); padding: var(--space-sm) var(--space-control); border-radius: var(--r-sm); }
+.menu .hist-row:hover, .menu .hist-row[data-sel="true"] { background: var(--bg-hover); }
+.menu .hist-row b { font-weight: var(--font-weight-medium); font-size: var(--font-size-label-readable); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .chat-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .cc-log { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; overflow-anchor: none; padding: var(--space-card) max(var(--space-card), calc((100% - var(--chat-measure)) / 2)) var(--space-sm); font-size: var(--font-size-body); line-height: var(--line-height-body); transition: opacity var(--duration-content-dim); }
@@ -21,6 +21,7 @@
 .cc-row { position: relative; display: flex; gap: var(--space-md); align-items: flex-start; margin: 0 0 var(--space-control); }
 .cc-row::after { content: ""; position: absolute; left: 5.5px; top: 20px; bottom: -10px; width: 1px; background: var(--line); }
 .cc-row:last-child::after, .cc-row:has(+ .cc-user)::after, .cc-row:has(+ .cc-meta)::after { display: none; }
+.cc-turn:has(+ .cc-row, + .cc-spin) > .cc-row:last-child::after { display: block; }
 .cc-dot { flex: 0 0 auto; width: 12px; height: 20px; display: flex; align-items: center; justify-content: center; color: var(--fg-3); position: relative; z-index: var(--layer-chat-marker); }
 .cc-dot::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
 .cc-msg > .cc-dot { color: var(--fg); }
