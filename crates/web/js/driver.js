@@ -154,7 +154,12 @@ function click(el) {
 }
 
 function setValue(el, text) {
-  const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+  if (el instanceof HTMLSelectElement && ![...el.options].some(o => o.value === text)) {
+    const options = [...el.options].map(o => `「${o.value}」`).join('、');
+    throw new Error(`下拉框没有值为「${text}」的选项，可选：${options}`);
+  }
+  const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype
+    : el instanceof HTMLSelectElement ? HTMLSelectElement.prototype : HTMLInputElement.prototype;
   const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
   if (setter) setter.call(el, text); else el.value = text;
   el.dispatchEvent(new InputEvent('input', { bubbles: true, data: text, inputType: 'insertText' }));
