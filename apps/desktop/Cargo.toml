@@ -30,8 +30,18 @@ blazar-transport.workspace = true
 reqwest = { version = "0.13", features = ["json"] }
 url = "2"
 
+[target.'cfg(target_os = "macos")'.dependencies]
+block2 = "0.6.2"
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSBitmapImageRep", "NSImage", "NSImageRep"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSData", "NSDictionary", "NSError", "NSString"] }
+objc2-web-kit = { version = "0.3.2", default-features = false, features = ["std", "block2", "objc2-app-kit", "WKSnapshotConfiguration", "WKWebView"] }
+
 [dev-dependencies]
 tempfile = "3"
 
-[lints]
-workspace = true
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+dbg_macro = "deny"
+todo = "deny"

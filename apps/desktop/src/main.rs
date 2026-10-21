@@ -17,6 +17,7 @@ mod hub_mode;
 mod menu;
 mod profile;
 mod remote;
+mod snapshot;
 
 const BUNDLED_PAGE: &str = "index.html";
 
@@ -119,6 +120,7 @@ fn run() -> Result<()> {
             commands::set_hub_mode,
             commands::retry_hub,
             commands::forward_port,
+            snapshot::snapshot_webview,
         ])
         .setup(move |app| {
             let hub = setup_hub;
@@ -215,8 +217,13 @@ fn run() -> Result<()> {
                 .local(false)
                 .window("main")
                 .permission("hub-mode");
-            app.add_capability(if hub.remote().is_some() {
+            let page = if hub.remote().is_some() {
                 page.permission("remote-forward")
+            } else {
+                page
+            };
+            app.add_capability(if snapshot::enabled() {
+                page.permission(snapshot::PERMISSION)
             } else {
                 page
             })?;
