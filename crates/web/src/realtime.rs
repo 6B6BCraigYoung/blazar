@@ -2,7 +2,7 @@ use std::pin::Pin;
 use std::rc::Rc;
 use std::time::Duration;
 
-use blazar_core_types::api::ServerEvent;
+use blazar_core_types::api::{EventFrame, ServerEvent};
 use futures::{Sink, StreamExt};
 use gloo_net::websocket::futures::WebSocket;
 use gloo_net::websocket::{Message, State};
@@ -15,6 +15,8 @@ type Listener = Rc<dyn Fn(&ServerEvent)>;
 pub struct Bus {
     pub connected: RwSignal<bool>,
     pub reconnects: RwSignal<u32>,
+    pub resyncs: RwSignal<u32>,
+    last_event: StoredValue<Option<i64>>,
     listeners: StoredValue<Vec<(u32, Listener)>, LocalStorage>,
     next_listener: StoredValue<u32>,
     pub accounts: RwSignal<u32>,
@@ -52,6 +54,7 @@ impl Bus {
         match ev {
             ServerEvent::ResyncRequired => {
                 self.bump_all();
+                bump(self.resyncs);
                 bump(self.reconnects);
             }
             ServerEvent::AccountsChanged => bump(self.accounts),
@@ -81,16 +84,42 @@ impl Bus {
         bump(self.workspaces);
         bump(self.nodes);
     }
+
+    fn receive(self, frame: &EventFrame) {
+        if let Some(id) = frame.event_id {
+            self.last_event
+                .update_value(|last| *last = Some(last.map_or(id, |l| l.max(id))));
+        }
+        self.dispatch(&frame.event);
+    }
+
+    async fn cursor(self) -> Option<i64> {
+        if let Some(id) = self.last_event.get_value() {
+            return Some(id);
+        }
+        let head = crate::api::get::<serde_json::Value>("/api/events/head")
+            .await
+            .ok()?["id"]
+            .as_i64()?;
+        self.last_event.set_value(Some(head));
+        Some(head)
+    }
 }
 
-fn ws_url() -> String {
-    crate::api::websocket_url("/api/ws")
+fn ws_url(since: Option<i64>) -> String {
+    let url = crate::api::websocket_url("/api/ws");
+    match since {
+        Some(id) => format!("{url}?since={id}"),
+        None => url,
+    }
 }
 
 pub fn provide() -> Bus {
     let bus = Bus {
         connected: RwSignal::new(false),
         reconnects: RwSignal::new(0),
+        resyncs: RwSignal::new(0),
+        last_event: StoredValue::new(None),
         listeners: StoredValue::new_local(Vec::new()),
         next_listener: StoredValue::new(0),
         accounts: RwSignal::new(0),
@@ -107,28 +136,13 @@ async fn run(bus: Bus) {
     let mut backoff = 1u64;
     let mut first = true;
     loop {
-        if crate::api::session().await.is_ok()
-            && let Ok(mut ws) = WebSocket::open(&ws_url())
-        {
-            let _ = futures::future::poll_fn(|cx| Pin::new(&mut ws).poll_ready(cx)).await;
-            if matches!(ws.state(), State::Open) {
+        if crate::api::session().await.is_ok() {
+            let since = bus.cursor().await;
+            if let Ok(ws) = WebSocket::open(&ws_url(since))
+                && listen(bus, ws, since, first).await
+            {
                 backoff = 1;
-                bus.connected.set(true);
-                if !first {
-                    bus.bump_all();
-                    bus.reconnects.update(|n| *n = n.wrapping_add(1));
-                }
                 first = false;
-                let (_tx, mut rx) = ws.split();
-                while let Some(Ok(msg)) = rx.next().await {
-                    let text = match msg {
-                        Message::Text(t) => t,
-                        Message::Bytes(b) => String::from_utf8_lossy(&b).into_owned(),
-                    };
-                    if let Ok(ev) = serde_json::from_str::<ServerEvent>(&text) {
-                        bus.dispatch(&ev);
-                    }
-                }
             }
         }
         bus.connected.set(false);
@@ -136,6 +150,32 @@ async fn run(bus: Bus) {
         gloo_timers::future::sleep(Duration::from_secs(backoff)).await;
         backoff = (backoff * 2).min(15);
     }
+}
+
+async fn listen(bus: Bus, mut ws: WebSocket, since: Option<i64>, first: bool) -> bool {
+    let _ = futures::future::poll_fn(|cx| Pin::new(&mut ws).poll_ready(cx)).await;
+    if !matches!(ws.state(), State::Open) {
+        return false;
+    }
+    bus.connected.set(true);
+    if !first {
+        if since.is_none() {
+            bus.bump_all();
+            bump(bus.resyncs);
+        }
+        bump(bus.reconnects);
+    }
+    let (_tx, mut rx) = ws.split();
+    while let Some(Ok(msg)) = rx.next().await {
+        let text = match msg {
+            Message::Text(t) => t,
+            Message::Bytes(b) => String::from_utf8_lossy(&b).into_owned(),
+        };
+        if let Ok(frame) = serde_json::from_str::<EventFrame>(&text) {
+            bus.receive(&frame);
+        }
+    }
+    true
 }
 
 pub fn use_bus() -> Bus {

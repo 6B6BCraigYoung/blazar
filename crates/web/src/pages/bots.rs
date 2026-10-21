@@ -21,7 +21,7 @@ pub fn bots_revision() -> RwSignal<u32> {
     });
     on_cleanup(move || bus.unsubscribe(id));
     Effect::new(move |_| {
-        bus.reconnects.track();
+        bus.resyncs.track();
         rev.update(|n| *n = n.wrapping_add(1));
     });
     rev

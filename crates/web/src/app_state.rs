@@ -405,18 +405,21 @@ pub fn provide(bus: Bus) -> AppData {
         bus.nodes.track();
         app.load_state();
     });
-    for k in [
-        "inbox",
-        "tasks",
-        "autopilots",
-        "jobs",
-        "agents",
-        "skills",
-        "runtimes",
-    ] {
-        app.load_counts(k);
-    }
-    app.load_bots();
+    Effect::new(move |_| {
+        bus.resyncs.track();
+        for k in [
+            "inbox",
+            "tasks",
+            "autopilots",
+            "jobs",
+            "agents",
+            "skills",
+            "runtimes",
+        ] {
+            app.load_counts(k);
+        }
+        app.load_bots();
+    });
     bus.subscribe(move |ev| match ev {
         ServerEvent::BotsChanged => app.load_bots(),
         ServerEvent::InboxChanged => app.load_counts("inbox"),
