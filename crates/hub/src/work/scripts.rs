@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use axum::Json;
 use axum::extract::{Path, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use blazar_transport::ExecSpec;
 use chrono::Utc;
@@ -541,7 +541,57 @@ async fn close_tunnel(ws: &str) {
     }
 }
 
+fn handed() -> &'static std::sync::Mutex<HashMap<String, (u16, &'static str)>> {
+    static H: OnceLock<std::sync::Mutex<HashMap<String, (u16, &'static str)>>> = OnceLock::new();
+    H.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
+}
+
+fn handed_port(v: &Value) -> Option<(u16, &'static str)> {
+    if v["preview_url"].is_null() {
+        return None;
+    }
+    let (port, purpose) = match v["tunnel"].as_u64() {
+        Some(lp) => (lp, "preview-tunnel"),
+        None => (v["port"].as_u64()?, "preview"),
+    };
+    Some((u16::try_from(port).ok()?, purpose))
+}
+
+fn remember(ws: &str, v: &Value) {
+    let mut map = handed().lock().unwrap();
+    match handed_port(v) {
+        Some(entry) => map.insert(ws.to_owned(), entry),
+        None => map.remove(ws),
+    };
+}
+
 async fn dev_status(st: &Shared, ws: &str) -> Value {
+    let v = probe_dev(st, ws).await;
+    remember(ws, &v);
+    v
+}
+
+pub async fn loopback_ports(State(st): State<Shared>, headers: HeaderMap) -> Response {
+    if crate::bots::caller_of(&headers).is_some() {
+        return fail(StatusCode::FORBIDDEN, "bot 不能列出本机端口");
+    }
+    let known: Vec<String> = handed().lock().unwrap().keys().cloned().collect();
+    for ws in &known {
+        dev_status(&st, ws).await;
+    }
+    let mut ports: Vec<Value> = handed()
+        .lock()
+        .unwrap()
+        .iter()
+        .map(
+            |(ws, (port, purpose))| json!({ "port": port, "workspace_id": ws, "purpose": purpose }),
+        )
+        .collect();
+    ports.sort_by_key(|p| p["port"].as_u64());
+    Json(json!({ "ports": ports })).into_response()
+}
+
+async fn probe_dev(st: &Shared, ws: &str) -> Value {
     let Some(p) = place(st, ws).await else {
         return json!({ "running": false, "reason": "没有这个工作区" });
     };
@@ -712,6 +762,103 @@ mod tests {
             None
         );
         assert_eq!(detect_url("no url here"), None);
+    }
+
+    #[test]
+    fn only_previews_with_an_address_hand_out_a_port() {
+        assert_eq!(
+            handed_port(
+                &json!({ "running": true, "port": 5173, "preview_url": "http://localhost:5173/" })
+            ),
+            Some((5173, "preview"))
+        );
+        assert_eq!(
+            handed_port(
+                &json!({ "running": true, "port": 3000, "tunnel": 51234, "preview_url": "http://127.0.0.1:51234/" })
+            ),
+            Some((51234, "preview-tunnel"))
+        );
+        assert_eq!(
+            handed_port(&json!({ "running": true, "port": 3000, "tunnel_error": "x" })),
+            None
+        );
+        assert_eq!(
+            handed_port(&json!({ "running": false, "port": 3000 })),
+            None
+        );
+    }
+
+    async fn ports(st: &Shared, headers: HeaderMap) -> (StatusCode, Value) {
+        let r = loopback_ports(State(st.clone()), headers).await;
+        let status = r.status();
+        let body = axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap();
+        (status, serde_json::from_slice(&body).unwrap())
+    }
+
+    #[tokio::test]
+    async fn loopback_ports_list_running_previews_and_refuse_bots() {
+        let db = blazar_db::Db::open_in_memory().await.unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let st = crate::state::AppState::with_services(
+            db,
+            "local".into(),
+            None,
+            crate::mesh::MeshCtx::new(None, root.path().to_path_buf()),
+            crate::services::Services::Isolated,
+        );
+        let ws = uuid::Uuid::now_v7().to_string();
+        for q in [
+            "INSERT INTO nodes (id, name, transport, status, created_at) VALUES ('n-local', 'local', 'local', 'online', '0')".to_owned(),
+            format!(
+                "INSERT INTO workspaces (id, node_id, name, path, created_at) VALUES ('{ws}', 'n-local', 'pv', '{}', '0')",
+                root.path().display()
+            ),
+            format!(
+                "INSERT INTO workspace_scripts (workspace_id, setup, cleanup, dev, copy_files, updated_at)
+                 VALUES ('{ws}', '', '', 'exec python3 -u -m http.server 0 --bind 127.0.0.1', '', '0')"
+            ),
+        ] {
+            sqlx::query(&q).execute(st.db.pool()).await.unwrap();
+        }
+        let (_, before) = ports(&st, HeaderMap::new()).await;
+        assert!(!before.to_string().contains(&ws));
+
+        dev_start(State(st.clone()), Path(ws.clone())).await;
+        let mut port = None;
+        for _ in 0..20 {
+            let v = dev_status(&st, &ws).await;
+            if v["preview_url"].is_string() {
+                port = v["port"].as_u64();
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(300)).await;
+        }
+        let port = port.expect("dev server should print its address");
+
+        let (status, list) = ports(&st, HeaderMap::new()).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            list["ports"]
+                .as_array()
+                .unwrap()
+                .contains(&json!({ "port": port, "workspace_id": ws, "purpose": "preview" }))
+        );
+
+        let mut bot = HeaderMap::new();
+        bot.insert(
+            crate::bots::CALLER_HEADER,
+            json!({"bot": "b1", "handle": "lead", "role": "lead"})
+                .to_string()
+                .parse()
+                .unwrap(),
+        );
+        let (status, body) = ports(&st, bot).await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert!(body.get("ports").is_none());
+
+        dev_stop(State(st.clone()), Path(ws.clone())).await;
+        let (_, after) = ports(&st, HeaderMap::new()).await;
+        assert!(!after.to_string().contains(&ws));
     }
 
     #[test]

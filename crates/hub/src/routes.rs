@@ -170,6 +170,7 @@ pub fn build_router(st: Arc<AppState>) -> Router {
         )
         .route("/api/workspaces/{id}/script-runs", get(scripts::runs))
         .route("/api/workspaces/{id}/dev", get(scripts::dev_get))
+        .route("/api/loopback-ports", get(scripts::loopback_ports))
         .route("/api/workspaces/{id}/dev/start", post(scripts::dev_start))
         .route("/api/workspaces/{id}/dev/stop", post(scripts::dev_stop))
         .route(
