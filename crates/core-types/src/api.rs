@@ -215,6 +215,48 @@ pub enum ServerEvent {
     },
 }
 
+impl ServerEvent {
+    #[must_use]
+    pub fn persisted(&self) -> bool {
+        match self {
+            Self::WorkspacesChanged
+            | Self::NodesChanged
+            | Self::TasksChanged
+            | Self::AutopilotsChanged
+            | Self::AccountsChanged
+            | Self::InboxChanged
+            | Self::BotsChanged
+            | Self::FactsChanged
+            | Self::JobsChanged
+            | Self::SessionTitled { .. } => true,
+            Self::Entry { .. }
+            | Self::ResyncRequired
+            | Self::ScriptsChanged { .. }
+            | Self::QueueChanged { .. }
+            | Self::QueueSent { .. }
+            | Self::UiCommand { .. } => false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EventFrame {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub event_id: Option<i64>,
+    #[serde(flatten)]
+    pub event: ServerEvent,
+}
+
+impl EventFrame {
+    #[must_use]
+    pub fn live(event: ServerEvent) -> Self {
+        Self {
+            event_id: None,
+            event,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -292,5 +334,111 @@ mod tests {
             serde_json::from_str::<ServerEvent>(&s).unwrap(),
             ServerEvent::AccountsChanged
         ));
+    }
+
+    fn every_event() -> Vec<(ServerEvent, bool)> {
+        let ws = WorkspaceId::new();
+        let sid = SessionId::new();
+        vec![
+            (
+                ServerEvent::Entry {
+                    workspace_id: ws,
+                    session_id: sid,
+                    entry: Box::new(NormalizedEntry {
+                        seq: 1,
+                        ts: chrono::Utc::now(),
+                        parent_tool_use_id: None,
+                        kind: crate::EntryKind::Finished(crate::Outcome::Interrupted),
+                    }),
+                },
+                false,
+            ),
+            (ServerEvent::WorkspacesChanged, true),
+            (ServerEvent::ResyncRequired, false),
+            (ServerEvent::NodesChanged, true),
+            (ServerEvent::TasksChanged, true),
+            (ServerEvent::AutopilotsChanged, true),
+            (ServerEvent::AccountsChanged, true),
+            (ServerEvent::InboxChanged, true),
+            (ServerEvent::BotsChanged, true),
+            (ServerEvent::FactsChanged, true),
+            (ServerEvent::JobsChanged, true),
+            (ServerEvent::ScriptsChanged { workspace_id: ws }, false),
+            (ServerEvent::QueueChanged { workspace_id: ws }, false),
+            (
+                ServerEvent::QueueSent {
+                    workspace_id: ws,
+                    queued_thread: None,
+                    thread_id: "t".into(),
+                    session_id: "s".into(),
+                },
+                false,
+            ),
+            (
+                ServerEvent::SessionTitled {
+                    workspace_id: ws,
+                    session_id: sid,
+                    title: "改名".into(),
+                },
+                true,
+            ),
+            (
+                ServerEvent::UiCommand {
+                    id: 7,
+                    command: serde_json::json!({"op": "errors"}),
+                },
+                false,
+            ),
+        ]
+    }
+
+    #[test]
+    fn only_low_frequency_state_changes_are_persisted() {
+        let all = every_event();
+        let kinds: std::collections::BTreeSet<String> = all
+            .iter()
+            .map(|(e, _)| {
+                serde_json::to_value(e).unwrap()["kind"]
+                    .as_str()
+                    .unwrap()
+                    .to_owned()
+            })
+            .collect();
+        assert_eq!(kinds.len(), 16, "每种事件都要在这里登记是否持久化");
+        for (event, persisted) in all {
+            assert_eq!(event.persisted(), persisted, "{event:?}");
+            if persisted {
+                let value = serde_json::to_value(&event).unwrap();
+                let keys: Vec<&String> = value.as_object().unwrap().keys().collect();
+                for key in keys {
+                    assert!(
+                        ["kind", "workspace_id", "session_id", "title"].contains(&key.as_str()),
+                        "持久化事件多了字段 {key}，先确认里面没有密钥或令牌"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn frames_carry_an_event_id_only_when_persisted() {
+        for (event, _) in every_event() {
+            let plain = serde_json::to_value(&event).unwrap();
+            let live = serde_json::to_value(EventFrame::live(event.clone())).unwrap();
+            assert_eq!(live, plain);
+            let framed = EventFrame {
+                event_id: Some(42),
+                event,
+            };
+            let text = serde_json::to_string(&framed).unwrap();
+            let back: EventFrame = serde_json::from_str(&text).unwrap();
+            assert_eq!(back.event_id, Some(42));
+            assert_eq!(serde_json::to_value(&back.event).unwrap(), plain);
+            assert!(serde_json::from_str::<ServerEvent>(&text).is_ok());
+        }
+        let ui: EventFrame =
+            serde_json::from_str(r#"{"kind":"ui_command","id":3,"command":null}"#).unwrap();
+        assert_eq!(ui.event_id, None);
+        assert!(matches!(ui.event, ServerEvent::UiCommand { id: 3, .. }));
     }
 }
