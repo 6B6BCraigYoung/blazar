@@ -1697,6 +1697,11 @@ impl Model {
         }
     }
 
+    #[cfg(test)]
+    pub fn frozen_rows(&self) -> usize {
+        self.frozen.fed
+    }
+
     pub fn update(&mut self, rows: &[Row], epoch: u64, running: bool) -> Transcript {
         let fed = self.frozen.fed;
         let kept = epoch == self.epoch
@@ -1855,6 +1860,12 @@ pub fn always_rule(request: &Value) -> (String, String) {
     };
     (tn, pattern)
 }
+
+#[cfg(test)]
+mod synthetic;
+
+#[cfg(test)]
+mod incremental_tests;
 
 #[cfg(test)]
 mod tests {
