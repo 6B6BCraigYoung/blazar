@@ -126,6 +126,11 @@ fn run() -> Result<()> {
             let hub = setup_hub;
             let geo = window_geometry::load();
             let dev = dev_instance();
+            let size = dev
+                .then(window_geometry::forced)
+                .flatten()
+                .or(geo.map(|g| (g.w, g.h)))
+                .unwrap_or((1440.0, 900.0));
             #[cfg(target_os = "macos")]
             if dev {
                 app.set_activation_policy(tauri::ActivationPolicy::Accessory);
@@ -145,7 +150,7 @@ fn run() -> Result<()> {
             let mut b = WebviewWindowBuilder::new(app, "main", url)
                 .title(title)
                 .focused(!dev)
-                .inner_size(geo.map_or(1440.0, |g| g.w), geo.map_or(900.0, |g| g.h))
+                .inner_size(size.0, size.1)
                 .min_inner_size(900.0, 600.0)
                 .disable_drag_drop_handler()
                 .on_new_window(|url, _features| {
@@ -590,6 +595,13 @@ mod window_geometry {
         let g: Geo = serde_json::from_str(&std::fs::read_to_string(path()?).ok()?).ok()?;
 
         (g.w >= 900.0 && g.h >= 600.0 && g.x > -200.0 && g.y > -200.0).then_some(g)
+    }
+
+    pub fn forced() -> Option<(f64, f64)> {
+        let raw = std::env::var("BLAZAR_WINDOW_SIZE").ok()?;
+        let (w, h) = raw.split_once('x')?;
+        let (w, h) = (w.trim().parse::<f64>().ok()?, h.trim().parse::<f64>().ok()?);
+        (w >= 900.0 && h >= 600.0).then_some((w, h))
     }
 
     pub fn save(w: &tauri::WebviewWindow) {
