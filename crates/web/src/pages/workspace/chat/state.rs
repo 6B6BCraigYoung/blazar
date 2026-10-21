@@ -4,7 +4,7 @@ use std::rc::Rc;
 use leptos::prelude::*;
 
 use crate::api::Accounts;
-use crate::chat_model::{Row, Transcript};
+use crate::chat_model::{Model, Row, Transcript};
 use crate::storage;
 
 use super::super::diff_panel::{Comment, DiffState};
@@ -53,6 +53,8 @@ pub struct Chat {
     refresh_pending: StoredValue<bool>,
     pub threads: RwSignal<Vec<Thread>>,
     pub rows: RwSignal<Vec<Row>>,
+    rows_epoch: StoredValue<u64>,
+    model: StoredValue<Model, LocalStorage>,
     pub subagents: RwSignal<HashMap<String, SubLoad>>,
     row_buffer: StoredValue<Vec<Row>>,
     flush_scheduled: StoredValue<bool>,
@@ -123,6 +125,8 @@ impl Chat {
             refresh_pending: StoredValue::new(false),
             threads: RwSignal::new(Vec::new()),
             rows: RwSignal::new(Vec::new()),
+            rows_epoch: StoredValue::new(0),
+            model: StoredValue::new_local(Model::new(root)),
             subagents: RwSignal::new(HashMap::new()),
             row_buffer: StoredValue::new(Vec::new()),
             flush_scheduled: StoredValue::new(false),
@@ -168,6 +172,28 @@ impl Chat {
 
     pub fn ws_id(self) -> String {
         self.ws.try_get_value().unwrap_or_default()
+    }
+
+    pub(super) fn replace_rows(self, rows: Vec<Row>) {
+        self.rows_epoch.update_value(|e| *e = e.wrapping_add(1));
+        self.rows.set(rows);
+    }
+
+    pub(super) fn rewrite_rows(self, f: impl FnOnce(&mut Vec<Row>)) {
+        self.rows_epoch.update_value(|e| *e = e.wrapping_add(1));
+        self.rows.update(f);
+    }
+
+    pub(super) fn rebuild_transcript(self) {
+        let running = self.running.get();
+        let epoch = self.rows_epoch.get_value();
+        let built = self.rows.with(|rows| {
+            self.model
+                .try_update_value(|m| m.update(rows, epoch, running))
+        });
+        if let Some(t) = built {
+            self.transcript.set(Rc::new(t));
+        }
     }
 
     pub fn spawn(self, fut: impl std::future::Future<Output = ()> + 'static) {

@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
+use std::rc::Rc;
 
 use blazar_core_types::{
     ApprovalDecision, EntryKind, McpServerStatus, NormalizedEntry, Outcome, RateLimitWindow,
@@ -212,7 +213,8 @@ pub struct Pending {
 
 #[derive(Debug, Clone, Default)]
 pub struct Transcript {
-    pub items: Vec<Item>,
+    pub items: Vec<Rc<Item>>,
+    frozen: Rc<HashMap<String, usize>>,
     index: HashMap<String, usize>,
     pub pending: Vec<Pending>,
     pub todos: Option<Vec<Todo>>,
@@ -228,16 +230,11 @@ pub struct Transcript {
 
 impl Transcript {
     pub fn item(&self, key: &str) -> Option<&Item> {
-        self.index.get(key).and_then(|i| self.items.get(*i))
-    }
-
-    fn reindex(&mut self) {
-        self.index = self
-            .items
-            .iter()
-            .enumerate()
-            .map(|(i, it)| (it.key.clone(), i))
-            .collect();
+        self.index
+            .get(key)
+            .or_else(|| self.frozen.get(key))
+            .and_then(|i| self.items.get(*i))
+            .map(Rc::as_ref)
     }
 }
 
@@ -801,6 +798,7 @@ enum BStep {
 struct BTool {
     tool: Tool,
     sub: Vec<BStep>,
+    input: Value,
 }
 
 enum BBody {
@@ -837,28 +835,72 @@ struct BItem {
     body: BBody,
 }
 
-#[derive(Default)]
-struct Builder<'a> {
-    root: &'a str,
-    top: Vec<BItem>,
-    tools: Vec<BTool>,
-    by_id: HashMap<String, usize>,
-
-    inputs: HashMap<usize, Value>,
-
-    fold_open: bool,
-    in_rewound: bool,
+#[derive(Clone, Default)]
+struct Carry {
     last_ts: i64,
     last_text: String,
     usage: Option<TokenUsage>,
-
     turn_tokens: HashMap<String, u64>,
-
     turn_est: u64,
-    user_seen: HashSet<String>,
-    bg_shown: HashMap<String, String>,
+    todos: Option<Vec<Todo>>,
+    model: String,
+    mcp: Vec<McpServerStatus>,
+    rate: Vec<RateLimitWindow>,
+}
+
+#[derive(Default)]
+struct Frozen {
+    fed: usize,
+    last: Option<(String, u64)>,
+    items: Vec<Rc<Item>>,
+    index: Rc<HashMap<String, usize>>,
+    tools: HashSet<String>,
+    approvals: HashSet<String>,
     resolved: HashMap<String, String>,
-    out: Transcript,
+    seen: HashSet<String>,
+    bg: HashMap<String, String>,
+    carry: Carry,
+}
+
+struct Mark {
+    row: usize,
+    items: usize,
+    tools: usize,
+    seen: usize,
+    bg: usize,
+    carry: Option<Carry>,
+}
+
+struct Promotion {
+    row: usize,
+    items: usize,
+    tools: Vec<String>,
+    seen: Vec<String>,
+    bg: Vec<(String, String)>,
+    carry: Option<Carry>,
+}
+
+const LOOKBACK: usize = 256;
+
+struct Builder<'a> {
+    root: &'a str,
+    base: &'a Frozen,
+    len: usize,
+    top: Vec<BItem>,
+    tools: Vec<BTool>,
+    by_id: HashMap<String, usize>,
+    running: usize,
+    fold_open: bool,
+    in_rewound: bool,
+    carry: Carry,
+    seen: HashSet<String>,
+    seen_order: Vec<String>,
+    bg: HashMap<String, String>,
+    bg_order: Vec<(String, String)>,
+    resolved: HashMap<String, String>,
+    pending: Vec<Pending>,
+    bail: bool,
+    mark: Option<Mark>,
 }
 
 const FOLDED: [&str; 3] = ["thinking", "tool_use", "tool_result"];
@@ -884,7 +926,89 @@ fn kind_name(k: &EntryKind) -> &'static str {
     }
 }
 
-impl Builder<'_> {
+impl<'a> Builder<'a> {
+    fn new(root: &'a str, base: &'a Frozen) -> Self {
+        Self {
+            root,
+            base,
+            len: 0,
+            top: Vec::new(),
+            tools: Vec::new(),
+            by_id: HashMap::new(),
+            running: 0,
+            fold_open: false,
+            in_rewound: false,
+            carry: base.carry.clone(),
+            seen: HashSet::new(),
+            seen_order: Vec::new(),
+            bg: HashMap::new(),
+            bg_order: Vec::new(),
+            resolved: HashMap::new(),
+            pending: Vec::new(),
+            bail: false,
+            mark: None,
+        }
+    }
+
+    fn prepare(&mut self, rows: &[Row]) {
+        self.len = rows.len();
+        for r in rows {
+            if let EntryKind::ApprovalResolved { id, decision } = &r.kind {
+                let id = id.to_string();
+                if self.base.approvals.contains(&id) {
+                    self.bail = true;
+                }
+                self.resolved.insert(id, decision_text(decision));
+            }
+        }
+    }
+
+    fn boundary(&mut self, row: usize) {
+        if row > 0
+            && !self.fold_open
+            && !self.in_rewound
+            && self.running == 0
+            && self.pending.is_empty()
+        {
+            self.mark = Some(Mark {
+                row,
+                items: self.top.len(),
+                tools: self.tools.len(),
+                seen: self.seen_order.len(),
+                bg: self.bg_order.len(),
+                carry: (row + LOOKBACK >= self.len).then(|| self.carry.clone()),
+            });
+        }
+    }
+
+    fn tool_index(&mut self, id: &str) -> Option<usize> {
+        let found = self.by_id.get(id).copied();
+        if found.is_none() && self.base.tools.contains(id) {
+            self.bail = true;
+        }
+        found
+    }
+
+    fn resolution(&self, id: &str) -> Option<&String> {
+        self.resolved.get(id).or_else(|| self.base.resolved.get(id))
+    }
+
+    fn seen_session(&self, sid: &str) -> bool {
+        self.seen.contains(sid) || self.base.seen.contains(sid)
+    }
+
+    fn bg_status(&self, id: &str) -> Option<&String> {
+        self.bg.get(id).or_else(|| self.base.bg.get(id))
+    }
+
+    fn set_state(&mut self, t: usize, st: St) {
+        let tool = &mut self.tools[t].tool;
+        if tool.state == St::Run && st != St::Run {
+            self.running -= 1;
+        }
+        tool.state = st;
+    }
+
     fn container(&mut self) -> &mut Vec<BItem> {
         let rw = self.in_rewound
             && matches!(
@@ -936,7 +1060,7 @@ impl Builder<'_> {
         }
     }
 
-    fn row(&mut self, r: Row) {
+    fn row(&mut self, r: &Row) {
         let key = format!("{}:{}", r.session_id, r.seq);
         let name = kind_name(&r.kind);
 
@@ -964,16 +1088,17 @@ impl Builder<'_> {
             *turns += 1;
         }
 
-        let sub_of = r
-            .parent
-            .as_ref()
-            .filter(|_| {
-                matches!(
-                    name,
-                    "user_message" | "assistant_message" | "thinking" | "tool_use" | "tool_result"
-                )
-            })
-            .and_then(|p| self.by_id.get(p).copied());
+        let nested = matches!(
+            name,
+            "user_message" | "assistant_message" | "thinking" | "tool_use" | "tool_result"
+        );
+        let sub_of = match &r.parent {
+            Some(p) if nested => self.tool_index(p),
+            _ => None,
+        };
+        if self.bail {
+            return;
+        }
         if let Some(parent) = sub_of {
             self.sub_row(parent, r);
             return;
@@ -993,23 +1118,25 @@ impl Builder<'_> {
         if !quiet && !FOLDED.contains(&name) {
             self.fold_open = false;
         }
-        let prev_ts = self.last_ts;
+        let prev_ts = self.carry.last_ts;
         if r.ts > 0 && name != "thinking" {
-            self.last_ts = r.ts;
+            self.carry.last_ts = r.ts;
         }
 
-        match r.kind {
+        match &r.kind {
             EntryKind::UserMessage { text } => {
-                let text = shell_display(&text);
-                self.turn_tokens.clear();
-                self.turn_est = 0;
-                let first = !self.user_seen.contains(&r.session_id) && !r.rewound;
-                self.user_seen.insert(r.session_id.clone());
+                let text = shell_display(text);
+                self.carry.turn_tokens.clear();
+                self.carry.turn_est = 0;
+                let first = !self.seen_session(&r.session_id) && !r.rewound;
+                if self.seen.insert(r.session_id.clone()) {
+                    self.seen_order.push(r.session_id.clone());
+                }
                 let long = text.split('\n').count() > 12 || text.chars().count() > 900;
                 self.push(
                     key,
                     BBody::User {
-                        sid: r.session_id,
+                        sid: r.session_id.clone(),
                         seq: r.seq,
                         text,
                         first,
@@ -1021,49 +1148,54 @@ impl Builder<'_> {
                 if text.trim().is_empty() {
                     return;
                 }
-                self.turn_est += est_tokens(&text);
-                text.trim().clone_into(&mut self.last_text);
-                self.push(key, BBody::Assistant { text });
+                self.carry.turn_est += est_tokens(text);
+                text.trim().clone_into(&mut self.carry.last_text);
+                self.push(key, BBody::Assistant { text: text.clone() });
             }
             EntryKind::Thinking { text } => {
-                self.turn_est += est_tokens(&text);
+                self.carry.turn_est += est_tokens(text);
                 let secs = if r.ts > 0 && prev_ts > 0 {
                     ((r.ts - prev_ts + 500) / 1000).max(1)
                 } else {
                     0
                 };
-                self.fold(&key).push(BStep::Thinking { text, secs });
+                self.fold(&key).push(BStep::Thinking {
+                    text: text.clone(),
+                    secs,
+                });
             }
             EntryKind::ToolUse { id, name, input } => {
-                self.turn_est += est_tokens(&input.to_string()) + 8;
-                let t = self.new_tool(id.0, &name, input);
+                self.carry.turn_est += est_tokens(&input.to_string()) + 8;
+                let t = self.new_tool(id.0.clone(), name, input.clone());
                 if self.tools[t].tool.name == "TodoWrite"
                     && let Extra::Todos(list) = &self.tools[t].tool.extra
                 {
-                    self.out.todos = Some(list.clone());
+                    self.carry.todos = Some(list.clone());
                 }
                 self.fold(&key).push(BStep::Tool(t));
             }
             EntryKind::ToolResult {
                 id, ok, content, ..
             } => {
-                if let Some(&t) = self.by_id.get(&id.0) {
-                    self.finish_tool(t, ok, &content);
-                } else if let Some(res) = result_of("", ok, &content, &Value::Null, self.root) {
+                if let Some(t) = self.tool_index(&id.0) {
+                    self.finish_tool(t, *ok, content);
+                } else if !self.bail
+                    && let Some(res) = result_of("", *ok, content, &Value::Null, self.root)
+                {
                     self.fold(&key).push(BStep::Orphan(res));
                 }
             }
             EntryKind::Approval { id, request } => {
                 let id = id.to_string();
-                if let Some(done) = self.resolved.get(&id).cloned() {
-                    let note = format!("{done} · {}", appr_kind_label(&request));
+                if let Some(done) = self.resolution(&id).cloned() {
+                    let note = format!("{done} · {}", appr_kind_label(request));
                     self.fold(&key).push(BStep::Note(note));
                 } else {
-                    let ask = tool_name(s(&request, "tool_name")) == "AskUserQuestion";
-                    self.out.pending.push(Pending {
+                    let ask = tool_name(s(request, "tool_name")) == "AskUserQuestion";
+                    self.pending.push(Pending {
                         id,
-                        sid: r.session_id,
-                        request,
+                        sid: r.session_id.clone(),
+                        request: request.clone(),
                         ask,
                     });
                 }
@@ -1073,30 +1205,34 @@ impl Builder<'_> {
                 model, mcp_servers, ..
             } => {
                 if let Some(m) = model {
-                    self.out.model = m;
+                    self.carry.model = m.clone();
                 }
-                self.out.mcp = mcp_servers;
+                self.carry.mcp = mcp_servers.clone();
             }
-            EntryKind::TokenUsage(u) => self.usage = Some(u),
+            EntryKind::TokenUsage(u) => self.carry.usage = Some(u.clone()),
             EntryKind::Progress {
                 message_id,
                 output_tokens,
             } => {
-                let n = self.turn_tokens.entry(message_id).or_default();
-                *n = (*n).max(output_tokens);
+                let n = self
+                    .carry
+                    .turn_tokens
+                    .entry(message_id.clone())
+                    .or_default();
+                *n = (*n).max(*output_tokens);
             }
-            EntryKind::RateLimit(rl) => self.out.rate = rl.windows,
+            EntryKind::RateLimit(rl) => self.carry.rate = rl.windows.clone(),
             EntryKind::Notice { message } => self.push(
                 key,
                 BBody::Meta {
-                    text: message,
+                    text: message.clone(),
                     bad: false,
                 },
             ),
             EntryKind::Error { message } => self.push(
                 key,
                 BBody::Error {
-                    text: message,
+                    text: message.clone(),
                     by_account: false,
                 },
             ),
@@ -1110,20 +1246,21 @@ impl Builder<'_> {
                     description
                         .as_deref()
                         .filter(|d| !d.is_empty())
-                        .unwrap_or(&task_id),
+                        .unwrap_or(task_id),
                     100,
                 );
                 if status == "started" {
                     self.fold(&key).push(BStep::Bg(what));
-                } else if self.bg_shown.get(&task_id) != Some(&status) {
-                    self.bg_shown.insert(task_id, status.clone());
+                } else if self.bg_status(task_id) != Some(status) {
+                    self.bg.insert(task_id.clone(), status.clone());
+                    self.bg_order.push((task_id.clone(), status.clone()));
                     let bad = matches!(status.as_str(), "killed" | "stopped" | "failed");
                     let end = if status == "completed" {
                         "completed".to_owned()
                     } else if bad {
                         format!("stopped ({status})")
                     } else {
-                        status
+                        status.clone()
                     };
                     self.push(
                         key,
@@ -1175,28 +1312,28 @@ impl Builder<'_> {
         self.tools.push(BTool {
             tool: t,
             sub: Vec::new(),
+            input,
         });
+        self.running += 1;
         let i = self.tools.len() - 1;
-        self.inputs.insert(i, input);
         self.by_id.insert(id, i);
         i
     }
 
     fn finish_tool(&mut self, t: usize, ok: bool, content: &str) {
-        let input = self.inputs.get(&t).cloned().unwrap_or(Value::Null);
-        let name = self.tools[t].tool.name.clone();
-        let tool = &mut self.tools[t].tool;
-        tool.state = if ok { St::Ok } else { St::Err };
-        tool.result = result_of(&name, ok, content, &input, self.root);
+        let b = &self.tools[t];
+        let res = result_of(&b.tool.name, ok, content, &b.input, self.root);
+        self.set_state(t, if ok { St::Ok } else { St::Err });
+        self.tools[t].tool.result = res;
     }
 
-    fn sub_row(&mut self, parent: usize, r: Row) {
+    fn sub_row(&mut self, parent: usize, r: &Row) {
         if r.elided {
             self.tools[parent].tool.sub_elided = true;
         }
-        match r.kind {
+        match &r.kind {
             EntryKind::ToolUse { id, name, input } => {
-                let t = self.new_tool(id.0, &name, input);
+                let t = self.new_tool(id.0.clone(), name, input.clone());
                 let (label, arg) = (
                     self.tools[t].tool.label.clone(),
                     self.tools[t].tool.arg.clone(),
@@ -1211,29 +1348,30 @@ impl Builder<'_> {
                 };
             }
             EntryKind::ToolResult { id, ok, .. } if r.elided => {
-                if let Some(&t) = self.by_id.get(&id.0) {
-                    self.tools[t].tool.state = if ok { St::Ok } else { St::Err };
+                if let Some(t) = self.tool_index(&id.0) {
+                    self.set_state(t, if *ok { St::Ok } else { St::Err });
                 }
             }
             EntryKind::ToolResult {
                 id, ok, content, ..
             } => {
-                if let Some(&t) = self.by_id.get(&id.0) {
-                    self.finish_tool(t, ok, &content);
+                if let Some(t) = self.tool_index(&id.0) {
+                    self.finish_tool(t, *ok, content);
                 }
             }
             EntryKind::AssistantMessage { text } if !text.trim().is_empty() => {
-                self.tools[parent].sub.push(BStep::Text(text))
+                self.tools[parent].sub.push(BStep::Text(text.clone()))
             }
             EntryKind::Thinking { .. } if r.elided => {}
-            EntryKind::Thinking { text } => self.tools[parent]
-                .sub
-                .push(BStep::Thinking { text, secs: 0 }),
+            EntryKind::Thinking { text } => self.tools[parent].sub.push(BStep::Thinking {
+                text: text.clone(),
+                secs: 0,
+            }),
             _ => {}
         }
     }
 
-    fn finished(&mut self, key: String, out: Outcome) {
+    fn finished(&mut self, key: String, out: &Outcome) {
         let interrupted = matches!(out, Outcome::Interrupted);
 
         for t in &mut self.tools {
@@ -1241,6 +1379,7 @@ impl Builder<'_> {
                 t.tool.state = if interrupted { St::Err } else { St::Ok };
             }
         }
+        self.running = 0;
         match out {
             Outcome::Interrupted => self.push(
                 key,
@@ -1250,11 +1389,11 @@ impl Builder<'_> {
                 },
             ),
             Outcome::Failed { message } => {
-                let by_account = looks_like_account_problem(&message);
+                let by_account = looks_like_account_problem(message);
                 self.push(
                     key,
                     BBody::Error {
-                        text: message,
+                        text: message.clone(),
                         by_account,
                     },
                 );
@@ -1265,18 +1404,93 @@ impl Builder<'_> {
                 denied,
             } => {
                 if let Some(u) = usage {
-                    self.usage = Some(u);
+                    self.carry.usage = Some(u.clone());
                 }
-                if let Some(t) = text.filter(|t| !t.trim().is_empty() && t.trim() != self.last_text)
+                if let Some(t) = text
+                    .as_ref()
+                    .filter(|t| !t.trim().is_empty() && t.trim() != self.carry.last_text)
                 {
-                    self.push(format!("{key}:text"), BBody::Assistant { text: t });
+                    self.push(format!("{key}:text"), BBody::Assistant { text: t.clone() });
                 }
                 if !denied.is_empty() {
-                    self.push(format!("{key}:denied"), BBody::Warn { denied });
+                    self.push(
+                        format!("{key}:denied"),
+                        BBody::Warn {
+                            denied: denied.clone(),
+                        },
+                    );
                 }
             }
         }
-        self.last_text.clear();
+        self.carry.last_text.clear();
+    }
+
+    fn finish(self, rows: &[Row], running: bool) -> (Transcript, Option<Promotion>) {
+        let Self {
+            base,
+            len,
+            top,
+            tools,
+            pending,
+            carry,
+            fold_open,
+            in_rewound,
+            mark,
+            seen_order,
+            bg_order,
+            ..
+        } = self;
+        let promotion = mark.map(|m| Promotion {
+            row: m.row,
+            items: m.items,
+            tools: tools[..m.tools].iter().map(|t| t.tool.id.clone()).collect(),
+            seen: seen_order[..m.seen].to_vec(),
+            bg: bg_order[..m.bg].to_vec(),
+            carry: if m.row == len {
+                Some(carry.clone())
+            } else {
+                m.carry
+            },
+        });
+        let live_last = running && fold_open && !in_rewound;
+        let waiting = pending.first().map(|p| p.ask);
+        let mut tools: Vec<Option<BTool>> = tools.into_iter().map(Some).collect();
+        let mut fresh = finish_items(top, &mut tools, live_last, waiting);
+        let turn_tokens = carry.turn_tokens.values().sum::<u64>().max(carry.turn_est);
+        if turn_tokens > 0
+            && pending.is_empty()
+            && let Some(Item {
+                body: Body::Fold(f),
+                sig,
+                ..
+            }) = fresh.last_mut()
+            && f.live
+        {
+            f.summary = format!("{} · {} tokens", f.summary, fmt_tokens(turn_tokens));
+            *sig ^= turn_tokens.wrapping_mul(0x9e37_79b9_7f4a_7c15);
+        }
+        let offset = base.items.len();
+        let index = fresh
+            .iter()
+            .enumerate()
+            .map(|(i, it)| (it.key.clone(), offset + i))
+            .collect();
+        let mut items = base.items.clone();
+        items.extend(fresh.into_iter().map(Rc::new));
+        let out = Transcript {
+            items,
+            frozen: base.index.clone(),
+            index,
+            pending,
+            todos: carry.todos,
+            usage: carry.usage,
+            model: carry.model,
+            mcp: carry.mcp,
+            rate: carry.rate,
+            last_session: rows.last().map(|r| r.session_id.clone()),
+            turn_tokens,
+        };
+        (out, promotion)
     }
 }
 
@@ -1288,7 +1502,7 @@ fn take_step(tools: &mut Vec<Option<BTool>>, st: BStep) -> Step {
         BStep::Note(t) => Step::Note(t),
         BStep::Orphan(r) => Step::Orphan(r),
         BStep::Tool(i) => {
-            let BTool { mut tool, sub } = tools[i].take().expect("每个工具只出现一次");
+            let BTool { mut tool, sub, .. } = tools[i].take().expect("每个工具只出现一次");
             tool.sub = sub.into_iter().map(|x| take_step(tools, x)).collect();
             Step::Tool(Box::new(tool))
         }
@@ -1468,44 +1682,114 @@ fn finish_items(
         .collect()
 }
 
-pub fn build(rows: &[Row], root: &str, running: bool) -> Transcript {
-    let mut b = Builder {
-        root,
-        ..Builder::default()
-    };
-    for r in rows {
-        if let EntryKind::ApprovalResolved { id, decision } = &r.kind {
-            b.resolved.insert(id.to_string(), decision_text(decision));
+pub struct Model {
+    root: String,
+    epoch: u64,
+    frozen: Frozen,
+}
+
+impl Model {
+    pub fn new(root: &str) -> Self {
+        Self {
+            root: root.to_owned(),
+            epoch: 0,
+            frozen: Frozen::default(),
         }
     }
-    for r in rows {
-        b.row(r.clone());
-    }
-    b.out.last_session = rows.last().map(|r| r.session_id.clone());
-    b.out.usage = b.usage.take();
 
-    let live_last = running && b.fold_open && !b.in_rewound;
-    let waiting = b.out.pending.first().map(|p| p.ask);
-    let mut tools: Vec<Option<BTool>> =
-        std::mem::take(&mut b.tools).into_iter().map(Some).collect();
-    let top = std::mem::take(&mut b.top);
-    b.out.items = finish_items(top, &mut tools, live_last, waiting);
-    b.out.turn_tokens = b.turn_tokens.values().sum::<u64>().max(b.turn_est);
-
-    if b.out.turn_tokens > 0
-        && b.out.pending.is_empty()
-        && let Some(Item {
-            body: Body::Fold(f),
-            sig,
-            ..
-        }) = b.out.items.last_mut()
-        && f.live
-    {
-        f.summary = format!("{} · {} tokens", f.summary, fmt_tokens(b.out.turn_tokens));
-        *sig ^= b.out.turn_tokens.wrapping_mul(0x9e37_79b9_7f4a_7c15);
+    pub fn update(&mut self, rows: &[Row], epoch: u64, running: bool) -> Transcript {
+        let fed = self.frozen.fed;
+        let kept = epoch == self.epoch
+            && rows.len() >= fed
+            && self.frozen.last.as_ref().is_none_or(|(sid, seq)| {
+                rows.get(fed.wrapping_sub(1))
+                    .is_some_and(|r| r.session_id == *sid && r.seq == *seq)
+            });
+        if !kept {
+            self.frozen = Frozen::default();
+            self.epoch = epoch;
+        }
+        loop {
+            if let Some(t) = self.advance(rows, running) {
+                return t;
+            }
+            self.frozen = Frozen::default();
+        }
     }
-    b.out.reindex();
-    b.out
+
+    fn advance(&mut self, rows: &[Row], running: bool) -> Option<Transcript> {
+        let tail = &rows[self.frozen.fed..];
+        let mut b = Builder::new(&self.root, &self.frozen);
+        b.prepare(tail);
+        if b.bail {
+            return None;
+        }
+        for (i, r) in tail.iter().enumerate() {
+            b.boundary(i);
+            b.row(r);
+            if b.bail {
+                return None;
+            }
+        }
+        b.boundary(tail.len());
+        let (out, promotion) = b.finish(rows, running);
+        if let Some(p) = promotion {
+            self.freeze(p, rows, &out);
+        }
+        Some(out)
+    }
+
+    fn replay(&self, rows: &[Row], upto: usize) -> Carry {
+        let tail = &rows[self.frozen.fed..];
+        let mut b = Builder::new(&self.root, &self.frozen);
+        b.prepare(tail);
+        for r in &tail[..upto] {
+            b.row(r);
+        }
+        b.carry
+    }
+
+    fn freeze(&mut self, p: Promotion, rows: &[Row], out: &Transcript) {
+        let carry = match p.carry {
+            Some(c) => c,
+            None => self.replay(rows, p.row),
+        };
+        let f = &mut self.frozen;
+        let start = f.fed;
+        let end = start + p.row;
+        let had = f.items.len();
+        let n = had + p.items;
+        let mut index = (*f.index).clone();
+        for (i, it) in out.items[had..n].iter().enumerate() {
+            index.insert(it.key.clone(), had + i);
+        }
+        f.items = out.items[..n].to_vec();
+        f.index = Rc::new(index);
+        f.tools.extend(p.tools);
+        for r in &rows[start..end] {
+            match &r.kind {
+                EntryKind::Approval { id, .. } => {
+                    f.approvals.insert(id.to_string());
+                }
+                EntryKind::ApprovalResolved { id, decision } => {
+                    f.resolved.insert(id.to_string(), decision_text(decision));
+                }
+                _ => {}
+            }
+        }
+        f.seen.extend(p.seen);
+        f.bg.extend(p.bg);
+        f.carry = carry;
+        f.fed = end;
+        f.last = rows
+            .get(end.wrapping_sub(1))
+            .map(|r| (r.session_id.clone(), r.seq));
+    }
+}
+
+#[cfg(test)]
+pub fn build(rows: &[Row], root: &str, running: bool) -> Transcript {
+    Model::new(root).update(rows, 0, running)
 }
 
 pub fn approval_title(request: &Value, root: &str, remote_node: Option<&str>) -> String {

@@ -1,5 +1,4 @@
 use std::collections::{HashMap, HashSet};
-use std::rc::Rc;
 
 use blazar_core_types::api::ServerEvent;
 use leptos::prelude::*;
@@ -7,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::api;
-use crate::chat_model::{self, HistItem, Row};
+use crate::chat_model::{HistItem, Row};
 use crate::components::toast::toast;
 use crate::realtime::Bus;
 use crate::storage;
@@ -173,7 +172,7 @@ impl Chat {
             clear_view_pending(&mut self.pending.write(), &mut self.orphans.write_value());
             self.sessions.set_value(view.iter().cloned().collect());
             self.seen.set_value(HashSet::new());
-            self.rows.set(Vec::new());
+            self.replace_rows(Vec::new());
             self.subagents.set(HashMap::new());
         }
         let baseline: HashSet<RowKey> = self.rows.with_untracked(|rows| {
@@ -186,7 +185,7 @@ impl Chat {
         let Some(thread) = view else {
             self.sessions.set_value(HashSet::new());
             self.seen.set_value(HashSet::new());
-            self.rows.set(Vec::new());
+            self.replace_rows(Vec::new());
             self.loading.set(false);
             return;
         };
@@ -231,7 +230,7 @@ impl Chat {
                             .map(|r| format!("{}:{}", r.session_id, r.seq))
                             .collect(),
                     );
-                    self.rows.set(rows);
+                    self.replace_rows(rows);
                 }
                 Err(e) => self.local_errors.set(vec![e.to_string()]),
             }
@@ -273,7 +272,7 @@ impl Chat {
                         .map(|r| ((r.session_id.clone(), r.seq), r))
                         .collect();
                     self.flush_rows();
-                    self.rows.update(|rows| {
+                    self.rewrite_rows(|rows| {
                         for row in rows.iter_mut().filter(|r| r.elided) {
                             if let Some(f) = full.remove(&(row.session_id.clone(), row.seq)) {
                                 *row = f;
@@ -429,11 +428,6 @@ impl Chat {
                 self.load_queue();
             }
         });
-        Effect::new(move |_| {
-            let running = self.running.get();
-            let root = self.root.get_value();
-            let t = self.rows.with(|r| chat_model::build(r, &root, running));
-            self.transcript.set(Rc::new(t));
-        });
+        Effect::new(move |_| self.rebuild_transcript());
     }
 }

@@ -961,7 +961,10 @@ fn Spinner(chat: Chat, tick: RwSignal<u32>) -> impl IntoView {
     let mode = move || chat.effective_mode().map(|m| m.0).unwrap_or("");
     let tokens = move || {
         chat.transcript.with(|t| {
-            let live = matches!(t.items.last(), Some(Item { body: Body::Fold(f), .. }) if f.live);
+            let live = t
+                .items
+                .last()
+                .is_some_and(|it| matches!(&it.body, Body::Fold(f) if f.live));
             (t.turn_tokens > 0 && !live).then(|| fmt_tokens(t.turn_tokens))
         })
     };
