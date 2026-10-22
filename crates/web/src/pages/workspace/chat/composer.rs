@@ -836,6 +836,35 @@ pub fn Composer(chat: Chat, tick: RwSignal<u32>, tree_files: Signal<Vec<String>>
                         }
                     })
             }}
+            {move || {
+                let (n, added, removed) = chat
+                    .diff
+                    .files
+                    .with(|f| {
+                        (
+                            f.len(),
+                            f.iter().map(|x| x.added).sum::<u32>(),
+                            f.iter().map(|x| x.removed).sum::<u32>(),
+                        )
+                    });
+                (n > 0 && !deciding.get())
+                    .then(|| {
+                        view! {
+                            <button
+                                type="button"
+                                class="cb-changes"
+                                title="在检查器里查看更改"
+                                on:click=move |_| chat.show_diff.run(())
+                            >
+                                <span class="n">{format!("{n} 个文件")}</span>
+                                <span class="ok">{format!("+{added}")}</span>
+                                <span class="bad">{format!("−{removed}")}</span>
+                                <span class="sep">"·"</span>
+                                <span class="go">"查看更改"</span>
+                            </button>
+                        }
+                    })
+            }}
             <Dock chat />
             <div
                 class="cc-box"
