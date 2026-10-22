@@ -538,6 +538,7 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 .tree button.tn { width: 100%; border: 0; background: transparent; text-align: left; padding-top: 0; padding-bottom: 0; padding-left: 0; }
 .tree button.tn:hover { background: var(--bg-hover); }
 .tree button.tn[data-sel="true"] { background: var(--bg-selected); }
+.tree button.tn[data-menu="true"] { background: var(--bg-selected); color: var(--fg); }
 .tree button.tn[data-more="true"]:hover { background: none; }
 .tree button.tn { position: relative; }
 .tn-guide { position: absolute; top: 0; bottom: 0; width: 1px; background: color-mix(in srgb, var(--fg) 8%, transparent); pointer-events: none; transition: background var(--duration-control); }

@@ -710,6 +710,9 @@ pub fn FileTree(
                     class="tn root"
                     aria-expanded=move || root_open.get().to_string()
                     data-open=move || root_open.get().to_string()
+                    data-menu=move || {
+                        menu.with(|m| m.as_ref().is_some_and(|m| m.path.is_empty())).to_string()
+                    }
                     title=move || root_name.get()
                     on:click=move |_| root_open.update(|o| *o = !*o)
                     on:contextmenu=move |e: leptos::ev::MouseEvent| {
@@ -805,6 +808,12 @@ pub fn FileTree(
                                         };
                                         let changed = row.change.is_some() || row.has_change;
                                         let menu_path = row.path.clone();
+                                        let menu_on = {
+                                            let p = row.path.clone();
+                                            move || {
+                                                menu.with(|m| m.as_ref().is_some_and(|m| m.path == p))
+                                            }
+                                        };
                                         let menu_name = row.name.clone();
                                         let guides = guide_dirs(&row.path, row.depth)
                                             .into_iter()
@@ -842,6 +851,7 @@ pub fn FileTree(
                                                 }
                                                 data-open=row.open.to_string()
                                                 data-sel=move || sel().to_string()
+                                                data-menu=move || menu_on().to_string()
                                                 data-ign=row.ignored.to_string()
                                                 data-more=more.to_string()
                                                 data-chg=(dir && row.has_change).to_string()
