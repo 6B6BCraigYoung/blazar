@@ -156,19 +156,49 @@ pub struct CloneWorkspace {
 
 const CLONE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
 
+const GIT_SCHEMES: [&str; 4] = ["https://", "http://", "ssh://", "git://"];
+
+fn plain_host(host: &str) -> bool {
+    !host.is_empty()
+        && !host.starts_with('-')
+        && host
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | '[' | ']' | ':'))
+}
+
 #[must_use]
 pub fn looks_like_git_url(text: &str) -> bool {
     let t = text.trim();
     if t.is_empty()
+        || t.starts_with('-')
+        || t.contains("::")
         || t.chars()
             .any(|c| c.is_whitespace() || c.is_control() || c == '\'' || c == '"')
     {
         return false;
     }
-    let scheme = ["https://", "http://", "ssh://", "git://", "git@"]
-        .iter()
-        .any(|p| t.starts_with(p));
-    (scheme && t.len() > 12) || t.ends_with(".git")
+    if let Some(rest) = GIT_SCHEMES.iter().find_map(|p| t.strip_prefix(p)) {
+        let (authority, path) = rest.split_once('/').unwrap_or((rest, ""));
+        let host = authority.rsplit('@').next().unwrap_or(authority);
+        return plain_host(host) && !path.starts_with('-');
+    }
+    if t.contains("://") {
+        return false;
+    }
+    let Some((user, rest)) = t.split_once('@') else {
+        return false;
+    };
+    let Some((host, path)) = rest.split_once(':') else {
+        return false;
+    };
+    !user.is_empty()
+        && user
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
+        && plain_host(host)
+        && !host.contains(':')
+        && !path.is_empty()
+        && !path.starts_with('-')
 }
 
 #[must_use]
@@ -199,7 +229,7 @@ if [ "$(uname)" = Darwin ]; then root="$HOME/Developer"; else root="$HOME/Projec
 mkdir -p "$root"
 dest="$root/{name}"
 if [ -e "$dest" ]; then echo "EXISTS $dest"; exit 3; fi
-git clone --quiet -- {url} "$dest"
+git -c protocol.ext.allow=never -c protocol.fd.allow=never -c protocol.file.allow=never clone --quiet -- {url} "$dest"
 cd "$dest" && pwd -P"#,
         url = blazar_transport::shell_quote(url),
         name = blazar_transport::shell_quote(name),
@@ -1040,18 +1070,37 @@ mod tests {
     fn only_plain_git_addresses_are_accepted() {
         for ok in [
             "https://github.com/acme/atlas-api.git",
+            "http://git.example.internal/team/repo",
+            "ssh://git@host:2222/team/repo.git",
+            "git://host/team/repo",
             "git@github.com:acme/atlas-api.git",
-            "ssh://git@host/team/repo",
-            "/srv/git/local.git",
+            "deploy@10.0.0.7:/srv/git/repo.git",
+            "https://user:token@github.com/acme/repo.git",
         ] {
             assert!(looks_like_git_url(ok), "{ok}");
         }
         for bad in [
             "",
             "atlas-api",
-            "https://x",
+            "ext::sh",
+            "ext::sh -c id",
+            "fd::3",
+            "file:///etc",
+            "/tmp/x.git",
+            "../x.git",
+            "-oProxyCommand=id",
+            "--upload-pack=id",
+            "https://-host/x",
+            "https://host/-x",
+            "git@host:-x",
             "git clone https://a/b",
+            "https://a b/c.git",
+            "git@host:a b.git",
             "https://a/b'; rm -rf /",
+            "git@ext::sh:x",
+            "git@host:ext::sh",
+            "x.git",
+            "host:repo.git",
         ] {
             assert!(!looks_like_git_url(bad), "{bad}");
         }
@@ -1083,7 +1132,9 @@ mod tests {
         let script = clone_script("https://github.com/acme/atlas-api.git", "atlas-api");
         assert!(
             script
-                .contains("git clone --quiet -- 'https://github.com/acme/atlas-api.git' \"$dest\"")
+                .contains(
+                    "git -c protocol.ext.allow=never -c protocol.fd.allow=never -c protocol.file.allow=never clone --quiet -- 'https://github.com/acme/atlas-api.git' \"$dest\"",
+                )
         );
         assert!(script.contains("$HOME/Developer"));
         assert!(script.contains("$HOME/Projects"));
