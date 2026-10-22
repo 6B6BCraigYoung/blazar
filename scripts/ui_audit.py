@@ -391,8 +391,12 @@ def clean(db):
     db.execute("DELETE FROM jobs WHERE label IN (?, ?)", JOB_LABELS)
     db.execute("DELETE FROM facts WHERE key LIKE 'demo/%'")
     db.execute("DELETE FROM fact_history WHERE key LIKE 'demo/%'")
-    db.execute("DELETE FROM inbox WHERE ref_id LIKE ?", (f"rule:%:{NODE}",))
-    db.execute("DELETE FROM rule_alerts WHERE subject = ?", (NODE,))
+    for ref in (like, f"rule:%:{like}", f"rule:%:{NODE}%", "rule:%:demo%"):
+        db.execute("DELETE FROM inbox WHERE ref_id LIKE ?", (ref,))
+    db.execute("DELETE FROM inbox WHERE title LIKE '%演示：%' OR title LIKE '%demo-%' OR title LIKE '%demo/%' OR title LIKE ?",
+               (f"%{NODE}%",))
+    db.execute("DELETE FROM rule_alerts WHERE subject = ? OR subject LIKE 'demo%' OR subject LIKE ?"
+               " OR (inbox_id IS NOT NULL AND inbox_id NOT IN (SELECT id FROM inbox))", (NODE, like))
     db.execute("DELETE FROM nodes WHERE id = ? OR name = ?", (NODE_ID, NODE))
 
 
