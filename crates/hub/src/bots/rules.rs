@@ -745,11 +745,7 @@ fn triggers(ev: &ServerEvent) -> bool {
 }
 
 async fn probe_nodes(st: &Shared) {
-    if st.mesh_ctx.topology_label(&st.mesh_via).is_some() {
-        let _ = crate::api::refresh_mesh(State(st.clone())).await;
-    } else {
-        crate::api::probe_ssh_nodes(st).await;
-    }
+    let _ = crate::api::refresh_mesh(State(st.clone())).await;
 }
 
 pub async fn probe_due(st: &Shared, last: Option<Instant>) -> bool {

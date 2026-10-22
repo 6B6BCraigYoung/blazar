@@ -319,6 +319,34 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn every_refresh_marks_online_peers_as_seen_now() {
+        let (st, _dir) = mesh_hub("gpu-1").await;
+        sqlx::query("UPDATE nodes SET last_seen_at = '2026-09-01T00:00:00+00:00'")
+            .execute(st.db.pool())
+            .await
+            .unwrap();
+        let peers = [
+            peer("gpu-1", "10.0.0.2", "Local"),
+            peer("mini", "10.0.0.1", "p2p"),
+        ];
+        record_peers(&st, &peers, false).await.ok().unwrap();
+        let seen = |name: &'static str| {
+            let st = st.clone();
+            async move {
+                sqlx::query_scalar::<_, String>("SELECT last_seen_at FROM nodes WHERE name = ?1")
+                    .bind(name)
+                    .fetch_one(st.db.pool())
+                    .await
+                    .unwrap()
+            }
+        };
+        for n in ["gpu-1", "mini"] {
+            assert!(!seen(n).await.starts_with("2026-09"), "{n}");
+        }
+        assert!(seen("mini-old").await.starts_with("2026-09"));
+    }
+
+    #[tokio::test]
     async fn a_self_row_still_in_use_goes_offline_instead() {
         let (st, _dir) = mesh_hub("local").await;
         sqlx::query(
