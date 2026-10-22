@@ -971,7 +971,9 @@ pub fn Composer(chat: Chat, tick: RwSignal<u32>, tree_files: Signal<Vec<String>>
                                                         class="x"
                                                         aria-label="Remove current file"
                                                         title="Remove"
-                                                        on:click=move |_| chat.ctx_off.set(Some(off.clone()))
+                                                        on:click=move |_| {
+                                                            chat.ctx_off.set(Some(off.clone()))
+                                                        }
                                                     >
                                                         "×"
                                                     </button>
