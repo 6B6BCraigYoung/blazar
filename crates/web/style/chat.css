@@ -14,7 +14,7 @@
 .menu .hist-row b { font-weight: var(--font-weight-medium); font-size: var(--font-size-label-readable); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .chat-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.cc-log { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; overflow-anchor: none; padding: var(--space-card) max(var(--space-card), calc((100% - var(--chat-measure)) / 2)) var(--space-sm); font-size: var(--font-size-body); line-height: var(--line-height-body); transition: opacity var(--duration-content-dim); }
+.cc-log { flex: 1; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; overflow-anchor: none; padding: var(--space-card) max(var(--space-card), calc((100% - var(--chat-measure)) / 2)) var(--space-sm); font-size: var(--font-size-body); line-height: var(--line-height-body); transition: opacity var(--duration-content-dim); }
 .cc-log[data-dim="true"] { opacity: .55; }
 
 .cc-row { position: relative; display: flex; gap: var(--space-md); align-items: flex-start; margin: 0 0 var(--space-control); }
@@ -39,6 +39,8 @@
 @keyframes ccfade { from { opacity: 0; } to { opacity: 1; } }
 
 .cc-user { position: sticky; top: -14px; z-index: var(--layer-chat-sticky); margin: var(--space-xs) 0 var(--space-lg); padding: var(--inset-chat-message); border: 0; border-radius: var(--r-lg); background: var(--bg-raised); box-shadow: var(--shadow-card); }
+.cc-user[data-stuck] { border-radius: 0; background: var(--bg-canvas); box-shadow: none; }
+.cc-user[data-stuck]::before { content: ""; position: absolute; z-index: -1; inset: -14px -100vw 0; background: var(--bg-canvas); border-bottom: 1px solid var(--line); }
 .cc-user .cc-ut { white-space: pre-wrap; word-break: break-word; color: var(--fg); }
 .cc-user[data-long="true"]:not([data-open="true"]) .cc-ut { max-height: 7.5em; overflow: hidden; -webkit-mask-image: linear-gradient(var(--mask-opaque) 60%, transparent); mask-image: linear-gradient(var(--mask-opaque) 60%, transparent); }
 .cc-xp { all: unset; cursor: pointer; font-size: var(--font-size-caption-readable); color: var(--accent); }

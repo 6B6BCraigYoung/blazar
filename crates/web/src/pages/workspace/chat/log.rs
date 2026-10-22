@@ -1149,12 +1149,34 @@ extern "C" {
 
 const WINDOW: usize = 120;
 
+fn mark_stuck(log: &web_sys::HtmlElement) {
+    let Ok(list) = log.query_selector_all(".cc-user") else {
+        return;
+    };
+    let top = log.get_bounding_client_rect().top();
+    for i in 0..list.length() {
+        let Some(u) = list
+            .item(i)
+            .and_then(|n| n.dyn_into::<web_sys::Element>().ok())
+        else {
+            continue;
+        };
+        let r = u.get_bounding_client_rect();
+        if r.top() <= top - 1.0 && r.bottom() > top {
+            let _ = u.set_attribute("data-stuck", "true");
+        } else if u.has_attribute("data-stuck") {
+            let _ = u.remove_attribute("data-stuck");
+        }
+    }
+}
+
 #[component]
 pub fn Log(chat: Chat, tick: RwSignal<u32>) -> impl IntoView {
     let opened = Opened(RwSignal::new(HashSet::new()));
     let el = NodeRef::<html::Div>::new();
     let at_bottom = StoredValue::new(true);
     let frozen = RwSignal::new(None::<usize>);
+    let stuck_queued = StoredValue::new(false);
     let ws = chat.ws_id();
     Effect::new(move |_| {
         chat.view.track();
@@ -1270,6 +1292,15 @@ pub fn Log(chat: Chat, tick: RwSignal<u32>) -> impl IntoView {
             on:click=click
             data-dim=move || dim().to_string()
             on:scroll=move |_| {
+                if !stuck_queued.get_value() {
+                    stuck_queued.set_value(true);
+                    request_animation_frame(move || {
+                        let _ = stuck_queued.try_set_value(false);
+                        if let Some(e) = el.try_get_untracked().flatten() {
+                            mark_stuck(&e);
+                        }
+                    });
+                }
                 if let Some(e) = el.try_get_untracked().flatten() {
                     let bottom = e.scroll_height() - e.scroll_top() - e.client_height() < 80;
                     at_bottom.set_value(bottom);
