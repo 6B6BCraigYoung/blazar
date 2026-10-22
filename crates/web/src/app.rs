@@ -24,7 +24,15 @@ pub fn App() -> impl IntoView {
         <Router>
             <div
                 class="shell"
-                data-side=move || if app.side_collapsed.get() { "off" } else { "on" }
+                data-side=move || {
+                    if app.side_collapsed.get() {
+                        "off"
+                    } else if app.side_rail.get() {
+                        "rail"
+                    } else {
+                        "on"
+                    }
+                }
             >
                 <button
                     class="side-toggle"

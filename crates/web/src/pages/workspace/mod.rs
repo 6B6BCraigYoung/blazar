@@ -39,6 +39,9 @@ pub(crate) const ICON_REFRESH: &str = r#"<svg viewBox="0 0 24 24" fill="none" st
 
 #[component]
 pub fn WorkspacePage() -> impl IntoView {
+    let app = crate::app_state::use_app();
+    app.side_rail.set(true);
+    on_cleanup(move || app.side_rail.set(false));
     let params = use_params_map();
     let id = move || params.read().get("id").unwrap_or_default();
     move || {

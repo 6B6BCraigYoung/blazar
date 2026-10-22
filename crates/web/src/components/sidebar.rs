@@ -7,6 +7,11 @@ use crate::alerts;
 use crate::app_state::use_app;
 use crate::realtime::use_bus;
 
+fn rail_tip(label: &'static str) -> impl Fn() -> Option<&'static str> + Copy {
+    let app = use_app();
+    move || app.side_rail.get().then_some(label)
+}
+
 fn nav(
     href: &'static str,
     ic: &'static str,
@@ -15,7 +20,7 @@ fn nav(
     exact: bool,
 ) -> impl IntoView {
     view! {
-        <A href=href exact=exact attr:class="nav">
+        <A href=href exact=exact attr:class="nav" attr:title=rail_tip(label)>
             <span class="ic" inner_html=icon::svg(ic)></span>
             <span class="nm">{label}</span>
             <span class="n">{move || count.get()}</span>
@@ -39,7 +44,7 @@ fn section(
         })
     };
     view! {
-        <a href=href class="nav" aria-current=move || on().then_some("page")>
+        <a href=href class="nav" title=rail_tip(label) aria-current=move || on().then_some("page")>
             <span class="ic" inner_html=icon::svg(ic)></span>
             <span class="nm">{label}</span>
             <span class="n">{move || count.get()}</span>
@@ -127,23 +132,39 @@ pub fn Sidebar() -> impl IntoView {
         <nav class="side" aria-label="主导航">
             <div class="brand">
                 <span class="logo" inner_html=LOGO></span>
-                "Blazar"
+                <span class="nm">"Blazar"</span>
                 <span class="grow"></span>
                 <button
                     type="button"
-                    class="linkbtn"
+                    class="linkbtn side-fold"
                     aria-label="收起侧栏"
                     title="收起侧栏"
-                    on:click=move |_| app.side_collapsed.set(true)
+                    on:click=move |_| {
+                        if app.current_ws.get_untracked().is_some() {
+                            app.side_rail.set(true);
+                        } else {
+                            app.side_collapsed.set(true);
+                        }
+                    }
                 >
                     "«"
                 </button>
             </div>
             <button
                 type="button"
+                class="nav side-unfold"
+                aria-label="展开侧栏"
+                title="展开侧栏"
+                on:click=move |_| app.side_rail.set(false)
+            >
+                <span class="ic">"»"</span>
+            </button>
+            <button
+                type="button"
                 class="nav search"
                 aria-haspopup="dialog"
                 aria-expanded=move || app.palette.get().to_string()
+                title=rail_tip("搜索")
                 on:click=move |_| app.palette.set(true)
             >
                 <span class="ic" inner_html=icon::svg(icon::SEARCH)></span>
@@ -155,9 +176,11 @@ pub fn Sidebar() -> impl IntoView {
                 class="btn new-ws"
                 aria-haspopup="dialog"
                 aria-expanded=move || app.new_ws.get().to_string()
+                title=rail_tip("新建工作区")
                 on:click=move |_| app.new_ws.set(true)
             >
-                "新建工作区"
+                <span class="ic" inner_html=icon::svg(icon::PLUS)></span>
+                <span class="nm">"新建工作区"</span>
             </button>
             <div class="grp">
                 {nav(
@@ -197,7 +220,7 @@ pub fn Sidebar() -> impl IntoView {
                 (!p.is_empty())
                     .then(|| {
                         view! {
-                            <div class="grp">
+                            <div class="grp side-projects">
                                 <span>"项目"</span>
                                 {p
                                     .into_iter()

@@ -34,6 +34,7 @@ pub struct AppData {
     pub new_ws_parent: RwSignal<Option<(String, String)>>,
     pub palette: RwSignal<bool>,
     pub side_collapsed: RwSignal<bool>,
+    pub side_rail: RwSignal<bool>,
     pub alerts_open: RwSignal<bool>,
     pub alerts_rev: RwSignal<u32>,
 }
@@ -391,6 +392,7 @@ pub fn provide(bus: Bus) -> AppData {
                         .is_some_and(|w| w < 760.0)
                 }),
         ),
+        side_rail: RwSignal::new(false),
         alerts_open: RwSignal::new(false),
         alerts_rev: RwSignal::new(0),
     };

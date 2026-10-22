@@ -12,6 +12,7 @@ pub const AGENT: &str = r#"<rect x="4" y="7" width="16" height="12" rx="2"/><pat
 pub const APPS: &str = r#"<rect x="3" y="3" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="2"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="2"/><path d="M17.25 14v6.5M14 17.25h6.5"/>"#;
 pub const NODES: &str = r#"<circle cx="12" cy="5" r="2.2"/><circle cx="5" cy="18" r="2.2"/><circle cx="19" cy="18" r="2.2"/><path d="M10.9 6.9 6.1 16M13.1 6.9l4.8 9.1M7.2 18h9.6"/>"#;
 pub const GEAR: &str = r#"<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/>"#;
+pub const PLUS: &str = r#"<path d="M12 5v14M5 12h14"/>"#;
 pub const SEARCH: &str = r#"<circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/>"#;
 pub const BOT: &str = r#"<rect x="5" y="8" width="14" height="11" rx="3"/><path d="M12 8V5M8 5h8M9.5 13h.01M14.5 13h.01M9 16.5h6"/>"#;
 pub const BELL: &str = r#"<path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>"#;
