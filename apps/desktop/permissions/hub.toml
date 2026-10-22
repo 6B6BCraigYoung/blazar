@@ -12,3 +12,8 @@ commands.allow = ["forward_port"]
 identifier = "ui-snapshot"
 description = "Capture the visible webview for the UI driver of a dev instance."
 commands.allow = ["snapshot_webview"]
+
+[[permission]]
+identifier = "local-files"
+description = "Show a workspace file of the embedded hub in Finder."
+commands.allow = ["reveal_path"]

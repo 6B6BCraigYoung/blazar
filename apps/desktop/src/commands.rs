@@ -115,3 +115,29 @@ pub async fn forward_port(hub: State<'_, Arc<Hub>>, port: u16) -> Result<u16, St
     };
     r.forward(port).await
 }
+
+#[tauri::command]
+pub fn reveal_path(hub: State<'_, Arc<Hub>>, path: String) -> Result<(), String> {
+    if hub.remote().is_some() {
+        return Err("远程 hub 的文件不在这台电脑上".into());
+    }
+    let path = std::path::Path::new(&path);
+    if !path.is_absolute() || !path.exists() {
+        return Err("找不到这个文件".into());
+    }
+    if !cfg!(target_os = "macos") {
+        return Err("只有 macOS 能在访达中显示".into());
+    }
+    std::process::Command::new("open")
+        .arg("-R")
+        .arg(path)
+        .status()
+        .map_err(|e| e.to_string())
+        .and_then(|s| {
+            if s.success() {
+                Ok(())
+            } else {
+                Err("访达没有打开".into())
+            }
+        })
+}

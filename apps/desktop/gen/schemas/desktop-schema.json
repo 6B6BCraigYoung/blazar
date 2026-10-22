@@ -393,6 +393,12 @@
           "markdownDescription": "Read and change which hub this desktop app uses."
         },
         {
+          "description": "Show a workspace file of the embedded hub in Finder.",
+          "type": "string",
+          "const": "local-files",
+          "markdownDescription": "Show a workspace file of the embedded hub in Finder."
+        },
+        {
           "description": "Forward a preview port the remote hub handed out to this computer.",
           "type": "string",
           "const": "remote-forward",

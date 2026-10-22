@@ -120,6 +120,7 @@ fn run() -> Result<()> {
             commands::set_hub_mode,
             commands::retry_hub,
             commands::forward_port,
+            commands::reveal_path,
             snapshot::snapshot_webview,
         ])
         .setup(move |app| {
@@ -225,7 +226,7 @@ fn run() -> Result<()> {
             let page = if hub.remote().is_some() {
                 page.permission("remote-forward")
             } else {
-                page
+                page.permission("local-files")
             };
             app.add_capability(if snapshot::enabled() {
                 page.permission(snapshot::PERMISSION)
