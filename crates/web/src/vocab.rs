@@ -127,12 +127,15 @@ pub fn error(raw: &str, status: Option<u16>) -> String {
             "401 ",
             "unauthorized",
             "invalid api key",
-            "authentication_error",
+            "not logged in",
+            "authenticat",
         ])
     {
         "登录已失效，请重新登录".into()
     } else if status == Some(403) || has(&["403 ", "forbidden", "permission_error"]) {
         "没有权限".into()
+    } else if has(&["api error: 500", "internal server error"]) {
+        "服务出错了，稍后再试".into()
     } else if has(&["timed out", "timeout", "deadline exceeded"]) {
         "等待超时，稍后再试".into()
     } else if has(&[

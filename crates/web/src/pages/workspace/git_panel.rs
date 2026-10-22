@@ -434,7 +434,7 @@ pub fn GitView(git: Git, files: Files, draft: RwSignal<Option<String>>) -> impl 
                     title=if no_remote { "未设置远端" } else { "" }
                     on:click=move |_| run("fetch")
                 >
-                    {move || if busy("fetch") { "拉取中…" } else { "Fetch" }}
+                    {move || if busy("fetch") { "拉取中…" } else { "拉取" }}
                 </button>
                 <button
                     class="laybtn"

@@ -74,7 +74,7 @@ pub fn shell_display(text: &str) -> String {
             .map(|i| i + "</bash-stderr>".len())
             .unwrap_or(0);
         let n = lines("bash-stdout", &tail[..stop]) + lines("bash-stderr", &tail[..stop]);
-        out.push_str(&format!("! {} ({n} lines of output)", after[..end].trim()));
+        out.push_str(&format!("! {}（输出 {n} 行）", after[..end].trim()));
         rest = tail[stop..].trim_start_matches('\n');
         if !rest.is_empty() {
             out.push('\n');
@@ -143,7 +143,7 @@ pub fn tool_title(name: &str, input: &Value, root: &str) -> (String, String) {
                     if p.is_empty() {
                         String::new()
                     } else {
-                        format!(" in {}", rel_path(p, root))
+                        format!(" · {}", rel_path(p, root))
                     }
                 )
             }
@@ -155,7 +155,7 @@ pub fn tool_title(name: &str, input: &Value, root: &str) -> (String, String) {
                     if p.is_empty() {
                         String::new()
                     } else {
-                        format!(" in {}", rel_path(p, root))
+                        format!(" · {}", rel_path(p, root))
                     }
                 )
             }
@@ -194,23 +194,28 @@ pub fn tool_title(name: &str, input: &Value, root: &str) -> (String, String) {
         }
     };
     let label = match name {
-        "TodoWrite" => "Update Todos",
+        "TodoWrite" => "更新待办",
         "Shell" => "Bash",
         "Agent" => "Task",
-        "ExitPlanMode" => "Plan",
-        "send_prompt" => "Dispatch",
-        "wait_workspace" => "Wait",
-        "get_history" => "History",
+        "ExitPlanMode" => "计划",
+        "send_prompt" => "派活",
+        "wait_workspace" => "等待",
+        "get_history" => "读取记录",
         "read_file" => "Read",
-        "list_files" => "List",
-        "get_diff" => "Diff",
-        "copy_files" => "Copy",
-        "search_code" => "Search",
-        "probe_node" => "Probe",
-        "discover_agents" => "Agents on",
-        "create_workspace" => "Create workspace",
-        "list_workspaces" => "Workspaces",
-        "list_nodes" => "Machines",
+        "list_files" => "列出文件",
+        "get_diff" => "查看改动",
+        "copy_files" => "复制文件",
+        "search_code" => "搜索代码",
+        "probe_node" => "体检机器",
+        "discover_agents" => "查找智能体",
+        "create_workspace" => "新建工作区",
+        "list_workspaces" => "列出工作区",
+        "list_nodes" => "列出机器",
+        "job_spawn" => "启动后台任务",
+        "job_register" => "登记后台任务",
+        "job_kill" => "结束后台任务",
+        "job_log" => "查看后台任务日志",
+        "list_jobs" => "列出后台任务",
         other => other,
     };
     (label.to_owned(), arg)
@@ -328,23 +333,20 @@ pub fn result_of(name: &str, ok: bool, content: &str, input: &Value, root: &str)
         text.split('\n').count()
     };
     if !ok {
-        return Some(res(if text.is_empty() { "Error" } else { text }, "err", 6));
+        return Some(res(if text.is_empty() { "出错了" } else { text }, "err", 6));
     }
     Some(match name {
-        "Read" => res(
-            &format!("Read {n} line{}", if n == 1 { "" } else { "s" }),
-            "sum",
-            4,
-        ),
+        "Read" => res(&format!("读取了 {n} 行"), "sum", 4),
         "TodoWrite" => return None,
-        "ExitPlanMode" => res("User approved the plan", "sum", 4),
+        "ExitPlanMode" => res("你已批准这个计划", "sum", 4),
         "Edit" | "MultiEdit" => {
             let f = rel_path(s(input, "file_path"), root);
             res(
-                &format!(
-                    "Updated {}",
-                    if f.is_empty() { "file".to_owned() } else { f }
-                ),
+                &if f.is_empty() {
+                    "已更新文件".to_owned()
+                } else {
+                    format!("已更新 {f}")
+                },
                 "sum",
                 4,
             )
@@ -352,63 +354,59 @@ pub fn result_of(name: &str, ok: bool, content: &str, input: &Value, root: &str)
         "Write" => {
             let w = s(input, "content").split('\n').count();
             res(
-                &format!(
-                    "Wrote {w} line{} to {}",
-                    if w == 1 { "" } else { "s" },
-                    rel_path(s(input, "file_path"), root)
-                ),
+                &format!("向 {} 写入了 {w} 行", rel_path(s(input, "file_path"), root)),
                 "sum",
                 4,
             )
         }
         "Glob" | "LS" => res(
             &if n > 0 {
-                format!("Found {n} file{}\n{text}", if n == 1 { "" } else { "s" })
+                format!("找到 {n} 个文件\n{text}")
             } else {
-                "No matches found".to_owned()
+                "没有找到匹配".to_owned()
             },
             "sum",
             1,
         ),
         "Grep" => res(
             &if n > 0 {
-                format!("Found {n} match{}\n{text}", if n == 1 { "" } else { "es" })
+                format!("找到 {n} 处匹配\n{text}")
             } else {
-                "No matches found".to_owned()
+                "没有找到匹配".to_owned()
             },
             "sum",
             1,
         ),
-        "Task" | "Agent" => res(if text.is_empty() { "Done" } else { text }, "", 3),
+        "Task" | "Agent" => res(if text.is_empty() { "已完成" } else { text }, "", 3),
         "send_prompt" => {
             let v: Value = serde_json::from_str(text).unwrap_or(Value::Null);
             if v["admitted"] == false {
                 let why = s(&v, "reason");
                 res(
                     &if why.is_empty() {
-                        "Not sent".to_owned()
+                        "没有送达".to_owned()
                     } else {
-                        format!("Not sent\n{why}")
+                        format!("没有送达\n{why}")
                     },
                     "err",
                     4,
                 )
             } else {
-                res("Dispatched", "sum", 4)
+                res("已派出", "sum", 4)
             }
         }
         "wait_workspace" => {
             let v: Value = serde_json::from_str(text).unwrap_or(Value::Null);
             let act = s(&v, "activity");
             let head = match act {
-                "completed" | "idle" => "Finished",
-                "errored" => "Errored",
-                "awaiting_approval" => "Waiting for approval",
-                "running" => "Still running",
+                "completed" | "idle" => "已完成",
+                "errored" => "失败",
+                "awaiting_approval" => "等你批准",
+                "running" => "仍在运行",
                 _ if v.is_null() => {
                     return Some(res(
                         if text.is_empty() {
-                            "(No content)"
+                            "（没有内容）"
                         } else {
                             text
                         },
@@ -416,7 +414,7 @@ pub fn result_of(name: &str, ok: bool, content: &str, input: &Value, root: &str)
                         4,
                     ));
                 }
-                _ => "Stopped",
+                _ => "已停止",
             };
             let reply = s(&v, "last_reply").trim();
             res(
@@ -430,18 +428,10 @@ pub fn result_of(name: &str, ok: bool, content: &str, input: &Value, root: &str)
             )
         }
         "get_history" => match serde_json::from_str::<Value>(text) {
-            Ok(Value::Array(rows)) => res(
-                &format!(
-                    "Read {} entr{}",
-                    rows.len(),
-                    if rows.len() == 1 { "y" } else { "ies" }
-                ),
-                "sum",
-                4,
-            ),
+            Ok(Value::Array(rows)) => res(&format!("读取了 {} 条记录", rows.len()), "sum", 4),
             _ => res(
                 if text.is_empty() {
-                    "(No content)"
+                    "（没有内容）"
                 } else {
                     text
                 },
@@ -454,9 +444,9 @@ pub fn result_of(name: &str, ok: bool, content: &str, input: &Value, root: &str)
                 let n = v["files"].as_array().map_or(0, Vec::len);
                 res(
                     &if n == 0 {
-                        "No changes".to_owned()
+                        "没有改动".to_owned()
                     } else {
-                        format!("{n} file{} changed", if n == 1 { "" } else { "s" })
+                        format!("{n} 个文件有改动")
                     },
                     "sum",
                     4,
@@ -464,7 +454,7 @@ pub fn result_of(name: &str, ok: bool, content: &str, input: &Value, root: &str)
             }
             _ => res(
                 if text.is_empty() {
-                    "(No content)"
+                    "（没有内容）"
                 } else {
                     text
                 },
@@ -472,10 +462,10 @@ pub fn result_of(name: &str, ok: bool, content: &str, input: &Value, root: &str)
                 4,
             ),
         },
-        "copy_files" => res("Copied", "sum", 4),
+        "copy_files" => res("已复制", "sum", 4),
         _ => res(
             if text.is_empty() {
-                "(No content)"
+                "（没有内容）"
             } else {
                 text
             },
@@ -495,7 +485,7 @@ mod tests {
         let text = "<bash-input>ls -la</bash-input>\n\n<bash-stdout>a\nb</bash-stdout><bash-stderr></bash-stderr>\n\nwhat is in here?";
         assert_eq!(
             shell_display(text),
-            "! ls -la (2 lines of output)\nwhat is in here?"
+            "! ls -la（输出 2 行）\nwhat is in here?"
         );
         assert_eq!(shell_display("plain"), "plain");
         assert_eq!(shell_display("<bash-input>broken"), "<bash-input>broken");
@@ -514,7 +504,7 @@ mod tests {
         assert_eq!(fleet_target("send_prompt", &json!({})), None);
         assert_eq!(
             result_of("get_history", true, "[{},{}]", &json!({}), "").map(|r| r.shown),
-            Some("Read 2 entries".into())
+            Some("读取了 2 条记录".into())
         );
         assert_eq!(
             result_of("wait_workspace", true, "timed out", &json!({}), "").map(|r| r.shown),
@@ -529,7 +519,7 @@ mod tests {
                 ""
             )
             .map(|r| r.shown),
-            Some("Not sent\n该工作区已有会话在运行".into())
+            Some("没有送达\n该工作区已有会话在运行".into())
         );
     }
 }

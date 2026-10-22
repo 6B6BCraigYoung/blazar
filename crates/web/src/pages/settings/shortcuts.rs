@@ -11,7 +11,7 @@ use crate::storage;
 pub const SHORTCUTS: &[(&str, &str, &str)] = &[
     ("palette", "命令面板", "Mod+K"),
     ("side", "收起 / 展开侧栏", "Mod+\\"),
-    ("explorer", "资源管理器", "Mod+B"),
+    ("explorer", "文件", "Mod+B"),
     ("chat", "对话栏", "Mod+Alt+B"),
     ("panel", "底部面板", "Mod+J"),
     ("newchat", "新对话", "Mod+Shift+N"),

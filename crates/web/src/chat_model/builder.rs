@@ -43,6 +43,15 @@ pub fn looks_like_account_problem(why: &str) -> bool {
     .any(|k| w.contains(k))
 }
 
+pub fn human_error(message: &str) -> String {
+    let head = crate::vocab::error(message, None);
+    if head == message {
+        head
+    } else {
+        format!("{head}\n{}", message.trim())
+    }
+}
+
 pub(super) enum BStep {
     Thinking { text: String, secs: i64 },
     Tool(usize),
@@ -512,17 +521,17 @@ impl<'a> Builder<'a> {
                     self.bg.insert(task_id.clone(), status.clone());
                     self.bg_order.push((task_id.clone(), status.clone()));
                     let bad = matches!(status.as_str(), "killed" | "stopped" | "failed");
-                    let end = if status == "completed" {
-                        "completed".to_owned()
-                    } else if bad {
-                        format!("stopped ({status})")
-                    } else {
-                        status.clone()
+                    let end = match status.as_str() {
+                        "completed" => "已完成",
+                        "killed" => "已被结束",
+                        "failed" => "失败",
+                        "stopped" => "已停止",
+                        _ => "状态有变化",
                     };
                     self.push(
                         key,
                         BBody::Meta {
-                            text: format!("Background task \"{what}\" {end}"),
+                            text: format!("后台任务「{what}」{end}"),
                             bad,
                         },
                     );
@@ -641,7 +650,7 @@ impl<'a> Builder<'a> {
             Outcome::Interrupted => self.push(
                 key,
                 BBody::Meta {
-                    text: "Interrupted".into(),
+                    text: "已中断".into(),
                     bad: false,
                 },
             ),
@@ -650,7 +659,7 @@ impl<'a> Builder<'a> {
                 self.push(
                     key,
                     BBody::Error {
-                        text: message.clone(),
+                        text: human_error(message),
                         by_account,
                     },
                 );

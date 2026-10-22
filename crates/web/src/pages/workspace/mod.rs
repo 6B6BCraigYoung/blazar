@@ -415,8 +415,8 @@ fn Workspace(id: String) -> impl IntoView {
                 </button>
                 <button
                     class="laybtn"
-                    aria-label="切换资源管理器"
-                    title=crate::shortcuts::titled("资源管理器", "explorer")
+                    aria-label="显示或隐藏文件"
+                    title=crate::shortcuts::titled("文件", "explorer")
                     aria-pressed=move || (!lay().hide_ex).to_string()
                     on:click=move |_| state.toggle(Region::Explorer)
                     inner_html=ICON_LEFT
@@ -475,7 +475,7 @@ fn Workspace(id: String) -> impl IntoView {
             <div class="ws-grid" node_ref=grid style=grid_style inert=move || gone.get()>
                 <section
                     class="region explorer"
-                    aria-label="资源管理器"
+                    aria-label="文件"
                     data-collapsed=move || lay().hide_ex.to_string()
                 >
                     <div class="rhead">
@@ -507,7 +507,7 @@ fn Workspace(id: String) -> impl IntoView {
                                 <div class="welcome">
                                     <EmptyState
                                         title="选择文件开始编辑"
-                                        detail="⌘B 资源管理器 · ⌘J 面板 · ⌘⌥B 对话"
+                                        detail="⌘B 文件 · ⌘J 面板 · ⌘⌥B 对话"
                                         class="editor-empty"
                                     />
                                 </div>

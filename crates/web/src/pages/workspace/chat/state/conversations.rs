@@ -36,12 +36,12 @@ impl Chat {
 
     pub fn thread_title(self, id: Option<&str>) -> String {
         match id {
-            None => "Untitled".to_owned(),
+            None => "新对话".to_owned(),
             Some(id) => self
                 .threads
                 .with(|t| t.iter().find(|x| x.id == id).and_then(|x| x.title.clone()))
                 .filter(|t| !t.is_empty())
-                .unwrap_or_else(|| "Conversation".to_owned()),
+                .unwrap_or_else(|| "新对话".to_owned()),
         }
     }
 
@@ -158,8 +158,8 @@ impl Chat {
                         }
                     });
                 }
-                Ok(r) => toast(r["reason"].as_str().unwrap_or("Rename failed").to_owned()),
-                Err(e) => toast(format!("Rename failed: {e}")),
+                Ok(r) => toast(r["reason"].as_str().unwrap_or("没能重命名").to_owned()),
+                Err(e) => toast(format!("没能重命名：{e}")),
             }
         });
     }

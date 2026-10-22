@@ -81,9 +81,7 @@ pub fn ChatPane(
             chat.new_chat();
             chat.prompt.set(text);
             chat.show_aux.run(());
-            crate::components::toast::toast(
-                "Draft added to a new conversation. Pick an agent and send.",
-            );
+            crate::components::toast::toast("草稿已放进新对话，选好智能体后发送。");
         }
     });
 
@@ -122,10 +120,10 @@ pub fn ChatPane(
                             let cur = chat.thread_title(Some(&id));
                             chat.spawn(async move {
                                 if let Some(name) = crate::components::dialog::prompt_with(
-                                        "Rename conversation",
-                                        "Conversation name",
+                                        "重命名对话",
+                                        "对话名称",
                                         &cur,
-                                        "Rename",
+                                        "重命名",
                                     )
                                     .await
                                 {
@@ -139,7 +137,7 @@ pub fn ChatPane(
                             <span
                                 class="ctab"
                                 data-active=move || active().to_string()
-                                title=move || format!("{} (double-click to rename)", title.get())
+                                title=move || format!("{}（双击重命名）", title.get())
                                 on:click={
                                     let t = t.clone();
                                     move |_| {
@@ -170,8 +168,8 @@ pub fn ChatPane(
                                             <button
                                                 type="button"
                                                 class="ctab-rename"
-                                                title="Rename"
-                                                aria-label="Rename"
+                                                title="重命名"
+                                                aria-label="重命名"
                                                 on:dblclick=|event| event.stop_propagation()
                                                 on:click=move |event| {
                                                     event.stop_propagation();
@@ -185,8 +183,8 @@ pub fn ChatPane(
                                 <button
                                     type="button"
                                     class="x"
-                                    title="Close"
-                                    aria-label="Close"
+                                    title="关闭"
+                                    aria-label="关闭"
                                     on:click={
                                         let t = t.clone();
                                         move |e| {
@@ -203,8 +201,8 @@ pub fn ChatPane(
                 </For>
                 <button
                     class="ctab add"
-                    aria-label="New conversation"
-                    title="New conversation"
+                    aria-label="新对话"
+                    title="新对话"
                     on:click=move |_| chat.new_chat()
                 >
                     "＋"
@@ -214,10 +212,10 @@ pub fn ChatPane(
                 <button
                     class="laybtn"
                     node_ref=history_trigger
-                    aria-label="Past conversations"
+                    aria-label="历史对话"
                     aria-haspopup="menu"
                     aria-expanded=move || hist.get().to_string()
-                    title="Past conversations"
+                    title="历史对话"
                     on:click=move |_| {
                         hist.update(|h| *h = !*h);
                         if hist.get_untracked() {
@@ -230,7 +228,7 @@ pub fn ChatPane(
                     <div
                         class="menu hist"
                         role="menu"
-                        aria-label="Past conversations"
+                        aria-label="历史对话"
                         node_ref=history_menu
                         on:keydown=move |event| {
                             if let Some(root) = history_menu.get_untracked() {
@@ -255,7 +253,7 @@ pub fn ChatPane(
                                 chat.new_chat();
                             }
                         >
-                            <b>"＋ New conversation"</b>
+                            <b>"新对话"</b>
                         </button>
                         <div class="menu-sep"></div>
                         {move || {
@@ -271,10 +269,14 @@ pub fn ChatPane(
                                         .unwrap_or_else(|| t.created_at.clone());
                                     let sub = format!(
                                         "{} · {}{}",
-                                        t.runtime,
-                                        crate::fmt::ago_en(&when),
+                                        match t.runtime.as_str() {
+                                            "claude" | "claude_cli" => "Claude Code",
+                                            "codex" => "Codex",
+                                            other => other,
+                                        },
+                                        crate::fmt::ago(&when),
                                         if t.status.as_deref() == Some("running") {
-                                            " · running"
+                                            " · 运行中"
                                         } else {
                                             ""
                                         },
@@ -294,7 +296,7 @@ pub fn ChatPane(
                                                     .title
                                                     .clone()
                                                     .filter(|x| !x.is_empty())
-                                                    .unwrap_or_else(|| "Untitled".into())}
+                                                    .unwrap_or_else(|| "新对话".into())}
                                             </b>
                                             <span class="muted small">{sub}</span>
                                         </button>
@@ -307,15 +309,15 @@ pub fn ChatPane(
             </span>
             <button
                 class="laybtn"
-                aria-label="New conversation"
-                title="New conversation"
+                aria-label="新对话"
+                title="新对话"
                 on:click=move |_| chat.new_chat()
                 inner_html=r#"<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>"#
             ></button>
             <button
                 class="laybtn"
-                aria-label="Hide"
-                title="Hide ⌘⌥B"
+                aria-label="隐藏"
+                title="隐藏 ⌘⌥B"
                 on:click=move |_| on_hide.run(())
             >
                 "×"

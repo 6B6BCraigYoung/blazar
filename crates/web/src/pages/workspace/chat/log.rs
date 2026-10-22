@@ -133,7 +133,7 @@ fn result_view(r: Res, key: String, opened: Opened) -> impl IntoView {
                                         opened.set(&k, true);
                                     }
                                 >
-                                    {format!("Show {more} more lines")}
+                                    {format!("再显示 {more} 行")}
                                 </button>
                             }
                         })
@@ -190,7 +190,7 @@ fn extra_view(e: &Extra, opened: Opened, key: &str, ws: &str) -> AnyView {
                 opened,
                 format!("plan:{key}"),
                 "cc-planbody",
-                view! { "Plan" }.into_any(),
+                view! { "计划" }.into_any(),
                 move || view! { <Md text=p ws /> }.into_any(),
             )
             .into_any()
@@ -217,9 +217,7 @@ fn ws_chip(id: String) -> impl IntoView {
             }
             .into_any()
         }
-        None => {
-            view! { <span class="cc-ws gone">{format!("workspace {short}…")}</span> }.into_any()
-        }
+        None => view! { <span class="cc-ws gone">{format!("工作区 {short}…")}</span> }.into_any(),
     }
 }
 
@@ -282,9 +280,9 @@ fn subagent_pending(chat: Chat, id: String) -> impl IntoView {
 fn tool_view(t: Tool, chat: Chat, opened: Opened, ws: String) -> AnyView {
     let sub = (!t.sub.is_empty() || t.sub_calls > 0).then(|| {
         let summary = if t.sub_calls > 0 {
-            format!("{} tool calls · latest: {}", t.sub_calls, t.sub_last)
+            format!("调用了 {} 次工具 · 最近：{}", t.sub_calls, t.sub_last)
         } else {
-            "Subagent working…".to_owned()
+            "子智能体工作中…".to_owned()
         };
         let steps = t.sub.clone();
         let ws = ws.clone();
@@ -344,9 +342,9 @@ fn step_view(s: Step, chat: Chat, opened: Opened, ws: String) -> AnyView {
     match s {
         Step::Thinking { text, secs } => {
             let head = if secs > 0 {
-                format!("✻ Thought for {secs}s")
+                format!("✻ 思考了 {secs} 秒")
             } else {
-                "✻ Thinking".to_owned()
+                "✻ 思考中".to_owned()
             };
             if text.trim().is_empty() {
                 view! { <div class="cc-thinkmark">{head}</div> }.into_any()
@@ -381,7 +379,7 @@ fn step_view(s: Step, chat: Chat, opened: Opened, ws: String) -> AnyView {
                 <span class="cc-dot"></span>
                 <div class="cc-main">
                     <div class="cc-head">
-                        <b>"Background task"</b>
+                        <b>"后台任务"</b>
                         <span class="cc-arg">{t}</span>
                     </div>
                 </div>
@@ -443,7 +441,7 @@ fn copy(text: String, done: RwSignal<bool>) {
             gloo_timers::future::TimeoutFuture::new(1200).await;
             let _ = done.try_set(false);
         } else {
-            toast("Copy failed");
+            toast("没能复制");
         }
     });
 }
@@ -546,7 +544,7 @@ fn UserMsg(
                         <div class="cc-edit">
                             <textarea
                                 rows="3"
-                                aria-label="Edit message and retry"
+                                aria-label="编辑消息并重试"
                                 prop:value=move || draft.get()
                                 on:input=move |e| draft.set(event_target_value(&e))
                                 on:keydown=move |e| {
@@ -563,14 +561,14 @@ fn UserMsg(
                             ></textarea>
                             <div class="row">
                                 <span class="muted small">
-                                    "Retrying restores files and removes this message and everything after it from context."
+                                    "重试会还原文件，并把这条消息及之后的内容移出上下文。"
                                 </span>
                                 <span class="grow"></span>
                                 <button class="btn small" on:click=move |_| editing.set(false)>
-                                    "Cancel"
+                                    "取消"
                                 </button>
                                 <button class="btn small primary" on:click=move |_| go2()>
-                                    "Retry"
+                                    "重试"
                                 </button>
                             </div>
                         </div>
@@ -589,17 +587,17 @@ fn UserMsg(
                                                 view! {
                                                     <button
                                                         class="cc-rw"
-                                                        title="Edit and continue from here"
+                                                        title="编辑并从这里继续"
                                                         on:click=move |_| edit.run(())
                                                     >
-                                                        "✎ Edit"
+                                                        "✎ 编辑"
                                                     </button>
                                                     <button
                                                         class="cc-rw"
-                                                        title="Retry with the same message"
+                                                        title="用同一条消息重试"
                                                         on:click=move |_| retry.run(())
                                                     >
-                                                        "⟳ Retry"
+                                                        "⟳ 重试"
                                                     </button>
                                                 }
                                             })}
@@ -609,10 +607,10 @@ fn UserMsg(
                                                     view! {
                                                         <button
                                                             class="cc-rw"
-                                                            title="Rewind code to here"
+                                                            title="把代码回退到这里"
                                                             on:click=move |_| rewind.run(())
                                                         >
-                                                            "↺ Rewind"
+                                                            "↺ 回退"
                                                         </button>
                                                     }
                                                 })
@@ -627,7 +625,7 @@ fn UserMsg(
                 .then(|| {
                     view! {
                         <button class="cc-xp" on:click=move |_| open.update(|o| *o = !*o)>
-                            {move || if open.get() { "Show less" } else { "Show more" }}
+                            {move || if open.get() { "收起" } else { "展开" }}
                         </button>
                     }
                 })}
@@ -699,10 +697,10 @@ fn MsgMenu(
                 .then(|| {
                     view! {
                         <button type="button" role="menuitem" class="ctx-item" on:click=pick(edit)>
-                            "Edit"
+                            "编辑"
                         </button>
                         <button type="button" role="menuitem" class="ctx-item" on:click=pick(retry)>
-                            "Retry"
+                            "重试"
                         </button>
                     }
                 })}
@@ -710,7 +708,7 @@ fn MsgMenu(
                 .map(|r| {
                     view! {
                         <button type="button" role="menuitem" class="ctx-item" on:click=pick(r)>
-                            "Rewind code to here"
+                            "把代码回退到这里"
                         </button>
                     }
                 })}
@@ -741,17 +739,13 @@ fn error_view(chat: Chat, text: String, by_account: bool) -> AnyView {
                     .unwrap_or_default()
             });
             if list.is_empty() {
-                toast("No other account available. Add or log in to one on the Runtimes page.");
+                toast("没有其他可用账号，请先在运行时页面添加或登录。");
                 return;
             }
-            let mut choices = vec![Choice::plain("Cancel")];
+            let mut choices = vec![Choice::plain("取消")];
             choices.extend(list.iter().map(|a| Choice::plain(a.label.clone())));
-            if let Some(i) = dialog::ask(
-                "Continue with another account",
-                "Keep the conversation and continue on another account.",
-                choices,
-            )
-            .await
+            if let Some(i) =
+                dialog::ask("换个账号继续", "保留这段对话，换一个账号接着做。", choices).await
                 && i > 0
             {
                 chat.continue_on_another(list[i - 1].id.clone());
@@ -770,7 +764,7 @@ fn error_view(chat: Chat, text: String, by_account: bool) -> AnyView {
                         view! {
                             <div>
                                 <button class="linkbtn" on:click=switch>
-                                    "Continue with another account"
+                                    "换个账号继续"
                                 </button>
                             </div>
                         }
@@ -784,7 +778,13 @@ fn error_view(chat: Chat, text: String, by_account: bool) -> AnyView {
 fn item_view(it: Item, chat: Chat, opened: Opened, ws: String) -> AnyView {
     let key = it.key.clone();
     match it.body {
-        Body::User { sid, seq, text, first, long } => view! { <UserMsg chat sid seq text first long /> }.into_any(),
+        Body::User {
+            sid,
+            seq,
+            text,
+            first,
+            long,
+        } => view! { <UserMsg chat sid seq text first long /> }.into_any(),
         Body::Assistant { text } => {
             let done = RwSignal::new(false);
             let t = text.clone();
@@ -796,8 +796,8 @@ fn item_view(it: Item, chat: Chat, opened: Opened, ws: String) -> AnyView {
                         <div class="cc-acts2">
                             <button
                                 class="cc-copy"
-                                aria-label="Copy response"
-                                title="Copy"
+                                aria-label="复制回复"
+                                title="复制"
                                 data-done=move || done.get().to_string()
                                 inner_html=COPY
                                 on:click=move |_| copy(t.clone(), done)
@@ -805,7 +805,8 @@ fn item_view(it: Item, chat: Chat, opened: Opened, ws: String) -> AnyView {
                         </div>
                     </div>
                 </div>
-            }.into_any()
+            }
+            .into_any()
         }
         Body::Fold(f) => fold_view(key, f, chat, opened, ws),
         Body::Error { text, by_account } => error_view(chat, text, by_account),
@@ -813,32 +814,42 @@ fn item_view(it: Item, chat: Chat, opened: Opened, ws: String) -> AnyView {
             <div class="cc-row cc-warn">
                 <span class="cc-dot"></span>
                 <div class="cc-main">
-                    {format!("{} actions were denied and not run:", denied.len())}
+                    {format!("有 {} 个操作被拒绝，没有执行：", denied.len())}
                     {denied
                         .into_iter()
                         .map(|d| view! { <div class="muted">{format!("· {d}")}</div> })
                         .collect_view()}
                     <div class="muted small">
-                        "The current mode denies these actions. Switch to Edit automatically or Auto and retry."
+                        "当前模式会拒绝这些操作。切换到 Edit automatically 或 Auto 后重试。"
                     </div>
                 </div>
             </div>
-        }.into_any(),
+        }
+        .into_any(),
         Body::Meta { text, bad } => view! {
             <div class="cc-meta" class:bad=bad>
                 {text}
             </div>
-        }.into_any(),
-        Body::Rewound { turns, items } => details(opened, format!("rw:{key}"), "cc-rewound",
-            view! { {format!("Rewound · {turns} messages removed from context")} }.into_any(),
-            move || view! {
-                <div class="cc-rwl">
-                    {items
-                        .into_iter()
-                        .map(|i| item_view(i, chat, opened, ws.clone()))
-                        .collect_view()}
-                </div>
-            }.into_any()).into_any(),
+        }
+        .into_any(),
+        Body::Rewound { turns, items } => details(
+            opened,
+            format!("rw:{key}"),
+            "cc-rewound",
+            view! { {format!("已回退 · {turns} 条消息移出了上下文")} }.into_any(),
+            move || {
+                view! {
+                    <div class="cc-rwl">
+                        {items
+                            .into_iter()
+                            .map(|i| item_view(i, chat, opened, ws.clone()))
+                            .collect_view()}
+                    </div>
+                }
+                .into_any()
+            },
+        )
+        .into_any(),
     }
 }
 
@@ -931,18 +942,18 @@ fn item_slot(key: String, chat: Chat, opened: Opened, ws: String) -> AnyView {
 
 const SPIN: [&str; 12] = ["·", "✢", "*", "✶", "✻", "✽", "✽", "✻", "✶", "*", "✢", "·"];
 const WORDS: [&str; 12] = [
-    "Thinking",
-    "Pondering",
-    "Musing",
-    "Brewing",
-    "Cogitating",
-    "Percolating",
-    "Mulling",
-    "Crafting",
-    "Tinkering",
-    "Noodling",
-    "Ruminating",
-    "Synthesizing",
+    "思考中",
+    "琢磨中",
+    "推敲中",
+    "酝酿中",
+    "构思中",
+    "斟酌中",
+    "梳理中",
+    "整理中",
+    "打磨中",
+    "推演中",
+    "分析中",
+    "归纳中",
 ];
 
 #[component]
@@ -1098,7 +1109,7 @@ pub fn Log(chat: Chat, tick: RwSignal<u32>) -> impl IntoView {
             }
         >
             <Show when=move || chat.loading.get()>
-                <LoadingState text="Loading conversation…" class="cc-load" />
+                <LoadingState text="正在加载对话…" class="cc-load" />
             </Show>
             <Show when=empty>
                 <Empty chat />
@@ -1106,7 +1117,7 @@ pub fn Log(chat: Chat, tick: RwSignal<u32>) -> impl IntoView {
             <div class="cc-flow">
                 <Show when=move || { earlier() > 0 }>
                     <button type="button" class="cc-more cc-earlier" on:click=show_earlier>
-                        {move || format!("Show {} earlier", earlier().min(WINDOW))}
+                        {move || format!("显示更早的 {} 条", earlier().min(WINDOW))}
                     </button>
                 </Show>
                 <For
@@ -1128,7 +1139,7 @@ pub fn Log(chat: Chat, tick: RwSignal<u32>) -> impl IntoView {
                         <div class="cc-user pending">
                             <div class="cc-ut">
                                 {p.text.clone()}
-                                {(p.images > 0).then(|| format!("\n[{} attachments]", p.images))}
+                                {(p.images > 0).then(|| format!("\n[{} 个附件]", p.images))}
                             </div>
                         </div>
                     </div>
@@ -1168,7 +1179,7 @@ fn Empty(chat: Chat) -> impl IntoView {
                     Some(p) => {
                         view! {
                             <div class="who">
-                                <b>{format!("Chat with {}", p.name)}</b>
+                                <b>{format!("和{}对话", p.name)}</b>
                                 <div class="muted small">
                                     {p.description.clone().unwrap_or_default()}
                                 </div>
@@ -1193,9 +1204,9 @@ fn Empty(chat: Chat) -> impl IntoView {
                                 <span>{name}</span>
                             </div>
                             <div class="cc-tip">
-                                "Press "<kbd>"Shift"</kbd>" "<kbd>"Tab"</kbd>
-                                " to cycle permission modes, or type "<code>"/"</code>
-                                " for commands."
+                                "按 "<kbd>"Shift"</kbd>" "<kbd>"Tab"</kbd>
+                                " 切换权限模式，输入 "<code>"/"</code>
+                                " 查看命令。"
                             </div>
                         }
                             .into_any()

@@ -12,7 +12,7 @@ use super::{Chat, Queued};
 impl Chat {
     pub fn stop(self) {
         let Some(sid) = self.transcript.with_untracked(|t| t.last_session.clone()) else {
-            toast("Nothing is running in this conversation");
+            toast("这个对话没有在运行");
             return;
         };
         self.spawn(async move {
@@ -23,9 +23,9 @@ impl Chat {
             )
             .await
             {
-                Ok(r) if r["interrupted"].as_bool() == Some(true) => toast("Stopped"),
-                Ok(r) => toast(r["reason"].as_str().unwrap_or("Couldn't stop").to_owned()),
-                Err(e) => toast(format!("Stop failed: {e}")),
+                Ok(r) if r["interrupted"].as_bool() == Some(true) => toast("已停止"),
+                Ok(r) => toast(r["reason"].as_str().unwrap_or("没能停止").to_owned()),
+                Err(e) => toast(format!("没能停止：{e}")),
             }
         });
     }
@@ -40,13 +40,13 @@ impl Chat {
         self.spawn(async move {
             match api::send::<Value>("POST", &format!("/api/sessions/{sid}/control"), &body).await {
                 Ok(r) if r["accepted"].as_bool() == Some(true) => {
-                    toast(format!("{what} applied to the current turn"))
+                    toast(format!("{what} 已用于当前这一轮"))
                 }
                 Ok(r) => toast(format!(
-                    "{what} takes effect next turn ({})",
+                    "{what} 将从下一轮生效（{}）",
                     r["reason"].as_str().unwrap_or("")
                 )),
-                Err(_) => toast(format!("{what} takes effect next turn")),
+                Err(_) => toast(format!("{what} 将从下一轮生效")),
             }
         });
     }
@@ -92,10 +92,10 @@ impl Chat {
                 Ok(result) => toast(
                     result["reason"]
                         .as_str()
-                        .unwrap_or("The decision was not delivered, please retry")
+                        .unwrap_or("没有送达，请重试")
                         .to_owned(),
                 ),
-                Err(error) => toast(format!("Send failed, input kept: {error}")),
+                Err(error) => toast(format!("没能发送，内容已保留：{error}")),
             }
         });
     }
@@ -110,11 +110,9 @@ impl Chat {
                 format!("{tool} {pattern}…")
             };
             let ok = dialog::ask(
-                "Don't ask again",
-                &format!(
-                    "Always allow \"{what}\" in this workspace?\n\nYou can turn this off in Settings."
-                ),
-                vec![Choice::plain("Cancel"), Choice::plain("Always allow")],
+                "不再询问",
+                &format!("在这个工作区里总是允许「{what}」？\n\n之后可以在设置里关掉。"),
+                vec![Choice::plain("取消"), Choice::plain("总是允许")],
             )
             .await;
             if ok != Some(1) {
@@ -138,7 +136,7 @@ impl Chat {
             if q.request.is_some() {
                 self.editing_queue.set(Some(q));
             } else {
-                toast("This message has settings that can't be edited here; it stays queued");
+                toast("这条消息的设置不能在这里修改，仍在排队");
             }
             return;
         }
@@ -151,32 +149,49 @@ impl Chat {
                 match act {
                     "drop" => {
                         api::send::<Value>("DELETE", &base, &json!({})).await?;
-                        toast("Removed");
+                        toast("已移除");
                     }
                     "send" => {
-                        let r = api::send::<Value>("POST", &format!("{base}/send"), &json!({})).await?;
-                        self.note_sent_in(&context, r["session_id"].as_str().map(str::to_owned), r["thread_id"].as_str().map(str::to_owned));
+                        let r =
+                            api::send::<Value>("POST", &format!("{base}/send"), &json!({})).await?;
+                        self.note_sent_in(
+                            &context,
+                            r["session_id"].as_str().map(str::to_owned),
+                            r["thread_id"].as_str().map(str::to_owned),
+                        );
                     }
                     _ => {
                         let Some(sid) = steer_session else {
-                            toast("No running session to add to");
+                            toast("没有正在运行的会话可以加入");
                             return Ok(());
                         };
                         let Some(request) = q.request.as_ref() else {
-                            toast("This message's settings can't be sent mid-turn; it stays queued");
+                            toast("这条消息的设置不能在一轮中途发送，仍在排队");
                             return Ok(());
                         };
                         if !self.context_is_current(&context) {
-                            toast("Conversation changed; the message stays queued");
+                            toast("对话已切换，消息仍在排队");
                             return Ok(());
                         }
-                        let i = api::send::<Value>("POST", &format!("/api/sessions/{sid}/input"), &steer_request(request)).await?;
+                        let i = api::send::<Value>(
+                            "POST",
+                            &format!("/api/sessions/{sid}/input"),
+                            &steer_request(request),
+                        )
+                        .await?;
                         if i["accepted"].as_bool() != Some(true) {
-                            toast(i["reason"].as_str().unwrap_or("This runtime can't take messages mid-turn; it will send after this turn.").to_owned());
+                            toast(
+                                i["reason"]
+                                    .as_str()
+                                    .unwrap_or(
+                                        "这个运行时不能在一轮中途接收消息，会在这一轮结束后发送。",
+                                    )
+                                    .to_owned(),
+                            );
                             return Ok(());
                         }
                         api::send::<Value>("DELETE", &base, &json!({"expected": request})).await?;
-                        toast("Added to the current turn");
+                        toast("已加入当前这一轮");
                     }
                 }
                 Ok(())
@@ -191,7 +206,7 @@ impl Chat {
 
     pub fn retry(self, sid: String, text: Option<String>, later: usize) {
         if self.running.get_untracked() {
-            toast("Stop the current turn before retrying.");
+            toast("先停止当前这一轮，再重试。");
             return;
         }
         let context = self.send_context(self.view.get_untracked());
@@ -200,22 +215,22 @@ impl Chat {
         options.insert("wait_secs".into(), json!(20));
         self.spawn(async move {
             let head = if text.is_none() {
-                "Retry this turn"
+                "重试这一轮"
             } else {
-                "Edit and retry"
+                "编辑并重试"
             };
             let tail = if later > 0 {
-                format!(" and the {later} turns after it")
+                format!("及之后的 {later} 轮")
             } else {
                 String::new()
             };
             let body = format!(
-                "· Files are restored to before this message (current state is backed up)\n· This message{tail} leave the context\n· Non-Git folders have no checkpoints; only the conversation restarts"
+                "· 文件会还原到这条消息之前（当前状态会先备份）\n· 这条消息{tail}会移出上下文\n· 不是 Git 仓库的目录没有检查点，只会重开对话"
             );
             if dialog::ask(
-                &format!("{head}?"),
+                &format!("{head}？"),
                 &body,
-                vec![Choice::plain("Cancel"), Choice::danger("Retry")],
+                vec![Choice::plain("取消"), Choice::danger("重试")],
             )
             .await
                 != Some(1)
@@ -223,7 +238,7 @@ impl Chat {
                 return;
             }
             if !self.context_is_current(&context) {
-                toast("Conversation changed; nothing was resent");
+                toast("对话已切换，没有重新发送");
                 return;
             }
             match api::send::<Value>(
@@ -234,7 +249,7 @@ impl Chat {
             .await
             {
                 Ok(r) if r["admitted"] == json!(false) => {
-                    toast(r["reason"].as_str().unwrap_or("The workspace is busy with another operation").to_owned())
+                    toast(r["reason"].as_str().unwrap_or("工作区正忙着别的操作").to_owned())
                 }
                 Ok(r) => {
                     if r["session_id"].is_string() {
@@ -249,13 +264,13 @@ impl Chat {
                         self.git.changed.update(|n| *n += 1);
                     }
                     toast(if restored {
-                        "Files restored. Continuing from here."
+                        "文件已还原，从这里继续。"
                     } else {
-                        "Continuing from here; no checkpoint, files unchanged."
+                        "从这里继续；没有检查点，文件未变。"
                     });
                 }
                 Err(e) => {
-                    toast(format!("Retry failed: {e}"));
+                    toast(format!("没能重试：{e}"));
                     if self.context_is_current(&context) {
                         self.load_history();
                     }
@@ -268,9 +283,9 @@ impl Chat {
         self.spawn(async move {
             if !undo
                 && dialog::ask(
-                    "Rewind code",
-                    "Restore files to before this message?\nThe conversation is kept and the current state is backed up, so you can undo.",
-                    vec![Choice::plain("Cancel"), Choice::plain("Rewind code")],
+                    "回退代码",
+                    "把文件还原到这条消息之前？\n对话会保留，当前状态会先备份，可以撤销。",
+                    vec![Choice::plain("取消"), Choice::plain("回退代码")],
                 )
                 .await
                     != Some(1)
@@ -287,13 +302,13 @@ impl Chat {
                 Ok(r) => {
                     self.git.changed.update(|n| *n += 1);
                     if undo {
-                        toast("Rewind undone");
+                        toast("已撤销回退");
                     } else if let Some(u) = r["undo"].as_str() {
                         let u = u.to_owned();
                         if dialog::ask(
-                            "Rewound",
-                            "Files are back to before this message. Undo the rewind?",
-                            vec![Choice::plain("Keep"), Choice::plain("Undo")],
+                            "已回退",
+                            "文件已回到这条消息之前。要撤销这次回退吗？",
+                            vec![Choice::plain("保留"), Choice::plain("撤销")],
                         )
                         .await
                             == Some(1)
@@ -301,10 +316,10 @@ impl Chat {
                             self.rewind(u, true);
                         }
                     } else {
-                        toast("Rewound");
+                        toast("已回退");
                     }
                 }
-                Err(e) => toast(format!("Rewind failed: {e}")),
+                Err(e) => toast(format!("没能回退：{e}")),
             }
         });
     }

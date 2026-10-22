@@ -278,7 +278,7 @@ impl Chat {
                 Ok(run) => {
                     let _ = self.shells.try_update(|s| s.push(run));
                 }
-                Err(e) => toast(format!("Command failed: {e}")),
+                Err(e) => toast(format!("命令没能执行：{e}")),
             }
             let _ = self.shell_busy.try_set(false);
         });
@@ -403,9 +403,9 @@ impl Chat {
                     match q {
                         Ok(q) => {
                             self.queue.set(q);
-                            toast("Queued. Sends after this turn.");
+                            toast("已排队，这一轮结束后发送。");
                         }
-                        Err(e) => toast(format!("Couldn't queue, message kept: {e}")),
+                        Err(e) => toast(format!("没能排队，消息已保留：{e}")),
                     }
                 }
                 Ok(r) => {
@@ -423,25 +423,21 @@ impl Chat {
                         self.drop_pending(pid);
                         let why = r["activity"]["reason"].as_str().unwrap_or("").to_owned();
                         toast(if why.is_empty() {
-                            "Agent failed to start".to_owned()
+                            "智能体没能启动".to_owned()
                         } else {
                             why.clone()
                         });
-                        let class = r["activity"]["failure_class"]
-                            .as_str()
-                            .map(|c| format!(" ({c})"))
-                            .unwrap_or_default();
                         let logged = r["activity"]["failed"] == json!(true);
                         if !logged && self.context_is_current(&context) {
                             self.local_errors
-                                .update(|e| e.push(format!("Agent failed to start: {why}{class}")));
+                                .update(|e| e.push(format!("智能体没能启动：{why}")));
                         }
                     }
                 }
                 Err(e) => {
                     self.drop_pending(pid);
                     self.deliveries.update(|d| d.finish(pid, false));
-                    toast(format!("Send failed, message kept: {e}"));
+                    toast(format!("没能发送，消息已保留：{e}"));
                 }
             }
             gloo_timers::future::TimeoutFuture::new(60_000).await;
@@ -473,7 +469,7 @@ impl Chat {
                 Ok(r) if r["admitted"] == json!(false) => toast(
                     r["reason"]
                         .as_str()
-                        .unwrap_or("The workspace is busy with another operation")
+                        .unwrap_or("工作区正忙着别的操作")
                         .to_owned(),
                 ),
                 Ok(r) => {
@@ -482,9 +478,9 @@ impl Chat {
                         r["session_id"].as_str().map(str::to_owned),
                         r["thread_id"].as_str().map(str::to_owned),
                     );
-                    toast(format!("Continuing with {label}"));
+                    toast(format!("改用 {label} 继续"));
                 }
-                Err(e) => toast(format!("Send failed: {e}")),
+                Err(e) => toast(format!("没能发送：{e}")),
             }
         });
     }

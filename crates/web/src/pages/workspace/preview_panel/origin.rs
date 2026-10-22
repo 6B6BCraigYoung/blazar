@@ -1,7 +1,7 @@
 pub fn describe(source: Option<&str>, port: Option<u32>, ports: &[u16], running: bool) -> String {
     match (source, port) {
         (Some("manual"), Some(p)) => format!("端口 {p}：脚本设置里手动指定"),
-        (Some("log"), Some(p)) => format!("端口 {p}：从 dev server 日志识别"),
+        (Some("log"), Some(p)) => format!("端口 {p}：从开发服务器日志识别"),
         (Some("listen"), Some(p)) => {
             let others: Vec<String> = ports
                 .iter()
@@ -35,7 +35,7 @@ mod tests {
         );
         assert_eq!(
             describe(Some("log"), Some(5173), &[], true),
-            "端口 5173：从 dev server 日志识别"
+            "端口 5173：从开发服务器日志识别"
         );
         assert_eq!(
             describe(Some("listen"), Some(8000), &[8000], true),

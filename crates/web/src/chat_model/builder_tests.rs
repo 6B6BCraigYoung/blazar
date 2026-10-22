@@ -57,7 +57,7 @@ fn folds_intermediate_steps_and_pairs_results() {
     let Body::Fold(f) = &t.items[1].body else {
         panic!()
     };
-    assert_eq!(f.summary, "1 tool call");
+    assert_eq!(f.summary, "调用了 1 次工具");
     assert!(matches!(&f.steps[0], Step::Thinking { secs: 1, .. }));
     let Step::Tool(tool) = &f.steps[1] else {
         panic!()
@@ -125,18 +125,18 @@ fn fleet_calls_name_the_child_and_summarise_the_result() {
         .collect();
     assert_eq!(
         (tools[0].label.as_str(), tools[0].arg.as_str()),
-        ("Dispatch", "run the third pass")
+        ("派活", "run the third pass")
     );
     assert_eq!(tools[0].extra, Extra::Fleet("w1".into()));
     assert_eq!(
         tools[0].result.as_ref().map(|r| r.shown.as_str()),
-        Some("Dispatched")
+        Some("已派出")
     );
-    assert_eq!(tools[1].label, "Wait");
+    assert_eq!(tools[1].label, "等待");
     assert_eq!(tools[1].extra, Extra::Fleet("w1".into()));
     assert_eq!(
         tools[1].result.as_ref().map(|r| r.shown.as_str()),
-        Some("Finished\nloss 0.82")
+        Some("已完成\nloss 0.82")
     );
 }
 
@@ -162,11 +162,11 @@ fn live_fold_and_pending_approval() {
         panic!()
     };
     assert!(f.live);
-    assert_eq!(f.summary, "Waiting for your approval…");
+    assert_eq!(f.summary, "等你批准…");
     assert_eq!(t.pending.len(), 1);
     assert_eq!(
         approval_title(&t.pending[0].request, "/w", None),
-        "Allow edits to src/a.rs?"
+        "允许编辑 src/a.rs？"
     );
     let Step::Tool(tool) = &f.steps[0] else {
         panic!()
@@ -186,7 +186,7 @@ fn live_fold_and_pending_approval() {
     let Body::Fold(f2) = &t2.items[1].body else {
         panic!()
     };
-    assert!(matches!(&f2.steps[1], Step::Note(n) if n == "Allowed · Edit"));
+    assert!(matches!(&f2.steps[1], Step::Note(n) if n == "已允许 · Edit"));
     assert_ne!(t.items[1].sig, t2.items[1].sig, "内容变了签名要变");
     assert_eq!(t.items[0].sig, t2.items[0].sig, "没变的条目签名不变");
 }
@@ -220,7 +220,7 @@ fn live_turn_shows_its_token_count() {
     let Body::Fold(f) = &t.items[1].body else {
         panic!()
     };
-    assert_eq!(f.summary, "Thinking… · 1.2k tokens");
+    assert_eq!(f.summary, "思考中… · 1.2k tokens");
     let mut more = rows.clone();
     more.push(row(
         "s",
@@ -354,4 +354,12 @@ fn failure_offers_account_switch() {
         always_rule(&json!({"tool_name":"Bash","input":{"command":"cargo test -p x"}})),
         ("Bash".into(), "cargo test".into())
     );
+}
+
+#[test]
+fn api_errors_read_as_plain_words() {
+    assert!(human_error("API Error: 529 {\"type\":\"overloaded_error\"}").starts_with("服务繁忙"));
+    assert!(human_error("API Error: 429 rate limit").starts_with("请求太频繁"));
+    assert!(human_error("401 not logged in").starts_with("登录已失效"));
+    assert_eq!(human_error("disk full"), "disk full");
 }

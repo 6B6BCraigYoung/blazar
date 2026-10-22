@@ -655,10 +655,10 @@ fn ScriptsDialog(
             <div class="row-actions">
                 <span class="muted small">"保存并测试："</span>
                 <button class="btn small" disabled=blocked on:click=move |_| run("setup")>
-                    "Setup"
+                    "准备脚本"
                 </button>
                 <button class="btn small" disabled=blocked on:click=move |_| run("cleanup")>
-                    "Cleanup"
+                    "收尾脚本"
                 </button>
                 <button
                     class="btn small"
@@ -695,8 +695,8 @@ fn ScriptsDialog(
                                 s => (s, ""),
                             };
                             let kind = match r.kind.as_str() {
-                                "setup" => "Setup",
-                                "cleanup" => "Cleanup",
+                                "setup" => "准备脚本",
+                                "cleanup" => "收尾脚本",
                                 "copy" => "拷贝文件",
                                 k => k,
                             }

@@ -6,24 +6,24 @@ use super::tools::{SHELL_TOOLS, command_of, rel_path, s, tool_name};
 pub fn decision_text(d: &ApprovalDecision) -> String {
     match d {
         ApprovalDecision::AutoAllowed { rule } if !rule.is_empty() => {
-            format!("Auto-approved · {rule}")
+            format!("已自动批准 · {rule}")
         }
-        ApprovalDecision::AutoAllowed { .. } => "Auto-approved".into(),
-        ApprovalDecision::Allow => "Allowed".into(),
-        ApprovalDecision::Deny { .. } => "Denied".into(),
-        ApprovalDecision::Cancelled => "Withdrawn by the agent".into(),
-        ApprovalDecision::Aborted => "Session ended".into(),
+        ApprovalDecision::AutoAllowed { .. } => "已自动批准".into(),
+        ApprovalDecision::Allow => "已允许".into(),
+        ApprovalDecision::Deny { .. } => "已拒绝".into(),
+        ApprovalDecision::Cancelled => "智能体已撤回".into(),
+        ApprovalDecision::Aborted => "会话已结束".into(),
     }
 }
 
 pub(super) fn appr_kind_label(request: &Value) -> String {
     let tn = tool_name(s(request, "tool_name"));
     if tn == "AskUserQuestion" {
-        "question".into()
+        "提问".into()
     } else if SHELL_TOOLS.contains(&tn.as_str()) {
         "Bash".into()
     } else if tn.is_empty() {
-        "tool".into()
+        "工具".into()
     } else {
         tn
     }
@@ -35,9 +35,9 @@ pub fn approval_title(request: &Value, root: &str, remote_node: Option<&str>) ->
     if SHELL_TOOLS.contains(&tn.as_str()) {
         return match remote_node {
             Some(n) if s(request, "tool_name").starts_with("mcp__blazar__") => {
-                format!("Run this Bash command on {n}?")
+                format!("在 {n} 上运行这条 Bash 命令？")
             }
-            _ => "Allow this Bash command?".to_owned(),
+            _ => "允许运行这条 Bash 命令？".to_owned(),
         };
     }
     if matches!(tn.as_str(), "Edit" | "MultiEdit" | "Write" | "NotebookEdit") {
@@ -45,20 +45,20 @@ pub fn approval_title(request: &Value, root: &str, remote_node: Option<&str>) ->
             .into_iter()
             .find(|x| !x.is_empty())
             .map(|f| rel_path(f, root));
-        return format!(
-            "Allow edits to {}?",
-            f.unwrap_or_else(|| "this file".to_owned())
-        );
+        return match f {
+            Some(f) => format!("允许编辑 {f}？"),
+            None => "允许编辑这个文件？".to_owned(),
+        };
     }
     if tn == "WebFetch" {
-        return "Allow fetching this page?".to_owned();
+        return "允许读取这个网页？".to_owned();
     }
     let shown = [s(request, "display_name"), tn.as_str()]
         .into_iter()
         .find(|x| !x.is_empty())
-        .unwrap_or("this tool")
+        .unwrap_or("这个工具")
         .to_owned();
-    format!("Allow {shown}?")
+    format!("允许使用 {shown}？")
 }
 
 pub fn approval_what(request: &Value, root: &str) -> String {

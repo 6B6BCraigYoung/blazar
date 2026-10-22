@@ -42,20 +42,19 @@ fn fold_summary(steps: &[Step], live: bool, waiting: Option<bool>) -> (String, S
         })
         .collect();
     let text = match (live, waiting) {
-        (true, Some(true)) => "Waiting for your answer…".to_owned(),
-        (true, Some(false)) => "Waiting for your approval…".to_owned(),
+        (true, Some(true)) => "等你回答…".to_owned(),
+        (true, Some(false)) => "等你批准…".to_owned(),
         _ if live && running.is_some() => match running.map_or("", |t| t.name.as_str()) {
-            "wait_workspace" => "Waiting on a child workspace…".to_owned(),
-            "send_prompt" => "Dispatching…".to_owned(),
-            _ => format!("Running {}…", running.map_or("", |t| t.label.as_str())),
+            "wait_workspace" => "等待子工作区…".to_owned(),
+            "send_prompt" => "正在派活…".to_owned(),
+            _ => format!("正在运行 {}…", running.map_or("", |t| t.label.as_str())),
         },
-        _ if live && tools.is_empty() => "Thinking…".to_owned(),
+        _ if live && tools.is_empty() => "思考中…".to_owned(),
         _ if !tools.is_empty() => format!(
-            "{} tool call{}{}",
+            "调用了 {} 次工具{}",
             tools.len(),
-            if tools.len() == 1 { "" } else { "s" },
             if errs > 0 {
-                format!(" · {errs} failed")
+                format!(" · {errs} 次失败")
             } else {
                 String::new()
             }
@@ -63,16 +62,12 @@ fn fold_summary(steps: &[Step], live: bool, waiting: Option<bool>) -> (String, S
         _ if !thinks.is_empty() => {
             let secs: i64 = thinks.iter().sum();
             if secs > 0 {
-                format!("Thought for {secs}s")
+                format!("思考了 {secs} 秒")
             } else {
-                "Thought".to_owned()
+                "思考过".to_owned()
             }
         }
-        _ => format!(
-            "{} step{}",
-            steps.len(),
-            if steps.len() == 1 { "" } else { "s" }
-        ),
+        _ => format!("{} 步", steps.len()),
     };
     let st = if live {
         St::Run
