@@ -326,6 +326,13 @@ async function run(command) {
         marks: performance.getEntriesByType('mark').map(m => ({ name: m.name, at: round(m.startTime) })),
       };
     }
+    case 'text': {
+      const all = [...document.querySelectorAll(command.selector || 'body')];
+      return {
+        matches: all.length,
+        texts: all.slice(0, 40).map(el => ({ text: (el.innerText || el.textContent || '').trim().slice(0, 400), shown: shown(el), rect: rect(el) })),
+      };
+    }
     case 'style': {
       const props = Array.isArray(command.props) ? command.props.slice(0, 40) : [];
       const all = [...document.querySelectorAll(command.selector || ':root')];
