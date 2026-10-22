@@ -1185,7 +1185,7 @@ fn mark_stuck(log: &web_sys::HtmlElement) {
             continue;
         };
         let r = u.get_bounding_client_rect();
-        if r.top() <= top - 1.0 && r.bottom() > top {
+        if r.top() <= top + 0.5 && r.bottom() > top {
             let _ = u.set_attribute("data-stuck", "true");
         } else if u.has_attribute("data-stuck") {
             let _ = u.remove_attribute("data-stuck");
