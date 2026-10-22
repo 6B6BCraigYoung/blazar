@@ -16,7 +16,7 @@ pub async fn list_nodes(State(st): State<Shared>) -> ApiResult<Json<Vec<NodeView
 
 pub(crate) async fn snapshot(st: &AppState) -> anyhow::Result<StateSnapshot> {
     let nodes = sqlx::query(
-        "SELECT n.name, n.transport, n.endpoint, n.status, n.labels, n.network, n.role,
+        "SELECT n.name, n.transport, n.endpoint, n.status, n.labels, n.network, n.role, n.last_seen_at,
                 (SELECT COUNT(*) FROM workspaces w WHERE w.node_id = n.id) AS wc
          FROM nodes n ORDER BY n.name",
     )
@@ -39,6 +39,7 @@ pub(crate) async fn snapshot(st: &AppState) -> anyhow::Result<StateSnapshot> {
             workspace_count: r.try_get("wc").unwrap_or(0),
             network: r.try_get::<Option<String>, _>("network").unwrap_or(None),
             role: r.try_get::<Option<String>, _>("role").unwrap_or(None),
+            last_seen_at: r.try_get::<Option<String>, _>("last_seen_at").unwrap_or(None),
         }
     })
     .collect();

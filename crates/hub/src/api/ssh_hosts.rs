@@ -283,6 +283,15 @@ pub async fn probe_ssh_nodes(st: &Shared) {
     let now = Utc::now().to_rfc3339();
     let mut changed = false;
     while let Some(Ok((name, ok))) = set.join_next().await {
+        if ok {
+            let _ = sqlx::query(
+                "UPDATE nodes SET last_seen_at = ?1 WHERE name = ?2 AND network = 'ssh'",
+            )
+            .bind(&now)
+            .bind(&name)
+            .execute(st.db.pool())
+            .await;
+        }
         let q = if ok {
             sqlx::query(
                 "UPDATE nodes SET status = 'online', last_seen_at = ?1

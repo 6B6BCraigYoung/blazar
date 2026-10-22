@@ -83,6 +83,8 @@ pub struct NodeView {
     pub network: Option<String>,
     #[serde(default)]
     pub role: Option<String>,
+    #[serde(default)]
+    pub last_seen_at: Option<String>,
 }
 
 impl NodeView {
