@@ -7,7 +7,8 @@
 .ctab .live { width: 6px; height: 6px; border-radius: 50%; background: var(--clay); animation: ccpulse var(--duration-tab-pulse) ease-in-out infinite; }
 .ctab .x { color: var(--fg-4); padding: 0 var(--space-2xs); }
 .ctab .x:hover { color: var(--fg); }
-.ctab.add { padding: 0 var(--space-md); }
+.ctab.add { width: 26px; padding: 0; justify-content: center; color: var(--fg-3); }
+.ctab.add svg { width: 14px; height: 14px; }
 .menu.hist { width: 300px; right: -60px; max-height: 420px; }
 .menu .hist-row { all: unset; cursor: pointer; display: flex; flex-direction: column; gap: var(--space-2xs); padding: var(--space-sm) var(--space-control); border-radius: var(--r-sm); }
 .menu .hist-row:hover, .menu .hist-row[data-sel="true"] { background: var(--bg-hover); }
@@ -337,9 +338,7 @@
 .cc-user.pending { opacity: .75; }
 
 .ctab-select { display: inline-flex; align-items: center; gap: var(--space-sm); min-width: 0; height: 100%; padding: 0; border: 0; background: transparent; color: inherit; cursor: pointer; }
-.ctab .x, .ctab-rename { border: 0; background: transparent; font: inherit; cursor: pointer; }
-.ctab-rename { padding: 0 var(--space-2xs); color: var(--fg-4); visibility: hidden; }
-.ctab[data-active="true"] .ctab-rename { visibility: visible; }
+.ctab .x { border: 0; background: transparent; font: inherit; cursor: pointer; }
 .cc-load { padding: var(--space-control) 0; color: var(--fg-3); font-size: var(--font-size-label); }
 .cp-cmd { gap: var(--space-lg); padding: 5px var(--space-md); }
 .cp-cmd .cp-l { flex: 0 0 auto; max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg); }

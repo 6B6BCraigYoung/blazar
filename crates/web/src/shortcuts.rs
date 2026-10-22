@@ -7,7 +7,7 @@ const DEFAULTS: &[(&str, &str)] = &[
     ("explorer", "Mod+B"),
     ("chat", "Mod+Alt+B"),
     ("panel", "Mod+J"),
-    ("newchat", "Mod+Shift+N"),
+    ("newchat", "Mod+T"),
     ("diff", "Mod+Shift+D"),
     ("git", "Mod+Shift+G"),
     ("preview", "Mod+Shift+P"),

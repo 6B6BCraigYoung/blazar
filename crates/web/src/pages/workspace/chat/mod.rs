@@ -130,7 +130,6 @@ pub fn ChatPane(
                                 }
                             });
                         };
-                        let rename_click = rename.clone();
                         let active_button = active.clone();
                         view! {
                             <span
@@ -160,25 +159,6 @@ pub fn ChatPane(
                                             })
                                     }}
                                 </button>
-                                {t
-                                    .is_some()
-                                    .then(|| {
-                                        view! {
-                                            <button
-                                                type="button"
-                                                class="ctab-rename"
-                                                title="重命名"
-                                                aria-label="重命名"
-                                                on:dblclick=|event| event.stop_propagation()
-                                                on:click=move |event| {
-                                                    event.stop_propagation();
-                                                    rename_click();
-                                                }
-                                            >
-                                                "✎"
-                                            </button>
-                                        }
-                                    })}
                                 <button
                                     type="button"
                                     class="x"
@@ -201,11 +181,10 @@ pub fn ChatPane(
                 <button
                     class="ctab add"
                     aria-label="新对话"
-                    title="新对话"
+                    title=move || crate::shortcuts::titled("新对话", "newchat")
                     on:click=move |_| chat.new_chat()
-                >
-                    "＋"
-                </button>
+                    inner_html=r#"<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>"#
+                ></button>
             </div>
             <span class="more">
                 <button
@@ -306,13 +285,6 @@ pub fn ChatPane(
                     </div>
                 </Show>
             </span>
-            <button
-                class="laybtn"
-                aria-label="新对话"
-                title="新对话"
-                on:click=move |_| chat.new_chat()
-                inner_html=r#"<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>"#
-            ></button>
         </div>
         <div class="chat-body">
             <super::children::ChildrenPanel id=chat.ws_id() />

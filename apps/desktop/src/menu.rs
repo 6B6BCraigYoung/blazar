@@ -216,7 +216,7 @@ fn file_menu(app: &AppHandle) -> tauri::Result<Submenu<Wry>> {
         true,
         &[
             &item(app, "new-workspace", "新建工作区…", Some("CmdOrCtrl+N"))?,
-            &item(app, "act:newchat", "新对话", Some("CmdOrCtrl+Shift+N"))?,
+            &item(app, "act:newchat", "新对话", Some("CmdOrCtrl+T"))?,
             &PredefinedMenuItem::separator(app)?,
             &PredefinedMenuItem::close_window(app, Some("关闭窗口"))?,
         ],
