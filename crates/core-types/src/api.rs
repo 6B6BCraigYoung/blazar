@@ -140,6 +140,17 @@ pub fn workspace_label(name: &str, node: &str) -> String {
     format!("{}（{}）", workspace_title(name, node), machine_label(node))
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct WorkspaceStep {
+    pub kind: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub tool: String,
+    #[serde(default, skip_serializing_if = "serde_json::Value::is_null")]
+    pub input: serde_json::Value,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub text: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WorkspaceView {
     pub id: String,
@@ -157,6 +168,9 @@ pub struct WorkspaceView {
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent: Option<String>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub step: Option<WorkspaceStep>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

@@ -1,6 +1,6 @@
 use super::*;
 
-pub use blazar_core_types::api::{NodeView, StateSnapshot, WorkspaceView};
+pub use blazar_core_types::api::{NodeView, StateSnapshot, WorkspaceStep, WorkspaceView};
 
 pub async fn get_state(State(st): State<Shared>) -> ApiResult<Json<StateSnapshot>> {
     Ok(Json(snapshot(&st).await?))
@@ -12,6 +12,119 @@ pub async fn list_workspaces(State(st): State<Shared>) -> ApiResult<Json<Vec<Wor
 
 pub async fn list_nodes(State(st): State<Shared>) -> ApiResult<Json<Vec<NodeView>>> {
     Ok(Json(snapshot(&st).await?.nodes))
+}
+
+const STEP_TEXT_MAX: usize = 160;
+const STEP_INPUT_MAX: usize = 200;
+const STEP_KINDS: [&str; 5] = [
+    "tool_use",
+    "assistant_message",
+    "user_message",
+    "finished",
+    "api_retry",
+];
+
+fn first_line(text: &str, max: usize) -> String {
+    let line = text.lines().find(|l| !l.trim().is_empty()).unwrap_or("");
+    let line = line.trim();
+    if line.chars().count() > max {
+        let mut cut: String = line.chars().take(max - 1).collect();
+        cut.push('…');
+        cut
+    } else {
+        line.to_owned()
+    }
+}
+
+fn compact_input(input: &serde_json::Value) -> serde_json::Value {
+    let Some(map) = input.as_object() else {
+        return serde_json::Value::Null;
+    };
+    let kept = map
+        .iter()
+        .filter(|(k, _)| !matches!(k.as_str(), "content" | "old_string" | "new_string"))
+        .filter_map(|(k, v)| {
+            let text = match v {
+                serde_json::Value::String(s) => s.clone(),
+                serde_json::Value::Array(items) if k == "command" => items
+                    .iter()
+                    .filter_map(serde_json::Value::as_str)
+                    .collect::<Vec<_>>()
+                    .join(" "),
+                serde_json::Value::Number(n) => n.to_string(),
+                serde_json::Value::Bool(b) => b.to_string(),
+                _ => return None,
+            };
+            Some((
+                k.clone(),
+                serde_json::Value::String(first_line(&text, STEP_INPUT_MAX)),
+            ))
+        })
+        .collect::<serde_json::Map<_, _>>();
+    serde_json::Value::Object(kept)
+}
+
+#[must_use]
+pub fn step_of(payload: &str) -> Option<WorkspaceStep> {
+    let v: serde_json::Value = serde_json::from_str(payload).ok()?;
+    let s = |k: &str| v[k].as_str().unwrap_or_default();
+    let step = match s("type") {
+        "tool_use" => WorkspaceStep {
+            kind: "tool".into(),
+            tool: s("name").to_owned(),
+            input: compact_input(&v["input"]),
+            text: String::new(),
+        },
+        "assistant_message" => WorkspaceStep {
+            kind: "message".into(),
+            text: first_line(s("text"), STEP_TEXT_MAX),
+            ..WorkspaceStep::default()
+        },
+        "user_message" => WorkspaceStep {
+            kind: "prompt".into(),
+            text: first_line(s("text"), STEP_TEXT_MAX),
+            ..WorkspaceStep::default()
+        },
+        "finished" if s("status") == "failed" => WorkspaceStep {
+            kind: "error".into(),
+            text: first_line(s("message"), STEP_TEXT_MAX),
+            ..WorkspaceStep::default()
+        },
+        "finished" => WorkspaceStep {
+            kind: "done".into(),
+            text: first_line(s("text"), STEP_TEXT_MAX),
+            ..WorkspaceStep::default()
+        },
+        "api_retry" => WorkspaceStep {
+            kind: "retry".into(),
+            text: first_line(s("error"), STEP_TEXT_MAX),
+            ..WorkspaceStep::default()
+        },
+        _ => return None,
+    };
+    Some(step)
+}
+
+fn wants_step(activity: &str) -> bool {
+    matches!(activity, "running" | "errored" | "awaiting_approval")
+}
+
+async fn latest_step(st: &AppState, session_id: &str) -> Option<WorkspaceStep> {
+    let filter = STEP_KINDS
+        .iter()
+        .map(|k| format!("payload LIKE '{{\"type\":\"{k}\"%'"))
+        .collect::<Vec<_>>()
+        .join(" OR ");
+    let sql = format!(
+        "SELECT payload FROM events WHERE session_id = ?1 AND ({filter}) ORDER BY seq DESC LIMIT 1"
+    );
+    let payload: Option<String> = sqlx::query_scalar(&sql)
+        .bind(session_id)
+        .fetch_optional(st.db.pool())
+        .await
+        .ok()
+        .flatten();
+    payload.as_deref().and_then(step_of)
 }
 
 pub(crate) async fn snapshot(st: &AppState) -> anyhow::Result<StateSnapshot> {
@@ -44,7 +157,7 @@ pub(crate) async fn snapshot(st: &AppState) -> anyhow::Result<StateSnapshot> {
     })
     .collect();
 
-    let workspaces = sqlx::query(
+    let mut workspaces: Vec<WorkspaceView> = sqlx::query(
         "SELECT w.id, w.name, w.path, w.activity, w.last_active_at, w.parent_id,
                 w.diff_added, w.diff_removed, w.diff_files, w.diff_at,
                 n.name AS node, p.name AS project,
@@ -81,8 +194,91 @@ pub(crate) async fn snapshot(st: &AppState) -> anyhow::Result<StateSnapshot> {
         },
         diff_at: r.try_get("diff_at").unwrap_or(None),
         parent: r.try_get("parent_id").unwrap_or(None),
+        step: None,
     })
     .collect();
 
+    for w in &mut workspaces {
+        if !wants_step(&w.activity) {
+            continue;
+        }
+        if let Some(sid) = w.session_id.as_deref() {
+            w.step = latest_step(st, sid).await;
+        }
+    }
+
     Ok(StateSnapshot { nodes, workspaces })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_tool_call_keeps_its_name_and_short_arguments() {
+        let step = step_of(
+            r#"{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"python -m pytest -q\n# second line","description":"跑测试","content":"big"}}"#,
+        )
+        .unwrap();
+        assert_eq!(step.kind, "tool");
+        assert_eq!(step.tool, "Bash");
+        assert_eq!(step.input["command"], "python -m pytest -q");
+        assert_eq!(step.input["description"], "跑测试");
+        assert!(step.input.get("content").is_none());
+    }
+
+    #[test]
+    fn command_arrays_and_long_values_are_flattened() {
+        let long = "x".repeat(400);
+        let step = step_of(&format!(
+            r#"{{"type":"tool_use","id":"t","name":"exec","input":{{"command":["ls","-la"],"note":"{long}","n":3}}}}"#
+        ))
+        .unwrap();
+        assert_eq!(step.input["command"], "ls -la");
+        assert_eq!(step.input["n"], "3");
+        assert_eq!(step.input["note"].as_str().unwrap().chars().count(), 200);
+        assert!(step.input["note"].as_str().unwrap().ends_with('…'));
+    }
+
+    #[test]
+    fn messages_failures_and_retries_become_one_line_each() {
+        let said =
+            step_of(r#"{"type":"assistant_message","text":"\n\n改好了。\n第二行"}"#).unwrap();
+        assert_eq!(
+            (said.kind.as_str(), said.text.as_str()),
+            ("message", "改好了。")
+        );
+        let asked = step_of(r#"{"type":"user_message","text":"补测试"}"#).unwrap();
+        assert_eq!(
+            (asked.kind.as_str(), asked.text.as_str()),
+            ("prompt", "补测试")
+        );
+        let failed =
+            step_of(r#"{"type":"finished","status":"failed","message":"API Error: 529"}"#).unwrap();
+        assert_eq!(
+            (failed.kind.as_str(), failed.text.as_str()),
+            ("error", "API Error: 529")
+        );
+        let done = step_of(r#"{"type":"finished","status":"success","text":"ok"}"#).unwrap();
+        assert_eq!(done.kind, "done");
+        let retry = step_of(
+            r#"{"type":"api_retry","attempt":2,"max_retries":10,"status":529,"error":"server_error","delay_ms":4000}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            (retry.kind.as_str(), retry.text.as_str()),
+            ("retry", "server_error")
+        );
+        assert!(step_of(r#"{"type":"thinking","text":"hmm"}"#).is_none());
+        assert!(step_of("not json").is_none());
+    }
+
+    #[test]
+    fn only_active_or_failed_workspaces_carry_a_step() {
+        assert!(wants_step("running"));
+        assert!(wants_step("awaiting_approval"));
+        assert!(wants_step("errored"));
+        assert!(!wants_step("idle"));
+        assert!(!wants_step("completed"));
+    }
 }
