@@ -132,6 +132,9 @@ export class Editor {
       this.ed.updateOptions({ fontSize: p.fontSize, minimap: { enabled: !!p.minimap }, wordWrap: p.wordWrap ? 'on' : 'off' });
       m.editor.setTheme(editorTheme());
     };
+    this.host = host;
+    this.sizeObserver = new ResizeObserver(() => this.fit());
+    this.sizeObserver.observe(host);
     this.themeObserver = new MutationObserver(this.updatePrefs);
     this.themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
     this.systemTheme = matchMedia('(prefers-color-scheme: dark)');
@@ -142,6 +145,11 @@ export class Editor {
       const p = this.current();
       if (p) onSave(p);
     });
+  }
+
+  fit() {
+    const { width, height } = this.host.getBoundingClientRect();
+    if (width > 0 && height > 0) this.ed.layout({ width, height });
   }
 
   current() {
@@ -166,6 +174,7 @@ export class Editor {
     }
     this.ed.setModel(e.model);
     this.ed.updateOptions({ readOnly: !!readonly });
+    this.fit();
     if (line > 0) {
       this.ed.revealLineInCenter(line);
       this.ed.setPosition({ lineNumber: line, column: 1 });
@@ -203,6 +212,7 @@ export class Editor {
   focus() { this.ed.focus(); }
 
   dispose() {
+    this.sizeObserver.disconnect();
     this.themeObserver.disconnect();
     this.systemTheme.removeEventListener('change', this.updatePrefs);
     window.removeEventListener('blazar:preferences', this.updatePrefs);
