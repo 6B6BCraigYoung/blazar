@@ -187,14 +187,14 @@ pub fn TasksPage() -> impl IntoView {
             </PageHead>
             <div class="work-filters">
                 <input
-                    class="input"
+                    class="filter"
                     aria-label="搜索任务"
                     placeholder="搜索任务"
                     prop:value=move || q.get()
                     on:input=move |e| q.set(event_target_value(&e))
                 />
-                {select_field("视图", mode, &[("board", "看板"), ("list", "列表")])}
-                {select_field(
+                {filter_select("视图", mode, &[("board", "看板"), ("list", "列表")])}
+                {filter_select(
                     "优先级",
                     prio,
                     &[
@@ -206,7 +206,7 @@ pub fn TasksPage() -> impl IntoView {
                         ("none", "无"),
                     ],
                 )}
-                <WorkspaceField value=ws />
+                <WorkspaceFilter value=ws />
                 <label class="chk">
                     <input
                         type="checkbox"
@@ -215,9 +215,6 @@ pub fn TasksPage() -> impl IntoView {
                     />
                     "包含待规划与已取消"
                 </label>
-                <button class="btn small" on:click=move |_| refresh(ui.rev)>
-                    "刷新"
-                </button>
             </div>
             <div class="work-layout">
                 <div class="work-main">

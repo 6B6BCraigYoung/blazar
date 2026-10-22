@@ -149,9 +149,6 @@ pub fn AutopilotsPage() -> impl IntoView {
     view! {
         <div class="page work-page autopilots-page">
             <PageHead title="任务" nav=|| crate::components::section::tasks("/autopilots")>
-                <button class="btn" on:click=move |_| refresh(ui.rev)>
-                    "刷新"
-                </button>
                 <button class="btn primary" on:click=move |_| ui.editor.set(Some(json!({})))>
                     "新建自动化"
                 </button>

@@ -340,6 +340,8 @@ a.btn { display: inline-flex; align-items: center; color: var(--fg); }
 
 .page-filter { width: clamp(140px, 30vw - 120px, 280px); height: 28px; padding: 0 var(--space-control); border: 0; border-radius: var(--r-md); background: var(--control-track); color: var(--fg); font: var(--font-size-label-readable) var(--font-sans); outline: none; }
 .page-filter:focus { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 45%, transparent); }
+.filter { height: 28px; padding: 0 var(--space-control); border: 0; border-radius: var(--r-md); background: var(--control-track); box-shadow: none; color: var(--fg); font: var(--font-size-label-readable) var(--font-sans); outline: none; box-sizing: border-box; max-width: 100%; }
+select.filter { padding-right: var(--space-xs); cursor: pointer; }
 .ws-card { cursor: pointer; }
 .ws-card .top b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
 .ws-card .meta { display: flex; gap: var(--space-control); align-items: center; font-size: var(--font-size-label); color: var(--fg-3); }
@@ -355,7 +357,7 @@ input[type="range"] { accent-color: var(--accent); }
 .card.pad { padding: var(--space-xl) var(--space-section); }
 .card.pad h3 { margin: 0 0 var(--space-sm); font-size: var(--font-size-card-title); font-weight: var(--font-weight-semibold); }
 .card.pad .field { display: flex; flex-direction: column; gap: var(--space-sm); margin-top: var(--space-lg); font-size: var(--font-size-label); color: var(--fg-2); }
-.card.pad input:not([type]), .card.pad input[type="number"], .card.pad select, .card.pad textarea { width: 100%; padding: var(--space-sm) var(--space-control); border: 1px solid var(--border); border-radius: var(--r-md); background: var(--bg-canvas); box-shadow: var(--shadow-field); color: var(--fg); font: var(--font-size-body) var(--font-sans); outline: none; box-sizing: border-box; }
+.card.pad input:not([type]):not(.filter), .card.pad input[type="number"], .card.pad select:not(.filter), .card.pad textarea { width: 100%; padding: var(--space-sm) var(--space-control); border: 1px solid var(--border); border-radius: var(--r-md); background: var(--bg-canvas); box-shadow: var(--shadow-field); color: var(--fg); font: var(--font-size-body) var(--font-sans); outline: none; box-sizing: border-box; }
 .card.pad textarea.mono { font: var(--font-size-label) var(--font-mono); }
 .card.pad .row-actions { margin-top: var(--space-card); display: flex; gap: var(--space-md); }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 var(--space-xl); }

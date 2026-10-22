@@ -1,9 +1,9 @@
 .work-page { min-width: 0; }
 .work-page .page-head { flex-wrap: wrap; }
 .work-page .input { max-width: 100%; }
-.work-filters { display: flex; align-items: end; gap: var(--space-lg); flex-wrap: wrap; margin-bottom: var(--space-section); }
-.work-filters > .input { width: clamp(200px, 23.6%, 320px); margin-bottom: var(--space-2xs); }
-.work-filters .work-field { margin: 0; min-width: 115px; }
+.work-filters { display: flex; align-items: center; gap: var(--space-md); flex-wrap: wrap; }
+.work-filters > input.filter { width: clamp(200px, 23.6%, 320px); }
+.work-filters .chk { height: 28px; margin-left: var(--space-xs); }
 .work-field { display: flex; flex-direction: column; gap: var(--space-sm); margin: var(--space-lg) 0; min-width: 0; font-size: var(--font-size-label); color: var(--fg-3); }
 .work-field > span { font-weight: var(--font-weight-semibold); }
 .work-field textarea { resize: vertical; }

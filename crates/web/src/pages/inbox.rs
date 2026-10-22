@@ -7,7 +7,7 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 use serde_json::{Value, json};
 const KINDS: &[(&str, &str)] = &[
-    ("", "全部类型"),
+    ("", "全部"),
     ("run_done", "运行完成"),
     ("run_failed", "运行失败"),
     ("approval", "等你批准"),
@@ -87,14 +87,11 @@ pub fn InboxPage() -> impl IntoView {
                 </button>
             </PageHead>
             <div class="work-filters">
-                {select_field(
+                {filter_select(
                     "显示",
                     filter,
                     &[("unread", "未读"), ("all", "全部"), ("archived", "已归档")],
-                )} {select_field("类型", kind, KINDS)}
-                <button type="button" class="btn small ghost" on:click=move |_| refresh(rev)>
-                    "刷新"
-                </button>
+                )} {filter_select("类型", kind, KINDS)}
             </div>
             {move || match data.get() {
                 None => view! { <LoadingState text="加载通知…" /> }.into_any(),

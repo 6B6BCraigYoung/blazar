@@ -171,12 +171,8 @@ pub fn JobsPage() -> impl IntoView {
     };
     view! {
         <div class="page work-page jobs-page">
-            <PageHead title="任务" nav=|| crate::components::section::tasks("/jobs")>
-                <button class="btn" on:click=move |_| refresh(rev)>
-                    "刷新"
-                </button>
-            </PageHead>
-            <div class="work-filters">{select_field("状态", filter, FILTERS)}</div>
+            <PageHead title="任务" nav=|| crate::components::section::tasks("/jobs") />
+            <div class="work-filters">{filter_select("状态", filter, FILTERS)}</div>
             {move || match data.get() {
                 None => view! { <LoadingState text="正在读取后台任务…" /> }.into_any(),
                 Some(Err(e)) => view! {

@@ -176,6 +176,7 @@ pub fn SkillsPage() -> impl IntoView {
                             view! {
                                 <div class="agent-toolbar">
                                     <input
+                                        class="filter"
                                         aria-label="新技能名称"
                                         placeholder="技能名称"
                                         title="使用字母、数字、连字符或下划线"

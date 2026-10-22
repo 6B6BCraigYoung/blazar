@@ -196,6 +196,7 @@ pub fn AgentsPage() -> impl IntoView {
             </PageHead>
             <div class="agent-toolbar">
                 <select
+                    class="filter"
                     disabled=move || busy.get()
                     aria-label="范围"
                     prop:value=move || scope.get()
@@ -205,99 +206,101 @@ pub fn AgentsPage() -> impl IntoView {
                     }
                 >
                     <option value="all" prop:selected=move || scope.get() == "all">
-                        "全部"
+                        "范围：在用的"
                     </option>
                     <option value="archived" prop:selected=move || scope.get() == "archived">
-                        "已归档"
+                        "范围：已归档"
                     </option>
                 </select>
                 <input
+                    class="filter"
                     aria-label="搜索角色档案"
                     placeholder="搜索名称或描述…"
                     prop:value=move || query.get()
                     on:input=move |e| query.set(event_target_value(&e))
                 />
-                <details class="agent-filter-details">
-                    <summary>
-                        {move || {
-                            if !rt.get().is_empty() || avail.get() != "all" {
-                                "筛选与排序 · 已筛选"
-                            } else {
-                                "筛选与排序"
+                <select
+                    class="filter"
+                    aria-label="可用性"
+                    prop:value=move || avail.get()
+                    on:change=move |e| avail.set(event_target_value(&e))
+                >
+                    {[
+                        ("all", "全部"),
+                        ("online", "可用"),
+                        ("offline", "需登录"),
+                        ("unbound", "待配置"),
+                    ]
+                        .into_iter()
+                        .map(|(v, l)| {
+                            view! {
+                                <option value=v prop:selected=move || avail.get() == v>
+                                    {format!("状态：{l}")}
+                                </option>
                             }
-                        }}
-                    </summary>
-                    <div class="agent-toolbar">
-                        <select
-                            aria-label="可用性"
-                            prop:value=move || avail.get()
-                            on:change=move |e| avail.set(event_target_value(&e))
-                        >
-                            <option value="all" prop:selected=move || avail.get() == "all">
-                                "全部状态"
-                            </option>
-                            <option value="online" prop:selected=move || avail.get() == "online">
-                                "可用"
-                            </option>
-                            <option value="offline" prop:selected=move || avail.get() == "offline">
-                                "需登录"
-                            </option>
-                            <option value="unbound" prop:selected=move || avail.get() == "unbound">
-                                "待配置"
-                            </option>
-                        </select>
-                        <select
-                            aria-label="运行时"
-                            prop:value=move || rt.get()
-                            on:change=move |e| rt.set(event_target_value(&e))
-                        >
-                            <option value="" prop:selected=move || rt.get().is_empty()>
-                                "全部运行时"
-                            </option>
-                            {move || {
-                                runtimes
-                                    .get()
-                                    .and_then(Result::ok)
+                        })
+                        .collect_view()}
+                </select>
+                <select
+                    class="filter"
+                    aria-label="运行时"
+                    prop:value=move || rt.get()
+                    on:change=move |e| rt.set(event_target_value(&e))
+                >
+                    <option value="" prop:selected=move || rt.get().is_empty()>
+                        "运行时：全部"
+                    </option>
+                    {move || {
+                        runtimes
+                            .get()
+                            .and_then(Result::ok)
+                            .map(|r| {
+                                r.runtimes
+                                    .into_iter()
                                     .map(|r| {
-                                        r.runtimes
-                                            .into_iter()
-                                            .map(|r| {
-                                                let id = r.id.clone();
-                                                view! {
-                                                    <option value=r.id prop:selected=move || rt.get() == id>
-                                                        {r.label}
-                                                    </option>
-                                                }
-                                            })
-                                            .collect_view()
+                                        let id = r.id.clone();
+                                        view! {
+                                            <option value=r.id prop:selected=move || rt.get() == id>
+                                                {format!("运行时：{}", r.label)}
+                                            </option>
+                                        }
                                     })
-                            }}
-                        </select>
-                        <select
-                            aria-label="排序"
-                            prop:value=move || sort.get()
-                            on:change=move |e| sort.set(event_target_value(&e))
-                        >
-                            <option value="recent" prop:selected=move || sort.get() == "recent">
-                                "最近活跃"
-                            </option>
-                            <option value="name" prop:selected=move || sort.get() == "name">
-                                "名称"
-                            </option>
-                            <option value="runs" prop:selected=move || sort.get() == "runs">
-                                "运行次数"
-                            </option>
-                            <option value="created" prop:selected=move || sort.get() == "created">
-                                "创建时间"
-                            </option>
-                        </select>
-                        <button class="btn" on:click=move |_| asc.update(|v| *v = !*v)>
-                            {move || if asc.get() { "↑ 升序" } else { "↓ 降序" }}
-                        </button>
-                    </div>
-                </details>
+                                    .collect_view()
+                            })
+                    }}
+                </select>
+                <select
+                    class="filter"
+                    aria-label="排序"
+                    prop:value=move || sort.get()
+                    on:change=move |e| sort.set(event_target_value(&e))
+                >
+                    {[
+                        ("recent", "最近活跃"),
+                        ("name", "名称"),
+                        ("runs", "运行次数"),
+                        ("created", "创建时间"),
+                    ]
+                        .into_iter()
+                        .map(|(v, l)| {
+                            view! {
+                                <option value=v prop:selected=move || sort.get() == v>
+                                    {format!("排序：{l}")}
+                                </option>
+                            }
+                        })
+                        .collect_view()}
+                </select>
                 <button
-                    class="btn ghost"
+                    class="btn"
+                    aria-label=move || if asc.get() { "升序" } else { "降序" }
+                    on:click=move |_| asc.update(|v| *v = !*v)
+                >
+                    {move || if asc.get() { "↑ 升序" } else { "↓ 降序" }}
+                </button>
+                <span class="grow"></span>
+                <button
+                    class="btn"
                     disabled=move || profiles.get().is_none()
                     on:click=move |_| rev.update(|v| *v += 1)
                 >
@@ -1029,6 +1032,7 @@ fn AgentRuns(runs: Vec<Value>) -> impl IntoView {
             <div class="agent-toolbar">
                 <h3>"运行记录"</h3>
                 <select
+                    class="filter"
                     aria-label="运行状态"
                     prop:value=move || filter.get()
                     on:change=move |e| filter.set(event_target_value(&e))
@@ -1044,7 +1048,7 @@ fn AgentRuns(runs: Vec<Value>) -> impl IntoView {
                         .map(|(v, l)| {
                             view! {
                                 <option value=v prop:selected=move || filter.get() == v>
-                                    {l}
+                                    {format!("状态：{l}")}
                                 </option>
                             }
                         })
