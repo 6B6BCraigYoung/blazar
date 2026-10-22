@@ -1034,25 +1034,19 @@ fn AgentOverview(agent: Value) -> impl IntoView {
                         n(&agent, "cancelled_30d"),
                     )}
                 </p>
+                <dl class="agent-facts">
+                    <dt>"运行时"</dt>
+                    <dd>{text(&agent, "runtime_label")}</dd>
+                    <dt>"并发"</dt>
+                    <dd>{n(&agent, "max_concurrent")}</dd>
+                    <dt>"思考"</dt>
+                    <dd>{text(&agent, "thinking_level")}</dd>
+                    <dt>"创建"</dt>
+                    <dd title=text(&agent, "created_at")>{fmt::ago(&text(&agent, "created_at"))}</dd>
+                    <dt>"更新"</dt>
+                    <dd title=text(&agent, "updated_at")>{fmt::ago(&text(&agent, "updated_at"))}</dd>
+                </dl>
             </div>
-            <details class="card pad agent-runtime-details">
-                <summary>"执行详情"</summary>
-                <p>{format!("运行时：{}", text(&agent, "runtime_label"))}</p>
-                <p>
-                    {format!(
-                        "并发：{} · 思考：{}",
-                        n(&agent, "max_concurrent"),
-                        text(&agent, "thinking_level"),
-                    )}
-                </p>
-                <p class="muted">
-                    {format!(
-                        "创建于 {} · 更新于 {}",
-                        text(&agent, "created_at"),
-                        text(&agent, "updated_at"),
-                    )}
-                </p>
-            </details>
         </div>
         <AgentRuns runs=list(&agent, "runs") />
     }

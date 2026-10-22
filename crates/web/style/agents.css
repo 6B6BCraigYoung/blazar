@@ -21,7 +21,10 @@
 .agent-summary { display: flex; align-items: center; gap: var(--space-section); }
 .agent-summary h2 { margin: 0; font-size: var(--font-size-agent-title); }
 .agent-avatar { font-size: var(--font-size-avatar); }
-.agent-overview { display: grid; grid-template-columns: minmax(0, 1.618fr) minmax(0, 1fr); gap: var(--space-2xl); }
+.agent-overview { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-2xl); }
+.agent-facts { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); grid-template-rows: auto auto; grid-auto-flow: column; gap: var(--space-xs) var(--space-xl); margin: var(--space-card) 0 0; padding-top: var(--space-card); border-top: 1px solid var(--line); font-size: var(--font-size-label); }
+.agent-facts dt { color: var(--fg-3); }
+.agent-facts dd { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .agent-stats { display: grid; grid-template-columns: repeat(4,1fr); gap: var(--space-xl); padding: var(--space-section) 0; }
 .agent-stats b { display: block; font-size: var(--font-size-metric); font-weight: var(--font-weight-semibold); }
 .agent-stats span { display: block; color: var(--fg-3); margin-top: var(--space-sm); font-size: var(--font-size-label); }
@@ -54,7 +57,6 @@
 @media (max-width:760px) { .agent-overview, .agent-form-grid { grid-template-columns: 1fr; } .agent-toolbar input { min-width: 130px; } .skill-editor { grid-template-columns: 1fr; } .skill-editor>nav { max-height: 180px; border-right: 0; border-bottom: 1px solid var(--border); } .agent-run { flex-wrap: wrap; } .agent-stats { gap: var(--space-md); } .agent-stats b { font-size: var(--font-size-detail-title); } }
 
 .agent-page .page-head { flex-wrap: wrap; }
-.agent-page .agent-runtime-details summary { cursor: pointer; }
 .agent-page .agent-table td { overflow-wrap: anywhere; }
 .agent-page .agent-table .agent-name { min-width: 0; }
 .agent-page .agent-tabs { flex-wrap: wrap; }
