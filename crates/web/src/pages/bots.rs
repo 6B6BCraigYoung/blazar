@@ -126,7 +126,7 @@ pub fn BotsPage() -> impl IntoView {
                     {move || if archived.get() { "返回在用的" } else { "查看已归档" }}
                 </button>
                 <button type="button" class="btn primary" on:click=move |_| creating.set(true)>
-                    "＋ 新建 bot"
+                    "新建 bot"
                 </button>
             </PageHead>
             {move || {

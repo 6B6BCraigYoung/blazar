@@ -744,7 +744,7 @@ fn Dialog() -> impl IntoView {
                                 data-sel=move || pick.get().is_empty().to_string()
                                 on:click=move |_| pick.set(String::new())
                             >
-                                <span class="nm">"＋ 从当前版本创建"</span>
+                                <span class="nm">"从当前版本创建"</span>
                                 <span class="muted small">"使用下方名称命名分支"</span>
                             </button>
                             {move || match branches.get() {

@@ -10,7 +10,7 @@ use wasm_bindgen::{JsCast, closure::Closure};
 use crate::app_state::use_app;
 use crate::components::dialog::{self, Choice};
 use crate::components::modal::Modal;
-use crate::components::page_head::PageHead;
+use crate::components::page_head::{MenuItem, MoreMenu, PageHead};
 use crate::components::status::{EmptyState, InlineError, LoadingState, StateOf};
 use crate::components::toast::toast;
 use crate::{api, fmt, storage};
@@ -834,52 +834,6 @@ fn AgentActions(agent: Value, rev: RwSignal<u32>, blocked: RwSignal<bool>) -> im
     };
     view! {
         <div class="agent-actions">
-            {(!archived(&a.get_value()))
-                .then(|| {
-                    view! {
-                        <button
-                            class="btn primary"
-                            disabled=move || busy.get() || blocked.get()
-                            on:click=move |_| {
-                                match runtimes.get_untracked() {
-                                    Some(
-                                        Ok(r),
-                                    ) if availability(&a.get_value(), &r.runtimes) != "unbound" => {
-                                        pick.set(true)
-                                    }
-                                    Some(Err(e)) => toast(e.to_string()),
-                                    Some(Ok(_)) => {
-                                        toast("请先在设置中绑定已安装的运行时")
-                                    }
-                                    None => toast("正在读取运行时，请稍后再试"),
-                                }
-                            }
-                        >
-                            "开始对话"
-                        </button>
-                        <a
-                            class="btn ghost"
-                            href=format!(
-                                "/agents/new?template={}",
-                                api::enc(&text(&a.get_value(), "id")),
-                            )
-                        >
-                            "复制"
-                        </a>
-                    }
-                })}
-            {(n(&a.get_value(), "running") > 0)
-                .then(|| {
-                    view! {
-                        <button
-                            class="btn"
-                            disabled=move || busy.get() || blocked.get()
-                            on:click=move |_| act("cancel-runs")
-                        >
-                            "取消全部运行"
-                        </button>
-                    }
-                })}
             {if archived(&a.get_value()) {
                 view! {
                     <button
@@ -889,24 +843,51 @@ fn AgentActions(agent: Value, rev: RwSignal<u32>, blocked: RwSignal<bool>) -> im
                     >
                         "恢复"
                     </button>
-                    <button
-                        class="btn danger"
-                        disabled=move || busy.get() || blocked.get()
-                        on:click=move |_| act("delete")
-                    >
-                        "删除"
-                    </button>
+                    <MoreMenu
+                        label="更多操作".to_owned()
+                        items=vec![MenuItem::danger("删除", move || act("delete"))]
+                        disabled=Signal::derive(move || busy.get() || blocked.get())
+                    />
                 }
                     .into_any()
             } else {
+                let copy = format!("/agents/new?template={}", api::enc(&text(&a.get_value(), "id")));
+                let mut items = vec![
+                    MenuItem::new(
+                        "复制",
+                        move || {
+                            let _ = window().location().set_href(&copy);
+                        },
+                    ),
+                ];
+                if n(&a.get_value(), "running") > 0 {
+                    items.push(MenuItem::new("取消全部运行", move || act("cancel-runs")));
+                }
+                items.push(MenuItem::danger("归档", move || act("archive")));
                 view! {
                     <button
-                        class="btn"
+                        class="btn primary"
                         disabled=move || busy.get() || blocked.get()
-                        on:click=move |_| act("archive")
+                        on:click=move |_| {
+                            match runtimes.get_untracked() {
+                                Some(
+                                    Ok(r),
+                                ) if availability(&a.get_value(), &r.runtimes) != "unbound" => {
+                                    pick.set(true)
+                                }
+                                Some(Err(e)) => toast(e.to_string()),
+                                Some(Ok(_)) => toast("请先在设置中绑定已安装的运行时"),
+                                None => toast("正在读取运行时，请稍后再试"),
+                            }
+                        }
                     >
-                        "归档"
+                        "开始对话"
                     </button>
+                    <MoreMenu
+                        label="更多操作".to_owned()
+                        items
+                        disabled=Signal::derive(move || busy.get() || blocked.get())
+                    />
                 }
                     .into_any()
             }}

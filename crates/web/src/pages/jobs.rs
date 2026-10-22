@@ -257,13 +257,18 @@ pub fn JobsPage() -> impl IntoView {
                                                     >
                                                         "日志"
                                                     </button>
-                                                    <button
-                                                        class="btn small danger"
-                                                        disabled=move || !running || killing.get() == id
-                                                        on:click=move |_| kill(for_kill.clone())
-                                                    >
-                                                        "结束"
-                                                    </button>
+                                                    {running
+                                                        .then(|| {
+                                                            view! {
+                                                                <button
+                                                                    class="btn small danger"
+                                                                    disabled=move || killing.get() == id
+                                                                    on:click=move |_| kill(for_kill.clone())
+                                                                >
+                                                                    "结束"
+                                                                </button>
+                                                            }
+                                                        })}
                                                 </td>
                                             </tr>
                                         }

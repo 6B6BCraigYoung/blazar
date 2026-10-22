@@ -785,10 +785,10 @@ def plan(round_name):
         for key, label, href in tabs:
             items.append((f"tab-{group}-{key}", route, f"页头标签「{label}」（从 {route} 点过去）", (tab_step(href),), False))
     items.append(("palette", "/", "命令面板（⌘K）", ({"action": "click", "text": "搜索… ⌘K"},), False))
-    items.append(("new-workspace", "/", "新建工作区对话框", ({"action": "click", "text": "＋ 新建工作区"},
+    items.append(("new-workspace", "/", "新建工作区对话框", ({"action": "click", "text": "新建工作区"},
                                                        {"action": "wait", "ms": 600}), False))
     items.append(("new-workspace-folder-menu", "/", "新建工作区对话框里目录的右键菜单",
-                  ({"action": "click", "text": "＋ 新建工作区"}, {"action": "wait", "ms": 600},
+                  ({"action": "click", "text": "新建工作区"}, {"action": "wait", "ms": 600},
                    {"action": "context_menu", "text": "tmp"}), False))
     items.append(("workspace-card-detail", "/", "工作区卡片的详情弹层",
                   ({"action": "click", "selector": "button[aria-label$=\"的详情\"], button[title$=\"的详情\"]"},), False))

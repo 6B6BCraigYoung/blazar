@@ -70,7 +70,7 @@ pub(super) fn Issuer(m: Mesh) -> impl IntoView {
                             <h3>"邀请同事"</h3>
                             <Status tone=Tone::Other label="待设置" />
                             <span class="grow"></span>
-                            <button class="btn small primary" on:click=move |_| settings.set(true)>
+                            <button class="btn small" on:click=move |_| settings.set(true)>
                                 "签发设置"
                             </button>
                         </div>

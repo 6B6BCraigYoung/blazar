@@ -26,7 +26,7 @@ pub(super) fn TopoFix(m: Mesh) -> impl IntoView {
                     on:input=move |e| ct.set(event_target_value(&e))
                 />
                 <button
-                    class="btn small primary"
+                    class="btn small"
                     disabled=move || busy.get()
                     on:click=move |_| {
                         if busy.get_untracked() {

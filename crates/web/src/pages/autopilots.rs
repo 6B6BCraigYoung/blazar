@@ -315,7 +315,7 @@ fn AutopilotDetail(id: String, ui: ApUi) -> impl IntoView {
                                         </div>
                                         <div class="row-actions">
                                             <button
-                                                class="btn small primary"
+                                                class="btn small"
                                                 disabled=move || ui.busy.get()
                                                 on:click=move |_| {
                                                     ui.mutate(run_id.clone(), "POST", "/run", json!({}))

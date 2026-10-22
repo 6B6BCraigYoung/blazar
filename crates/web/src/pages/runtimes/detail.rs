@@ -389,7 +389,7 @@ pub(super) fn RuntimeDetail(id: String) -> impl IntoView {
                                         </label>
                                         <div class="row-actions">
                                             <button
-                                                class="btn primary"
+                                                class="btn"
                                                 disabled=move || saving.get()
                                                 on:click=move |_| {
                                                     let draft = draft.get_untracked();
@@ -569,7 +569,7 @@ pub(super) fn RuntimeDetail(id: String) -> impl IntoView {
                                         </label>
                                         <div class="row-actions">
                                             <button
-                                                class="btn primary"
+                                                class="btn"
                                                 disabled=move || saving.get()
                                                 on:click=move |_| {
                                                     let env: std::collections::BTreeMap<String, String> = draft
@@ -648,7 +648,7 @@ pub(super) fn RuntimeDetail(id: String) -> impl IntoView {
                                         </label>
                                         <div class="row-actions">
                                             <button
-                                                class="btn primary"
+                                                class="btn"
                                                 disabled=move || saving.get()
                                                 on:click=move |_| {
                                                     let args: Vec<String> = draft

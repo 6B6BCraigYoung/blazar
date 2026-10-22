@@ -87,18 +87,14 @@ pub fn RuntimesPage() -> impl IntoView {
             <PageHead title="智能体" nav=|| crate::components::section::agents("/runtimes")>
                 <button
                     class="btn"
-                    disabled=move || refreshing.get()
-                    on:click=refresh_quota
-                    title="一次刷新所有运行时账号的额度"
+                    disabled=move || refreshing.get() || runtimes.get().is_none()
+                    on:click=move |e| {
+                        rescan.update(|n| *n += 1);
+                        refresh_quota(e);
+                    }
+                    title="重新查找运行时，并刷新所有账号的额度"
                 >
-                    {move || if refreshing.get() { "刷新中…" } else { "刷新额度" }}
-                </button>
-                <button
-                    class="btn"
-                    disabled=move || runtimes.get().is_none()
-                    on:click=move |_| rescan.update(|n| *n += 1)
-                >
-                    "重新扫描"
+                    {move || if refreshing.get() { "刷新中…" } else { "刷新" }}
                 </button>
             </PageHead>
             {move || match runtimes.get() {

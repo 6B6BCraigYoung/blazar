@@ -488,7 +488,7 @@ pub fn NodesPage() -> impl IntoView {
                                                     }
                                                 })}
                                             <button
-                                                class="btn small primary"
+                                                class="btn small"
                                                 on:click=move |_| {
                                                     app.new_ws_node.set(Some(name2.clone()));
                                                     app.new_ws.set(true);

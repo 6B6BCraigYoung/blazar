@@ -48,7 +48,7 @@ pub(super) fn PendingMachines(
                                         <span class="muted small">{latency(n.latency_ms)}</span>
                                         <span class="grow"></span>
                                         <button
-                                            class="btn small primary"
+                                            class="btn small"
                                             aria-label=format!("把 {} 设为开发机", n.name)
                                             on:click=move |_| set_roles(
                                                 vec![(dev.clone(), Some("dev"))],

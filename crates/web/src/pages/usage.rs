@@ -47,24 +47,26 @@ pub fn UsagePage() -> impl IntoView {
             </PageHead>
             <div class="settings-actions usage-period" role="group" aria-label="统计时间范围">
                 <h2>{move || format!("近 {} 天", days.get())}</h2>
-                {[7, 30, 90]
-                    .into_iter()
-                    .map(move |d| {
-                        view! {
-                            <button
-                                class="btn"
-                                aria-pressed=move || days.get() == d
-                                class:primary=move || days.get() == d
-                                on:click=move |_| {
-                                    storage::save_raw("blazar.an.days", &d.to_string());
-                                    days.set(d);
-                                }
-                            >
-                                {format!("{d} 天")}
-                            </button>
-                        }
-                    })
-                    .collect_view()}
+                <div class="seg">
+                    {[7, 30, 90]
+                        .into_iter()
+                        .map(move |d| {
+                            view! {
+                                <button
+                                    type="button"
+                                    aria-pressed=move || days.get() == d
+                                    data-on=move || (days.get() == d).to_string()
+                                    on:click=move |_| {
+                                        storage::save_raw("blazar.an.days", &d.to_string());
+                                        days.set(d);
+                                    }
+                                >
+                                    {format!("{d} 天")}
+                                </button>
+                            }
+                        })
+                        .collect_view()}
+                </div>
             </div>
             {move || match analytics.get() {
                 None => view! { <LoadingState text="正在加载运行分析…" /> }.into_any(),

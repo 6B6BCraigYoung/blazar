@@ -160,12 +160,12 @@ pub fn Sidebar() -> impl IntoView {
             </button>
             <button
                 type="button"
-                class="btn primary new-ws"
+                class="btn new-ws"
                 aria-haspopup="dialog"
                 aria-expanded=move || app.new_ws.get().to_string()
                 on:click=move |_| app.new_ws.set(true)
             >
-                "＋ 新建工作区"
+                "新建工作区"
             </button>
             <div class="grp">
                 {nav(

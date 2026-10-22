@@ -145,11 +145,7 @@ fn List(kind: Kind) -> impl IntoView {
                 />
                 <button
                     type="button"
-                    class=if matches!(kind, Kind::Running | Kind::Waiting) {
-                        "btn"
-                    } else {
-                        "btn primary"
-                    }
+                    class="btn primary"
                     on:click=move |_| app.new_ws.set(true)
                 >
                     "新建工作区"
@@ -421,7 +417,7 @@ fn PendingApprovals() -> impl IntoView {
                                     <div class="row-actions">
                                         {if ask {
                                             view! {
-                                                <a class="btn small primary" href=format!("/w/{wid}")>
+                                                <a class="btn small" href=format!("/w/{wid}")>
                                                     "去回答"
                                                 </a>
                                             }
@@ -429,7 +425,7 @@ fn PendingApprovals() -> impl IntoView {
                                         } else {
                                             view! {
                                                 <button
-                                                    class="btn small primary"
+                                                    class="btn small"
                                                     disabled=move || gate.with(|g| g.busy(&i3))
                                                     on:click=move |_| decide(i1.clone(), true)
                                                 >

@@ -104,7 +104,7 @@ pub fn Children(id: String, open: RwSignal<bool>) -> impl IntoView {
                                         add_child(app, wid.get_value());
                                     }
                                 >
-                                    "＋ 添加子工作区"
+                                    "添加子工作区"
                                 </button>
                             </div>
                         }
@@ -354,7 +354,7 @@ pub fn ChildrenPanel(id: String) -> impl IntoView {
                         class="btn small ghost"
                         on:click=move |_| add_child(app, wid.get_value())
                     >
-                        "＋ 添加"
+                        "添加"
                     </button>
                     <button type="button" class="btn small ghost" on:click=move |_| open.set(false)>
                         "收起"

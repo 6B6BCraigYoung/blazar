@@ -786,7 +786,7 @@ fn TaskDetail(id: String, ui: TaskUi) -> impl IntoView {
                                         </p>
                                         <div class="row-actions">
                                             <button
-                                                class="btn primary small"
+                                                class="btn small"
                                                 disabled=move || !can_run || running || ui.busy.get()
                                                 on:click=move |_| {
                                                     ui.mutate(start_id.clone(), "POST", "/start", json!({}))
@@ -1233,7 +1233,7 @@ fn TaskDetail(id: String, ui: TaskUi) -> impl IntoView {
                         </label>
                         <span class="grow"></span>
                         <button
-                            class="btn primary small"
+                            class="btn small"
                             disabled=move || sending.get() || body.get().trim().is_empty()
                             on:click=move |_| send.run(())
                         >
