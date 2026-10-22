@@ -54,6 +54,10 @@ pub fn notify_on() -> bool {
     storage::load_raw("blazar.notify").as_deref() == Some("1")
 }
 
+pub fn notify_undecided() -> bool {
+    storage::load_raw("blazar.notify").is_none()
+}
+
 pub fn set_notify(on: bool) {
     storage::save_raw("blazar.notify", if on { "1" } else { "0" });
 }

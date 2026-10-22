@@ -20,7 +20,7 @@ pub struct AppData {
     pub state: RwSignal<Option<StateSnapshot>>,
     pub state_error: RwSignal<Option<String>>,
     pub inbox_unread: RwSignal<u64>,
-    pub tasks_open: RwSignal<usize>,
+    pub tasks_review: RwSignal<usize>,
     pub autopilots_active: RwSignal<usize>,
     pub jobs_running: RwSignal<usize>,
     pub agents_n: RwSignal<usize>,
@@ -128,6 +128,23 @@ impl AppData {
                 .map(|s| tree_order(&s.workspaces))
                 .unwrap_or_default()
         })
+    }
+
+    pub fn needs_you(self, w: &WorkspaceView) -> bool {
+        w.activity == "awaiting_approval"
+            || self
+                .children_of(&w.id)
+                .iter()
+                .any(|c| c.activity == "awaiting_approval")
+    }
+
+    pub fn attention(self, w: &WorkspaceView) -> bool {
+        self.needs_you(w) || self.shown_activity(w) == "errored"
+    }
+
+    pub fn attention_count(self) -> usize {
+        let top = self.top_workspaces();
+        top.iter().filter(|w| self.attention(w)).count()
     }
 
     pub fn children_of(self, id: &str) -> Vec<WorkspaceView> {
@@ -240,13 +257,10 @@ impl AppData {
                             .iter()
                             .filter(|t| {
                                 t["parent_id"].as_str().is_none_or(str::is_empty)
-                                    && matches!(
-                                        t["status"].as_str(),
-                                        Some("todo" | "in_progress" | "in_review")
-                                    )
+                                    && t["status"].as_str() == Some("in_review")
                             })
                             .count();
-                        let _ = self.tasks_open.try_set(n);
+                        let _ = self.tasks_review.try_set(n);
                     }
                 }
                 "autopilots" => {
@@ -335,6 +349,11 @@ async fn notify_changes(app: AppData, fresh: Vec<WorkspaceView>) {
             false,
         );
     }
+    if !allowed.is_empty() && alerts::notify_undecided() && alerts::notify_supported() {
+        let granted = alerts::request_permission().await == "granted";
+        alerts::set_notify(granted);
+        let _ = app.alerts_rev.try_update(|n| *n += 1);
+    }
     if !alerts::notify_on() || !alerts::notify_granted() {
         return;
     }
@@ -363,7 +382,7 @@ pub fn provide(bus: Bus) -> AppData {
         state: RwSignal::new(None),
         state_error: RwSignal::new(None),
         inbox_unread: RwSignal::new(0),
-        tasks_open: RwSignal::new(0),
+        tasks_review: RwSignal::new(0),
         autopilots_active: RwSignal::new(0),
         jobs_running: RwSignal::new(0),
         agents_n: RwSignal::new(0),
