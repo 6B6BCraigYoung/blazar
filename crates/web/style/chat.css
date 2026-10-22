@@ -90,6 +90,10 @@
 .cc-head { display: flex; gap: var(--space-sm); align-items: baseline; min-width: 0; }
 .cc-head b { font-weight: var(--font-weight-semibold); flex: 0 0 auto; }
 .cc-arg { color: var(--fg-2); font: var(--font-size-label) var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cc-arg[data-open] { cursor: pointer; }
+.cc-arg[data-open]:hover { color: var(--accent); text-decoration: underline; }
+.cc-tool .cc-diff { cursor: pointer; }
+.cc-tool .cc-diff:hover { border-color: var(--border-strong); }
 .cc-ws { flex: 0 0 auto; display: inline-flex; align-items: center; gap: var(--space-xs); max-width: 60%; padding: 0 var(--space-md); border-radius: var(--radius-pill); background: var(--control-track); color: var(--fg); font-size: var(--font-size-caption-readable); line-height: 1.6; text-decoration: none; align-self: center; }
 .cc-ws .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: var(--font-weight-medium); }
 .cc-ws .ws-machine { padding: 0; background: none; color: var(--fg-3); }

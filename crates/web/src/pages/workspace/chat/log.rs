@@ -155,7 +155,7 @@ fn extra_view(e: &Extra, opened: Opened, key: &str, ws: &str) -> AnyView {
         .into_any(),
         Extra::Todos(list) => todo_list(list).into_any(),
         Extra::Diff { rows, more } => view! {
-            <div class="cc-diff">
+            <div class="cc-diff" title="在「更改」里查看">
                 {rows
                     .iter()
                     .map(|(c, l)| {
@@ -317,6 +317,13 @@ fn tool_view(t: Tool, chat: Chat, opened: Opened, ws: String) -> AnyView {
         Extra::Fleet(id) => Some(id.clone()),
         _ => None,
     };
+    let open = matches!(
+        t.name.as_str(),
+        "Read" | "Write" | "Edit" | "MultiEdit" | "NotebookEdit"
+    )
+    .then(|| t.arg.clone())
+    .filter(|a| !a.is_empty() && !a.starts_with('/') && !a.starts_with('~'));
+    let open_tip = open.as_ref().map(|_| "在编辑器里打开");
     view! {
         <div class="cc-row cc-tool" data-st=t.state.as_str() data-name=t.name.clone()>
             <span class="cc-dot"></span>
@@ -325,7 +332,13 @@ fn tool_view(t: Tool, chat: Chat, opened: Opened, ws: String) -> AnyView {
                     <b>{t.label.clone()}</b>
                     {fleet.map(ws_chip)}
                     {(!t.arg.is_empty())
-                        .then(|| view! { <span class="cc-arg">{t.arg.clone()}</span> })}
+                        .then(|| {
+                            view! {
+                                <span class="cc-arg" data-open=open.clone() title=open_tip>
+                                    {t.arg.clone()}
+                                </span>
+                            }
+                        })}
                 </div>
                 {extra_view(&t.extra, opened, &t.id, &ws)}
                 {sub}
@@ -1089,10 +1102,36 @@ pub fn Log(chat: Chat, tick: RwSignal<u32>) -> impl IntoView {
             && chat.local_errors.with(Vec::is_empty)
             && chat.pending.with(Vec::is_empty)
     };
+    let click = move |e: leptos::ev::MouseEvent| {
+        let Some(t) = e
+            .target()
+            .and_then(|t| t.dyn_into::<web_sys::Element>().ok())
+        else {
+            return;
+        };
+        let find = |sel: &str| t.closest(sel).ok().flatten();
+        if let Some(a) = find("a[href^=\"#open:\"]") {
+            e.prevent_default();
+            let raw = a.get_attribute("href").unwrap_or_default();
+            let p = raw.trim_start_matches(md::OPEN_PREFIX);
+            let p = js_sys::decode_uri_component(p).map_or_else(|_| p.to_owned(), String::from);
+            chat.files.open(p, 0);
+        } else if let Some(el) = find("[data-open]") {
+            let p = el.get_attribute("data-open").unwrap_or_default();
+            let (path, line) = match p.rsplit_once(':') {
+                Some((f, l)) if l.parse::<u32>().is_ok() => (f.to_owned(), l.parse().unwrap_or(0)),
+                _ => (p, 0),
+            };
+            chat.files.open(path, line);
+        } else if find(".cc-tool[data-name] .cc-diff").is_some() {
+            chat.show_diff.run(());
+        }
+    };
     view! {
         <div
             class="cc-log"
             node_ref=el
+            on:click=click
             data-dim=move || dim().to_string()
             on:scroll=move |_| {
                 if let Some(e) = el.try_get_untracked().flatten() {
