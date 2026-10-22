@@ -223,6 +223,8 @@ async function run(command) {
       return snapshot();
     case 'click': {
       const el = guard(find(command));
+      const box = el.getBoundingClientRect();
+      if (box.width < 1 || box.height < 1) throw new Error(`${label(el) || command.selector || command.text} 没有显示出来，不能点`);
       const clicked = label(el);
       click(el);
       await sleep(settle);
