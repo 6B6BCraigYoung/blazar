@@ -92,9 +92,11 @@ function snapshot() {
     return item;
   });
   const headings = [...document.querySelectorAll('h1,h2,h3')].filter(visible).map(h => label(h)).filter(Boolean);
+  const active = document.activeElement;
   return {
     url: location.pathname + location.search,
     title: document.title,
+    focused: active && active !== document.body ? { ref: refOf(active), tag: active.tagName.toLowerCase(), name: label(active) } : null,
     viewport: [innerWidth, innerHeight],
     headings,
     items,
@@ -271,6 +273,7 @@ async function run(command) {
       if (to !== 'start' && to !== 'end' && typeof to !== 'number') throw new Error('scroll 需要 top：start、end 或像素值');
       const el = guard(find(command));
       el.scrollTop = to === 'start' ? 0 : to === 'end' ? el.scrollHeight : to;
+      el.dispatchEvent(new Event('scroll'));
       await sleep(settle);
       return { ok: true, top: Math.round(el.scrollTop), height: el.scrollHeight, view: el.clientHeight };
     }
