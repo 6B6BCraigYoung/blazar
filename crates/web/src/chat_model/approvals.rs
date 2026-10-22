@@ -92,3 +92,25 @@ pub fn always_rule(request: &Value) -> (String, String) {
     };
     (tn, pattern)
 }
+
+#[must_use]
+pub fn approval_choices(plan: bool) -> ([&'static str; 3], &'static str) {
+    if plan {
+        (
+            ["继续，自动接受编辑", "继续，逐个批准编辑", "不，继续规划"],
+            "告诉 Claude 要改什么",
+        )
+    } else {
+        (
+            ["允许", "允许，并且这个工作区不再询问", "拒绝"],
+            "告诉 Claude 换个做法",
+        )
+    }
+}
+
+pub fn first_open(
+    pending: &[super::Pending],
+    decided: impl Fn(&str) -> bool,
+) -> Option<&super::Pending> {
+    pending.iter().find(|p| !decided(&p.id))
+}

@@ -1,7 +1,9 @@
 use super::*;
 use serde_json::json;
 
-use crate::chat_model::{Step, always_rule, approval_title, step_sig};
+use crate::chat_model::{
+    Step, always_rule, approval_choices, approval_title, first_open, step_sig,
+};
 
 fn row(sid: &str, seq: u64, ts: i64, kind: Value) -> Row {
     Row {
@@ -362,4 +364,46 @@ fn api_errors_read_as_plain_words() {
     assert!(human_error("API Error: 429 rate limit").starts_with("请求太频繁"));
     assert!(human_error("401 not logged in").starts_with("登录已失效"));
     assert_eq!(human_error("disk full"), "disk full");
+}
+
+#[test]
+fn a_pending_bash_approval_always_gets_a_card() {
+    let rows = vec![
+        row(
+            "s",
+            1,
+            0,
+            json!({"type":"user_message","text":"跑一下冒烟训练"}),
+        ),
+        row(
+            "s",
+            2,
+            0,
+            json!({"type":"tool_use","id":"t1","name":"Bash","input":{"command":"python train.py --steps 200"}}),
+        ),
+        row(
+            "s",
+            3,
+            0,
+            json!({"type":"approval","id":"01a0fa80-9ab8-7320-bd31-48d9174e2bce","request":{"tool_name":"Bash","input":{"command":"python train.py --steps 200"}}}),
+        ),
+    ];
+    for live in [true, false] {
+        let t = build(&rows, "/w", live);
+        let card = first_open(&t.pending, |_| false).expect("有待审批时必须有审批卡");
+        assert!(!card.ask);
+        assert_eq!(
+            approval_title(&card.request, "/w", None),
+            "允许运行这条 Bash 命令？"
+        );
+        assert!(
+            first_open(&t.pending, |id| id
+                == "01a0fa80-9ab8-7320-bd31-48d9174e2bce")
+            .is_none()
+        );
+    }
+    let (choices, hint) = approval_choices(false);
+    assert_eq!(choices, ["允许", "允许，并且这个工作区不再询问", "拒绝"]);
+    assert_eq!(hint, "告诉 Claude 换个做法");
+    assert_eq!(approval_choices(true).0.len(), 3);
 }

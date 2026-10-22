@@ -55,10 +55,8 @@ fn ime(e: &ev::KeyboardEvent) -> bool {
 pub fn Dock(chat: Chat) -> impl IntoView {
     let top = Memo::new(move |_| {
         chat.transcript.with(|t| {
-            t.pending
-                .iter()
-                .find(|p| !chat.decided.with(|d| d.contains(&p.id)))
-                .cloned()
+            chat.decided
+                .with(|d| chat_model::first_open(&t.pending, |id| d.contains(id)).cloned())
         })
     });
     move || {
@@ -110,17 +108,7 @@ fn ApprovalCard(chat: Chat, p: Pending) -> impl IntoView {
             chat.decide(id.clone(), true, String::new(), None);
         }
     };
-    let (labels, ph): (Vec<&'static str>, &'static str) = if plan {
-        (
-            vec!["继续，自动接受编辑", "继续，逐个批准编辑", "不，继续规划"],
-            "告诉 Claude 要改什么",
-        )
-    } else {
-        (
-            vec!["允许", "允许，并且这个工作区不再询问", "拒绝"],
-            "告诉 Claude 换个做法",
-        )
-    };
+    let (labels, ph) = chat_model::approval_choices(plan);
     let pick = {
         let yes = yes.clone();
         let req = r.clone();

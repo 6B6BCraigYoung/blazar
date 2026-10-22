@@ -113,12 +113,13 @@ pub fn select_field(
         .iter()
         .map(|(k, v)| (k.to_string(), v.to_string()))
         .collect::<Vec<_>>();
+    let guarded = options.iter().any(|(k, _)| k == "bypassPermissions");
     view! {
         <label class="work-field">
             <span>{label}</span>
             <select
                 class="input"
-                data-ui-guard=(label == "权限模式").then_some("")
+                data-ui-guard=guarded.then_some("")
                 prop:value=move || value.get()
                 on:change=move |e| value.set(event_target_value(&e))
             >

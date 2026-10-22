@@ -123,6 +123,7 @@ pub(super) fn AccountForm(
         });
     };
     let submit2 = submit.clone();
+    let adding = matches!(f, Form::Add);
     let (title, ok) = match &f {
         Form::Add => (
             format!("给 {} 添加账号", provider_label(&provider)),
@@ -278,7 +279,7 @@ pub(super) fn AccountForm(
                     {move || {
                         if gate.with(|g| g.busy("form")) {
                             "保存中…".to_owned()
-                        } else if ok == "创建" && !(claude && how.get() == "token") {
+                        } else if adding && !(claude && how.get() == "token") {
                             "创建并登录".to_owned()
                         } else {
                             ok.clone()

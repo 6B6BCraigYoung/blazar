@@ -339,6 +339,9 @@ async function run(command) {
       if (typeof invoke !== 'function') throw new Error('shot 只能在桌面端里用：当前页面没有 Tauri（比如在浏览器或无界面 Chrome 里）');
       if (command.name !== undefined && typeof command.name !== 'string') throw new Error('shot 的 name 必须是文件名字符串');
       await sleep(command.settle_ms ?? 0);
+      for (const animation of document.getAnimations()) {
+        if (Number.isFinite(animation.effect?.getComputedTiming().endTime)) animation.finish();
+      }
       const shot = await invoke('snapshot_webview', { name: command.name || null });
       return { ok: true, path: shot.path, width: shot.width, height: shot.height };
     }

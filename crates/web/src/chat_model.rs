@@ -10,7 +10,7 @@ mod builder;
 mod finish;
 mod tools;
 
-pub use approvals::{always_rule, approval_title, approval_what};
+pub use approvals::{always_rule, approval_choices, approval_title, approval_what, first_open};
 pub use builder::Model;
 #[cfg(test)]
 pub use builder::build;

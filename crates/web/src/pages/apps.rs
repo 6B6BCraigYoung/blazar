@@ -30,40 +30,34 @@ const APPS: &[(&str, &str, &str)] = &[
     ),
 ];
 
+fn ready(id: &str, v: &Value) -> bool {
+    flag(v, "installed")
+        && match id {
+            "github" => flag(v, "authed"),
+            "lark" => flag(&v["auth"]["user"], "available") || flag(&v["auth"]["bot"], "available"),
+            _ => rows(&v["vaults"]).iter().any(|v| flag(v, "exists")),
+        }
+}
+
 fn state(id: &str, v: &Value) -> String {
     if !flag(v, "installed") {
         return "未安装".into();
     }
+    let ready = ready(id, v);
     match id {
-        "github" => if flag(v, "authed") {
-            "已连接"
-        } else {
-            "未登录"
-        }
-        .into(),
-        "lark" => {
-            if flag(&v["auth"]["user"], "available") || flag(&v["auth"]["bot"], "available") {
-                "已连接".into()
-            } else if flag(v, "configured") {
-                "未登录".into()
-            } else {
-                "待配置".into()
-            }
-        }
-        _ => if rows(&v["vaults"]).iter().any(|v| flag(v, "exists")) {
-            "已就绪"
-        } else {
-            "待打开"
-        }
-        .into(),
+        "github" if ready => "已连接",
+        "github" => "未登录",
+        "lark" if ready => "已连接",
+        "lark" if flag(v, "configured") => "未登录",
+        "lark" => "待配置",
+        _ if ready => "已就绪",
+        _ => "待打开",
     }
+    .into()
 }
 
 fn state_tone(id: &str, value: &Value) -> &'static str {
-    match state(id, value).as_str() {
-        "已连接" | "已就绪" => "ok",
-        _ => "neutral",
-    }
+    if ready(id, value) { "ok" } else { "neutral" }
 }
 
 #[component]

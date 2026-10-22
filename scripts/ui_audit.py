@@ -866,6 +866,10 @@ def shots(out, round_name):
     sh = Shooter(out, round_name)
     ui({"action": "init"})
     vp = viewport()
+    if vp["dpr"] != "2":
+        warn = f"devicePixelRatio 是 {vp['dpr']}，窗口可能不在点亮的显示器上，动画和对话框可能截不全"
+        print(f"  ! {warn}", file=sys.stderr)
+        sh.issues.append(f"全部\t显示\t{warn}")
     state, items = plan(round_name)
     spawned = []
     preview = None
