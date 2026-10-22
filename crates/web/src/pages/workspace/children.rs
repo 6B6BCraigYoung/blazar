@@ -1,7 +1,6 @@
 use blazar_core_types::api::WorkspaceView;
 use leptos::prelude::*;
 use serde_json::Value;
-use wasm_bindgen::JsCast;
 
 use crate::app_state::{AppData, use_app};
 use crate::pages::workspaces::diff_badge;
@@ -34,84 +33,10 @@ pub fn children_open(id: &str) -> RwSignal<bool> {
     open
 }
 
-fn add_child(app: AppData, id: String) {
+pub(super) fn add_child(app: AppData, id: String) {
     let name = app.workspace(&id).map(|w| w.name).unwrap_or_default();
     app.new_ws_parent.set(Some((id, name)));
     app.new_ws.set(true);
-}
-
-#[component]
-pub fn Children(id: String, open: RwSignal<bool>) -> impl IntoView {
-    let app = use_app();
-    let wid = StoredValue::new(id);
-    let count = Memo::new(move |_| app.children_of(&wid.get_value()).len());
-    let menu = RwSignal::new(false);
-    let close = window_event_listener(leptos::ev::mousedown, move |e| {
-        let inside = e
-            .target()
-            .and_then(|t| t.dyn_into::<web_sys::Element>().ok())
-            .and_then(|el| el.closest(".ws-children").ok().flatten())
-            .is_some();
-        if !inside {
-            menu.set(false);
-        }
-    });
-    on_cleanup(move || close.remove());
-    let toggle = move |_| {
-        if count.get_untracked() == 0 {
-            menu.update(|m| *m = !*m);
-        } else {
-            open.update(|o| *o = !*o);
-        }
-    };
-    view! {
-        <div class="ws-children">
-            <button
-                type="button"
-                class="btn small"
-                aria-haspopup=move || (count.get() == 0).then_some("menu")
-                aria-expanded=move || (count.get() == 0).then(|| menu.get().to_string())
-                aria-pressed=move || (count.get() > 0).then(|| open.get().to_string())
-                on:click=toggle
-            >
-                "子工作区"
-                {move || {
-                    let n = count.get();
-                    (n > 0).then(|| view! { <span class="gchip">{n}</span> })
-                }}
-            </button>
-            {move || {
-                menu.get()
-                    .then(|| {
-                        view! {
-                            <div
-                                class="menu ws-children-menu"
-                                role="menu"
-                                on:keydown=move |e| {
-                                    if e.key() == "Escape" {
-                                        menu.set(false)
-                                    }
-                                }
-                            >
-                                <div class="muted small ws-child-empty">
-                                    "还没有子工作区。加一台机器，智能体就能把活派过去。"
-                                </div>
-                                <button
-                                    type="button"
-                                    role="menuitem"
-                                    on:click=move |_| {
-                                        menu.set(false);
-                                        add_child(app, wid.get_value());
-                                    }
-                                >
-                                    "添加子工作区"
-                                </button>
-                            </div>
-                        }
-                    })
-            }}
-        </div>
-    }
 }
 
 fn say(w: &WorkspaceView, g: &Value) -> (String, &'static str) {

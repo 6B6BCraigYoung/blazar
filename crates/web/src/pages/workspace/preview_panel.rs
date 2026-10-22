@@ -110,7 +110,6 @@ fn PvMenu(
     url: Signal<String>,
     tunnel: Signal<Option<String>>,
     scripts_open: RwSignal<bool>,
-    panel_max: RwSignal<bool>,
 ) -> impl IntoView {
     let open = RwSignal::new(false);
     let root = NodeRef::<leptos::html::Div>::new();
@@ -208,14 +207,6 @@ fn PvMenu(
                     >
                         "脚本设置…"
                     </button>
-                    <div class="menu-sep"></div>
-                    <button
-                        type="button"
-                        role="menuitem"
-                        on:click=move |_| pick(&|| panel_max.update(|m| *m = !*m))
-                    >
-                        {move || if panel_max.get() { "还原面板" } else { "最大化面板" }}
-                    </button>
                 </div>
             </Show>
         </span>
@@ -237,12 +228,7 @@ struct ScriptRun {
 }
 
 #[component]
-pub fn PreviewBar(
-    ws: String,
-    active: Signal<bool>,
-    panel_max: RwSignal<bool>,
-    isolated: Signal<bool>,
-) -> impl IntoView {
+pub fn PreviewBar(ws: String, active: Signal<bool>, isolated: Signal<bool>) -> impl IntoView {
     let dev = RwSignal::new(None::<Dev>);
     let load_error = RwSignal::new(None::<String>);
     let busy = RwSignal::new(None::<&'static str>);
@@ -480,7 +466,6 @@ pub fn PreviewBar(
                     })
                 })
                 scripts_open
-                panel_max
             />
         </div>
         <div class="pvbody">

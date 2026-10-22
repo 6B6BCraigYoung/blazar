@@ -2,7 +2,9 @@ use std::collections::HashSet;
 
 use leptos::prelude::*;
 
-use crate::components::status::{EmptyState, InlineError, LoadingState};
+use crate::components::empty::Blank;
+use crate::components::icon;
+use crate::components::status::{InlineError, LoadingState};
 use leptos::task::spawn_local;
 use serde::{Deserialize, Serialize};
 
@@ -160,7 +162,6 @@ pub fn DiffBar(
     d: DiffState,
     git: Git,
     collapsed: RwSignal<HashSet<String>>,
-    panel_max: RwSignal<bool>,
     draft: RwSignal<Option<String>>,
 ) -> impl IntoView {
     let review = move |_| {
@@ -317,14 +318,6 @@ pub fn DiffBar(
                     git.reload.update(|n| *n += 1);
                 }
             ></button>
-            <button
-                class="laybtn"
-                title=move || if panel_max.get() { "还原面板" } else { "最大化面板" }
-                aria-pressed=move || panel_max.get().to_string()
-                on:click=move |_| panel_max.update(|m| *m = !*m)
-            >
-                "⤢"
-            </button>
         </div>
     }
 }
@@ -388,7 +381,7 @@ pub fn DiffView(
             } else {
                 "没有未提交的改动".to_owned()
             };
-            return view! { <EmptyState title=msg /> }.into_any();
+            return view! { <Blank icon=icon::CHECK title=msg inset=true /> }.into_any();
         }
         let split = p().view == "split";
         view! {

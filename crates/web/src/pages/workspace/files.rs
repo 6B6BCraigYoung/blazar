@@ -24,6 +24,7 @@ pub struct Files {
     pub current: RwSignal<Option<String>>,
     pub dirty: RwSignal<HashSet<String>>,
     pub rev: RwSignal<u32>,
+    pub revealed: RwSignal<u32>,
     pub error: RwSignal<Option<String>>,
     meta: StoredValue<HashMap<String, Meta>>,
     editor: StoredValue<Option<Rc<Mounted>>, LocalStorage>,
@@ -53,6 +54,7 @@ impl Files {
             current: RwSignal::new(None),
             dirty: RwSignal::new(HashSet::new()),
             rev: RwSignal::new(0),
+            revealed: RwSignal::new(0),
             error: RwSignal::new(None),
             meta: StoredValue::new(HashMap::new()),
             editor: StoredValue::new_local(None),
@@ -130,6 +132,11 @@ impl Files {
     }
 
     pub fn open(self, path: String, line: u32) {
+        self.revealed.update(|n| *n = n.wrapping_add(1));
+        self.restore(path, line);
+    }
+
+    pub fn restore(self, path: String, line: u32) {
         self.open_tabs.update(|t| {
             if !t.contains(&path) {
                 t.push(path.clone());

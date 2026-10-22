@@ -1,134 +1,172 @@
 use leptos::prelude::*;
 use serde::{Deserialize, Serialize};
+use wasm_bindgen::JsCast;
 use web_sys::PointerEvent;
 
 use crate::storage;
 
-const KEY: &str = "blazar.v3.ws.layout";
-const EX: (f64, f64) = (180.0, 480.0);
-const AUX: (f64, f64) = (300.0, 1200.0);
-const CODE_MIN: f64 = 360.0;
+const KEY: &str = "blazar.v4.ws.layout";
+const EX: (f64, f64) = (200.0, 480.0);
+const CHAT_MIN: f64 = 320.0;
+const INSP_MIN: f64 = 360.0;
 const PANEL_MIN: f64 = 90.0;
+pub const NARROW: f64 = 1200.0;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Tab {
+    Editor,
+    Changes,
+    Preview,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Changes {
+    Diff,
+    Git,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Layout {
     pub ex: f64,
-    pub aux: f64,
+    pub insp: f64,
     pub panel: f64,
-    pub hide_ex: bool,
-    pub hide_aux: bool,
-    pub hide_panel: bool,
-
-    pub panel_max: bool,
+    pub files: bool,
+    pub inspect: bool,
+    pub tab: Tab,
+    pub changes: Changes,
+    pub term: bool,
+    pub max: bool,
 }
 
 impl Default for Layout {
     fn default() -> Self {
         Self {
-            ex: 0.191,
-            aux: 0.309,
+            ex: 260.0,
+            insp: 0.618,
             panel: 0.382,
-            hide_ex: false,
-            hide_aux: false,
-            hide_panel: false,
-            panel_max: false,
+            files: false,
+            inspect: false,
+            tab: Tab::Editor,
+            changes: Changes::Diff,
+            term: false,
+            max: false,
         }
     }
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum Region {
-    Explorer,
-    Panel,
-    Aux,
-}
-
-#[derive(Clone, Copy, PartialEq)]
-pub struct Sizes {
-    pub ex: f64,
-    pub aux: f64,
-    pub panel: f64,
 }
 
 #[derive(Clone, Copy)]
 pub struct LayoutState {
     pub lay: RwSignal<Layout>,
+    key: StoredValue<String>,
+}
 
-    pub area: RwSignal<(f64, f64)>,
+fn narrow() -> bool {
+    window()
+        .inner_width()
+        .ok()
+        .and_then(|v| v.as_f64())
+        .is_some_and(|w| w < NARROW)
 }
 
 impl LayoutState {
-    pub fn new() -> Self {
-        let mut lay: Layout = storage::load(KEY).unwrap_or_default();
-        if storage::load::<Layout>(KEY).is_none() {
-            let w = window()
-                .inner_width()
-                .ok()
-                .and_then(|v| v.as_f64())
-                .unwrap_or(1440.0);
-            lay.hide_aux = w <= 1180.0;
-            lay.hide_ex = w <= 860.0;
-        }
+    pub fn new(ws: &str) -> Self {
+        let key = format!("{KEY}.{ws}");
         Self {
-            lay: RwSignal::new(lay),
-            area: RwSignal::new((1440.0, 900.0)),
+            lay: RwSignal::new(storage::load(&key).unwrap_or_default()),
+            key: StoredValue::new(key),
         }
     }
 
-    pub fn save(self) {
-        storage::save(KEY, &self.lay.get_untracked());
+    fn change(self, f: impl FnOnce(&mut Layout)) {
+        self.lay.update(f);
+        storage::save(&self.key.get_value(), &self.lay.get_untracked());
     }
 
-    pub fn toggle(self, r: Region) {
-        self.lay.update(|l| match r {
-            Region::Explorer => l.hide_ex = !l.hide_ex,
-            Region::Panel => l.hide_panel = !l.hide_panel,
-            Region::Aux => l.hide_aux = !l.hide_aux,
+    pub fn toggle_files(self) {
+        self.change(|l| l.files = !l.files);
+    }
+
+    pub fn toggle_term(self) {
+        self.change(|l| l.term = !l.term);
+    }
+
+    pub fn toggle_inspect(self) {
+        self.change(|l| {
+            l.inspect = !l.inspect;
+            l.max &= l.inspect;
         });
-        self.save();
     }
 
-    pub fn sizes(self) -> Sizes {
+    pub fn open(self, tab: Tab) {
+        self.change(|l| {
+            l.inspect = true;
+            l.tab = tab;
+        });
+    }
+
+    pub fn open_changes(self, view: Changes) {
+        self.change(|l| {
+            l.inspect = true;
+            l.tab = Tab::Changes;
+            l.changes = view;
+        });
+    }
+
+    pub fn show_changes(self, view: Changes) {
+        self.change(|l| l.changes = view);
+    }
+
+    pub fn close(self) {
+        self.change(|l| {
+            l.inspect = false;
+            l.max = false;
+        });
+    }
+
+    pub fn set_max(self, max: bool) {
+        self.change(|l| l.max = max);
+    }
+
+    pub fn reveal_chat(self) {
+        let l = self.lay.get_untracked();
+        if l.max || (l.inspect && narrow()) {
+            self.change(|l| {
+                l.max = false;
+                l.inspect &= !narrow();
+            });
+        }
+    }
+
+    pub fn style(self) -> String {
         let l = self.lay.get();
-        let (w, h) = self.area.get();
-        let mut ex = if l.hide_ex {
-            0.0
-        } else {
-            (l.ex * w).clamp(EX.0, EX.1)
-        };
-        let mut aux = if l.hide_aux {
-            0.0
-        } else {
-            (l.aux * w).clamp(AUX.0, AUX.1)
-        };
-        let mut over = ex + aux + CODE_MIN + 20.0 - w;
-        if over > 0.0 && aux > 0.0 {
-            let d = over.min(aux - AUX.0);
-            aux -= d;
-            over -= d;
-        }
-        if over > 0.0 && ex > 0.0 {
-            ex -= over.min(ex - EX.0);
-        }
-        let panel = (l.panel * h).clamp(PANEL_MIN, (h * 0.7).min(h - 160.0).max(PANEL_MIN));
-        Sizes { ex, aux, panel }
+        format!(
+            "--ex-w:{}px;--insp:{};--panel:{}",
+            l.ex.clamp(EX.0, EX.1),
+            l.insp,
+            l.panel
+        )
     }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Edge {
-    Explorer,
+    Files,
+    Inspector,
+    Terminal,
+}
 
-    Aux,
-
-    Panel,
+fn size_of(el: &web_sys::Element, horizontal: bool) -> f64 {
+    let r = el.get_bounding_client_rect();
+    if horizontal { r.width() } else { r.height() }
 }
 
 #[component]
 pub fn Splitter(edge: Edge, state: LayoutState) -> impl IntoView {
-    let start = StoredValue::new(None::<(f64, Sizes)>);
-    let horizontal = edge != Edge::Panel;
+    let start = StoredValue::new(None::<(f64, f64, f64)>);
+    let horizontal = edge != Edge::Terminal;
     let coord = move |e: &PointerEvent| {
         if horizontal {
             f64::from(e.client_x())
@@ -138,39 +176,38 @@ pub fn Splitter(edge: Edge, state: LayoutState) -> impl IntoView {
     };
     let down = move |e: PointerEvent| {
         e.prevent_default();
-        if let Some(t) = e
+        let Some(t) = e
             .current_target()
-            .and_then(|t| wasm_bindgen::JsCast::dyn_into::<web_sys::Element>(t).ok())
-        {
-            let _ = t.set_pointer_capture(e.pointer_id());
-        }
-        start.set_value(Some((coord(&e), state.sizes())));
+            .and_then(|t| t.dyn_into::<web_sys::Element>().ok())
+        else {
+            return;
+        };
+        let _ = t.set_pointer_capture(e.pointer_id());
+        let pane = match edge {
+            Edge::Files => t.previous_element_sibling(),
+            Edge::Inspector | Edge::Terminal => t.next_element_sibling(),
+        };
+        let Some(pane) = pane else { return };
+        let whole = t.parent_element().map_or(0.0, |p| size_of(&p, horizontal));
+        start.set_value(Some((coord(&e), size_of(&pane, horizontal), whole)));
         let _ = document().body().map(|b| {
             b.class_list()
                 .add_1(if horizontal { "drag-x" } else { "drag-y" })
         });
     };
     let mv = move |e: PointerEvent| {
-        let Some((p0, base)) = start.get_value() else {
+        let Some((p0, base, whole)) = start.get_value() else {
             return;
         };
         let d = coord(&e) - p0;
-        let (w, h) = state.area.get_untracked();
-        let room = w - CODE_MIN - 20.0;
+        let whole = whole.max(1.0);
         state.lay.update(|l| match edge {
-            Edge::Explorer => {
-                let other = if l.hide_aux { 0.0 } else { base.aux };
-                l.ex = (base.ex + d).clamp(EX.0, EX.1.min(room - other).max(EX.0)) / w.max(1.0);
+            Edge::Files => l.ex = (base + d).clamp(EX.0, EX.1),
+            Edge::Inspector => {
+                l.insp = (base - d).clamp(INSP_MIN, (whole - CHAT_MIN).max(INSP_MIN)) / whole;
             }
-            Edge::Aux => {
-                let other = if l.hide_ex { 0.0 } else { base.ex };
-                l.aux =
-                    (base.aux - d).clamp(AUX.0, AUX.1.min(room - other).max(AUX.0)) / w.max(1.0);
-            }
-            Edge::Panel => {
-                l.panel = (base.panel - d)
-                    .clamp(PANEL_MIN, (h * 0.7).min(h - 160.0).max(PANEL_MIN))
-                    / h.max(1.0);
+            Edge::Terminal => {
+                l.panel = (base - d).clamp(PANEL_MIN, (whole * 0.7).max(PANEL_MIN)) / whole;
             }
         });
     };
@@ -180,33 +217,29 @@ pub fn Splitter(edge: Edge, state: LayoutState) -> impl IntoView {
             let _ = document()
                 .body()
                 .map(|b| b.class_list().remove_2("drag-x", "drag-y"));
-            state.save();
+            state.change(|_| ());
         }
     };
-    let region = match edge {
-        Edge::Explorer => Region::Explorer,
-        Edge::Aux => Region::Aux,
-        Edge::Panel => Region::Panel,
-    };
-    let hidden = move || {
-        let l = state.lay.get();
-        match region {
-            Region::Explorer => l.hide_ex,
-            Region::Aux => l.hide_aux,
-            Region::Panel => l.hide_panel,
-        }
+    let collapse = move |_| match edge {
+        Edge::Files => state.toggle_files(),
+        Edge::Inspector => state.close(),
+        Edge::Terminal => state.toggle_term(),
     };
     view! {
         <div
             class="split"
             data-dir=if horizontal { "x" } else { "y" }
-            data-collapsed=move || hidden().to_string()
+            data-edge=match edge {
+                Edge::Files => "files",
+                Edge::Inspector => "inspector",
+                Edge::Terminal => "terminal",
+            }
             title="拖动调整大小，双击收起"
             on:pointerdown=down
             on:pointermove=mv
             on:pointerup=up
             on:pointercancel=up
-            on:dblclick=move |_| state.toggle(region)
+            on:dblclick=collapse
         ></div>
     }
 }

@@ -20,7 +20,6 @@ pub use state::Chat;
 pub fn ChatPane(
     chat: Chat,
     tree_files: Signal<Vec<String>>,
-    on_hide: Callback<()>,
     draft: RwSignal<Option<String>>,
 ) -> impl IntoView {
     let bus = use_bus();
@@ -314,14 +313,6 @@ pub fn ChatPane(
                 on:click=move |_| chat.new_chat()
                 inner_html=r#"<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>"#
             ></button>
-            <button
-                class="laybtn"
-                aria-label="隐藏"
-                title="隐藏 ⌘⌥B"
-                on:click=move |_| on_hide.run(())
-            >
-                "×"
-            </button>
         </div>
         <div class="chat-body">
             <super::children::ChildrenPanel id=chat.ws_id() />

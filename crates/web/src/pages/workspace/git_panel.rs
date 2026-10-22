@@ -5,6 +5,8 @@ use wasm_bindgen::JsCast;
 
 use crate::api::{self, GitStatus, PrDetail};
 use crate::components::dialog::{self, Choice};
+use crate::components::empty::Blank;
+use crate::components::icon;
 use crate::components::menu::menu_keydown;
 use crate::components::status::{EmptyState, InlineError, LoadingState, Status, Tone};
 use crate::components::toast::toast;
@@ -779,11 +781,15 @@ pub fn GitView(git: Git, files: Files, draft: RwSignal<Option<String>>) -> impl 
                 }
                 Some(g) if !g.repo => {
                     view! {
-                        <EmptyState title=if g.reason.is_empty() {
-                            "当前目录不是 Git 仓库".to_owned()
-                        } else {
-                            g.reason.clone()
-                        } />
+                        <Blank
+                            icon=icon::BRANCH
+                            title=if g.reason.is_empty() {
+                                "当前目录不是 Git 仓库".to_owned()
+                            } else {
+                                g.reason.clone()
+                            }
+                            inset=true
+                        />
                     }
                         .into_any()
                 }

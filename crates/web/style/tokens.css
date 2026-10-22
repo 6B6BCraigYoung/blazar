@@ -201,7 +201,7 @@
   --page-max: 1200px;
   --page-max-wide: 1480px;
   --measure: 742px;
-  --chat-measure: 680px;
+  --chat-measure: 720px;
   --page-gutter: clamp(20px, 3.82vw, 56px);
   --page-top: clamp(20px, 2.36vw, 36px);
 
