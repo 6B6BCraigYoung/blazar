@@ -165,6 +165,15 @@ impl AppData {
         })
     }
 
+    pub fn node_unreachable(self, node: &str) -> bool {
+        node != "local"
+            && self.state.with(|s| {
+                s.as_ref()
+                    .and_then(|s| s.nodes.iter().find(|n| n.name == node))
+                    .is_some_and(|n| n.status != "online")
+            })
+    }
+
     pub fn nodes(self) -> Vec<blazar_core_types::api::NodeView> {
         self.state
             .with(|s| s.as_ref().map(|s| s.nodes.clone()).unwrap_or_default())

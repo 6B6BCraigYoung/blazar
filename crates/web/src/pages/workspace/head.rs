@@ -74,14 +74,7 @@ fn WsStatus(id: String, failed: Signal<bool>) -> impl IntoView {
     let app = use_app();
     let shown = Memo::new(move |_| {
         let w = app.workspace(&id);
-        let offline = w.as_ref().is_some_and(|w| {
-            w.node != "local"
-                && app
-                    .nodes()
-                    .iter()
-                    .find(|n| n.name == w.node)
-                    .is_some_and(|n| n.status != "online")
-        });
+        let offline = w.as_ref().is_some_and(|w| app.node_unreachable(&w.node));
         if failed.get() || offline {
             return ("连不上", Tone::Failed, Some(Jump::Error));
         }
