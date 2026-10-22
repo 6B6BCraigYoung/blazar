@@ -521,6 +521,16 @@ def seed_rows(db):
     ]
     add_session(db, did(12, 1), WS["nebula-web"], ago(minutes=3), "claude_cli", "暗色模式按钮对比度", did(12, 1), "done", nebula, AGENTS["backend"])
 
+    c = Clock(ago(minutes=2))
+    retry = {"type": "api_retry", "max_retries": 10, "status": 529, "error": "server_error"}
+    orbit = [
+        (c.tick(0), {"type": "session_started", "provider_session_id": "demo-retry", "model": "claude-opus-5-5", "cwd": str(DEMO / "orbit-docs"), "permission_mode": "default"}, None),
+        (c.tick(1), {"type": "user_message", "text": "给部署文档补一节回滚步骤"}, None),
+        (c.tick(3), dict(retry, attempt=1, delay_ms=1000), None),
+        (c.tick(2), dict(retry, attempt=2, delay_ms=4000), None),
+    ]
+    add_session(db, did(12, 3), WS["orbit-docs"], ago(minutes=2), "claude_cli", "补充回滚步骤", did(12, 3), "done", orbit, AGENTS["writer"])
+
     c = Clock(ago(minutes=6))
     req = {"tool_name": "Bash", "input": {"command": "python train.py --config configs/base.yaml --steps 200", "description": "冒烟训练 200 步"}, "tool_use_id": "toolu_demo_appr"}
     quasar = [
