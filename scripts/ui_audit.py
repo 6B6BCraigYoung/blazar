@@ -396,9 +396,23 @@ def clean(db):
     db.execute("DELETE FROM nodes WHERE id = ? OR name = ?", (NODE_ID, NODE))
 
 
-def seed():
+def stopped():
     if subprocess.run(["pgrep", "-f", "Blazar Dev.app/Contents/MacOS/blazar-desktop"], stdout=subprocess.DEVNULL).returncode == 0:
         sys.exit("开发实例还在运行，先 scripts/dev-instance.sh stop")
+
+
+def unseed():
+    stopped()
+    db = sqlite3.connect(DB)
+    db.execute("PRAGMA foreign_keys = ON")
+    with db:
+        clean(db)
+    db.close()
+    print(f"演示数据已从 {DB} 清掉")
+
+
+def seed():
+    stopped()
     make_repos()
     db = sqlite3.connect(DB)
     db.execute("PRAGMA foreign_keys = ON")
@@ -739,6 +753,7 @@ def theme(value):
 ESC = {"action": "key", "key": "Escape", "optional": True}
 CLOSE_FILE = {"action": "click", "selector": "[aria-label=\"关闭 src/atlas/routes/users.py\"]", "optional": True}
 RESTORE = {"action": "click", "selector": "button[title=\"还原面板\"]", "optional": True}
+PV_MENU = {"action": "click", "selector": "button[aria-label=\"预览更多操作\"]"}
 
 ROUTES = [
     ("home", "/", "工作区列表（全部）"),
@@ -857,8 +872,9 @@ def workspace_parts():
         ("preview-max", w, "预览面板放大（⤢）",
          (wait, {"action": "click", "text": "预览"}, {"action": "wait", "ms": 400},
           {"action": "type", "selector": "input[aria-label=\"预览地址\"]", "value": "http://localhost:18731/", "submit": True},
-          {"action": "wait", "ms": 1200}, {"action": "click", "text": "⤢"}, {"action": "wait", "ms": 800},
-          dict(RESTORE, after=True)), False),
+          {"action": "wait", "ms": 1200}, dict(PV_MENU), {"action": "click", "text": "最大化面板"},
+          {"action": "wait", "ms": 800}, dict(PV_MENU, after=True, optional=True),
+          {"action": "click", "text": "还原面板", "after": True, "optional": True}), False),
     ]
 
 
@@ -867,9 +883,7 @@ def shots(out, round_name):
     ui({"action": "init"})
     vp = viewport()
     if vp["dpr"] != "2":
-        warn = f"devicePixelRatio 是 {vp['dpr']}，窗口可能不在点亮的显示器上，动画和对话框可能截不全"
-        print(f"  ! {warn}", file=sys.stderr)
-        sh.issues.append(f"全部\t显示\t{warn}")
+        sys.exit(f"devicePixelRatio 是 {vp['dpr']}，不是 2：窗口可能不在点亮的 Retina 显示器上，先处理再拍")
     state, items = plan(round_name)
     spawned = []
     preview = None
@@ -941,12 +955,14 @@ def main():
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
     if cmd == "seed":
         seed()
+    elif cmd == "clean":
+        unseed()
     elif cmd == "shots" and len(sys.argv) == 4 and sys.argv[3] in ("empty", "data"):
         shots(sys.argv[2], sys.argv[3])
     elif cmd == "index" and len(sys.argv) == 3:
         index(Path(sys.argv[2]))
     else:
-        sys.exit("用法：ui_audit.py seed | shots <目录> empty|data | index <目录>")
+        sys.exit("用法：ui_audit.py seed | clean | shots <目录> empty|data | index <目录>")
 
 
 if __name__ == "__main__":
