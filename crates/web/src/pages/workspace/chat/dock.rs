@@ -109,6 +109,7 @@ fn ApprovalCard(chat: Chat, p: Pending) -> impl IntoView {
         }
     };
     let (labels, ph) = chat_model::approval_choices(plan);
+    let n_opts = labels.len();
     let pick = {
         let yes = yes.clone();
         let req = r.clone();
@@ -122,6 +123,7 @@ fn ApprovalCard(chat: Chat, p: Pending) -> impl IntoView {
         }
     };
     let pick2 = pick.clone();
+    let sel = RwSignal::new(0usize);
 
     let keys = move |e: ev::KeyboardEvent| {
         let Some(card) = root.try_get_untracked().flatten() else {
@@ -139,17 +141,14 @@ fn ApprovalCard(chat: Chat, p: Pending) -> impl IntoView {
             items.push(i.clone());
         }
         let active = document().active_element();
-        let pos = |a: &Option<web_sys::Element>| {
-            a.as_ref()
-                .and_then(|a| items.iter().position(|x| x.is_same_node(Some(a))))
-        };
         let in_text = inp
             .as_ref()
             .is_some_and(|i| active.as_ref().is_some_and(|a| i.is_same_node(Some(a))));
         let step = |d: i32| {
             let n = items.len() as i32;
-            let i = pos(&active).map_or(0, |i| (i as i32 + d).rem_euclid(n));
-            let _ = items[i as usize].focus();
+            let i = (sel.get_untracked() as i32 + d).rem_euclid(n) as usize;
+            sel.set(i);
+            let _ = items[i].focus();
         };
         if in_text {
             match e.key().as_str() {
@@ -187,17 +186,13 @@ fn ApprovalCard(chat: Chat, p: Pending) -> impl IntoView {
                 e.prevent_default();
                 step(d);
             }
-            Some(ApprovalKey::Confirm) => match pos(&active) {
-                Some(i) if i < opts.len() => {
+            Some(ApprovalKey::Confirm) => {
+                let i = sel.get_untracked();
+                if i < opts.len() {
                     e.prevent_default();
                     pick2(i);
                 }
-                Some(_) => {}
-                None => {
-                    e.prevent_default();
-                    pick2(0);
-                }
-            },
+            }
             None => {}
         }
     };
@@ -318,7 +313,13 @@ fn ApprovalCard(chat: Chat, p: Pending) -> impl IntoView {
                     .map(|(i, l)| {
                         let pick = pick.clone();
                         view! {
-                            <button class="aopt" on:click=move |_| pick(i)>
+                            <button
+                                class="aopt"
+                                data-sel=move || (sel.get() == i).to_string()
+                                on:focus=move |_| sel.set(i)
+                                on:mouseenter=move |_| sel.set(i)
+                                on:click=move |_| pick(i)
+                            >
                                 <span class="ak">{format!("{}.", i + 1)}</span>
                                 {l}
                             </button>
@@ -329,6 +330,7 @@ fn ApprovalCard(chat: Chat, p: Pending) -> impl IntoView {
                     class="areject"
                     aria-label="告诉 Claude 换个做法"
                     placeholder=ph
+                    on:focus=move |_| sel.set(n_opts)
                     prop:value=move || reject.get()
                     on:input=move |e| reject.set(event_target_value(&e))
                 />

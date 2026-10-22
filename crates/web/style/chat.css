@@ -316,8 +316,9 @@
 .aopt { all: unset; cursor: pointer; box-sizing: border-box; display: flex; align-items: center; gap: var(--space-md); padding: var(--space-icon) var(--space-md); border-radius: var(--r-sm); font-size: var(--font-size-label-readable); color: var(--fg); }
 .aopt::before { content: ""; width: 10px; flex: 0 0 auto; color: var(--appr-tone); }
 .aopt:hover { background: var(--bg-hover); }
-.aopt:focus { background: var(--appr-tint); outline: none; }
-.aopt:focus::before { content: "❯"; }
+.aopt:focus { outline: none; }
+.aopt[data-sel="true"] { background: var(--appr-tint); }
+.aopt[data-sel="true"]::before { content: "❯"; }
 .cc-ask .aopt.primary { background: var(--appr-tint); }
 .ak { min-width: 16px; text-align: center; font: var(--font-size-caption) var(--font-mono); color: var(--fg-4); }
 .areject, .askother { margin-top: var(--space-xs); height: 28px; padding: 0 var(--space-control); border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--bg-canvas); color: var(--fg); font: var(--font-size-label-readable) var(--font-sans); outline: none; }
