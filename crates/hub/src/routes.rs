@@ -104,6 +104,7 @@ pub fn build_router(st: Arc<AppState>) -> Router {
         )
         .route("/api/nodes", get(api::list_nodes))
         .route("/api/workspaces/isolated", post(api::create_isolated))
+        .route("/api/workspaces/clone", post(api::clone_workspace))
         .route("/api/workspaces/{id}/push", post(api::push_workspace))
         .route("/api/nodes/{name}/branches", get(api::list_branches))
         .route("/api/nodes/{name}/leftovers", get(api::node_leftovers))
@@ -126,7 +127,10 @@ pub fn build_router(st: Arc<AppState>) -> Router {
         .route("/api/tasks/{id}/comments", post(tasks::comment))
         .route("/api/checkpoints/{id}/restore", post(checkpoint::restore))
         .route("/api/nodes/{name}/sweep", post(api::sweep_node))
-        .route("/api/workspaces/{id}", delete(api::delete_workspace))
+        .route(
+            "/api/workspaces/{id}",
+            delete(api::delete_workspace).patch(api::update_workspace),
+        )
         .route("/api/workspaces/{id}/pause", post(api::pause_workspace))
         .route("/api/workspaces/{id}/resume", post(api::resume_workspace))
         .route("/api/workspaces/{id}/commit", post(api::commit_workspace))

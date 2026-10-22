@@ -9,30 +9,31 @@ pub struct CreateWorkspace {
     pub project: Option<String>,
 }
 
-pub async fn create_workspace(
-    State(st): State<Shared>,
-    Json(req): Json<CreateWorkspace>,
-) -> ApiResult<Json<serde_json::Value>> {
-    let now = Utc::now().to_rfc3339();
+async fn ensure_node(st: &AppState, node: &str, now: &str) -> ApiResult<String> {
     let pool = st.db.pool();
-
     sqlx::query(
         "INSERT INTO nodes (id, name, transport, status, created_at)
          VALUES (?1, ?2, ?3, 'online', ?4) ON CONFLICT (name) DO NOTHING",
     )
     .bind(blazar_core_types::NodeId::new().to_string())
-    .bind(&req.node)
-    .bind(if req.node == "local" { "local" } else { "ssh" })
-    .bind(&now)
+    .bind(node)
+    .bind(if node == "local" { "local" } else { "ssh" })
+    .bind(now)
     .execute(pool)
     .await?;
-
-    let node_id: String = sqlx::query_scalar("SELECT id FROM nodes WHERE name = ?1")
-        .bind(&req.node)
+    Ok(sqlx::query_scalar("SELECT id FROM nodes WHERE name = ?1")
+        .bind(node)
         .fetch_one(pool)
-        .await?;
+        .await?)
+}
 
-    let project_id: Option<String> = match &req.project {
+async fn project_id_of(
+    st: &AppState,
+    project: Option<&str>,
+    now: &str,
+) -> ApiResult<Option<String>> {
+    let pool = st.db.pool();
+    match project {
         Some(name) if !name.trim().is_empty() => {
             sqlx::query(
                 "INSERT INTO projects (id, name, created_at) VALUES (?1, ?2, ?3)
@@ -40,25 +41,37 @@ pub async fn create_workspace(
             )
             .bind(blazar_core_types::ProjectId::new().to_string())
             .bind(name)
-            .bind(&now)
+            .bind(now)
             .execute(pool)
             .await?;
-            sqlx::query_scalar("SELECT id FROM projects WHERE name = ?1")
-                .bind(name)
-                .fetch_optional(pool)
-                .await?
+            Ok(
+                sqlx::query_scalar("SELECT id FROM projects WHERE name = ?1")
+                    .bind(name)
+                    .fetch_optional(pool)
+                    .await?,
+            )
         }
-        _ => None,
-    };
+        _ => Ok(None),
+    }
+}
 
-    let name = req.name.clone().unwrap_or_else(|| {
-        req.path
-            .trim_end_matches('/')
-            .rsplit('/')
-            .next()
-            .unwrap_or(&req.path)
-            .to_owned()
-    });
+fn folder_name(path: &str) -> &str {
+    path.trim_end_matches('/')
+        .rsplit('/')
+        .next()
+        .filter(|n| !n.is_empty())
+        .unwrap_or(path)
+}
+
+async fn insert_workspace(st: &AppState, req: &CreateWorkspace) -> ApiResult<String> {
+    let now = Utc::now().to_rfc3339();
+    let pool = st.db.pool();
+    let node_id = ensure_node(st, &req.node, &now).await?;
+    let project_id = project_id_of(st, req.project.as_deref(), &now).await?;
+    let name = req
+        .name
+        .clone()
+        .unwrap_or_else(|| folder_name(&req.path).to_owned());
 
     sqlx::query(
         "INSERT INTO workspaces (id, project_id, node_id, name, path, created_at)
@@ -80,9 +93,175 @@ pub async fn create_workspace(
         .bind(&req.path)
         .fetch_one(pool)
         .await?;
+    st.emit(ServerEvent::WorkspacesChanged);
+    Ok(id)
+}
 
+pub async fn create_workspace(
+    State(st): State<Shared>,
+    Json(req): Json<CreateWorkspace>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let id = insert_workspace(&st, &req).await?;
+    Ok(Json(serde_json::json!({ "id": id })))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateWorkspace {
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub project: Option<String>,
+}
+
+pub async fn update_workspace(
+    State(st): State<Shared>,
+    Path(id): Path<String>,
+    Json(req): Json<UpdateWorkspace>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let now = Utc::now().to_rfc3339();
+    let pool = st.db.pool();
+    locate(&st, &id).await?;
+    if let Some(name) = req.name.as_deref().map(str::trim) {
+        if name.is_empty() {
+            return Err(ApiError::bad_request("名称不能为空"));
+        }
+        sqlx::query("UPDATE workspaces SET name = ?2 WHERE id = ?1")
+            .bind(&id)
+            .bind(name)
+            .execute(pool)
+            .await?;
+    }
+    if let Some(project) = req.project.as_deref() {
+        let project_id = project_id_of(&st, Some(project), &now).await?;
+        sqlx::query("UPDATE workspaces SET project_id = ?2 WHERE id = ?1")
+            .bind(&id)
+            .bind(&project_id)
+            .execute(pool)
+            .await?;
+    }
     st.emit(ServerEvent::WorkspacesChanged);
     Ok(Json(serde_json::json!({ "id": id })))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CloneWorkspace {
+    pub url: String,
+    #[serde(default)]
+    pub node: Option<String>,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub project: Option<String>,
+}
+
+const CLONE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
+
+#[must_use]
+pub fn looks_like_git_url(text: &str) -> bool {
+    let t = text.trim();
+    if t.is_empty()
+        || t.chars()
+            .any(|c| c.is_whitespace() || c.is_control() || c == '\'' || c == '"')
+    {
+        return false;
+    }
+    let scheme = ["https://", "http://", "ssh://", "git://", "git@"]
+        .iter()
+        .any(|p| t.starts_with(p));
+    (scheme && t.len() > 12) || t.ends_with(".git")
+}
+
+#[must_use]
+pub fn repo_name(url: &str) -> Option<String> {
+    let tail = url
+        .trim()
+        .trim_end_matches('/')
+        .rsplit(['/', ':'])
+        .next()?
+        .trim_end_matches(".git");
+    let name: String = tail
+        .chars()
+        .filter(|c| c.is_alphanumeric() || matches!(c, '-' | '_' | '.'))
+        .collect();
+    Some(name.trim_matches('.').to_owned()).filter(|n| !n.is_empty())
+}
+
+fn clone_script(url: &str, name: &str) -> String {
+    format!(
+        r#"set -e
+if [ "$(uname)" = Darwin ]; then root="$HOME/Developer"; else root="$HOME/Projects"; fi
+mkdir -p "$root"
+dest="$root/{name}"
+if [ -e "$dest" ]; then echo "EXISTS $dest"; exit 3; fi
+git clone --quiet -- {url} "$dest"
+cd "$dest" && pwd -P"#,
+        url = blazar_transport::shell_quote(url),
+        name = blazar_transport::shell_quote(name),
+    )
+}
+
+pub async fn clone_workspace(
+    State(st): State<Shared>,
+    Json(req): Json<CloneWorkspace>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let url = req.url.trim().to_owned();
+    if !looks_like_git_url(&url) {
+        return Err(ApiError::bad_request("这不像一个 Git 地址"));
+    }
+    let name = req
+        .name
+        .as_deref()
+        .map(str::trim)
+        .filter(|n| !n.is_empty())
+        .map(str::to_owned)
+        .or_else(|| repo_name(&url))
+        .ok_or_else(|| ApiError::bad_request("从地址里看不出仓库名"))?;
+    let node = req.node.clone().unwrap_or_else(|| "local".to_owned());
+    let spec = blazar_transport::ExecSpec::new("bash")
+        .arg("-lc")
+        .arg(clone_script(&url, &name));
+    let out = tokio::time::timeout(
+        CLONE_TIMEOUT,
+        blazar_transport::NodeTransport::exec(&*st.transport(&node), spec),
+    )
+    .await
+    .map_err(|_| ApiError::bad_request("克隆超过 10 分钟还没完成，已放弃"))??;
+    if out.code != 0 {
+        let tail = out.stdout.trim();
+        if let Some(existing) = tail.strip_prefix("EXISTS ") {
+            return Err(ApiError::bad_request(format!(
+                "文件夹已存在：{existing}。要用它的话，请直接选择这个文件夹"
+            )));
+        }
+        let why = out.stderr.lines().last().unwrap_or("").trim();
+        return Err(ApiError::bad_request(format!(
+            "克隆失败{}",
+            if why.is_empty() {
+                String::new()
+            } else {
+                format!("：{why}")
+            }
+        )));
+    }
+    let path = out
+        .stdout
+        .lines()
+        .last()
+        .map(str::trim)
+        .filter(|p| p.starts_with('/'))
+        .ok_or_else(|| ApiError::bad_request("克隆完成，但没拿到目录位置"))?
+        .to_owned();
+    let id = insert_workspace(
+        &st,
+        &CreateWorkspace {
+            node,
+            path: path.clone(),
+            name: Some(name),
+            project: req.project.clone(),
+        },
+    )
+    .await?;
+    Ok(Json(serde_json::json!({ "id": id, "path": path })))
 }
 
 pub async fn delete_workspace(
@@ -833,5 +1012,58 @@ mod tests {
         .unwrap();
         assert_eq!(current.expect_mtime, None);
         assert_eq!(current.expect_version.as_deref(), Some(version.as_str()));
+    }
+
+    #[test]
+    fn repository_names_come_from_the_last_path_segment() {
+        assert_eq!(
+            repo_name("https://github.com/acme/atlas-api.git").as_deref(),
+            Some("atlas-api")
+        );
+        assert_eq!(
+            repo_name("git@github.com:acme/nebula_web").as_deref(),
+            Some("nebula_web")
+        );
+        assert_eq!(
+            repo_name("ssh://git@host:2222/team/orbit.docs.git/").as_deref(),
+            Some("orbit.docs")
+        );
+        assert_eq!(repo_name("https://host/").as_deref(), Some("host"));
+        assert_eq!(repo_name("https://"), None);
+    }
+
+    #[test]
+    fn only_plain_git_addresses_are_accepted() {
+        for ok in [
+            "https://github.com/acme/atlas-api.git",
+            "git@github.com:acme/atlas-api.git",
+            "ssh://git@host/team/repo",
+            "/srv/git/local.git",
+        ] {
+            assert!(looks_like_git_url(ok), "{ok}");
+        }
+        for bad in [
+            "",
+            "atlas-api",
+            "https://x",
+            "git clone https://a/b",
+            "https://a/b'; rm -rf /",
+        ] {
+            assert!(!looks_like_git_url(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn the_clone_script_quotes_the_address_and_lands_under_the_home_folder() {
+        let script = clone_script("https://github.com/acme/atlas-api.git", "atlas-api");
+        assert!(
+            script
+                .contains("git clone --quiet -- 'https://github.com/acme/atlas-api.git' \"$dest\"")
+        );
+        assert!(script.contains("$HOME/Developer"));
+        assert!(script.contains("$HOME/Projects"));
+        assert!(script.contains("dest=\"$root/'atlas-api'\""));
+        assert_eq!(folder_name("/home/me/app/"), "app");
+        assert_eq!(folder_name("/"), "/");
     }
 }
