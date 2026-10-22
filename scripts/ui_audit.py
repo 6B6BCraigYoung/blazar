@@ -755,8 +755,17 @@ def theme(value):
 TOAST_GONE = {"action": "wait", "selector": ".toasts .toast", "gone": True, "timeout_ms": 6000}
 ESC = {"action": "key", "key": "Escape", "optional": True}
 CLOSE_FILE = {"action": "click", "selector": "[aria-label=\"关闭 src/atlas/routes/users.py\"]", "optional": True}
-RESTORE = {"action": "click", "selector": "button[title=\"还原面板\"]", "optional": True}
-PV_MENU = {"action": "click", "selector": "button[aria-label=\"预览更多操作\"]"}
+RESTORE = {"action": "click", "selector": "button[aria-label=\"还原检查器\"]", "optional": True}
+CLOSE_INSPECTOR = {"action": "click", "selector": "button[aria-label=\"关闭检查器\"]", "optional": True}
+OPEN_FILES = {"action": "click", "selector": ".ws-head button[aria-label=\"文件\"][aria-pressed=\"false\"]", "optional": True}
+CLOSE_FILES = {"action": "click", "selector": "button[aria-label=\"收起文件\"]", "optional": True}
+CLOSE_TERM = {"action": "click", "selector": "button[aria-label=\"收起终端\"]", "optional": True}
+PREVIEW_KEY = {"action": "key", "key": "P", "code": "KeyP", "meta": True, "shift": True, "selector": "body"}
+CHANGES = {"action": "click", "selector": "button.ws-changes"}
+
+
+def calm(*after):
+    return tuple(dict(step, after=True) if after else dict(step) for step in (RESTORE, CLOSE_FILE, CLOSE_INSPECTOR, CLOSE_FILES, CLOSE_TERM))
 
 ROUTES = [
     ("home", "/", "工作区列表（全部）"),
@@ -813,7 +822,7 @@ def plan(round_name):
     ws_rows = db_rows("SELECT id, name FROM workspaces ORDER BY created_at")
     for wid, name in ws_rows:
         items.append((f"workspace-{slugify(name)}", f"/w/{wid}", f"工作区页：{name}",
-                      ({"action": "wait", "ms": 800}, dict(RESTORE), dict(CLOSE_FILE)), False))
+                      ({"action": "wait", "ms": 800}, *calm()), False))
     if round_name == "data":
         items += detail_pages()
         items += workspace_parts()
@@ -848,7 +857,8 @@ def detail_pages():
     for (name,) in db_rows("SELECT name FROM projects WHERE id LIKE ? ORDER BY name", (PREFIX + "%",)):
         items.append((f"project-{slugify(name)}", f"/project/{name}", f"项目详情：{name}", (), True))
     items.append(("tree-menu", f"/w/{WS['atlas-api']}", "文件树的右键菜单",
-                  ({"action": "wait", "ms": 800}, {"action": "context_menu", "selector": "button.tn[title=\"README.md\"]"}), False))
+                  ({"action": "wait", "ms": 800}, *calm(), dict(OPEN_FILES), {"action": "wait", "ms": 400},
+                   {"action": "context_menu", "selector": "button.tn[title=\"README.md\"]"}, *calm(True)), False))
     return items
 
 
@@ -856,28 +866,30 @@ def workspace_parts():
     w = f"/w/{WS['atlas-api']}"
     log = ".cc-log"
     wait = {"action": "wait", "ms": 900}
-    close = dict(CLOSE_FILE)
+    reset = calm()
+    after = calm(True)
+    url = {"action": "type", "selector": "input[aria-label=\"预览地址\"]", "value": "http://localhost:18731/", "submit": True}
     return [
-        ("chat-bottom", w, "对话区底部（长对话，最后一轮）", (wait, close, {"action": "scroll", "selector": log, "top": "end", "settle_ms": 600}), False),
+        ("chat-bottom", w, "对话区底部（长对话，最后一轮）", (wait, *reset, {"action": "scroll", "selector": log, "top": "end", "settle_ms": 600}), False),
         ("chat-middle", w, "对话区中段（子智能体、diff、长代码块、表格）",
-         (wait, close, {"action": "scroll", "selector": log, "top": "start", "settle_ms": 800}, {"action": "scroll", "selector": log, "top": "start", "settle_ms": 800},
+         (wait, *reset, {"action": "scroll", "selector": log, "top": "start", "settle_ms": 800}, {"action": "scroll", "selector": log, "top": "start", "settle_ms": 800},
           {"action": "scroll_mid", "selector": log}), False),
         ("chat-top", w, "对话区顶部（第一轮用户消息、思考、待办）",
-         (wait, close, {"action": "scroll", "selector": log, "top": "start", "settle_ms": 800}, {"action": "scroll", "selector": log, "top": "start", "settle_ms": 800}), False),
-        ("file-open", w, "文件树 + 打开 src/atlas/routes/users.py",
-         (wait, {"action": "click", "selector": "button.tn[title=\"src/atlas/routes/users.py\"]"},
-          {"action": "wait", "ms": 900}, dict(CLOSE_FILE, after=True)), False),
-        ("diff", w, "底部面板「差异」视图", (wait, {"action": "click", "text": "差异", "partial": True}, {"action": "wait", "ms": 900}), False),
-        ("preview", w, "底部面板「预览」（本地 http.server 提供 public/index.html）",
-         (wait, {"action": "click", "text": "预览"}, {"action": "wait", "ms": 400},
-          {"action": "type", "selector": "input[aria-label=\"预览地址\"]", "value": "http://localhost:18731/", "submit": True},
-          {"action": "wait", "ms": 1500}), False),
-        ("preview-max", w, "预览面板放大（⤢）",
-         (wait, {"action": "click", "text": "预览"}, {"action": "wait", "ms": 400},
-          {"action": "type", "selector": "input[aria-label=\"预览地址\"]", "value": "http://localhost:18731/", "submit": True},
-          {"action": "wait", "ms": 1200}, dict(PV_MENU), {"action": "click", "text": "最大化面板"},
-          {"action": "wait", "ms": 800}, dict(PV_MENU, after=True, optional=True),
-          {"action": "click", "text": "还原面板", "after": True, "optional": True}), False),
+         (wait, *reset, {"action": "scroll", "selector": log, "top": "start", "settle_ms": 800}, {"action": "scroll", "selector": log, "top": "start", "settle_ms": 800}), False),
+        ("files-drawer", w, "左侧文件抽屉（⌘B）", (wait, *reset, dict(OPEN_FILES), {"action": "wait", "ms": 600}, *after), False),
+        ("file-open", w, "从文件抽屉打开 src/atlas/routes/users.py，检查器「编辑器」",
+         (wait, *reset, dict(OPEN_FILES), {"action": "wait", "ms": 400},
+          {"action": "click", "selector": "button.tn[title=\"src/atlas/routes/users.py\"]"}, {"action": "wait", "ms": 900}, *after), False),
+        ("diff", w, "检查器「更改 → 差异」", (wait, *reset, dict(CHANGES), {"action": "wait", "ms": 900}, *after), False),
+        ("git", w, "检查器「更改 → Git」",
+         (wait, *reset, dict(CHANGES), {"action": "click", "selector": ".insp-sub button:last-child"}, {"action": "wait", "ms": 900}, *after), False),
+        ("terminal", w, "底部终端抽屉（⌘J）",
+         (wait, *reset, {"action": "key", "key": "J", "code": "KeyJ", "meta": True, "selector": "body"}, {"action": "wait", "ms": 900}, *after), False),
+        ("preview", w, "检查器「预览」（本地 http.server 提供 public/index.html）",
+         (wait, *reset, dict(PREVIEW_KEY), {"action": "wait", "ms": 400}, url, {"action": "wait", "ms": 1500}, *after), False),
+        ("preview-max", w, "检查器放大后的预览",
+         (wait, *reset, dict(PREVIEW_KEY), {"action": "wait", "ms": 400}, url, {"action": "wait", "ms": 1200},
+          {"action": "click", "selector": "button[aria-label=\"放大检查器\"]"}, {"action": "wait", "ms": 800}, *after), False),
     ]
 
 
