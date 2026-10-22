@@ -243,6 +243,10 @@ pub async fn list(State(st): State<Shared>, Query(q): Query<ListQuery>) -> Respo
     .fetch_one(st.db.pool())
     .await
     .unwrap_or(0);
+    let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM inbox")
+        .fetch_one(st.db.pool())
+        .await
+        .unwrap_or(0);
     let items: Vec<Value> = rows
         .iter()
         .map(|r| {
@@ -256,7 +260,7 @@ pub async fn list(State(st): State<Shared>, Query(q): Query<ListQuery>) -> Respo
             })
         })
         .collect();
-    Json(json!({ "unread": unread, "items": items })).into_response()
+    Json(json!({ "unread": unread, "total": total, "items": items })).into_response()
 }
 
 pub async fn unread(st: &Shared) -> i64 {

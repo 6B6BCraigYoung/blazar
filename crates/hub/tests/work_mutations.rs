@@ -274,3 +274,32 @@ async fn frontend_panics_are_accepted_for_the_log() {
         .unwrap();
     assert_eq!(res.status(), StatusCode::NO_CONTENT);
 }
+
+#[tokio::test]
+async fn the_inbox_total_counts_read_and_archived_items_too() {
+    let (_dir, state, app) = fixture().await;
+    sqlx::query(
+        "INSERT INTO inbox (id, kind, title, body, created_at, read_at, archived_at)
+         VALUES ('a', 'run_done', 'done', '', '0', '0', '0')",
+    )
+    .execute(state.db.pool())
+    .await
+    .unwrap();
+    let res = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/inbox?filter=unread")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let body = http_body_util::BodyExt::collect(res.into_body())
+        .await
+        .unwrap()
+        .to_bytes();
+    let v = serde_json::from_slice::<Value>(&body).unwrap();
+    assert_eq!(v["items"].as_array().map(Vec::len), Some(0));
+    assert_eq!(v["unread"], 0);
+    assert_eq!(v["total"], 1);
+}
