@@ -40,7 +40,9 @@
 @keyframes ccfade { from { opacity: 0; } to { opacity: 1; } }
 
 .cc-user { position: sticky; top: -14px; z-index: var(--layer-chat-sticky); margin: var(--space-xs) 0 var(--space-lg); padding: var(--inset-chat-message); border: 0; border-radius: var(--r-lg); background: var(--bg-raised); box-shadow: var(--shadow-card); }
-.cc-user[data-stuck] { border-radius: 0; background: var(--bg-canvas); box-shadow: none; }
+.cc-user[data-stuck] { margin-bottom: calc(var(--space-lg) + var(--stuck-gap, 0px)); border-radius: 0; background: var(--bg-canvas); box-shadow: none; cursor: pointer; }
+.cc-user[data-stuck] .cc-ut { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; max-height: none; overflow: hidden; text-overflow: ellipsis; -webkit-mask-image: none; mask-image: none; }
+.cc-user[data-stuck] .cc-xp, .cc-user[data-stuck] .cc-acts { display: none; }
 .cc-user[data-stuck]::before { content: ""; position: absolute; z-index: -1; inset: -14px -100vw 0; background: var(--bg-canvas); border-bottom: 1px solid var(--line); }
 .cc-user .cc-ut { white-space: pre-wrap; word-break: break-word; color: var(--fg); }
 .cc-user[data-long="true"]:not([data-open="true"]) .cc-ut { max-height: 7.5em; overflow: hidden; -webkit-mask-image: linear-gradient(var(--mask-opaque) 60%, transparent); mask-image: linear-gradient(var(--mask-opaque) 60%, transparent); }

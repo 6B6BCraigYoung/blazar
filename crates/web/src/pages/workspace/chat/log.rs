@@ -704,6 +704,36 @@ fn UserMsg(
     view! {
         <div
             class="cc-user"
+            on:click=move |e: leptos::ev::MouseEvent| {
+                let Some(u) = e
+                    .target()
+                    .and_then(|t| t.dyn_into::<web_sys::Element>().ok())
+                    .and_then(|t| t.closest(".cc-user[data-stuck]").ok().flatten())
+                else {
+                    return;
+                };
+                let on_control = e
+                    .target()
+                    .and_then(|t| t.dyn_into::<web_sys::Element>().ok())
+                    .is_some_and(|t| {
+                        t.closest("button, a, textarea").ok().flatten().is_some()
+                    });
+                if on_control {
+                    return;
+                }
+                let log = u
+                    .closest(".cc-log")
+                    .ok()
+                    .flatten()
+                    .and_then(|l| l.dyn_into::<web_sys::HtmlElement>().ok());
+                if let (Some(turn), Some(log)) = (u.closest(".cc-turn").ok().flatten(), log) {
+                    let opts = web_sys::ScrollIntoViewOptions::new();
+                    opts.set_block(web_sys::ScrollLogicalPosition::Start);
+                    turn.scroll_into_view_with_scroll_into_view_options(&opts);
+                    log.set_scroll_top(log.scroll_top() - 24);
+                    mark_stuck(&log);
+                }
+            }
             on:contextmenu=move |e: leptos::ev::MouseEvent| {
                 if editing.get_untracked() || (!first && cp.get_untracked().is_none()) {
                     return;
@@ -1180,15 +1210,21 @@ fn mark_stuck(log: &web_sys::HtmlElement) {
     for i in 0..list.length() {
         let Some(u) = list
             .item(i)
-            .and_then(|n| n.dyn_into::<web_sys::Element>().ok())
+            .and_then(|n| n.dyn_into::<web_sys::HtmlElement>().ok())
         else {
             continue;
         };
         let r = u.get_bounding_client_rect();
+        let stuck = u.has_attribute("data-stuck");
         if r.top() <= top + 0.5 && r.bottom() > top {
-            let _ = u.set_attribute("data-stuck", "true");
-        } else if u.has_attribute("data-stuck") {
+            if !stuck {
+                let _ = u.set_attribute("data-stuck", "true");
+                let gap = r.height() - u.get_bounding_client_rect().height();
+                let _ = u.style().set_property("--stuck-gap", &format!("{gap}px"));
+            }
+        } else if stuck {
             let _ = u.remove_attribute("data-stuck");
+            let _ = u.style().remove_property("--stuck-gap");
         }
     }
 }
