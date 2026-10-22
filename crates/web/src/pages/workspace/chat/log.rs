@@ -934,11 +934,27 @@ fn error_view(chat: Chat, text: String, by_account: bool) -> AnyView {
     };
     let can = by_account
         && super::state::ACC_RUNTIMES.contains(&untrack(move || chat.runtime()).as_str());
+    let (head, detail) = match text.split_once('\n') {
+        Some((h, d)) => (
+            h.to_owned(),
+            Some(d.trim().to_owned()).filter(|d| !d.is_empty()),
+        ),
+        None => (text, None),
+    };
     view! {
         <div class="cc-row cc-err">
             <span class="cc-dot"></span>
             <div class="cc-main">
-                {text}
+                {head}
+                {detail
+                    .map(|d| {
+                        view! {
+                            <details class="ui-detail">
+                                <summary>"详情"</summary>
+                                <pre>{d}</pre>
+                            </details>
+                        }
+                    })}
                 {can
                     .then(|| {
                         view! {
@@ -1008,6 +1024,13 @@ fn item_view(it: Item, chat: Chat, opened: Opened, ws: String) -> AnyView {
         .into_any(),
         Body::Meta { text, bad } => view! {
             <div class="cc-meta" class:bad=bad>
+                {text}
+            </div>
+        }
+        .into_any(),
+        Body::Retry { text } => view! {
+            <div class="cc-meta cc-retry" role="status">
+                <span class="dot" aria-hidden="true"></span>
                 {text}
             </div>
         }

@@ -203,6 +203,9 @@ pub enum Body {
         text: String,
         bad: bool,
     },
+    Retry {
+        text: String,
+    },
     Rewound {
         turns: usize,
         items: Vec<Item>,

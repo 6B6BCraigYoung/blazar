@@ -52,6 +52,29 @@ pub fn human_error(message: &str) -> String {
     }
 }
 
+fn retry_text(attempt: u32, max: u32, delay_ms: u64, status: Option<u16>, error: &str) -> String {
+    let why = match (status, error) {
+        (Some(529), _) | (_, "overloaded_error") => "服务繁忙",
+        (Some(429), _) | (_, "rate_limit") => "请求太频繁",
+        (Some(401), _) | (_, "authentication_failed") => "登录已失效",
+        (_, "billing_error") => "额度不足",
+        (Some(s), _) if s >= 500 => "服务出错了",
+        (_, "server_error") => "服务出错了",
+        _ => "请求没有成功",
+    };
+    let when = if delay_ms >= 1000 {
+        format!("{} 秒后自动重试", delay_ms.div_ceil(1000))
+    } else {
+        "正在自动重试".to_owned()
+    };
+    let round = if max > 0 {
+        format!("第 {attempt}/{max} 次")
+    } else {
+        format!("第 {attempt} 次")
+    };
+    format!("{why}，{when} · {round}")
+}
+
 pub(super) enum BStep {
     Thinking { text: String, secs: i64 },
     Tool(usize),
@@ -89,6 +112,9 @@ pub(super) enum BBody {
     Meta {
         text: String,
         bad: bool,
+    },
+    Retry {
+        text: String,
     },
     Rewound {
         turns: usize,
@@ -186,6 +212,7 @@ fn kind_name(k: &EntryKind) -> &'static str {
         EntryKind::RateLimit(_) => "rate_limit",
         EntryKind::Error { .. } => "error",
         EntryKind::Notice { .. } => "notice",
+        EntryKind::ApiRetry { .. } => "api_retry",
         EntryKind::BackgroundTask { .. } => "background_task",
         EntryKind::Finished(_) => "finished",
         EntryKind::Progress { .. } => "progress",
@@ -232,6 +259,7 @@ impl<'a> Builder<'a> {
     fn boundary(&mut self, row: usize) {
         if row > 0
             && !self.fold_open
+            && !self.retrying()
             && !self.in_rewound
             && self.running == 0
             && self.pending.is_empty()
@@ -294,6 +322,30 @@ impl<'a> Builder<'a> {
             }) => items,
             _ => unreachable!("上面刚确认过"),
         }
+    }
+
+    fn retrying(&self) -> bool {
+        matches!(
+            self.top.last(),
+            Some(BItem {
+                body: BBody::Retry { .. },
+                ..
+            })
+        )
+    }
+
+    fn drop_retry(&mut self) {
+        if self.in_rewound || !self.retrying() {
+            return;
+        }
+        self.top.pop();
+        self.fold_open = matches!(
+            self.top.last(),
+            Some(BItem {
+                body: BBody::Fold(_),
+                ..
+            })
+        );
     }
 
     fn push(&mut self, key: String, body: BBody) {
@@ -381,6 +433,9 @@ impl<'a> Builder<'a> {
                 | "approval"
         ) || matches!(&r.kind, EntryKind::AssistantMessage { text } if text.trim().is_empty())
             || matches!(&r.kind, EntryKind::BackgroundTask { status, .. } if status == "started");
+        if !quiet {
+            self.drop_retry();
+        }
         if !quiet && !FOLDED.contains(&name) {
             self.fold_open = false;
         }
@@ -498,8 +553,20 @@ impl<'a> Builder<'a> {
             EntryKind::Error { message } => self.push(
                 key,
                 BBody::Error {
-                    text: message.clone(),
-                    by_account: false,
+                    text: human_error(message),
+                    by_account: looks_like_account_problem(message),
+                },
+            ),
+            EntryKind::ApiRetry {
+                attempt,
+                max_retries,
+                delay_ms,
+                status,
+                error,
+            } => self.push(
+                key,
+                BBody::Retry {
+                    text: retry_text(*attempt, *max_retries, *delay_ms, *status, error),
                 },
             ),
             EntryKind::BackgroundTask {

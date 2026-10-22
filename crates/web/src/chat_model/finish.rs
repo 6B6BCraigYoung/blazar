@@ -62,6 +62,7 @@ fn sig_body(b: &Body) -> u64 {
         Body::Error { text, by_account } => (3u8, text, by_account).hash(&mut h),
         Body::Warn { denied } => (4u8, denied).hash(&mut h),
         Body::Meta { text, bad } => (5u8, text, bad).hash(&mut h),
+        Body::Retry { text } => (7u8, text).hash(&mut h),
         Body::Rewound { turns, items } => {
             (6u8, turns, items.len()).hash(&mut h);
             for i in items {
@@ -100,6 +101,7 @@ pub(super) fn finish_items(
                 BBody::Error { text, by_account } => Body::Error { text, by_account },
                 BBody::Warn { denied } => Body::Warn { denied },
                 BBody::Meta { text, bad } => Body::Meta { text, bad },
+                BBody::Retry { text } => Body::Retry { text },
                 BBody::Rewound { turns, items } => Body::Rewound {
                     turns,
                     items: finish_items(items, tools, false),

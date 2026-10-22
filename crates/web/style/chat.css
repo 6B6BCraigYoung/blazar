@@ -147,6 +147,8 @@
 .cc-subretry { all: unset; cursor: pointer; color: var(--accent); }
 .cc-meta { margin: var(--margin-chat-meta); font-size: var(--font-size-caption-readable); color: var(--fg-4); }
 .cc-meta.bad { color: var(--err-fg); }
+.cc-retry { display: flex; align-items: center; gap: var(--space-sm); color: var(--warn); }
+.cc-retry .dot { width: 6px; height: 6px; flex: 0 0 auto; border-radius: 50%; background: currentColor; animation: ccpulse var(--duration-activity-pulse) ease-in-out infinite; }
 .cc-rewound { margin: 0 0 var(--space-lg); padding: var(--space-sm) var(--space-control); border: 1px dashed var(--border); border-radius: var(--r-md); opacity: .7; }
 .cc-rwl { margin-top: var(--space-md); }
 

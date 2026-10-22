@@ -411,3 +411,49 @@ fn a_pending_bash_approval_always_gets_a_card() {
     assert_eq!(hint, "告诉 Claude 换个做法");
     assert_eq!(approval_choices(true).0.len(), 3);
 }
+
+#[test]
+fn api_retries_show_once_and_clear_when_the_turn_moves_on() {
+    let retry = |seq, attempt| {
+        row(
+            "s",
+            seq,
+            0,
+            json!({"type":"api_retry","attempt":attempt,"max_retries":10,"delay_ms":4000,"status":529,"error":"server_error"}),
+        )
+    };
+    let mut rows = vec![
+        row("s", 1, 0, json!({"type":"user_message","text":"x"})),
+        retry(2, 1),
+        retry(3, 2),
+    ];
+    let t = build(&rows, "", true);
+    assert_eq!(t.items.len(), 2);
+    assert!(matches!(
+        &t.items[1].body,
+        Body::Retry { text } if text == "服务繁忙，4 秒后自动重试 · 第 2/10 次"
+    ));
+    rows.push(row(
+        "s",
+        4,
+        0,
+        json!({"type":"assistant_message","text":"好了"}),
+    ));
+    let t = build(&rows, "", true);
+    assert_eq!(t.items.len(), 2);
+    assert!(matches!(&t.items[1].body, Body::Assistant { .. }));
+    let err = build(
+        &[row(
+            "s",
+            1,
+            0,
+            json!({"type":"error","message":"API Error: 529 Overloaded"}),
+        )],
+        "",
+        false,
+    );
+    assert!(matches!(
+        &err.items[0].body,
+        Body::Error { text, .. } if text == "服务繁忙，稍后再试\nAPI Error: 529 Overloaded"
+    ));
+}
