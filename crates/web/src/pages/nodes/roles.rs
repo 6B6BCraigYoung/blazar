@@ -40,16 +40,7 @@ pub(super) fn PendingMachines(
                                 let (dev, personal) = (n.name.clone(), n.name.clone());
                                 view! {
                                     <div class="pending-row">
-                                        <span
-                                            class="state-pill"
-                                            data-act=if n.status == "online" {
-                                                "completed"
-                                            } else {
-                                                "idle"
-                                            }
-                                        >
-                                            {if n.status == "online" { "在线" } else { "离线" }}
-                                        </span>
+                                        <StateOf state=if n.status == "online" { "online" } else { "offline" } />
                                         <span class="pending-name">{n.name.clone()}</span>
                                         <span class="muted small mono">
                                             {n.ipv4.clone().unwrap_or_default()}
@@ -115,16 +106,7 @@ pub(super) fn PersonalMachines(
                                 let (dev, reset) = (n.name.clone(), n.name.clone());
                                 view! {
                                     <div class="pending-row">
-                                        <span
-                                            class="state-pill"
-                                            data-act=if n.status == "online" {
-                                                "completed"
-                                            } else {
-                                                "idle"
-                                            }
-                                        >
-                                            {if n.status == "online" { "在线" } else { "离线" }}
-                                        </span>
+                                        <StateOf state=if n.status == "online" { "online" } else { "offline" } />
                                         <span class="pending-name">{n.name.clone()}</span>
                                         <span class="muted small mono">
                                             {n.ipv4.clone().unwrap_or_default()}

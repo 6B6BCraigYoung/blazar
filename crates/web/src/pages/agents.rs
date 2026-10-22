@@ -10,7 +10,7 @@ use wasm_bindgen::{JsCast, closure::Closure};
 use crate::app_state::use_app;
 use crate::components::dialog::{self, Choice};
 use crate::components::modal::Modal;
-use crate::components::status::{EmptyState, InlineError, LoadingState};
+use crate::components::status::{EmptyState, InlineError, LoadingState, StateOf};
 use crate::components::toast::toast;
 use crate::{api, fmt, storage};
 
@@ -43,11 +43,7 @@ fn status_label(status: &str) -> &str {
         "unbound" => "待配置",
         "offline" => "需登录",
         "online" => "可用",
-        "running" => "进行中",
-        "done" => "成功",
-        "failed" => "失败",
-        "interrupted" => "已取消",
-        _ => status,
+        other => crate::vocab::state(other).0,
     }
 }
 pub(super) async fn confirm(title: &str, body: &str) -> bool {
@@ -473,15 +469,14 @@ pub fn AgentsPage() -> impl IntoView {
                                                         <div class="muted">{text(&a, "description")}</div>
                                                     </td>
                                                     <td>
-                                                        <span class=if !rts_ready {
-                                                            "state muted"
-                                                        } else if status == "online" {
-                                                            "state ok"
-                                                        } else if status == "offline" {
-                                                            "state warn"
-                                                        } else {
-                                                            "state muted"
-                                                        }>
+                                                        <span
+                                                            class="status"
+                                                            data-tone=if rts_ready && status == "offline" {
+                                                                "attention"
+                                                            } else {
+                                                                "other"
+                                                            }
+                                                        >
                                                             {if rts_ready { status_label(status) } else { "待检查" }}
                                                         </span>
                                                         {(n(&a, "running") > 0)
@@ -1072,10 +1067,10 @@ fn AgentRuns(runs: Vec<Value>) -> impl IntoView {
                 >
                     {[
                         ("all", "全部"),
-                        ("running", "进行中"),
-                        ("done", "成功"),
+                        ("running", "运行中"),
+                        ("done", "已完成"),
                         ("failed", "失败"),
-                        ("interrupted", "已取消"),
+                        ("interrupted", "已中断"),
                     ]
                         .into_iter()
                         .map(|(v, l)| {
@@ -1125,9 +1120,7 @@ fn AgentRuns(runs: Vec<Value>) -> impl IntoView {
                                     });
                                 }
                             >
-                                <span class="badge">
-                                    {status_label(&text(&r, "status")).to_owned()}
-                                </span>
+                                <StateOf state=text(&r, "status") />
                                 <span class="grow">
                                     {if text(&r, "title").is_empty() {
                                         "聊天会话".into()

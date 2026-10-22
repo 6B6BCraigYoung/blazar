@@ -68,9 +68,7 @@ pub(super) fn Issuer(m: Mesh) -> impl IntoView {
                     view! {
                         <div class="card-title">
                             <h3>"邀请同事"</h3>
-                            <span class="state-pill" data-act="idle">
-                                "待设置"
-                            </span>
+                            <Status tone=Tone::Other label="待设置" />
                             <span class="grow"></span>
                             <button class="btn small primary" on:click=move |_| settings.set(true)>
                                 "签发设置"
@@ -106,12 +104,10 @@ pub(super) fn Issuer(m: Mesh) -> impl IntoView {
                     let head = view! {
                         <div class="card-title">
                             <h3>"邀请同事"</h3>
-                            <span
-                                class="state-pill"
-                                data-act=if reach { "completed" } else { "errored" }
-                            >
-                                {if reach { "可邀请" } else { "未连接" }}
-                            </span>
+                            <Status
+                                tone=if reach { Tone::Other } else { Tone::Failed }
+                                label=if reach { "可邀请" } else { "未连接" }
+                            />
                             <span class="grow"></span>
                             <button class="btn small ghost" on:click=move |_| settings.set(true)>
                                 "签发设置"
@@ -554,14 +550,14 @@ pub(super) fn Invites(m: Mesh) -> impl IntoView {
                                                 .into_iter()
                                                 .map(|i| {
                                                     let st = s(&i, "state");
-                                                    let (cls, text) = match st.as_str() {
-                                                        "online" => ("ok", "已入网"),
-                                                        "waiting" => ("", "待使用"),
-                                                        "offline" => ("", "离线"),
-                                                        "lost" => ("bad", "凭据丢失"),
-                                                        "expired" => ("", "已过期"),
-                                                        "revoked" => ("", "已吊销"),
-                                                        _ => ("", "待核对"),
+                                                    let (tone, text) = match st.as_str() {
+                                                        "online" => (Tone::Other, "已入网"),
+                                                        "waiting" => (Tone::Other, "待使用"),
+                                                        "offline" => (Tone::Other, "离线"),
+                                                        "lost" => (Tone::Failed, "凭据丢失"),
+                                                        "expired" => (Tone::Other, "已过期"),
+                                                        "revoked" => (Tone::Other, "已吊销"),
+                                                        _ => (Tone::Attention, "待核对"),
                                                     };
                                                     let live = matches!(
                                                         st.as_str(),
@@ -582,24 +578,10 @@ pub(super) fn Invites(m: Mesh) -> impl IntoView {
                                                                             .unwrap_or_else(|| "动态地址".into())}
                                                                     </div>
                                                                     <div class="muted small">{s(&i, "note")}</div>
-                                                                    <div class="muted small">
-                                                                        {format!("原始状态：{st}")}
-                                                                    </div>
                                                                 </details>
                                                             </td>
                                                             <td>
-                                                                <span
-                                                                    class=format!("state-pill {cls}")
-                                                                    data-act=if st == "online" {
-                                                                        "completed"
-                                                                    } else if st == "lost" {
-                                                                        "errored"
-                                                                    } else {
-                                                                        "idle"
-                                                                    }
-                                                                >
-                                                                    {text.to_owned()}
-                                                                </span>
+                                                                <Status tone label=text />
                                                             </td>
                                                             <td
                                                                 class="muted small"

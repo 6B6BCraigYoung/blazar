@@ -181,8 +181,6 @@ fn NodeDetail(name: String) -> impl IntoView {
                                             view! {
                                                 <tr>
                                                     <td>
-                                                        <span class="dot" data-act=w.activity.clone()></span>
-                                                        " "
                                                         <a href=format!(
                                                             "/w/{}",
                                                             w.id,
@@ -208,8 +206,8 @@ fn NodeDetail(name: String) -> impl IntoView {
                                                             <div class="mono small">{w.path.clone()}</div>
                                                         </details>
                                                     </td>
-                                                    <td class="muted" style="text-align:right">
-                                                        {activity_label(&w.activity).to_owned()}
+                                                    <td style="text-align:right">
+                                                        <StateOf state=w.activity.clone() />
                                                     </td>
                                                 </tr>
                                             }
@@ -508,25 +506,19 @@ fn NodeDetail(name: String) -> impl IntoView {
                                                             {match authed {
                                                                 Some(true) => {
                                                                     view! {
-                                                                        <span class="state-pill" data-act="completed">
-                                                                            "已登录"
-                                                                        </span>
+                                                                        <Status tone=Tone::Other label="已登录" />
                                                                     }
                                                                         .into_any()
                                                                 }
                                                                 Some(false) => {
                                                                     view! {
-                                                                        <span class="state-pill" data-act="idle">
-                                                                            "未登录"
-                                                                        </span>
+                                                                        <Status tone=Tone::Other label="未登录" />
                                                                     }
                                                                         .into_any()
                                                                 }
                                                                 None => {
                                                                     view! {
-                                                                        <span class="state-pill" data-act="awaiting_approval">
-                                                                            "待核对"
-                                                                        </span>
+                                                                        <Status tone=Tone::Attention label="待核对" />
                                                                     }
                                                                         .into_any()
                                                                 }

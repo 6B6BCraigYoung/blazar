@@ -1,7 +1,7 @@
 use super::work_shared::*;
 use crate::components::dialog::{self, Choice};
 use crate::components::modal::Modal;
-use crate::components::status::{EmptyState, InlineError, LoadingState};
+use crate::components::status::{EmptyState, InlineError, LoadingState, StateOf};
 use crate::components::toast::toast;
 use crate::realtime::use_bus;
 use crate::{api, app_state::use_app, fmt};
@@ -27,29 +27,12 @@ pub fn bots_revision() -> RwSignal<u32> {
     rev
 }
 
-pub fn state_label(state: &str) -> (&'static str, &'static str) {
-    match state {
-        "running" => ("运行中", "running"),
-        "awaiting" => ("等审批", "awaiting_approval"),
-        "lost" => ("失联", "errored"),
-        "paused" => ("已暂停", "idle"),
-        "archived" => ("已归档", "idle"),
-        _ => ("空闲", "idle"),
-    }
-}
-
 fn role_label(role: &str) -> &'static str {
     if role == "lead" { "总控" } else { "干活" }
 }
 
 fn pill(state: &str) -> AnyView {
-    let (label, act) = state_label(state);
-    view! {
-        <span class="state-pill" data-act=act>
-            {label}
-        </span>
-    }
-    .into_any()
+    view! { <StateOf state=state.to_owned() /> }.into_any()
 }
 
 fn lifetime_chip(b: &Value) -> Option<AnyView> {

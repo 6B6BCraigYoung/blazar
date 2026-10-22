@@ -75,9 +75,7 @@ pub(super) fn GlobalSync(
         <details class="card pad global-sync runtime-details">
             <summary>
                 "终端与 Cursor"
-                <span class=move || {
-                    if on() { "state ok" } else { "state muted" }
-                }>
+                <span class="status" data-tone="other">
                     {move || match state.get() {
                         None => "加载中",
                         Some(Err(_)) => "待重试",

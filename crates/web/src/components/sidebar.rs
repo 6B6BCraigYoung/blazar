@@ -259,7 +259,7 @@ pub fn Sidebar() -> impl IntoView {
             </div>
             <div class="foot">
                 {nav("/settings", I_GEAR, "设置", none, false)}
-                <div class="status">
+                <div class="side-status">
                     {status}
                     <button
                         type="button"

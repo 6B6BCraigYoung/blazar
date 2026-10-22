@@ -41,6 +41,11 @@
   --warn: #ff9f0a;
   --err: #ff453a;
   --err-fg: #ff6961;
+  --status-run: #0a84ff;
+  --status-attention: #ff9f0a;
+  --status-failed: #ff453a;
+  --status-other: #7c7c82;
+  --status-fg: var(--fg-3);
   --code-fg: #e5c07b;
 
   --font-sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
@@ -263,6 +268,10 @@
   --warn: #c77700;
   --err: #ff3b30;
   --err-fg: #d70015;
+  --status-run: #007aff;
+  --status-attention: #ff9500;
+  --status-failed: #ff3b30;
+  --status-other: #aeaeb2;
   --code-fg: #a8561a;
   --selection-bg: rgba(0,122,255,.22);
   --decoration-muted: #c7c7cc;
@@ -345,6 +354,10 @@
     --warn: #c77700;
     --err: #ff3b30;
     --err-fg: #d70015;
+    --status-run: #007aff;
+    --status-attention: #ff9500;
+    --status-failed: #ff3b30;
+    --status-other: #aeaeb2;
     --code-fg: #a8561a;
     --selection-bg: rgba(0,122,255,.22);
     --decoration-muted: #c7c7cc;

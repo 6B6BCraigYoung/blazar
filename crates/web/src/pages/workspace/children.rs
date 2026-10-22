@@ -7,7 +7,7 @@ use crate::app_state::{AppData, use_app};
 use crate::pages::workspaces::diff_badge;
 use crate::{api, fmt, storage};
 
-use super::activity_label;
+use crate::components::status::StateOf;
 
 const LOOK_KEY: &str = "blazar.children.look";
 const NODE_H: usize = 64;
@@ -194,9 +194,7 @@ fn card(app: AppData, id: String) -> impl IntoView {
                 <b class="nm" title=name>
                     {name}
                 </b>
-                <span class="state-pill" data-act=move || shown.get()>
-                    {move || activity_label(&shown.get()).to_owned()}
-                </span>
+                <StateOf state=shown />
             </div>
             <div class="meta">
                 <span class="ws-machine">{text_of(ws, |w| fmt::machine(&w.node))}</span>
@@ -220,9 +218,7 @@ fn node(app: AppData, id: String) -> impl IntoView {
                 <b class="nm" title=name>
                     {name}
                 </b>
-                <span class="state-pill" data-act=move || shown.get()>
-                    {move || activity_label(&shown.get()).to_owned()}
-                </span>
+                <StateOf state=shown />
             </div>
             <div class="meta">
                 <span class="ws-machine">{text_of(ws, |w| fmt::machine(&w.node))}</span>
@@ -289,9 +285,7 @@ fn graph(app: AppData, id: String, kids: Memo<Vec<WorkspaceView>>) -> impl IntoV
                 </div>
                 <div class="meta">
                     <span class="ws-machine">{text_of(me, |w| fmt::machine(&w.node))}</span>
-                    <span class="state-pill" data-act=move || mine.get()>
-                        {move || activity_label(&mine.get()).to_owned()}
-                    </span>
+                    <StateOf state=mine />
                 </div>
             </div>
             <svg

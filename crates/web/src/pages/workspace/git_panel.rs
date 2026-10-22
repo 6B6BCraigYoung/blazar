@@ -6,7 +6,7 @@ use wasm_bindgen::JsCast;
 use crate::api::{self, GitStatus, PrDetail};
 use crate::components::dialog::{self, Choice};
 use crate::components::menu::menu_keydown;
-use crate::components::status::{EmptyState, InlineError, LoadingState};
+use crate::components::status::{EmptyState, InlineError, LoadingState, Status, Tone};
 use crate::components::toast::toast;
 use crate::fmt;
 
@@ -306,7 +306,7 @@ pub fn GitView(git: Git, files: Files, draft: RwSignal<Option<String>>) -> impl 
             .into_any()
         });
         if g.running > 0 {
-            chips.push(view! { <span class="gchip info">"智能体运行中"</span> }.into_any());
+            chips.push(view! { <Status tone=Tone::Run label="智能体运行中" /> }.into_any());
         }
         let branch = if g.detached {
             format!("游离 HEAD · {}", g.head)

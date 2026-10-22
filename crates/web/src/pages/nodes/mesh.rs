@@ -132,9 +132,7 @@ pub(super) fn MeshLocal(
                         return view! {
                             <div class="card-title">
                                 <h3>"本机组网"</h3>
-                                <span class="state-pill" data-act="completed">
-                                    "已连接"
-                                </span>
+                                <Status tone=Tone::Other label="已连接" />
                             </div>
                             <p class="muted small">
                                 "已使用现有组网连接，无需重新加入。"
@@ -271,9 +269,7 @@ pub(super) fn MeshLocal(
                         return view! {
                             <div class="card-title">
                                 <h3>"本机组网"</h3>
-                                <span class="state-pill" data-act="idle">
-                                    "未加入"
-                                </span>
+                                <Status tone=Tone::Other label="未加入" />
                             </div>
                             {(st["engine_bundled"].as_bool() != Some(true))
                                 .then(|| {
@@ -332,16 +328,12 @@ pub(super) fn MeshLocal(
                             <h3>"本机组网"</h3>
                             {if running {
                                 view! {
-                                    <span class="state-pill" data-act="completed">
-                                        "已连接"
-                                    </span>
+                                    <Status tone=Tone::Other label="已连接" />
                                 }
                                     .into_any()
                             } else {
                                 view! {
-                                    <span class="state-pill bad" data-act="errored">
-                                        "未连接"
-                                    </span>
+                                    <Status tone=Tone::Failed label="未连接" />
                                 }
                                     .into_any()
                             }}

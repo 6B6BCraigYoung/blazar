@@ -1,3 +1,4 @@
+use crate::components::status::StateOf;
 use crate::{api, app_state::use_app, realtime::use_bus};
 use blazar_core_types::api::ServerEvent;
 use leptos::prelude::*;
@@ -48,39 +49,8 @@ pub fn meta(parts: &[String]) -> String {
 pub fn thread_link(ws: &str, thread: &str) -> String {
     format!("/w/{}?thread={}", api::enc(ws), api::enc(thread))
 }
-pub fn status(s: &str) -> (&str, &str) {
-    match s {
-        "completed" | "done" => ("完成", "ok"),
-        "running" | "in_progress" => ("运行中", "info"),
-        "failed" | "errored" => ("失败", "bad"),
-        "skipped" => ("跳过", "warn"),
-        "pending" => ("等待中", "warn"),
-        "starting" => ("启动中", "info"),
-        "interrupted" => ("已中断", "warn"),
-        "in_review" => ("待审阅", "warn"),
-        "backlog" => ("待规划", ""),
-        "todo" => ("待办", ""),
-        "cancelled" => ("已取消", ""),
-        "paused" => ("已暂停", "warn"),
-        "active" => ("已启用", "ok"),
-        other => (other, ""),
-    }
-}
 pub fn badge(v: &str) -> AnyView {
-    let (label, tone) = status(v);
-    let activity = match tone {
-        "ok" => "completed",
-        "info" => "running",
-        "warn" => "awaiting_approval",
-        "bad" => "errored",
-        _ => "idle",
-    };
-    view! {
-        <span class="state-pill" data-act=activity>
-            {label.to_owned()}
-        </span>
-    }
-    .into_any()
+    view! { <StateOf state=v.to_owned() /> }.into_any()
 }
 pub fn work_revision(topic: &'static str) -> RwSignal<u32> {
     let rev = RwSignal::new(0u32);

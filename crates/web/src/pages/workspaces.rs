@@ -9,11 +9,9 @@ use crate::chat_model;
 use crate::components::dialog::{self, Choice};
 use crate::components::modal::Modal;
 use crate::components::section::{SectionTabs, Tab};
-use crate::components::status::{EmptyState, InlineError, LoadingState};
+use crate::components::status::{EmptyState, InlineError, LoadingState, StateOf, Status, Tone};
 use crate::components::toast::toast;
 use crate::fmt;
-
-use super::workspace::activity_label;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
@@ -245,9 +243,7 @@ fn card(w: WorkspaceView, insp: RwSignal<Option<String>>) -> impl IntoView {
                 <div class="top">
                     <b class:strong=unseen>{title}</b>
                     <span class="ws-machine">{fmt::machine(&w.node)}</span>
-                    <span class="state-pill" data-act=shown.clone()>
-                        {activity_label(&shown).to_owned()}
-                    </span>
+                    <StateOf state=shown.clone() />
                 </div>
                 <div class="meta">
                     {w.project.clone().map(|p| view! { <span title="项目">{p}</span> })}
@@ -269,17 +265,19 @@ fn card(w: WorkspaceView, insp: RwSignal<Option<String>>) -> impl IntoView {
                     {(kids_waiting > 0)
                         .then(|| {
                             view! {
-                                <span class="gchip warn" title="子工作区在等你审批">
-                                    {format!("{kids_waiting} 个子工作区等审批")}
-                                </span>
+                                <Status
+                                    tone=Tone::Attention
+                                    label=format!("{kids_waiting} 个子工作区等你批准")
+                                />
                             }
                         })}
                     {(kids_failed > 0)
                         .then(|| {
                             view! {
-                                <span class="gchip bad" title="子工作区上一轮没跑成">
-                                    {format!("{kids_failed} 个子工作区出错")}
-                                </span>
+                                <Status
+                                    tone=Tone::Failed
+                                    label=format!("{kids_failed} 个子工作区失败")
+                                />
                             }
                         })} {diff_badge(&w)}
                     <span class="muted">

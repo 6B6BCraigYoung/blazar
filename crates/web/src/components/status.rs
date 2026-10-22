@@ -1,5 +1,7 @@
 use leptos::prelude::*;
 
+pub use crate::vocab::Tone;
+
 #[component]
 pub fn LoadingState(
     #[prop(into)] text: String,
@@ -44,5 +46,33 @@ pub fn InlineError(
                     }
                 })}
         </div>
+    }
+}
+
+#[component]
+pub fn Status(
+    #[prop(into)] tone: Signal<Tone>,
+    #[prop(into)] label: Signal<String>,
+    #[prop(into, default = None)] title: Option<String>,
+) -> impl IntoView {
+    view! {
+        <span class="status" data-tone=move || tone.get().key() title=title>
+            {move || label.get()}
+        </span>
+    }
+}
+
+#[component]
+pub fn StateOf(
+    #[prop(into)] state: Signal<String>,
+    #[prop(into, default = None)] title: Option<String>,
+) -> impl IntoView {
+    let shown = Memo::new(move |_| crate::vocab::state(&state.get()));
+    view! {
+        <Status
+            tone=Signal::derive(move || shown.get().1)
+            label=Signal::derive(move || shown.get().0.to_owned())
+            title
+        />
     }
 }

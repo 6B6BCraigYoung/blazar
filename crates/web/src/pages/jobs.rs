@@ -2,7 +2,7 @@ use super::work_shared::*;
 use crate::components::{
     dialog::{self, Choice},
     modal::Modal,
-    status::{EmptyState, InlineError, LoadingState},
+    status::{EmptyState, InlineError, LoadingState, StateOf},
     toast::toast,
 };
 use crate::{api, fmt};
@@ -13,23 +13,12 @@ use wasm_bindgen::JsValue;
 
 const FILTERS: &[(&str, &str)] = &[
     ("", "全部"),
-    ("running", "在跑"),
-    ("done", "完成"),
+    ("running", "运行中"),
+    ("done", "已完成"),
     ("failed", "失败"),
     ("killed", "已结束"),
-    ("lost", "失联"),
+    ("lost", "已失联"),
 ];
-
-fn state(status: &str) -> (&'static str, &'static str) {
-    match status {
-        "running" => ("在跑", "running"),
-        "done" => ("完成", "completed"),
-        "failed" => ("失败", "errored"),
-        "killed" => ("已结束", "idle"),
-        "lost" => ("失联", "awaiting_approval"),
-        _ => ("未知", "idle"),
-    }
-}
 
 fn ms(iso: &str) -> Option<f64> {
     let t = js_sys::Date::parse(iso);
@@ -245,7 +234,6 @@ pub fn JobsPage() -> impl IntoView {
                                 {list
                                     .into_iter()
                                     .map(|j| {
-                                        let (label, act) = state(&s(&j, "status"));
                                         let running = s(&j, "status") == "running";
                                         let error = s(&j, "last_error");
                                         let id = s(&j, "id");
@@ -254,13 +242,10 @@ pub fn JobsPage() -> impl IntoView {
                                         view! {
                                             <tr>
                                                 <td>
-                                                    <span
-                                                        class="state-pill"
-                                                        data-act=act
+                                                    <StateOf
+                                                        state=s(&j, "status")
                                                         title=(!error.is_empty()).then(|| error.clone())
-                                                    >
-                                                        {label}
-                                                    </span>
+                                                    />
                                                 </td>
                                                 <td class="jobs-label">
                                                     <div class="jobs-label-text" title=s(&j, "command")>

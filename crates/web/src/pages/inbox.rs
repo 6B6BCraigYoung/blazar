@@ -1,5 +1,5 @@
 use super::work_shared::*;
-use crate::components::status::{EmptyState, InlineError, LoadingState};
+use crate::components::status::{EmptyState, InlineError, LoadingState, Status, Tone};
 use crate::components::toast::toast;
 use crate::{api, app_state::use_app, fmt, storage};
 use leptos::prelude::*;
@@ -215,9 +215,10 @@ pub fn InboxPage() -> impl IntoView {
                                                             {(!resolved.is_empty())
                                                                 .then(|| {
                                                                     view! {
-                                                                        <span class="gchip ok">
-                                                                            {format!("已解决 · {}", fmt::ago(&resolved))}
-                                                                        </span>
+                                                                        <Status
+                                                                            tone=Tone::Other
+                                                                            label=format!("已解决 · {}", fmt::ago(&resolved))
+                                                                        />
                                                                     }
                                                                 })}
                                                         </small>

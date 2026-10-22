@@ -32,17 +32,6 @@ use preview_panel::PreviewBar;
 use term_panel::{TermPane, TermTabs, Terms};
 use tree::{FileTree, change_mark};
 
-pub fn activity_label(a: &str) -> &str {
-    match a {
-        "awaiting_approval" => "等待审批",
-        "errored" => "出错",
-        "completed" => "已完成",
-        "running" => "运行中",
-        "idle" => "空闲",
-        other => other,
-    }
-}
-
 pub(crate) const ICON_LEFT: &str = r#"<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.1"><rect class="fill" x="2" y="3" width="4" height="10" fill="currentColor" stroke="none"/><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><path d="M6 2.5v11"/></svg>"#;
 pub(crate) const ICON_BOTTOM: &str = r#"<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.1"><rect class="fill" x="2" y="10" width="12" height="3.5" fill="currentColor" stroke="none"/><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><path d="M1.5 10h13"/></svg>"#;
 pub(crate) const ICON_RIGHT: &str = r#"<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.1"><rect class="fill" x="10" y="3" width="4" height="10" fill="currentColor" stroke="none"/><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><path d="M10 2.5v11"/></svg>"#;

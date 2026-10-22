@@ -47,7 +47,8 @@ pub(super) fn RuntimeCard(
                                 let usable = a.usable();
                                 view! {
                                     <span
-                                        class=if usable { "state ok" } else { "state bad" }
+                                        class="status"
+                                        data-tone=if usable { "other" } else { "failed" }
                                         title=a.label
                                     >
                                         {if usable { "可用" } else { "需登录" }}
@@ -56,21 +57,22 @@ pub(super) fn RuntimeCard(
                                     .into_any()
                             }
                             None => {
-                                view! { <span class="state muted">"未选择"</span> }.into_any()
+                                view! { <span class="status" data-tone="other">"未选择"</span> }.into_any()
                             }
                         }
                     } else {
                         match authed {
                             Some(true) => {
-                                view! { <span class="state ok">"已登录"</span> }.into_any()
+                                view! { <span class="status" data-tone="other">"已登录"</span> }.into_any()
                             }
                             Some(false) => {
-                                view! { <span class="state bad">"未登录"</span> }.into_any()
+                                view! { <span class="status" data-tone="failed">"未登录"</span> }.into_any()
                             }
                             None => {
                                 view! {
                                     <span
-                                        class="state muted"
+                                        class="status"
+                                        data-tone="attention"
                                         title="暂未获取登录状态，可重新扫描"
                                     >
                                         "待检查"

@@ -9,12 +9,10 @@ use crate::components::dialog::{self, Choice};
 use crate::components::toast::toast;
 use crate::components::{
     modal::Modal,
-    status::{EmptyState, InlineError, LoadingState},
+    status::{EmptyState, InlineError, LoadingState, StateOf, Status, Tone},
 };
 use crate::files_js;
 use wasm_bindgen::closure::Closure;
-
-use super::workspace::activity_label;
 
 mod detail;
 mod invites;
@@ -403,16 +401,7 @@ pub fn NodesPage() -> impl IntoView {
                                                     n.name.clone()
                                                 }}
                                             </a>
-                                            <span
-                                                class="state-pill"
-                                                data-act=if n.status == "online" {
-                                                    "completed"
-                                                } else {
-                                                    "idle"
-                                                }
-                                            >
-                                                {if n.status == "online" { "在线" } else { "离线" }}
-                                            </span>
+                                            <StateOf state=if n.status == "online" { "online" } else { "offline" } />
                                         </div>
                                         <div class="meta">
                                             <span>

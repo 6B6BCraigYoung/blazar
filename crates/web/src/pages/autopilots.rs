@@ -36,7 +36,7 @@ impl ApUi {
                     if suffix == "/run" {
                         toast(format!(
                             "{} {}",
-                            status(&s(&r, "status")).0,
+                            crate::vocab::state(&s(&r, "status")).0,
                             s(&r, "reason")
                         ));
                     }

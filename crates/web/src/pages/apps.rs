@@ -5,7 +5,7 @@ use serde_json::{Value, json};
 use super::settings::{NOTIFY_KINDS, flag, rows, save, text};
 use crate::components::{
     dialog::{Choice, ask},
-    status::{EmptyState, InlineError, LoadingState},
+    status::{EmptyState, InlineError, LoadingState, Status, Tone},
     toast::toast,
 };
 use crate::{api, app_state::use_app};
@@ -67,17 +67,12 @@ fn state_tone(id: &str, value: &Value) -> &'static str {
 
 #[component]
 fn AppStatus(#[prop(into)] label: String, tone: &'static str) -> impl IntoView {
-    let activity = match tone {
-        "ok" => "completed",
-        "busy" => "awaiting_approval",
-        "error" => "errored",
-        _ => "idle",
+    let tone = match tone {
+        "busy" => Tone::Run,
+        "error" => Tone::Failed,
+        _ => Tone::Other,
     };
-    view! {
-        <span class="state-pill" data-act=activity>
-            {label}
-        </span>
-    }
+    view! { <Status tone label /> }
 }
 
 #[component]
@@ -711,7 +706,7 @@ fn ConnectJob(id: &'static str, data: Value, tick: RwSignal<u32>) -> impl IntoVi
     let cancel = RwSignal::new(false);
     let running = text(&data, "status") == "running";
     let (status, tone) = match text(&data, "status").as_str() {
-        "running" => ("进行中", "busy"),
+        "running" => ("运行中", "busy"),
         "done" => ("已完成", "ok"),
         "failed" => ("失败", "error"),
         "cancelled" => ("已取消", "neutral"),

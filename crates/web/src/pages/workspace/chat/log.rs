@@ -210,7 +210,7 @@ fn ws_chip(id: String) -> impl IntoView {
             let shown = app.shown_activity(&w);
             view! {
                 <a class="cc-ws" href=href.clone() title=w.path.clone()>
-                    <span class="dot" data-act=shown></span>
+                    <span class="dot" data-tone=crate::vocab::state(&shown).1.key()></span>
                     <span class="nm">{crate::fmt::ws_title(&w.name, &w.node)}</span>
                     <span class="ws-machine">{crate::fmt::machine(&w.node)}</span>
                 </a>

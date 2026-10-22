@@ -53,10 +53,10 @@ fn model_label(m: &str) -> String {
 fn status(a: &Account) -> impl IntoView + use<> {
     let tok = a.kind == "token";
     let (cls, text, title) = if a.disabled {
-        ("state muted", "已停用", "")
+        ("other", "已停用", "")
     } else if a.status == "ok" {
         (
-            "state ok",
+            "other",
             if tok { "已配置" } else { "已登录" },
             if tok {
                 "首次运行时验证凭据；失效后会提示重新配置"
@@ -65,12 +65,12 @@ fn status(a: &Account) -> impl IntoView + use<> {
             },
         )
     } else if a.status == "logged_out" {
-        ("state bad", if tok { "需更新" } else { "未登录" }, "")
+        ("failed", if tok { "需更新" } else { "未登录" }, "")
     } else {
-        ("state muted", "待检查", "暂未获取登录状态")
+        ("attention", "待检查", "暂未获取登录状态")
     };
     view! {
-        <span class=cls title=title>
+        <span class="status" data-tone=cls title=title>
             {text}
         </span>
     }
@@ -350,7 +350,7 @@ pub(super) fn AccountRow(
             </span>
             <span class="act">
                 {if active {
-                    view! { <span class="pill-on">"使用中"</span> }.into_any()
+                    view! { <span class="muted">"使用中"</span> }.into_any()
                 } else {
                     view! {
                         <button

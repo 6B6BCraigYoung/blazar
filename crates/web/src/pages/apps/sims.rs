@@ -72,7 +72,7 @@ pub fn SimCard(id: &'static str, name: &'static str, desc: &'static str) -> impl
                     Some(Ok(v)) => {
                         let n = running_of(&v, id);
                         if n > 0 {
-                            view! { <AppStatus label=format!("{n} 个在运行") tone="ok" /> }
+                            view! { <AppStatus label=format!("{n} 个运行中") tone="busy" /> }
                                 .into_any()
                         } else {
                             view! { <AppStatus label="未启动" tone="neutral" /> }.into_any()
@@ -94,7 +94,7 @@ pub fn SimCard(id: &'static str, name: &'static str, desc: &'static str) -> impl
 
 fn state_label(state: &str, code: Option<i64>) -> (String, &'static str) {
     match state {
-        "running" => ("运行中".into(), "ok"),
+        "running" => ("运行中".into(), "busy"),
         "exited" => (
             match code {
                 Some(0) => "已退出".into(),
