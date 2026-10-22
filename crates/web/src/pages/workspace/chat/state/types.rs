@@ -177,6 +177,7 @@ pub struct PendingMsg {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Attach {
+    pub name: String,
     pub media_type: String,
     pub data: String,
     pub url: String,

@@ -342,6 +342,9 @@ pub fn Composer(chat: Chat, tick: RwSignal<u32>, tree_files: Signal<Vec<String>>
             toast("Up to 8 images per message");
             return;
         }
+        let name = Some(f.name())
+            .filter(|n| !n.is_empty())
+            .unwrap_or_else(|| "image".into());
         chat.spawn(async move {
             if let Ok(v) = wasm_bindgen_futures::JsFuture::from(read_data_url(&f)).await
                 && let Some(url) = v.as_string()
@@ -352,6 +355,7 @@ pub fn Composer(chat: Chat, tick: RwSignal<u32>, tree_files: Signal<Vec<String>>
                     .unwrap_or_default();
                 chat.attach.update(|a| {
                     a.push(Attach {
+                        name,
                         media_type: t,
                         data,
                         url,
@@ -895,24 +899,49 @@ pub fn Composer(chat: Chat, tick: RwSignal<u32>, tree_files: Signal<Vec<String>>
                 }
             >
                 {move || {
+                    let ctx = chat.ctx_file();
                     let list = chat.attach.get();
-                    (!list.is_empty())
+                    (ctx.is_some() || !list.is_empty())
                         .then(|| {
                             view! {
                                 <div class="cb-atts">
+                                    {ctx
+                                        .map(|f| {
+                                            let off = f.clone();
+                                            let tip = format!("Current file: {f}");
+                                            view! {
+                                                <span class="cb-att ctx" title=tip>
+                                                    <span class="ic" inner_html=icon("file")></span>
+                                                    <span class="nm">{f}</span>
+                                                    <button
+                                                        class="x"
+                                                        aria-label="Remove current file"
+                                                        title="Remove"
+                                                        on:click=move |_| chat.ctx_off.set(Some(off.clone()))
+                                                    >
+                                                        "×"
+                                                    </button>
+                                                </span>
+                                            }
+                                        })}
                                     {list
                                         .into_iter()
                                         .enumerate()
                                         .map(|(i, a)| {
                                             view! {
-                                                <span class="cb-att">
-                                                    <img src=a.url alt="" />
+                                                <span class="cb-att" title=a.name.clone()>
+                                                    <img class="ic" src=a.url alt="" />
+                                                    <span class="nm">{a.name.clone()}</span>
                                                     <button
-                                                        aria-label="Remove"
+                                                        class="x"
+                                                        aria-label=format!("Remove {}", a.name)
+                                                        title="Remove"
                                                         on:click=move |_| {
                                                             chat.attach
                                                                 .update(|l| {
-                                                                    l.remove(i);
+                                                                    if i < l.len() {
+                                                                        l.remove(i);
+                                                                    }
                                                                 })
                                                         }
                                                     >
@@ -1039,30 +1068,6 @@ pub fn Composer(chat: Chat, tick: RwSignal<u32>, tree_files: Signal<Vec<String>>
                             }}
                         </span>
                     </button>
-                    {move || {
-                        chat.ctx_file()
-                            .map(|f| {
-                                let name = f.rsplit('/').next().unwrap_or(&f).to_owned();
-                                let f2 = f.clone();
-                                view! {
-                                    <span class="cb-chip cb-ctx" title=format!("Current file: {f}")>
-                                        <span inner_html=icon("file")></span>
-                                        <span class="nm cb-tx">{name}</span>
-                                        <button
-                                            class="x"
-                                            aria-label="Remove current file"
-                                            title="Remove current file"
-                                            on:click=move |e| {
-                                                e.stop_propagation();
-                                                chat.ctx_off.set(Some(f2.clone()));
-                                            }
-                                        >
-                                            "×"
-                                        </button>
-                                    </span>
-                                }
-                            })
-                    }}
                     <Show when=move || chat.fresh.get() && chat.view.get().is_some()>
                         <button
                             type="button"
