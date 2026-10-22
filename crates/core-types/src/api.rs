@@ -137,7 +137,12 @@ pub fn workspace_title<'a>(name: &'a str, node: &str) -> &'a str {
 
 #[must_use]
 pub fn workspace_label(name: &str, node: &str) -> String {
-    format!("{}（{}）", workspace_title(name, node), machine_label(node))
+    let title = workspace_title(name, node);
+    if node == "local" {
+        title.to_owned()
+    } else {
+        format!("{title}（{node}）")
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -302,7 +307,7 @@ mod tests {
         assert_eq!(workspace_title("主控 @ gpu-0", "gpu-1"), "主控 @ gpu-0");
         assert_eq!(workspace_title(" @ gpu-0", "gpu-0"), " @ gpu-0");
         assert_eq!(workspace_label("主控 @ gpu-0", "gpu-0"), "主控（gpu-0）");
-        assert_eq!(workspace_label("blazar", "local"), "blazar（本机）");
+        assert_eq!(workspace_label("blazar", "local"), "blazar");
     }
 
     #[test]

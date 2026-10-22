@@ -976,9 +976,9 @@ async fn triage_approvals(ctx: &Ctx, approvals: &[NewApproval]) {
             crate::inbox::Item {
                 kind: if question { "question" } else { "approval" },
                 title: if question {
-                    format!("{ws_name} · agent 在问你")
+                    format!("{ws_name} · 智能体在问你")
                 } else {
-                    format!("{ws_name} · 等你裁决：{short}")
+                    format!("{ws_name} · 等你批准：{short}")
                 },
                 body: what,
                 workspace_id: Some(ws),
