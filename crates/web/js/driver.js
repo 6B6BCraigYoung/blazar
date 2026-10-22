@@ -261,6 +261,17 @@ async function run(command) {
       await sleep(settle);
       return { ok: true, target: label(el), dx, dy };
     }
+    case 'drop': {
+      const el = guard(find(command));
+      const dt = new DataTransfer();
+      for (const [type, value] of Object.entries(command.data || {})) dt.setData(type, String(value));
+      const init = { bubbles: true, cancelable: true, composed: true, dataTransfer: dt };
+      el.dispatchEvent(new DragEvent('dragenter', init));
+      el.dispatchEvent(new DragEvent('dragover', init));
+      const accepted = el.dispatchEvent(new DragEvent('drop', init));
+      await sleep(settle);
+      return { ok: true, target: label(el), types: [...dt.types], default_prevented: !accepted };
+    }
     case 'context_menu': {
       const el = guard(find(command));
       el.scrollIntoView({ block: 'center' });

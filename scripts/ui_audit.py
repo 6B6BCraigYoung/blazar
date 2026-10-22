@@ -33,6 +33,7 @@ SKILLS = [did(6, i) for i in range(1, 3)]
 NODE_ID = did(7, 1)
 THREAD = did(10, 1)
 APPROVAL = did(9, 1)
+QUESTION = did(9, 2)
 
 
 def iso(t):
@@ -542,6 +543,12 @@ def seed_rows(db):
     add_session(db, did(12, 2), WS["quasar-ml"], ago(minutes=6), "claude_cli", "冒烟训练", did(12, 2), "done", quasar, AGENTS["backend"])
     db.execute("INSERT INTO approvals (id, session_id, request, created_at, provider_request_id, workspace_id) VALUES (?,?,?,?,?,?)",
                (APPROVAL, did(12, 2), json.dumps(req, ensure_ascii=False), iso(ago(minutes=4)), "demo-appr-1", WS["quasar-ml"]))
+    ask = {"tool_name": "AskUserQuestion", "tool_use_id": "toolu_demo_ask", "input": {"questions": [
+        {"header": "节点离线", "question": "lr=3e-4 那组的节点离线了，要不要换到本机重跑？", "multiSelect": False,
+         "options": [{"label": "换到本机重跑", "description": "本机 GPU 空闲，大约 40 分钟"},
+                     {"label": "等节点恢复", "description": "保留进度，恢复后继续"}]}]}}
+    db.execute("INSERT INTO approvals (id, session_id, request, created_at, provider_request_id, workspace_id) VALUES (?,?,?,?,?,?)",
+               (QUESTION, did(12, 2), json.dumps(ask, ensure_ascii=False), iso(ago(minutes=3)), "demo-ask-1", WS["quasar-ml"]))
 
     tasks = [
         ("给 /users 加分页", "limit/offset，默认 20，上限 100；非法参数返回 400。", "done", "high", ["api"], "atlas-api", "backend"),
@@ -647,9 +654,9 @@ def seed_rows(db):
 
     inbox = [
         ("run_done", "atlas-api 跑完了", "给 /users 加分页：已提交 3f9c2ab，35 个测试通过。", "atlas-api", THREAD, None, ago(minutes=20), False, False),
-        ("approval", "quasar-ml 在等你批准", "Bash：python train.py --config configs/base.yaml --steps 200", "quasar-ml", did(12, 2), None, ago(minutes=4), False, False),
+        ("approval", "quasar-ml（本机） · 等你裁决：Bash", "python train.py --config configs/base.yaml --steps 200", "quasar-ml", did(12, 2), APPROVAL, ago(minutes=4), False, False),
+        ("question", "quasar-ml（本机） · agent 在问你", "lr=3e-4 那组的节点离线了，要不要换到本机重跑？", "quasar-ml", did(12, 2), QUESTION, ago(minutes=3), False, False),
         ("run_failed", "orbit-docs 失败了", "API Error: 529 overloaded", "orbit-docs", None, None, ago(hours=3), False, False),
-        ("question", "demo-trainer 在问", "lr=3e-4 那组节点离线了，要不要换到本机重跑？", None, None, None, ago(hours=5), False, False),
         ("autopilot_paused", "自动化「夜间评测汇总」已暂停", "连续失败 3 次。", None, None, AUTOPILOTS[1], ago(hours=9), True, False),
         ("job", "后台任务「演示：导出评测表」失败了", "退出码 1", None, None, None, ago(hours=4), True, False),
         ("alert", "后台任务「演示：远程评测」失联", "它在等的机器 gpu-a.invalid 不在线。", None, None, "rule:job_orphan:demo", ago(hours=19), True, True),
@@ -786,7 +793,7 @@ def theme(value):
     ui({"action": "type", "selector": "#settings-theme", "value": value, "settle_ms": 300})
 
 
-TITLES = {"/": "工作区", "/running": "工作区", "/waiting": "工作区", "/inbox": "收件箱", "/tasks": "任务", "/autopilots": "任务",
+TITLES = {"/": "工作区", "/inbox": "收件箱", "/tasks": "任务", "/autopilots": "任务",
           "/jobs": "任务", "/bots": "bot", "/agents": "智能体", "/agents/new": "新建角色档案", "/skills": "智能体",
           "/apps": "接入的软件", "/runtimes": "智能体", "/nodes": "机器与组网", "/usage": "智能体", "/settings": "设置"}
 TOAST_GONE = {"action": "wait", "selector": ".toasts .toast", "gone": True, "timeout_ms": 6000}
@@ -805,10 +812,8 @@ def calm(*after):
     return tuple(dict(step, after=True) if after else dict(step) for step in (RESTORE, CLOSE_FILE, CLOSE_INSPECTOR, CLOSE_FILES, CLOSE_TERM))
 
 ROUTES = [
-    ("home", "/", "工作区列表（全部）"),
-    ("running", "/running", "运行中的工作区"),
-    ("waiting", "/waiting", "等你批准的工作区"),
-    ("inbox", "/inbox", "收件箱"),
+    ("home", "/", "首页：需要你处理 / 运行中 / 最近 三组列表"),
+    ("inbox", "/inbox", "收件箱（无框列表，未读蓝点）"),
     ("tasks", "/tasks", "任务看板"),
     ("autopilots", "/autopilots", "自动化列表"),
     ("jobs", "/jobs", "后台任务列表"),
@@ -829,7 +834,6 @@ SETTINGS = [
 ]
 
 TABS = [
-    ("workspaces", "/", [("all", "全部", "/"), ("running", "运行中", "/running"), ("waiting", "等你批准", "/waiting")]),
     ("tasks", "/tasks", [("all", "全部", "/tasks"), ("autopilots", "自动化", "/autopilots"), ("jobs", "后台任务", "/jobs")]),
     ("agents", "/agents", [("profiles", "角色档案", "/agents"), ("skills", "技能", "/skills"), ("runtimes", "运行时", "/runtimes"),
                            ("usage", "用量", "/usage")]),
@@ -849,16 +853,37 @@ def plan(round_name):
         for key, label, href in tabs:
             items.append((f"tab-{group}-{key}", route, f"页头标签「{label}」（从 {route} 点过去）", (tab_step(href),), False))
     items.append(("palette", "/", "命令面板（⌘K）", ({"action": "click", "text": "搜索… ⌘K"},), False))
-    items.append(("new-workspace", "/", "新建工作区对话框", ({"action": "click", "text": "新建工作区"},
-                                                       {"action": "wait", "ms": 600}), False))
-    items.append(("new-workspace-folder-menu", "/", "新建工作区对话框里目录的右键菜单",
-                  ({"action": "click", "text": "新建工作区"}, {"action": "wait", "ms": 600},
-                   {"action": "context_menu", "text": "tmp"}), False))
-    detail = ".ws-card button[aria-label$=\"的详情\"]"
-    items.append(("workspace-card-detail", "/", "工作区卡片的详情弹层",
-                  ({"action": "wait", "selector": detail, "timeout_ms": 8000},
-                   {"action": "click", "selector": detail}), False))
+    items.append(("status-popover", "/", "侧栏「设置」旁状态圆点的弹层（连接、机器、提醒）",
+                  ({"action": "click", "selector": "button.side-dot"}, {"action": "wait", "ms": 300}), False))
     ws_rows = db_rows("SELECT id, name FROM workspaces ORDER BY created_at")
+    if not ws_rows:
+        TITLES["/"] = "开始"
+        items.append(("start", "/", "首次打开的「开始」清单：运行时、机器、第一个工作区", (), False))
+        items.append(("start-new-workspace", "/", "开始清单里「选择项目文件夹…」打开的对话框",
+                      ({"action": "click", "selector": ".start-actions .btn.primary"}, {"action": "wait", "ms": 600}), False))
+        return state, items
+    new_ws = {"action": "click", "selector": ".home-page .page-actions .btn.primary"}
+    items.append(("new-workspace", "/", "新建工作区对话框（页头「新建」）", (new_ws, {"action": "wait", "ms": 600}), False))
+    items.append(("new-workspace-folder-menu", "/", "新建工作区对话框里目录的右键菜单",
+                  (new_ws, {"action": "wait", "ms": 600}, {"action": "context_menu", "text": "tmp"}), False))
+    first_row = ".home-row[data-index=\"0\"] > .home-main"
+    items.append(("home-selected", "/", "首页用 ↓ 选中第一行",
+                  ({"action": "wait", "selector": first_row, "timeout_ms": 8000},
+                   {"action": "key", "key": "ArrowDown", "code": "ArrowDown", "selector": ".home-page"}), False))
+    items.append(("home-row-menu", "/", "首页行的右键菜单（打开、详情、改名、移除）",
+                  ({"action": "wait", "selector": first_row, "timeout_ms": 8000},
+                   {"action": "context_menu", "selector": first_row}), False))
+    items.append(("workspace-detail", "/", "右键菜单「详情」打开的详情弹层",
+                  ({"action": "wait", "selector": first_row, "timeout_ms": 8000},
+                   {"action": "context_menu", "selector": first_row}, {"action": "click", "text": "详情"},
+                   {"action": "wait", "ms": 600}), False))
+    items.append(("inbox-selected", "/inbox", "收件箱用 ↓ 走到第二条（键盘逐条处理）",
+                  ({"action": "wait", "selector": ".inbox-row", "timeout_ms": 8000},
+                   {"action": "key", "key": "ArrowDown", "code": "ArrowDown", "selector": ".inbox-page"},
+                   {"action": "key", "key": "ArrowDown", "code": "ArrowDown", "selector": ".inbox-page"}), False))
+    items.append(("inbox-row-menu", "/inbox", "收件箱一条通知的右键菜单（打开、标为已读 U、归档 E）",
+                  ({"action": "wait", "selector": ".inbox-row", "timeout_ms": 8000},
+                   {"action": "context_menu", "selector": ".inbox-row[data-index=\"0\"]"}), False))
     for wid, name in ws_rows:
         items.append((f"workspace-{slugify(name)}", f"/w/{wid}", f"工作区页：{name}",
                       ({"action": "wait", "ms": 800}, *calm()), False))
