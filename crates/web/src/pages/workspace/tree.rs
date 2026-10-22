@@ -138,9 +138,15 @@ fn TreeMenu(
             menu.set(None);
         }
     });
+    let close_key = window_event_listener(leptos::ev::keydown, move |e| {
+        if e.key() == "Escape" && menu.with_untracked(Option::is_some) {
+            menu.set(None);
+        }
+    });
     let close_blur = window_event_listener(leptos::ev::blur, move |_| menu.set(None));
     on_cleanup(move || {
         close_down.remove();
+        close_key.remove();
         close_blur.remove();
     });
     Effect::new(move |_| {
