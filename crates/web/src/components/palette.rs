@@ -90,7 +90,7 @@ pub fn Palette() -> impl IntoView {
         let mut all: Vec<Hit> = [
             ("工作区", "导航", "/", "全部工作区 workspaces"),
             ("运行中", "导航", "/running", "running"),
-            ("等我审批", "导航", "/waiting", "审批 approval"),
+            ("等你批准", "导航", "/waiting", "审批 批准 approval"),
             ("bot", "导航", "/bots", "全部 bot bots 机器人"),
             ("运行时", "导航", "/runtimes", "runtimes 账号 智能体"),
             ("收件箱", "导航", "/inbox", "inbox 通知"),

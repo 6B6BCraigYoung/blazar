@@ -67,7 +67,7 @@ impl std::fmt::Display for ApiError {
 }
 
 async fn read<T: DeserializeOwned>(resp: Result<Response, gloo_net::Error>) -> Result<T, ApiError> {
-    let resp = resp.map_err(|e| ApiError::new(format!("连不上 hub：{e}")))?;
+    let resp = resp.map_err(|_| ApiError::new("连不上 Blazar 后台服务，请确认它在运行"))?;
     if !resp.ok() {
         if resp.status() == 401 {
             reset_session();
@@ -79,17 +79,17 @@ async fn read<T: DeserializeOwned>(resp: Result<Response, gloo_net::Error>) -> R
             .and_then(|v| v["error"].as_str().map(str::to_owned))
             .unwrap_or_else(|| format!("HTTP {}", resp.status()));
         return Err(ApiError {
-            message: msg,
+            message: crate::vocab::error(&msg, Some(resp.status())),
             status: Some(resp.status()),
         });
     }
     if resp.status() == 204 {
         return serde_json::from_value(serde_json::Value::Null)
-            .map_err(|e| ApiError::new(format!("返回的数据看不懂：{e}")));
+            .map_err(|e| ApiError::new(format!("服务返回的数据无法识别：{e}")));
     }
     resp.json::<T>()
         .await
-        .map_err(|e| ApiError::new(format!("返回的数据看不懂：{e}")))
+        .map_err(|e| ApiError::new(format!("服务返回的数据无法识别：{e}")))
 }
 
 pub async fn get<T: DeserializeOwned>(path: &str) -> Result<T, ApiError> {

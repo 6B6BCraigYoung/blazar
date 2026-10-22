@@ -5,6 +5,7 @@ use crate::components::{
     status::{EmptyState, InlineError, LoadingState, StateOf},
     toast::toast,
 };
+use crate::vocab::duration as span;
 use crate::{api, fmt};
 use leptos::prelude::*;
 use leptos::task::spawn_local;
@@ -23,16 +24,6 @@ const FILTERS: &[(&str, &str)] = &[
 fn ms(iso: &str) -> Option<f64> {
     let t = js_sys::Date::parse(iso);
     (!t.is_nan()).then_some(t)
-}
-
-fn span(secs: f64) -> String {
-    let s = secs.max(0.0).floor() as u64;
-    match s {
-        0..60 => format!("{s} 秒"),
-        60..3600 => format!("{} 分 {} 秒", s / 60, s % 60),
-        3600..86_400 => format!("{} 小时 {} 分", s / 3600, s % 3600 / 60),
-        _ => format!("{} 天 {} 小时", s / 86_400, s % 86_400 / 3600),
-    }
 }
 
 fn elapsed(j: &Value, now: f64) -> String {
@@ -79,9 +70,9 @@ fn waits(j: &Value) -> String {
         .filter_map(|w| {
             [
                 ("path", "文件"),
-                ("node", "节点"),
-                ("fact", "事实"),
-                ("job", "任务"),
+                ("node", "机器"),
+                ("fact", "状态记录"),
+                ("job", "后台任务"),
             ]
             .into_iter()
             .find_map(|(k, name)| {
@@ -207,7 +198,7 @@ pub fn JobsPage() -> impl IntoView {
                             detail=if narrowed {
                                 "换个状态看看。"
                             } else {
-                                "bot 或对话用 job_spawn 派出的长时间命令、用 job_register 登记的进程会出现在这里，结束时会通知发起方。"
+                                "智能体启动的长时间命令（训练、构建）会出现在这里，结束时通知你。"
                             }
                             class="jobs-empty"
                         />

@@ -111,24 +111,18 @@ fn schedule_label(value: &Value) -> String {
         "minutes" => format!("每 {} 分钟", schedule.n),
         "hours" => format!("每 {} 小时，第 {} 分钟", schedule.n, schedule.minute),
         "daily" => format!("每天 {}", schedule.time),
-        "weekly" => {
-            let weekdays = ["日", "一", "二", "三", "四", "五", "六"];
-            let days = schedule
-                .days
-                .iter()
-                .filter_map(|day| weekdays.get(usize::from(*day)))
-                .copied()
-                .collect::<Vec<_>>()
-                .join("、");
-            format!("每周{days} {}", schedule.time)
-        }
+        "weekly" => format!(
+            "{} {}",
+            crate::vocab::weekdays(&schedule.days),
+            schedule.time
+        ),
         _ => "自定日程".into(),
     };
     let timezone = s(value, "timezone");
     if timezone.is_empty() {
         label
     } else {
-        format!("{label} · {timezone}")
+        format!("{label} · {}", crate::vocab::timezone(&timezone))
     }
 }
 #[component]

@@ -28,7 +28,7 @@ pub fn bots_revision() -> RwSignal<u32> {
 }
 
 fn role_label(role: &str) -> &'static str {
-    if role == "lead" { "总控" } else { "干活" }
+    if role == "lead" { "总控" } else { "执行" }
 }
 
 fn pill(state: &str) -> AnyView {
@@ -124,7 +124,6 @@ pub fn BotsPage() -> impl IntoView {
         <div class="page work-page bots-page">
             <div class="page-head">
                 <h1>"bot"</h1>
-                <span class="muted">"临时拉一个干活，干得久了再转固定"</span>
                 <span class="grow"></span>
                 <button
                     type="button"
@@ -188,7 +187,7 @@ pub fn BotsPage() -> impl IntoView {
                             view! {
                                 <EmptyState
                                     title="还没有 bot"
-                                    detail="点「新建 bot」，写一句它负责什么就能起来；之后给它发邮件派活。"
+                                    detail="长期在线、负责固定工作的智能体，随时可以给它派活。"
                                 />
                             }
                                 .into_any()
@@ -237,7 +236,7 @@ pub fn BotsPage() -> impl IntoView {
                                                 } else {
                                                     "没有待处理邮件".into()
                                                 }}
-                                                {b["hot"].as_bool().filter(|h| *h).map(|_| " · 热模式")}
+                                                {b["hot"].as_bool().filter(|h| *h).map(|_| " · 保持在线")}
                                                 {b["last_active_at"]
                                                     .as_str()
                                                     .map(|t| format!(" · 最近活动 {}", fmt::ago(t)))}
@@ -258,7 +257,7 @@ pub fn BotsPage() -> impl IntoView {
                                                             "认领 "
                                                             {claims
                                                                 .iter()
-                                                                .map(|c| format!("{} {}", s(c, "node"), s(c, "scope")))
+                                                                .map(|c| format!("{} {}", fmt::machine(&s(c, "node")), s(c, "scope")))
                                                                 .collect::<Vec<_>>()
                                                                 .join("，")}
                                                         </div>
@@ -353,9 +352,7 @@ fn NewBotForm(on_close: Callback<()>) -> impl IntoView {
         }
         let h = handle.get_untracked().trim().to_owned();
         if !valid_handle(&h) {
-            error.set(Some(
-                "handle 只能用小写字母、数字和连字符，1–32 个字符".into(),
-            ));
+            error.set(Some("标识只能用小写字母、数字和连字符，1–32 个字符".into()));
             return;
         }
         let d = duty.get_untracked().trim().to_owned();
@@ -397,7 +394,7 @@ fn NewBotForm(on_close: Callback<()>) -> impl IntoView {
             }
             match post("/api/bots", body).await {
                 Ok(_) => {
-                    toast("bot 已建好，发一封邮件它就会醒");
+                    toast("已创建，给它派活就会开始工作");
                     on_close.run(());
                 }
                 Err(e) => error.set(Some(e.to_string())),
@@ -409,12 +406,12 @@ fn NewBotForm(on_close: Callback<()>) -> impl IntoView {
         <Modal label="新建 bot" on_close=Callback::new(move |_| on_close.run(()))>
             <h3>"新建 bot"</h3>
             <label class="field">
-                "handle"
+                "标识"
                 <input
                     data-modal-initial-focus=""
                     maxlength="32"
                     placeholder="trainer"
-                    aria-label="handle"
+                    aria-label="标识"
                     aria-describedby="new-bot-handle-rule"
                     prop:value=move || handle.get()
                     on:input=move |e| handle.set(event_target_value(&e))
@@ -490,10 +487,10 @@ fn NewBotForm(on_close: Callback<()>) -> impl IntoView {
                 <label class="field">
                     "分工" <select on:change=move |e| role.set(event_target_value(&e))>
                         <option value="worker" selected=true>
-                            "worker · 干活"
+                            "执行 · 负责具体工作"
                         </option>
                         <option value="lead">
-                            "lead · 总控，可以给别人派活、临时拉 bot"
+                            "总控 · 可以给其他 bot 派活"
                         </option>
                     </select>
                 </label>
@@ -507,7 +504,7 @@ fn NewBotForm(on_close: Callback<()>) -> impl IntoView {
                     </select>
                 </label>
                 <label class="field">
-                    "家目录（hub 本机，留空用 ~/blazar-bots/<handle>）"
+                    "工作目录（在本机，留空用 ~/blazar-bots/<标识>）"
                     <input
                         class="mono"
                         placeholder="/Users/me/blazar-bots/trainer"
@@ -519,7 +516,7 @@ fn NewBotForm(on_close: Callback<()>) -> impl IntoView {
             {move || error.get().map(|message| view! { <InlineError message /> })}
             <div class="dlg-foot">
                 <span class="muted small grow">
-                    "创建时会在 hub 本机建它的家目录；收到邮件后才会起会话、消耗额度。"
+                    "创建后它会在本机拥有自己的工作目录；收到工作时才开始运行、消耗额度。"
                 </span>
                 <button
                     type="button"
@@ -713,13 +710,13 @@ pub fn BotPage() -> impl IntoView {
                                             format!("/api/bots/{}", api::enc(&b1)),
                                             json!({ "hot_for_secs": if hot { 0 } else { 1800 } }),
                                             if hot {
-                                                "已退出热模式"
+                                                "已结束保持在线"
                                             } else {
-                                                "热模式 30 分钟：这段时间会话不收尾，邮件直接插话"
+                                                "接下来 30 分钟保持在线，新消息会立即送达"
                                             },
                                         )
                                     >
-                                        {if hot { "退出热模式" } else { "热 30 分钟" }}
+                                        {if hot { "结束保持在线" } else { "保持在线 30 分钟" }}
                                     </button>
                                     <button
                                         type="button"
@@ -949,7 +946,7 @@ pub fn BotPage() -> impl IntoView {
                                                 {if s(&b, "brain") == "node" {
                                                     "工作机器"
                                                 } else {
-                                                    "hub 本机"
+                                                    "本机"
                                                 }}
                                             </span>
                                             <span class="muted">"机器"</span>
@@ -1023,9 +1020,9 @@ pub fn BotPage() -> impl IntoView {
                                                                 view! {
                                                                     <li>
                                                                         <span class="mono">
-                                                                            {format!("{} {}", s(&c, "node"), s(&c, "scope"))}
+                                                                            {format!("{} {}", fmt::machine(&s(&c, "node")), s(&c, "scope"))}
                                                                         </span>
-                                                                        <span class="gchip">{s(&c, "mode")}</span>
+                                                                        <span class="gchip">{crate::vocab::term(&s(&c, "mode")).to_owned()}</span>
                                                                         {c["hands"]
                                                                             .as_str()
                                                                             .map(|h| {
@@ -1071,14 +1068,14 @@ pub fn BotPage() -> impl IntoView {
                                                 on:change=move |e| claim_node.set(event_target_value(&e))
                                             >
                                                 <option value="local" selected=true>
-                                                    "local"
+                                                    "本机"
                                                 </option>
                                                 {nodes
                                                     .into_iter()
                                                     .filter(|n| n.name != "local")
                                                     .map(|n| {
                                                         view! {
-                                                            <option value=n.name.clone()>{n.name.clone()}</option>
+                                                            <option value=n.name.clone()>{fmt::machine(&n.name)}</option>
                                                         }
                                                     })
                                                     .collect_view()}
@@ -1090,7 +1087,7 @@ pub fn BotPage() -> impl IntoView {
                                                 <option value="exclusive" selected=true>
                                                     "独占"
                                                 </option>
-                                                <option value="shared">"共用"</option>
+                                                <option value="shared">"共享"</option>
                                                 <option value="read">"只读"</option>
                                             </select>
                                             <button

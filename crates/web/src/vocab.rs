@@ -44,6 +44,114 @@ pub fn state(raw: &str) -> (&'static str, Tone) {
     }
 }
 
+#[must_use]
+pub fn term(raw: &str) -> &str {
+    match raw {
+        "exclusive" => "独占",
+        "shared" => "共享",
+        "read" => "只读",
+        "claude_cli" | "claude" => "Claude Code",
+        "codex" => "Codex",
+        "job_spawn" => "启动后台任务",
+        "job_register" => "登记后台任务",
+        "node_offline" => "机器离线",
+        "quota_high" => "额度快用完",
+        "job_orphan" => "后台任务失去依赖",
+        "bot_stuck" => "智能体卡住",
+        "local" => "本机",
+        "lead" => "总控",
+        "worker" => "执行",
+        other => other,
+    }
+}
+
+#[must_use]
+pub fn duration(secs: f64) -> String {
+    let s = secs.max(0.0).floor() as u64;
+    match s {
+        0..60 => format!("{s} 秒"),
+        60..3600 if s.is_multiple_of(60) => format!("{} 分钟", s / 60),
+        60..3600 => format!("{} 分 {} 秒", s / 60, s % 60),
+        3600..86_400 if s % 3600 / 60 == 0 => format!("{} 小时", s / 3600),
+        3600..86_400 => format!("{} 小时 {} 分", s / 3600, s % 3600 / 60),
+        _ if s % 86_400 / 3600 == 0 => format!("{} 天", s / 86_400),
+        _ => format!("{} 天 {} 小时", s / 86_400, s % 86_400 / 3600),
+    }
+}
+
+#[must_use]
+pub fn weekdays(days: &[u8]) -> String {
+    let mut sorted = days.iter().map(|d| d % 7).collect::<Vec<_>>();
+    sorted.sort_unstable();
+    sorted.dedup();
+    match sorted.as_slice() {
+        [1, 2, 3, 4, 5] => "工作日".into(),
+        [0, 6] => "周末".into(),
+        [0, 1, 2, 3, 4, 5, 6] => "每天".into(),
+        list => {
+            let names = ["日", "一", "二", "三", "四", "五", "六"];
+            let picked = list
+                .iter()
+                .filter_map(|d| names.get(usize::from(*d)))
+                .copied()
+                .collect::<Vec<_>>()
+                .join("、");
+            format!("每周{picked}")
+        }
+    }
+}
+
+#[must_use]
+pub fn timezone(tz: &str) -> &str {
+    match tz {
+        "Asia/Shanghai" | "Asia/Chongqing" | "Asia/Harbin" | "PRC" => "北京时间",
+        "Asia/Hong_Kong" => "香港时间",
+        "Asia/Taipei" => "台北时间",
+        "Asia/Tokyo" => "东京时间",
+        "UTC" | "Etc/UTC" | "GMT" => "UTC",
+        other => other,
+    }
+}
+
+#[must_use]
+pub fn error(raw: &str, status: Option<u16>) -> String {
+    let lower = raw.to_ascii_lowercase();
+    let has = |needles: &[&str]| needles.iter().any(|n| lower.contains(n));
+    if status == Some(529) || has(&["529", "overloaded"]) {
+        "服务繁忙，稍后再试".into()
+    } else if status == Some(429) || has(&["429", "rate limit", "rate_limit", "too many requests"])
+    {
+        "请求太频繁，稍后再试".into()
+    } else if status == Some(401)
+        || has(&[
+            "401 ",
+            "unauthorized",
+            "invalid api key",
+            "authentication_error",
+        ])
+    {
+        "登录已失效，请重新登录".into()
+    } else if status == Some(403) || has(&["403 ", "forbidden", "permission_error"]) {
+        "没有权限".into()
+    } else if has(&["timed out", "timeout", "deadline exceeded"]) {
+        "等待超时，稍后再试".into()
+    } else if has(&[
+        "connection refused",
+        "failed to fetch",
+        "networkerror",
+        "network error",
+        "econnrefused",
+    ]) {
+        "连不上服务，请检查网络".into()
+    } else if status.is_some_and(|c| c >= 500) && (raw.is_empty() || raw.starts_with("HTTP ")) {
+        "服务出错了，稍后再试".into()
+    } else if status == Some(404) && (raw.is_empty() || raw.starts_with("HTTP ")) {
+        "找不到了，可能已被删除".into()
+    } else {
+        raw.to_owned()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -65,5 +173,26 @@ mod tests {
         assert_eq!(state("awaiting_approval").0, "等你批准");
         assert_eq!(state("paused"), ("已暂停", Tone::Other));
         assert_eq!(state("done").0, state("completed").0);
+    }
+
+    #[test]
+    fn times_read_as_words() {
+        assert_eq!(duration(14.0), "14 秒");
+        assert_eq!(duration(180.0), "3 分钟");
+        assert_eq!(duration(185.0), "3 分 5 秒");
+        assert_eq!(duration(7200.0), "2 小时");
+        assert_eq!(weekdays(&[1, 2, 3, 4, 5]), "工作日");
+        assert_eq!(weekdays(&[1, 3]), "每周一、三");
+    }
+
+    #[test]
+    fn errors_read_as_plain_words() {
+        assert_eq!(
+            error("API Error: 529 Overloaded", None),
+            "服务繁忙，稍后再试"
+        );
+        assert_eq!(error("HTTP 502", Some(502)), "服务出错了，稍后再试");
+        assert_eq!(error("工作区不存在", Some(404)), "工作区不存在");
+        assert_eq!(term("exclusive"), "独占");
     }
 }

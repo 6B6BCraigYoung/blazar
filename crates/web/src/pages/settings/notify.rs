@@ -10,7 +10,7 @@ use super::{flag, rows, save, text};
 pub(crate) const NOTIFY_KINDS: &[(&str, &str)] = &[
     ("run_done", "运行完成"),
     ("run_failed", "运行失败"),
-    ("approval", "待审批"),
+    ("approval", "等你批准"),
     ("question", "需要回答"),
     ("autopilot_paused", "自动化暂停"),
     ("rate_limit", "额度告警"),

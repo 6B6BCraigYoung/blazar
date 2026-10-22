@@ -743,7 +743,7 @@ RESTORE = {"action": "click", "selector": "button[title=\"还原面板\"]", "opt
 ROUTES = [
     ("home", "/", "工作区列表（全部）"),
     ("running", "/running", "运行中的工作区"),
-    ("waiting", "/waiting", "等我审批的工作区"),
+    ("waiting", "/waiting", "等你批准的工作区"),
     ("inbox", "/inbox", "收件箱"),
     ("tasks", "/tasks", "任务看板"),
     ("autopilots", "/autopilots", "自动化列表"),
@@ -765,7 +765,7 @@ SETTINGS = [
 ]
 
 TABS = [
-    ("workspaces", "/", [("all", "全部", "/"), ("running", "运行中", "/running"), ("waiting", "等我审批", "/waiting")]),
+    ("workspaces", "/", [("all", "全部", "/"), ("running", "运行中", "/running"), ("waiting", "等你批准", "/waiting")]),
     ("tasks", "/tasks", [("all", "全部", "/tasks"), ("autopilots", "自动化", "/autopilots"), ("jobs", "后台任务", "/jobs")]),
     ("agents", "/agents", [("profiles", "角色档案", "/agents"), ("skills", "技能", "/skills"), ("runtimes", "运行时", "/runtimes"),
                            ("usage", "用量", "/usage")]),

@@ -116,9 +116,9 @@ pub fn Sidebar() -> impl IntoView {
             .filter(|x| x.activity == "awaiting_approval")
             .count();
         let u = top().iter().filter(|x| app.unseen(x)).count();
-        let mut s = format!("{on} 节点在线 · {r} 运行中");
+        let mut s = format!("{on} 台机器在线 · {r} 运行中");
         if a > 0 {
-            s.push_str(&format!(" · {a} 等审批"));
+            s.push_str(&format!(" · {a} 等你批准"));
         }
         if u > 0 {
             s.push_str(&format!(" · {u} 条新结果"));
@@ -273,7 +273,7 @@ pub fn Sidebar() -> impl IntoView {
                     </button>
                 </div>
                 <span class="conn" role="status" data-up=move || bus.connected.get().to_string()>
-                    {move || if bus.connected.get() { "已连接" } else { "正在重连 hub…" }}
+                    {move || if bus.connected.get() { "已连接" } else { "正在重新连接…" }}
                 </span>
             </div>
         </nav>

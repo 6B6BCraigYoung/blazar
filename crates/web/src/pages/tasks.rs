@@ -13,9 +13,9 @@ use serde_json::{Value, json};
 const STATUSES: &[(&str, &str)] = &[
     ("backlog", "待规划"),
     ("todo", "待办"),
-    ("in_progress", "进行中"),
+    ("in_progress", "运行中"),
     ("in_review", "待审阅"),
-    ("done", "完成"),
+    ("done", "已完成"),
     ("cancelled", "已取消"),
 ];
 const PRIORITIES: &[(&str, &str)] = &[

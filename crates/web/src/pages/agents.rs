@@ -156,7 +156,7 @@ pub fn AgentsPage() -> impl IntoView {
             if action == "archive"
                 && !confirm(
                     "归档选中的角色档案？",
-                    "进行中的运行会被取消，配置与历史保留，可以稍后恢复。",
+                    "正在运行的任务会被取消，配置与历史保留，可以稍后恢复。",
                 )
                 .await
             {
@@ -483,7 +483,7 @@ pub fn AgentsPage() -> impl IntoView {
                                                             .then(|| {
                                                                 view! {
                                                                     <div class="muted">
-                                                                        {format!("{} 次进行中", n(&a, "running"))}
+                                                                        {format!("{} 次运行中", n(&a, "running"))}
                                                                     </div>
                                                                 }
                                                             })}
@@ -669,7 +669,7 @@ pub fn AgentProfilePage() -> impl IntoView {
                                 <p class="muted">{text(&a.get_value(), "description")}</p>
                                 <span class="muted">
                                     {format!(
-                                        "{} · {} · {} 次进行中",
+                                        "{} · {} · {} 次运行中",
                                         text(&a.get_value(), "runtime_label"),
                                         if text(&a.get_value(), "model").is_empty() {
                                             "默认模型".into()
@@ -803,9 +803,9 @@ fn AgentActions(agent: Value, rev: RwSignal<u32>, blocked: RwSignal<bool>) -> im
                         _ => "取消全部运行？",
                     },
                     match action {
-                        "archive" => "进行中的运行会取消，所有历史保留，可以稍后恢复。",
+                        "archive" => "正在运行的任务会取消，所有历史保留，可以稍后恢复。",
                         "delete" => "删除后无法恢复；已有对话记录保留。",
-                        _ => "进行中的运行将被取消，最多需要 5 秒停止。",
+                        _ => "正在运行的任务将被取消，最多需要 5 秒停止。",
                     },
                 )
                 .await
@@ -1011,7 +1011,7 @@ fn AgentOverview(agent: Value) -> impl IntoView {
                     </div>
                     <div>
                         <b>
-                            {format!("{:.0}s", agent["avg_secs_30d"].as_f64().unwrap_or_default())}
+                            {crate::vocab::duration(agent["avg_secs_30d"].as_f64().unwrap_or_default())}
                         </b>
                         <span>"平均耗时"</span>
                     </div>

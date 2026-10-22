@@ -429,7 +429,7 @@ fn Dialog() -> impl IntoView {
                             let selected = n.clone();
                             view! {
                                 <option value=n.clone() selected=move || node.get() == selected>
-                                    {n.clone()}
+                                    {crate::fmt::machine(&n)}
                                 </option>
                             }
                         })

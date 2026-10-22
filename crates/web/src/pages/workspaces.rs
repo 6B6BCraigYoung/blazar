@@ -85,7 +85,7 @@ fn List(kind: Kind) -> impl IntoView {
                 tabs=vec![
                     Tab::counted("全部", "/", count(None)),
                     Tab::counted("运行中", "/running", count(Some("running"))),
-                    Tab::counted("等我审批", "/waiting", count(Some("awaiting_approval"))),
+                    Tab::counted("等你批准", "/waiting", count(Some("awaiting_approval"))),
                 ]
             />
         }
@@ -353,7 +353,7 @@ fn PendingApprovals() -> impl IntoView {
                     view! {
                         <EmptyState
                             title="暂无待处理的请求"
-                            detail="需要审批或回答的问题会显示在这里。"
+                            detail="需要你批准或回答的问题会显示在这里。"
                         />
                     }
                         .into_any()

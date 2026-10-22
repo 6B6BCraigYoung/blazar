@@ -7,11 +7,11 @@ use leptos::task::spawn_local;
 use serde_json::{Value, json};
 const KINDS: &[(&str, &str)] = &[
     ("", "全部类型"),
-    ("run_done", "已完成"),
+    ("run_done", "运行完成"),
     ("run_failed", "运行失败"),
-    ("approval", "待审批"),
+    ("approval", "等你批准"),
     ("question", "待回答"),
-    ("autopilot_paused", "自动化暂停"),
+    ("autopilot_paused", "自动化已暂停"),
     ("rate_limit", "额度告警"),
     ("job", "后台任务"),
     ("alert", "提醒规则"),

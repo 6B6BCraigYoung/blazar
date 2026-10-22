@@ -1023,7 +1023,7 @@ fn LarkSettings(initial: Value) -> impl IntoView {
                     </label>
                     <label class="settings-field">
                         "接收群或用户"
-                        <span class="muted">"群聊填写 chat_id，个人填写 open_id。"</span>
+                        <span class="muted">"群聊填写群 ID（oc_ 开头），个人填写用户 ID（ou_ 开头）。"</span>
                         <input
                             class="settings-input"
                             placeholder="oc_… 或 ou_…"
