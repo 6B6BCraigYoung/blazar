@@ -243,6 +243,22 @@ async function run(command) {
       await sleep(settle);
       return { ok: true, name: file.name, bytes: file.size };
     }
+    case 'drag': {
+      const dx = Number(command.dx || 0);
+      const dy = Number(command.dy || 0);
+      const el = guard(find(command));
+      const r = el.getBoundingClientRect();
+      if (r.width < 1 || r.height < 1) throw new Error(`${label(el) || command.selector} 没有显示出来，不能拖`);
+      const x = r.x + r.width / 2;
+      const y = r.y + r.height / 2;
+      const steps = Math.max(1, Math.min(Number(command.steps || 8), 60));
+      const at = (type, i) => pointer(el, type, { clientX: x + (dx * i) / steps, clientY: y + (dy * i) / steps, pointerId: 1, isPrimary: true });
+      at('pointerdown', 0);
+      for (let i = 1; i <= steps; i++) at('pointermove', i);
+      at('pointerup', steps);
+      await sleep(settle);
+      return { ok: true, target: label(el), dx, dy };
+    }
     case 'context_menu': {
       const el = guard(find(command));
       el.scrollIntoView({ block: 'center' });
