@@ -1007,3 +1007,31 @@ fn stat_section_is_parsed_and_absent_outside_git() {
     let t = parse_tree("__TRACKED__\na.rs\n__STATUS__\n__STAT__\n1 2 3\n");
     assert!(t.iter().all(|e| e.path != "1 2 3"), "{t:?}");
 }
+
+#[tokio::test]
+async fn rename_and_remove_stay_inside_the_root() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(root.path().join("src/deep")).unwrap();
+    std::fs::write(root.path().join("src/a.rs"), "a").unwrap();
+    std::fs::write(root.path().join("src/b.rs"), "b").unwrap();
+    std::fs::write(root.path().join("src/deep/x.txt"), "x").unwrap();
+    let v = Vfs::new(Arc::new(TestLocal), root.path().to_string_lossy());
+    assert_eq!(
+        v.rename("src/a.rs", ".env.example").await.unwrap(),
+        "src/.env.example"
+    );
+    assert!(root.path().join("src/.env.example").is_file());
+    assert!(!root.path().join("src/a.rs").exists());
+    let taken = v.rename("src/b.rs", ".env.example").await.unwrap_err();
+    assert!(taken.to_string().contains("同名"), "{taken}");
+    for bad in ["", ".", "..", "a/b", "../x"] {
+        assert!(v.rename("src/b.rs", bad).await.is_err(), "{bad:?} 应被拒绝");
+    }
+    assert!(v.rename("../outside", "x").await.is_err());
+    v.remove("src/deep").await.unwrap();
+    assert!(!root.path().join("src/deep").exists());
+    v.remove("src/deep").await.unwrap();
+    assert!(v.remove("").await.is_err());
+    assert!(v.remove("..").await.is_err());
+    assert!(root.path().join("src/b.rs").is_file());
+}

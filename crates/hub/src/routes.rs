@@ -142,6 +142,8 @@ pub fn build_router(st: Arc<AppState>) -> Router {
             "/api/workspaces/{id}/file",
             get(api::workspace_file).put(api::workspace_file_write),
         )
+        .route("/api/workspaces/{id}/rename", post(api::workspace_rename))
+        .route("/api/workspaces/{id}/remove", post(api::workspace_remove))
         .route("/api/workspaces/{id}/diff", get(api::workspace_diff))
         .route(
             "/api/autopilots",

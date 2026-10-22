@@ -44,6 +44,7 @@ const EXIT_SSH: i32 = 255;
 const EXIT_PATH_ESCAPE: i32 = 9;
 const EXIT_EXISTS: i32 = 6;
 const EXIT_MKDIR: i32 = 7;
+const EXIT_MISSING: i32 = 4;
 const MAX_NAME_BYTES: usize = 255;
 
 const CONTENT_DIGEST: &str = r#"digest() {
@@ -80,6 +81,23 @@ pub fn folder_name(name: &str) -> Result<&str> {
         "文件夹名不能包含控制字符"
     } else if name.len() > MAX_NAME_BYTES {
         "文件夹名太长"
+    } else {
+        return Ok(name);
+    };
+    Err(VfsError::Folder(bad.to_owned()))
+}
+
+pub fn entry_name(name: &str) -> Result<&str> {
+    let bad = if name.trim().is_empty() {
+        "名称不能为空"
+    } else if name == "." || name == ".." {
+        "名称不能是 . 或 .."
+    } else if name.contains(['/', '\\', '\0']) {
+        "名称不能包含 / 或 \\"
+    } else if name.chars().any(char::is_control) {
+        "名称不能包含控制字符"
+    } else if name.len() > MAX_NAME_BYTES {
+        "名称太长"
     } else {
         return Ok(name);
     };

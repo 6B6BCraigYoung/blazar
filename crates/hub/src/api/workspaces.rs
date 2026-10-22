@@ -550,6 +550,39 @@ pub async fn workspace_file_write(
     Ok(Json(w))
 }
 
+#[derive(Debug, Deserialize)]
+pub struct RenameEntry {
+    pub path: String,
+    pub name: String,
+}
+
+pub async fn workspace_rename(
+    State(st): State<Shared>,
+    Path(id): Path<String>,
+    Json(b): Json<RenameEntry>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let (node, root) = locate(&st, &id).await?;
+    let path = vfs_for(&st, &node, &root).rename(&b.path, &b.name).await?;
+    st.emit(ServerEvent::WorkspacesChanged);
+    Ok(Json(serde_json::json!({ "path": path })))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RemoveEntry {
+    pub path: String,
+}
+
+pub async fn workspace_remove(
+    State(st): State<Shared>,
+    Path(id): Path<String>,
+    Json(b): Json<RemoveEntry>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let (node, root) = locate(&st, &id).await?;
+    vfs_for(&st, &node, &root).remove(&b.path).await?;
+    st.emit(ServerEvent::WorkspacesChanged);
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
+
 #[derive(Debug, Default, Deserialize)]
 pub struct DiffQuery {
     #[serde(default)]

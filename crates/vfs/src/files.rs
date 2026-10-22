@@ -464,4 +464,68 @@ echo "PATH|$HERE/"{name}"#,
             .unwrap_or_default()
             .to_owned())
     }
+
+    pub async fn rename(&self, rel: &str, name: &str) -> Result<String> {
+        let rel = self.safe_rel(rel)?;
+        let name = entry_name(name)?;
+        let target = match rel.rsplit_once('/') {
+            Some((dir, _)) => format!("{dir}/{name}"),
+            None => name.to_owned(),
+        };
+        if target == rel {
+            return Ok(rel);
+        }
+        let script = format!(
+            r#"{guard}
+[ -e "$F" ] || [ -L "$F" ] || exit {missing}
+T={target}
+guard_path "$T"
+[ -e "$T" ] || [ -L "$T" ] && exit {exists}
+mv -- "$F" "$T" || exit {failed}"#,
+            guard = guarded_path(&self.root, &rel),
+            target = shell_quote(&format!("./{target}")),
+            missing = EXIT_MISSING,
+            exists = EXIT_EXISTS,
+            failed = EXIT_MKDIR,
+        );
+        let out = self
+            .transport
+            .exec(ExecSpec::new("bash").arg("-lc").arg(script))
+            .await?;
+        match out.code {
+            EXIT_MISSING => Err(VfsError::Folder(format!("{rel} 已经不在了"))),
+            EXIT_EXISTS => Err(VfsError::Folder(format!(
+                "已经有同名的文件或文件夹：{name}"
+            ))),
+            EXIT_MKDIR => Err(VfsError::Folder(format!(
+                "重命名没有成功：{}",
+                out.stderr.trim()
+            ))),
+            _ => check(&out, &rel).map(|()| target),
+        }
+    }
+
+    pub async fn remove(&self, rel: &str) -> Result<()> {
+        let rel = self.safe_rel(rel)?;
+        let script = format!(
+            r#"{guard}
+[ -e "$F" ] || [ -L "$F" ] || exit {missing}
+rm -rf -- "$F" || exit {failed}"#,
+            guard = guarded_path(&self.root, &rel),
+            missing = EXIT_MISSING,
+            failed = EXIT_MKDIR,
+        );
+        let out = self
+            .transport
+            .exec(ExecSpec::new("bash").arg("-lc").arg(script))
+            .await?;
+        match out.code {
+            EXIT_MISSING => Ok(()),
+            EXIT_MKDIR => Err(VfsError::Folder(format!(
+                "删除没有成功：{}",
+                out.stderr.trim()
+            ))),
+            _ => check(&out, &rel),
+        }
+    }
 }
