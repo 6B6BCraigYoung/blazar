@@ -1,8 +1,10 @@
 use super::work_shared::*;
 use crate::components::dialog::{self, Choice};
+use crate::components::empty::{self, Action, Blank};
+use crate::components::icon;
 use crate::components::modal::Modal;
 use crate::components::page_head::{MenuItem, MoreMenu, PageHead};
-use crate::components::status::{EmptyState, InlineError, LoadingState, StateOf};
+use crate::components::status::{InlineError, LoadingState, StateOf};
 use crate::components::toast::toast;
 use crate::realtime::use_bus;
 use crate::{api, app_state::use_app, fmt};
@@ -100,6 +102,15 @@ pub fn BotsPage() -> impl IntoView {
             .await
         }
     });
+    let has_archived = LocalResource::new(move || {
+        rev.track();
+        async move {
+            api::get::<Value>("/api/bots?archived=true")
+                .await
+                .is_ok_and(|v| !arr(&v, "bots").is_empty())
+        }
+    });
+    let has_active = move || data.with(|d| matches!(d, Some(Ok(r)) if !arr(r, "bots").is_empty()));
     let fleet = LocalResource::new(move || {
         rev.track();
         async move { api::get::<Value>("/api/fleet/status").await }
@@ -122,9 +133,15 @@ pub fn BotsPage() -> impl IntoView {
     view! {
         <div class="page work-page bots-page">
             <PageHead title="bot">
-                <button type="button" class="btn" on:click=move |_| archived.update(|a| *a = !*a)>
-                    {move || if archived.get() { "返回在用的" } else { "查看已归档" }}
-                </button>
+                <Show when=move || archived.get() || has_archived.get() == Some(true)>
+                    <button
+                        type="button"
+                        class="btn"
+                        on:click=move |_| archived.update(|a| *a = !*a)
+                    >
+                        {move || if archived.get() { "返回在用的" } else { "查看已归档" }}
+                    </button>
+                </Show>
                 <button type="button" class="btn primary" on:click=move |_| creating.set(true)>
                     "新建 bot"
                 </button>
@@ -132,6 +149,7 @@ pub fn BotsPage() -> impl IntoView {
             {move || {
                 fleet
                     .get()
+                    .filter(|_| has_active() && !archived.get())
                     .and_then(|r| r.ok())
                     .map(|f| {
                         let nodes: Vec<_> = app
@@ -170,17 +188,21 @@ pub fn BotsPage() -> impl IntoView {
                     if bots.is_empty() {
                         return if showing_archived {
                             view! {
-                                <EmptyState
-                                    title="没有归档的 bot"
-                                    detail="临时 bot 闲置到期后会出现在这里，可以恢复。"
+                                <Blank
+                                    icon=icon::BOT
+                                    title=empty::never("归档的 bot")
+                                    detail="临时 bot 闲置到期后会归档到这里，可以恢复。"
+                                    action=Action::new("返回在用的", move || archived.set(false))
                                 />
                             }
                                 .into_any()
                         } else {
                             view! {
-                                <EmptyState
-                                    title="还没有 bot"
-                                    detail="长期在线、负责固定工作的智能体，随时可以给它派活。"
+                                <Blank
+                                    icon=icon::BOT
+                                    title=empty::never("bot")
+                                    detail="bot 是长期在线、负责固定工作的智能体，随时可以给它派活。"
+                                    action=Action::new("新建 bot", move || creating.set(true))
                                 />
                             }
                                 .into_any()
@@ -817,7 +839,14 @@ pub fn BotPage() -> impl IntoView {
                                     {
                                         let mail = arr(&b, "mailbox");
                                         if mail.is_empty() {
-                                            view! { <div class="muted">"还没有邮件。"</div> }
+                                            view! {
+                                                <Blank
+                                                    icon=icon::MAIL
+                                                    title=empty::never("邮件")
+                                                    detail="给它派活或发邮件后，会出现在这里。"
+                                                    inset=true
+                                                />
+                                            }
                                                 .into_any()
                                         } else {
                                             view! {
@@ -988,7 +1017,12 @@ pub fn BotPage() -> impl IntoView {
                                             let claims = arr(&b, "claims");
                                             if claims.is_empty() {
                                                 view! {
-                                                    <div class="muted">"还没认领任何资源。"</div>
+                                                    <Blank
+                                                        icon=icon::LOCK
+                                                        title=empty::never("认领的资源")
+                                                        detail="认领 GPU、目录或仓库，别的 bot 就不会撞上。"
+                                                        inset=true
+                                                    />
                                                 }
                                                     .into_any()
                                             } else {
@@ -1083,6 +1117,18 @@ pub fn BotPage() -> impl IntoView {
                                     </section>
                                     <section class="card pad">
                                         <h3>"线程"</h3>
+                                        {arr(&b, "all_threads")
+                                            .is_empty()
+                                            .then(|| {
+                                                view! {
+                                                    <Blank
+                                                        icon=icon::CHAT
+                                                        title=empty::never("线程")
+                                                        detail="收到邮件后，它会为每件事开一个线程，接着上次的对话做。"
+                                                        inset=true
+                                                    />
+                                                }
+                                            })}
                                         <ul class="bot-claims">
                                             {arr(&b, "all_threads")
                                                 .into_iter()

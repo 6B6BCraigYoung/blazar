@@ -2,6 +2,8 @@ use super::work_shared::*;
 use crate::components::page_head::PageHead;
 use crate::components::{
     dialog::{self, Choice},
+    empty::{self, Action, Blank},
+    icon,
     modal::Modal,
     status::{EmptyState, InlineError, LoadingState},
     toast::toast,
@@ -124,6 +126,31 @@ pub fn TasksPage() -> impl IntoView {
         ui.rev.track();
         api::get::<Vec<Value>>("/api/tasks")
     });
+    let has_any = move || {
+        data.with(|d| {
+            d.as_ref()
+                .and_then(|r| r.as_ref().ok())
+                .is_some_and(|l| l.iter().any(|t| s(t, "parent_id").is_empty()))
+        })
+    };
+    let narrowed = move || {
+        !q.with(String::is_empty) || !prio.with(String::is_empty) || !ws.with(String::is_empty)
+    };
+    let clear = move || {
+        q.set(String::new());
+        prio.set(String::new());
+        ws.set(String::new());
+        let only_hidden = data.with_untracked(|d| {
+            d.as_ref().and_then(|r| r.as_ref().ok()).is_some_and(|l| {
+                l.iter()
+                    .filter(|t| s(t, "parent_id").is_empty())
+                    .all(|t| matches!(s(t, "status").as_str(), "backlog" | "cancelled"))
+            })
+        });
+        if only_hidden {
+            hidden.set(true);
+        }
+    };
     let filtered = move || {
         data.get()
             .and_then(|r| r.as_ref().ok().cloned())
@@ -185,37 +212,39 @@ pub fn TasksPage() -> impl IntoView {
                     "新建任务"
                 </button>
             </PageHead>
-            <div class="work-filters">
-                <input
-                    class="filter"
-                    aria-label="搜索任务"
-                    placeholder="搜索任务"
-                    prop:value=move || q.get()
-                    on:input=move |e| q.set(event_target_value(&e))
-                />
-                {filter_select("视图", mode, &[("board", "看板"), ("list", "列表")])}
-                {filter_select(
-                    "优先级",
-                    prio,
-                    &[
-                        ("", "全部"),
-                        ("urgent", "紧急"),
-                        ("high", "高"),
-                        ("medium", "中"),
-                        ("low", "低"),
-                        ("none", "无"),
-                    ],
-                )}
-                <WorkspaceFilter value=ws />
-                <label class="chk">
+            <Show when=move || has_any() || narrowed()>
+                <div class="work-filters">
                     <input
-                        type="checkbox"
-                        prop:checked=move || hidden.get()
-                        on:change=move |e| hidden.set(event_target_checked(&e))
+                        class="filter"
+                        aria-label="搜索任务"
+                        placeholder="搜索任务"
+                        prop:value=move || q.get()
+                        on:input=move |e| q.set(event_target_value(&e))
                     />
-                    "包含待规划与已取消"
-                </label>
-            </div>
+                    {filter_select("视图", mode, &[("board", "看板"), ("list", "列表")])}
+                    {filter_select(
+                        "优先级",
+                        prio,
+                        &[
+                            ("", "全部"),
+                            ("urgent", "紧急"),
+                            ("high", "高"),
+                            ("medium", "中"),
+                            ("low", "低"),
+                            ("none", "无"),
+                        ],
+                    )}
+                    <WorkspaceFilter value=ws />
+                    <label class="chk">
+                        <input
+                            type="checkbox"
+                            prop:checked=move || hidden.get()
+                            on:change=move |e| hidden.set(event_target_checked(&e))
+                        />
+                        "包含待规划与已取消"
+                    </label>
+                </div>
+            </Show>
             <div class="work-layout">
                 <div class="work-main">
                     {move || match data.get() {
@@ -232,30 +261,39 @@ pub fn TasksPage() -> impl IntoView {
                                         .into_any()
                                 }
                                 Ok(_) => {
+                                    let shown_status = |t: &Value| {
+                                        hidden.get()
+                                            || !matches!(s(t, "status").as_str(), "backlog" | "cancelled")
+                                    };
                                     let list = filtered();
                                     let board = mode.get() == "board";
-                                    let empty = list.is_empty();
-                                    let narrowed = !q.get().is_empty() || !prio.get().is_empty()
-                                        || !ws.get().is_empty();
+                                    if !list.iter().any(shown_status) {
+                                        return if has_any() {
+                                            view! {
+                                                <Blank
+                                                    icon=icon::FILTER
+                                                    title=empty::unmatched("任务")
+                                                    detail="调整筛选条件，或换个关键词。"
+                                                    action=Action::clear(clear)
+                                                />
+                                            }
+                                                .into_any()
+                                        } else {
+                                            view! {
+                                                <Blank
+                                                    icon=icon::TASKS
+                                                    title=empty::never("任务")
+                                                    detail="把要做的事写成任务，交给智能体去做，在看板上跟进进度。"
+                                                    action=Action::new(
+                                                        "新建任务",
+                                                        move || ui.editor.set(Some(json!({"status":"todo"}))),
+                                                    )
+                                                />
+                                            }
+                                                .into_any()
+                                        };
+                                    }
                                     view! {
-                                        {empty
-                                            .then(|| {
-                                                view! {
-                                                    <EmptyState
-                                                        title=if narrowed {
-                                                            "没有匹配的任务"
-                                                        } else {
-                                                            "还没有任务"
-                                                        }
-                                                        detail=if narrowed {
-                                                            "调整筛选条件，或换个关键词。"
-                                                        } else {
-                                                            "新建任务，写下目标，再交给智能体处理。"
-                                                        }
-                                                        class="tasks-empty"
-                                                    />
-                                                }
-                                            })}
                                         <div class:work-board=board class:work-list=!board>
                                             {STATUSES
                                                 .iter()
@@ -270,7 +308,7 @@ pub fn TasksPage() -> impl IntoView {
                                                         .cloned()
                                                         .collect::<Vec<_>>();
                                                     let (drop_key, add_key) = (key.clone(), key.clone());
-                                                    let column_empty = items.is_empty() && !empty;
+                                                    let column_empty = items.is_empty();
                                                     view! {
                                                         <section
                                                             class="work-column"

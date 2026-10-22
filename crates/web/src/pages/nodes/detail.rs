@@ -157,9 +157,11 @@ fn NodeDetail(name: String) -> impl IntoView {
                     let list = ws_here();
                     if list.is_empty() {
                         return view! {
-                            <EmptyState
-                                title="还没有工作区"
-                                detail="在这台机器上创建第一个工作区。"
+                            <Blank
+                                icon=icon::FOLDER
+                                title=empty::never("工作区")
+                                detail="在这台机器上选一个代码目录，智能体就能在这里干活。"
+                                inset=true
                             />
                         }
                             .into_any();

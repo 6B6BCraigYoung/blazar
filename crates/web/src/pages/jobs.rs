@@ -2,8 +2,10 @@ use super::work_shared::*;
 use crate::components::page_head::PageHead;
 use crate::components::{
     dialog::{self, Choice},
+    empty::{self, Action, Blank},
+    icon,
     modal::Modal,
-    status::{EmptyState, InlineError, LoadingState, StateOf},
+    status::{InlineError, LoadingState, StateOf},
     toast::toast,
 };
 use crate::vocab::duration as span;
@@ -172,7 +174,12 @@ pub fn JobsPage() -> impl IntoView {
     view! {
         <div class="page work-page jobs-page">
             <PageHead title="任务" nav=|| crate::components::section::tasks("/jobs") />
-            <div class="work-filters">{filter_select("状态", filter, FILTERS)}</div>
+            <Show when=move || {
+                !filter.with(String::is_empty)
+                    || data.with(|d| matches!(d, Some(Ok(l)) if !l.is_empty()))
+            }>
+                <div class="work-filters">{filter_select("状态", filter, FILTERS)}</div>
+            </Show>
             {move || match data.get() {
                 None => view! { <LoadingState text="正在读取后台任务…" /> }.into_any(),
                 Some(Err(e)) => view! {
@@ -183,19 +190,26 @@ pub fn JobsPage() -> impl IntoView {
                 }
                 .into_any(),
                 Some(Ok(list)) if list.is_empty() => {
-                    let narrowed = !filter.get().is_empty();
-                    view! {
-                        <EmptyState
-                            title=if narrowed { "没有这个状态的后台任务" } else { "还没有后台任务" }
-                            detail=if narrowed {
-                                "换个状态看看。"
-                            } else {
-                                "智能体启动的长时间命令（训练、构建）会出现在这里，结束时通知你。"
-                            }
-                            class="jobs-empty"
-                        />
+                    if filter.with(String::is_empty) {
+                        view! {
+                            <Blank
+                                icon=icon::TERMINAL
+                                title=empty::never("后台任务")
+                                detail="智能体启动的长时间命令（训练、构建）会出现在这里，结束时通知你。"
+                            />
+                        }
+                            .into_any()
+                    } else {
+                        view! {
+                            <Blank
+                                icon=icon::FILTER
+                                title=empty::unmatched("后台任务")
+                                detail="换个状态看看。"
+                                action=Action::clear(move || filter.set(String::new()))
+                            />
+                        }
+                            .into_any()
                     }
-                    .into_any()
                 }
                 Some(Ok(list)) => view! {
                     <div class="jobs-table">

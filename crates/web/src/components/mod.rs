@@ -1,4 +1,6 @@
 pub mod dialog;
+pub mod empty;
+pub mod icon;
 pub mod menu;
 pub mod modal;
 pub mod new_workspace;

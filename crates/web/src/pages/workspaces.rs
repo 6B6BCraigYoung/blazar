@@ -7,10 +7,12 @@ use crate::api::{self, WorkspaceView};
 use crate::app_state::use_app;
 use crate::chat_model;
 use crate::components::dialog::{self, Choice};
+use crate::components::empty::{self, Action, Blank};
+use crate::components::icon;
 use crate::components::modal::Modal;
 use crate::components::page_head::PageHead;
 use crate::components::section::{SectionTabs, Tab};
-use crate::components::status::{EmptyState, InlineError, LoadingState, StateOf, Status, Tone};
+use crate::components::status::{InlineError, LoadingState, StateOf, Status, Tone};
 use crate::components::toast::toast;
 use crate::fmt;
 
@@ -56,6 +58,7 @@ fn List(kind: Kind) -> impl IntoView {
     };
     let q = RwSignal::new(String::new());
     let insp = RwSignal::new(None::<String>);
+    let pending = RwSignal::new(None::<usize>);
     let title = move || match kind {
         Kind::Project => project(),
         _ => "工作区".to_owned(),
@@ -136,13 +139,15 @@ fn List(kind: Kind) -> impl IntoView {
                 }
                 nav=move || (kind != Kind::Project).then(tabs)
             >
-                <input
-                    class="page-filter"
-                    aria-label="筛选工作区"
-                    placeholder="搜索工作区…"
-                    prop:value=move || q.get()
-                    on:input=move |e| q.set(event_target_value(&e))
-                />
+                <Show when=move || !list().is_empty() || !q.with(String::is_empty)>
+                    <input
+                        class="page-filter"
+                        aria-label="筛选工作区"
+                        placeholder="搜索工作区…"
+                        prop:value=move || q.get()
+                        on:input=move |e| q.set(event_target_value(&e))
+                    />
+                </Show>
                 <button
                     type="button"
                     class="btn primary"
@@ -160,7 +165,7 @@ fn List(kind: Kind) -> impl IntoView {
                         }
                     })
             }}
-            {(kind == Kind::Waiting).then(|| view! { <PendingApprovals /> })}
+            {(kind == Kind::Waiting).then(|| view! { <PendingApprovals pending /> })}
             {move || {
                 let r = rows();
                 if app.state.with(Option::is_none) {
@@ -171,22 +176,58 @@ fn List(kind: Kind) -> impl IntoView {
                     };
                 }
                 if r.is_empty() {
-                    if kind == Kind::Waiting && q.get().trim().is_empty() {
-                        return ().into_any();
+                    if !q.get().trim().is_empty() {
+                        return view! {
+                            <Blank
+                                icon=icon::FILTER
+                                title=empty::unmatched("工作区")
+                                detail="换个名称、机器或路径再搜。"
+                                action=Action::clear(move || q.set(String::new()))
+                            />
+                        }
+                            .into_any();
                     }
-                    let (title, detail) = if !q.get().trim().is_empty() {
-                        ("没有匹配的工作区", "试试其他名称或路径。")
-                    } else if kind == Kind::All || kind == Kind::Project {
-                        ("打开第一个工作区", "选择一个代码目录，开始工作。")
-                    } else if kind == Kind::Running {
-                        (
-                            "暂无运行中的工作区",
-                            "开始一段对话后，可以在这里查看进展。",
-                        )
-                    } else {
-                        ("还没有工作区", "点右上角新建工作区。")
+                    return match kind {
+                        Kind::Waiting if pending.get() == Some(0) => {
+                            view! {
+                                <Blank
+                                    icon=icon::CHECK
+                                    title=empty::DONE
+                                    detail="需要你批准或回答的请求会出现在这里。"
+                                />
+                            }
+                                .into_any()
+                        }
+                        Kind::Waiting => ().into_any(),
+                        Kind::Running => {
+                            view! {
+                                <Blank
+                                    icon=icon::PLAY
+                                    title=empty::never("运行中的工作区")
+                                    detail="开始一段对话后，正在干活的工作区会出现在这里。"
+                                />
+                            }
+                                .into_any()
+                        }
+                        _ => {
+                            let mut action = Action::new(
+                                "新建工作区",
+                                move || app.new_ws.set(true),
+                            );
+                            if crate::desktop::available() {
+                                action = action.keys("Mod+N");
+                            }
+                            view! {
+                                <Blank
+                                    icon=icon::FOLDER
+                                    title=empty::never("工作区")
+                                    detail="工作区是一个代码目录，智能体在里面读代码、改代码、跑命令。"
+                                    action
+                                />
+                            }
+                                .into_any()
+                        }
                     };
-                    return view! { <EmptyState title detail /> }.into_any();
                 }
                 view! {
                     {(kind == Kind::Waiting)
@@ -304,7 +345,7 @@ fn card(w: WorkspaceView, insp: RwSignal<Option<String>>) -> impl IntoView {
 }
 
 #[component]
-fn PendingApprovals() -> impl IntoView {
+fn PendingApprovals(pending: RwSignal<Option<usize>>) -> impl IntoView {
     let app = use_app();
     let gate = RwSignal::new(crate::action_gate::ActionGate::default());
     let rev = RwSignal::new(0u32);
@@ -312,6 +353,11 @@ fn PendingApprovals() -> impl IntoView {
         rev.track();
         app.state.track();
         api::get::<Vec<Value>>("/api/approvals")
+    });
+    Effect::new(move |_| {
+        if let Some(Ok(l)) = list.get() {
+            pending.set(Some(l.len()));
+        }
     });
     let decide = move |id: String, allow: bool| {
         if !gate.write().begin(&id) {
@@ -350,15 +396,7 @@ fn PendingApprovals() -> impl IntoView {
                     }
                         .into_any()
                 }
-                Some(Ok(l)) if l.is_empty() => {
-                    view! {
-                        <EmptyState
-                            title="暂无待处理的请求"
-                            detail="需要你批准或回答的问题会显示在这里。"
-                        />
-                    }
-                        .into_any()
-                }
+                Some(Ok(l)) if l.is_empty() => ().into_any(),
                 Some(Ok(l)) => {
                     l.into_iter()
                         .map(|a| {

@@ -1,6 +1,8 @@
 use super::work_shared::*;
+use crate::components::empty::{self, Action, Blank};
+use crate::components::icon;
 use crate::components::page_head::PageHead;
-use crate::components::status::{EmptyState, InlineError, LoadingState, Status, Tone};
+use crate::components::status::{InlineError, LoadingState, Status, Tone};
 use crate::components::toast::toast;
 use crate::{api, app_state::use_app, fmt, storage};
 use leptos::prelude::*;
@@ -60,6 +62,13 @@ pub fn InboxPage() -> impl IntoView {
             busy.try_set(false);
         });
     });
+    let has_any = move || {
+        data.with(|d| {
+            d.as_ref()
+                .and_then(|r| r.as_ref().ok())
+                .is_some_and(|r| r["total"].as_u64().unwrap_or(1) > 0)
+        })
+    };
     view! {
         <div class="page work-page">
             <PageHead
@@ -69,30 +78,34 @@ pub fn InboxPage() -> impl IntoView {
                     (n != 0).then(|| view! { <Status tone=Tone::Attention label=format!("{n} 条未读") /> })
                 }
             >
-                <button
-                    type="button"
-                    class="btn primary"
-                    disabled=move || busy.get() || app.inbox_unread.get() == 0
-                    on:click=move |_| mark.run(("read".into(), vec![]))
-                >
-                    "全部已读"
-                </button>
-                <button
-                    type="button"
-                    class="btn ghost"
-                    disabled=move || busy.get()
-                    on:click=move |_| mark.run(("archive".into(), vec![]))
-                >
-                    "归档已读"
-                </button>
+                <Show when=has_any>
+                    <button
+                        type="button"
+                        class="btn primary"
+                        disabled=move || busy.get() || app.inbox_unread.get() == 0
+                        on:click=move |_| mark.run(("read".into(), vec![]))
+                    >
+                        "全部已读"
+                    </button>
+                    <button
+                        type="button"
+                        class="btn ghost"
+                        disabled=move || busy.get()
+                        on:click=move |_| mark.run(("archive".into(), vec![]))
+                    >
+                        "归档已读"
+                    </button>
+                </Show>
             </PageHead>
-            <div class="work-filters">
-                {filter_select(
-                    "显示",
-                    filter,
-                    &[("unread", "未读"), ("all", "全部"), ("archived", "已归档")],
-                )} {filter_select("类型", kind, KINDS)}
-            </div>
+            <Show when=has_any>
+                <div class="work-filters">
+                    {filter_select(
+                        "显示",
+                        filter,
+                        &[("unread", "未读"), ("all", "全部"), ("archived", "已归档")],
+                    )} {filter_select("类型", kind, KINDS)}
+                </div>
+            </Show>
             {move || match data.get() {
                 None => view! { <LoadingState text="加载通知…" /> }.into_any(),
                 Some(r) => {
@@ -109,31 +122,38 @@ pub fn InboxPage() -> impl IntoView {
                         Ok(r) => {
                             let items = arr(r, "items");
                             if items.is_empty() {
-                                let (title, detail) = if !kind.get().is_empty() {
-                                    ("没有符合条件的通知", "换个筛选条件再试。")
-                                } else {
-                                    match filter.get().as_str() {
-                                        "unread" => {
-                                            (
-                                                "全部读完了",
-                                                "新的结果和请求会显示在这里。",
-                                            )
-                                        }
-                                        "archived" => {
-                                            (
-                                                "暂无归档通知",
-                                                "归档后的通知会保留在这里。",
-                                            )
-                                        }
-                                        _ => {
-                                            (
-                                                "暂无通知",
-                                                "工作完成或需要你处理时，会出现在这里。",
-                                            )
-                                        }
+                                if r["total"].as_u64() == Some(0) {
+                                    return view! {
+                                        <Blank
+                                            icon=icon::INBOX
+                                            title=empty::never("通知")
+                                            detail="工作跑完、出错或需要你批准时，会在这里通知你。"
+                                        />
                                     }
-                                };
-                                return view! { <EmptyState title detail /> }.into_any();
+                                        .into_any();
+                                }
+                                if !kind.get().is_empty() || filter.get() == "archived" {
+                                    return view! {
+                                        <Blank
+                                            icon=icon::FILTER
+                                            title=empty::unmatched("通知")
+                                            detail="换个类型，或者看看全部通知。"
+                                            action=Action::clear(move || {
+                                                filter.set("all".into());
+                                                kind.set(String::new());
+                                            })
+                                        />
+                                    }
+                                        .into_any();
+                                }
+                                return view! {
+                                    <Blank
+                                        icon=icon::CHECK
+                                        title=empty::DONE
+                                        detail="新的结果和请求会出现在这里。"
+                                    />
+                                }
+                                    .into_any();
                             }
                             view! {
                                 <div class="work-inbox" aria-busy=move || busy.get().to_string()>

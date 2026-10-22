@@ -1,5 +1,7 @@
 use super::agents::{confirm, text};
 use crate::app_state::use_app;
+use crate::components::empty::{self, Action, Blank};
+use crate::components::icon;
 use crate::components::modal::Modal;
 use crate::components::page_head::PageHead;
 use crate::components::status::{EmptyState, InlineError, LoadingState};
@@ -219,21 +221,30 @@ pub fn SkillsPage() -> impl IntoView {
                             }
                             Some(Ok(lib)) => {
                                 if lib.is_empty() {
-                                    return view! {
-                                        <EmptyState
-                                            title=if is_mcp {
-                                                "添加第一个 MCP 服务器"
-                                            } else {
-                                                "添加第一个技能"
-                                            }
-                                            detail=if is_mcp {
-                                                "保存连接配置，再为智能体启用。"
-                                            } else {
-                                                "新建、从本机导入，或在「发现」中安装。"
-                                            }
-                                        />
-                                    }
-                                        .into_any();
+                                    return if is_mcp {
+                                        view! {
+                                            <Blank
+                                                icon=icon::APPS
+                                                title=empty::never("MCP 服务器")
+                                                detail="MCP 服务器给智能体接上外部工具，添加后在角色档案里启用。"
+                                                action=Action::new(
+                                                    "添加 MCP 服务器",
+                                                    move || mcp.set(Some(json!({"transport":"stdio"}))),
+                                                )
+                                            />
+                                        }
+                                            .into_any()
+                                    } else {
+                                        view! {
+                                            <Blank
+                                                icon=icon::SPARK
+                                                title=empty::never("技能")
+                                                detail="技能是一组说明和脚本，启用后智能体会按需使用。可以新建、从本机导入，或去「发现」里安装。"
+                                                action=Action::new("从本机导入", move || importing.set(true))
+                                            />
+                                        }
+                                            .into_any()
+                                    };
                                 }
                                 view! {
                                     <div class="card agent-table">

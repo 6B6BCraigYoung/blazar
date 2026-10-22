@@ -9,6 +9,8 @@ use wasm_bindgen::{JsCast, closure::Closure};
 
 use crate::app_state::use_app;
 use crate::components::dialog::{self, Choice};
+use crate::components::empty::{self, Action, Blank};
+use crate::components::icon;
 use crate::components::modal::Modal;
 use crate::components::page_head::{MenuItem, MoreMenu, PageHead};
 use crate::components::status::{EmptyState, InlineError, LoadingState, StateOf};
@@ -129,6 +131,21 @@ pub fn AgentsPage() -> impl IntoView {
             .await
         }
     });
+    let has_archived = LocalResource::new(move || {
+        rev.track();
+        async move {
+            api::get::<Vec<Value>>("/api/agent-profiles?scope=archived")
+                .await
+                .is_ok_and(|l| !l.is_empty())
+        }
+    });
+    let has_any = move || {
+        scope.get() == "archived"
+            || has_archived.get() == Some(true)
+            || profiles.with(|p| matches!(p, Some(Ok(l)) if !l.is_empty()))
+    };
+    let navigate = use_navigate();
+    let create = Callback::new(move |()| navigate("/agents/new", Default::default()));
     Effect::new(move |_| {
         storage::save(
             "blazar.agents.view",
@@ -194,119 +211,121 @@ pub fn AgentsPage() -> impl IntoView {
                     "新建角色档案"
                 </a>
             </PageHead>
-            <div class="agent-toolbar">
-                <select
-                    class="filter"
-                    disabled=move || busy.get()
-                    aria-label="范围"
-                    prop:value=move || scope.get()
-                    on:change=move |e| {
-                        scope.set(event_target_value(&e));
-                        selected.set(HashSet::new());
-                    }
-                >
-                    <option value="all" prop:selected=move || scope.get() == "all">
-                        "范围：在用的"
-                    </option>
-                    <option value="archived" prop:selected=move || scope.get() == "archived">
-                        "范围：已归档"
-                    </option>
-                </select>
-                <input
-                    class="filter"
-                    aria-label="搜索角色档案"
-                    placeholder="搜索名称或描述…"
-                    prop:value=move || query.get()
-                    on:input=move |e| query.set(event_target_value(&e))
-                />
-                <select
-                    class="filter"
-                    aria-label="可用性"
-                    prop:value=move || avail.get()
-                    on:change=move |e| avail.set(event_target_value(&e))
-                >
-                    {[
-                        ("all", "全部"),
-                        ("online", "可用"),
-                        ("offline", "需登录"),
-                        ("unbound", "待配置"),
-                    ]
-                        .into_iter()
-                        .map(|(v, l)| {
-                            view! {
-                                <option value=v prop:selected=move || avail.get() == v>
-                                    {format!("状态：{l}")}
-                                </option>
-                            }
-                        })
-                        .collect_view()}
-                </select>
-                <select
-                    class="filter"
-                    aria-label="运行时"
-                    prop:value=move || rt.get()
-                    on:change=move |e| rt.set(event_target_value(&e))
-                >
-                    <option value="" prop:selected=move || rt.get().is_empty()>
-                        "运行时：全部"
-                    </option>
-                    {move || {
-                        runtimes
-                            .get()
-                            .and_then(Result::ok)
-                            .map(|r| {
-                                r.runtimes
-                                    .into_iter()
-                                    .map(|r| {
-                                        let id = r.id.clone();
-                                        view! {
-                                            <option value=r.id prop:selected=move || rt.get() == id>
-                                                {format!("运行时：{}", r.label)}
-                                            </option>
-                                        }
-                                    })
-                                    .collect_view()
+            <Show when=has_any>
+                <div class="agent-toolbar">
+                    <select
+                        class="filter"
+                        disabled=move || busy.get()
+                        aria-label="范围"
+                        prop:value=move || scope.get()
+                        on:change=move |e| {
+                            scope.set(event_target_value(&e));
+                            selected.set(HashSet::new());
+                        }
+                    >
+                        <option value="all" prop:selected=move || scope.get() == "all">
+                            "范围：在用的"
+                        </option>
+                        <option value="archived" prop:selected=move || scope.get() == "archived">
+                            "范围：已归档"
+                        </option>
+                    </select>
+                    <input
+                        class="filter"
+                        aria-label="搜索角色档案"
+                        placeholder="搜索名称或描述…"
+                        prop:value=move || query.get()
+                        on:input=move |e| query.set(event_target_value(&e))
+                    />
+                    <select
+                        class="filter"
+                        aria-label="可用性"
+                        prop:value=move || avail.get()
+                        on:change=move |e| avail.set(event_target_value(&e))
+                    >
+                        {[
+                            ("all", "全部"),
+                            ("online", "可用"),
+                            ("offline", "需登录"),
+                            ("unbound", "待配置"),
+                        ]
+                            .into_iter()
+                            .map(|(v, l)| {
+                                view! {
+                                    <option value=v prop:selected=move || avail.get() == v>
+                                        {format!("状态：{l}")}
+                                    </option>
+                                }
                             })
-                    }}
-                </select>
-                <select
-                    class="filter"
-                    aria-label="排序"
-                    prop:value=move || sort.get()
-                    on:change=move |e| sort.set(event_target_value(&e))
-                >
-                    {[
-                        ("recent", "最近活跃"),
-                        ("name", "名称"),
-                        ("runs", "运行次数"),
-                        ("created", "创建时间"),
-                    ]
-                        .into_iter()
-                        .map(|(v, l)| {
-                            view! {
-                                <option value=v prop:selected=move || sort.get() == v>
-                                    {format!("排序：{l}")}
-                                </option>
-                            }
-                        })
-                        .collect_view()}
-                </select>
-                <button
-                    class="btn"
-                    aria-label=move || if asc.get() { "升序" } else { "降序" }
-                    on:click=move |_| asc.update(|v| *v = !*v)
-                >
-                    {move || if asc.get() { "↑ 升序" } else { "↓ 降序" }}
-                </button>
-                <span class="grow"></span>
-                <button
-                    class="btn"
-                    disabled=move || profiles.get().is_none()
-                    on:click=move |_| rev.update(|v| *v += 1)
-                >
-                    "刷新"
-                </button>
-            </div>
+                            .collect_view()}
+                    </select>
+                    <select
+                        class="filter"
+                        aria-label="运行时"
+                        prop:value=move || rt.get()
+                        on:change=move |e| rt.set(event_target_value(&e))
+                    >
+                        <option value="" prop:selected=move || rt.get().is_empty()>
+                            "运行时：全部"
+                        </option>
+                        {move || {
+                            runtimes
+                                .get()
+                                .and_then(Result::ok)
+                                .map(|r| {
+                                    r.runtimes
+                                        .into_iter()
+                                        .map(|r| {
+                                            let id = r.id.clone();
+                                            view! {
+                                                <option value=r.id prop:selected=move || rt.get() == id>
+                                                    {format!("运行时：{}", r.label)}
+                                                </option>
+                                            }
+                                        })
+                                        .collect_view()
+                                })
+                        }}
+                    </select>
+                    <select
+                        class="filter"
+                        aria-label="排序"
+                        prop:value=move || sort.get()
+                        on:change=move |e| sort.set(event_target_value(&e))
+                    >
+                        {[
+                            ("recent", "最近活跃"),
+                            ("name", "名称"),
+                            ("runs", "运行次数"),
+                            ("created", "创建时间"),
+                        ]
+                            .into_iter()
+                            .map(|(v, l)| {
+                                view! {
+                                    <option value=v prop:selected=move || sort.get() == v>
+                                        {format!("排序：{l}")}
+                                    </option>
+                                }
+                            })
+                            .collect_view()}
+                    </select>
+                    <button
+                        class="btn"
+                        aria-label=move || if asc.get() { "升序" } else { "降序" }
+                        on:click=move |_| asc.update(|v| *v = !*v)
+                    >
+                        {move || if asc.get() { "↑ 升序" } else { "↓ 降序" }}
+                    </button>
+                    <span class="grow"></span>
+                    <button
+                        class="btn"
+                        disabled=move || profiles.get().is_none()
+                        on:click=move |_| rev.update(|v| *v += 1)
+                    >
+                        "刷新"
+                    </button>
+                </div>
+            </Show>
             {move || {
                 runtimes
                     .get()
@@ -390,25 +409,42 @@ pub fn AgentsPage() -> impl IntoView {
                             if asc.get() { cmp } else { cmp.reverse() }
                         });
                     if profiles.is_empty() {
-                        return view! {
-                            <EmptyState
-                                title=if has_profiles {
-                                    "没有匹配的角色档案"
-                                } else if scope.get() == "archived" {
-                                    "暂无归档的角色档案"
-                                } else {
-                                    "创建第一个角色档案"
-                                }
-                                detail=if has_profiles {
-                                    "调整搜索或筛选条件后再试。"
-                                } else if scope.get() == "archived" {
-                                    "归档后可在这里恢复。"
-                                } else {
-                                    "为常用工作保存指令，之后直接开始对话。"
-                                }
-                            />
-                        }
-                            .into_any();
+                        let archived_scope = scope.get() == "archived";
+                        return if has_profiles {
+                            view! {
+                                <Blank
+                                    icon=icon::FILTER
+                                    title=empty::unmatched("角色档案")
+                                    detail="调整搜索或筛选条件后再试。"
+                                    action=Action::clear(move || {
+                                        query.set(String::new());
+                                        rt.set(String::new());
+                                        avail.set("all".into());
+                                    })
+                                />
+                            }
+                                .into_any()
+                        } else if archived_scope {
+                            view! {
+                                <Blank
+                                    icon=icon::AGENT
+                                    title=empty::never("归档的角色档案")
+                                    detail="归档的角色档案会保留在这里，随时可以恢复。"
+                                    action=Action::new("看在用的", move || scope.set("all".into()))
+                                />
+                            }
+                                .into_any()
+                        } else {
+                            view! {
+                                <Blank
+                                    icon=icon::AGENT
+                                    title=empty::never("角色档案")
+                                    detail="角色档案保存一个智能体的指令、运行时和模型，之后可以直接拿来对话或派活。"
+                                    action=Action::new("新建角色档案", move || create.run(()))
+                                />
+                            }
+                                .into_any()
+                        };
                     }
                     view! {
                         <div class="card agent-table">
@@ -1027,12 +1063,14 @@ fn AgentRuns(runs: Vec<Value>) -> impl IntoView {
     let filter = RwSignal::new("all".to_owned());
     let nav = use_navigate();
     let nav = StoredValue::new(nav);
+    let has_runs = !runs.with_value(Vec::is_empty);
     view! {
         <div class="card pad">
             <div class="agent-toolbar">
                 <h3>"运行记录"</h3>
                 <select
                     class="filter"
+                    hidden=!has_runs
                     aria-label="运行状态"
                     prop:value=move || filter.get()
                     on:change=move |e| filter.set(event_target_value(&e))
@@ -1062,13 +1100,28 @@ fn AgentRuns(runs: Vec<Value>) -> impl IntoView {
                     .filter(|r| filter.get() == "all" || text(r, "status") == filter.get())
                     .collect();
                 if rows.is_empty() {
-                    return view! {
-                        <EmptyState
-                            title="暂无运行记录"
-                            detail="开始对话后，可在这里查看运行结果。"
-                        />
-                    }
-                        .into_any();
+                    return if has_runs {
+                        view! {
+                            <Blank
+                                icon=icon::FILTER
+                                title=empty::unmatched("运行记录")
+                                detail="换个状态看看。"
+                                action=Action::clear(move || filter.set("all".into()))
+                                inset=true
+                            />
+                        }
+                            .into_any()
+                    } else {
+                        view! {
+                            <Blank
+                                icon=icon::ACTIVITY
+                                title=empty::never("运行记录")
+                                detail="用这个角色档案开始对话或派活后，每次运行都会记在这里。"
+                                inset=true
+                            />
+                        }
+                            .into_any()
+                    };
                 }
                 rows.into_iter()
                     .map(|r| {

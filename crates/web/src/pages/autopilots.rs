@@ -2,6 +2,8 @@ use super::work_shared::*;
 use crate::components::page_head::PageHead;
 use crate::components::{
     dialog::{self, Choice},
+    empty::{self, Action, Blank},
+    icon,
     modal::Modal,
     status::{EmptyState, InlineError, LoadingState},
     toast::toast,
@@ -173,9 +175,14 @@ pub fn AutopilotsPage() -> impl IntoView {
                                 Ok(items) => {
                                     if items.is_empty() {
                                         return view! {
-                                            <EmptyState
-                                                title="还没有自动化"
-                                                detail="新建自动化，让智能体按日程处理重复工作。也支持手动和 Webhook 触发。"
+                                            <Blank
+                                                icon=icon::CLOCK
+                                                title=empty::never("自动化")
+                                                detail="让智能体按日程、手动或 Webhook 触发，处理重复的工作。"
+                                                action=Action::new(
+                                                    "新建自动化",
+                                                    move || ui.editor.set(Some(json!({}))),
+                                                )
                                             />
                                         }
                                             .into_any();

@@ -1,6 +1,8 @@
 use leptos::prelude::*;
 use serde_json::{Value, json};
 
+use crate::components::empty::{self, Action, Blank};
+use crate::components::icon;
 use crate::components::page_head::PageHead;
 use crate::components::status::{EmptyState, InlineError, LoadingState};
 use crate::{api, storage};
@@ -34,6 +36,14 @@ pub fn UsagePage() -> impl IntoView {
         let tz = -js_sys::Date::new_0().get_timezone_offset();
         async move { api::get::<Value>(&format!("/api/analytics?days={d}&tz={tz}")).await }
     });
+    let never = move || {
+        usage.with(|u| matches!(u, Some(Ok(u)) if n(&u["total"], "calls") == 0.0))
+            && analytics.with(|a| matches!(a, Some(Ok(a)) if n(&a["totals"], "runs") == 0.0))
+    };
+    let widen = Callback::new(move |()| {
+        storage::save_raw("blazar.an.days", "90");
+        days.set(90);
+    });
     view! {
         <div class="page usage-page">
             <PageHead title="智能体" nav=|| crate::components::section::agents("/usage")>
@@ -45,134 +55,147 @@ pub fn UsagePage() -> impl IntoView {
                     "刷新"
                 </button>
             </PageHead>
-            <div class="settings-actions usage-period" role="group" aria-label="统计时间范围">
-                <h2>{move || format!("近 {} 天", days.get())}</h2>
-                <div class="seg">
-                    {[7, 30, 90]
-                        .into_iter()
-                        .map(move |d| {
-                            view! {
-                                <button
-                                    type="button"
-                                    aria-pressed=move || days.get() == d
-                                    data-on=move || (days.get() == d).to_string()
-                                    on:click=move |_| {
-                                        storage::save_raw("blazar.an.days", &d.to_string());
-                                        days.set(d);
-                                    }
-                                >
-                                    {format!("{d} 天")}
-                                </button>
-                            }
-                        })
-                        .collect_view()}
-                </div>
-            </div>
-            {move || match analytics.get() {
-                None => view! { <LoadingState text="正在加载运行分析…" /> }.into_any(),
-                Some(Err(e)) => {
+            <Show
+                when=move || !never()
+                fallback=|| {
                     view! {
-                        <InlineError
-                            message=format!("无法加载运行分析：{e}")
-                            retry=Callback::new(move |_| analytics.refetch())
+                        <Blank
+                            icon=icon::CHART
+                            title=empty::never("用量")
+                            detail="智能体运行后，这里会统计次数、耗时、Token 和费用。"
                         />
                     }
-                        .into_any()
                 }
-                Some(Ok(a)) => view! { <Analytics data=a days=days.get() /> }.into_any(),
-            }}
-            <details class="usage-details">
-                <summary>"累计 Token 与费用"</summary>
-                {move || match usage.get() {
-                    None => view! { <LoadingState text="正在加载累计用量…" /> }.into_any(),
+            >
+                <div class="settings-actions usage-period" role="group" aria-label="统计时间范围">
+                    <h2>{move || format!("近 {} 天", days.get())}</h2>
+                    <div class="seg">
+                        {[7, 30, 90]
+                            .into_iter()
+                            .map(move |d| {
+                                view! {
+                                    <button
+                                        type="button"
+                                        aria-pressed=move || days.get() == d
+                                        data-on=move || (days.get() == d).to_string()
+                                        on:click=move |_| {
+                                            storage::save_raw("blazar.an.days", &d.to_string());
+                                            days.set(d);
+                                        }
+                                    >
+                                        {format!("{d} 天")}
+                                    </button>
+                                }
+                            })
+                            .collect_view()}
+                    </div>
+                </div>
+                {move || match analytics.get() {
+                    None => view! { <LoadingState text="正在加载运行分析…" /> }.into_any(),
                     Some(Err(e)) => {
                         view! {
                             <InlineError
-                                message=format!("无法加载累计用量：{e}")
-                                retry=Callback::new(move |_| usage.refetch())
+                                message=format!("无法加载运行分析：{e}")
+                                retry=Callback::new(move |_| analytics.refetch())
                             />
                         }
                             .into_any()
                     }
-                    Some(Ok(u)) => {
-                        let t = &u["total"];
-                        if n(t, "calls") == 0.0 {
-                            return view! {
-                                <EmptyState
-                                    title="暂无累计用量"
-                                    detail="运行智能体后，可在这里查看 Token 与费用。"
+                    Some(Ok(a)) => view! { <Analytics data=a days=days.get() widen /> }.into_any(),
+                }}
+                <details class="usage-details">
+                    <summary>"累计 Token 与费用"</summary>
+                    {move || match usage.get() {
+                        None => view! { <LoadingState text="正在加载累计用量…" /> }.into_any(),
+                        Some(Err(e)) => {
+                            view! {
+                                <InlineError
+                                    message=format!("无法加载累计用量：{e}")
+                                    retry=Callback::new(move |_| usage.refetch())
                                 />
                             }
-                                .into_any();
+                                .into_any()
                         }
-                        let mut workspaces = list(&u, "by_workspace");
-                        workspaces
-                            .sort_by(|a, b| {
-                                n(&b["usage"], "cost_usd").total_cmp(&n(&a["usage"], "cost_usd"))
-                            });
-                        view! {
-                            <div class="usage-kpis">
-                                {[
-                                    ("总费用", format!("${:.2}", n(t, "cost_usd"))),
-                                    ("调用次数", format!("{:.0}", n(t, "calls"))),
-                                    ("输入 token", format!("{:.0}", n(t, "input"))),
-                                    ("输出 token", format!("{:.0}", n(t, "output"))),
-                                    ("缓存读取", format!("{:.0}", n(t, "cache_read"))),
-                                ]
-                                    .into_iter()
-                                    .map(|(label, value)| {
+                        Some(Ok(u)) => {
+                            let t = &u["total"];
+                            if n(t, "calls") == 0.0 {
+                                return view! {
+                                    <EmptyState
+                                        title="暂无累计用量"
+                                        detail="运行智能体后，可在这里查看 Token 与费用。"
+                                    />
+                                }
+                                    .into_any();
+                            }
+                            let mut workspaces = list(&u, "by_workspace");
+                            workspaces
+                                .sort_by(|a, b| {
+                                    n(&b["usage"], "cost_usd").total_cmp(&n(&a["usage"], "cost_usd"))
+                                });
+                            view! {
+                                <div class="usage-kpis">
+                                    {[
+                                        ("总费用", format!("${:.2}", n(t, "cost_usd"))),
+                                        ("调用次数", format!("{:.0}", n(t, "calls"))),
+                                        ("输入 token", format!("{:.0}", n(t, "input"))),
+                                        ("输出 token", format!("{:.0}", n(t, "output"))),
+                                        ("缓存读取", format!("{:.0}", n(t, "cache_read"))),
+                                    ]
+                                        .into_iter()
+                                        .map(|(label, value)| {
+                                            view! {
+                                                <div class="card usage-kpi">
+                                                    <span class="muted">{label}</span>
+                                                    <strong>{value}</strong>
+                                                </div>
+                                            }
+                                        })
+                                        .collect_view()}
+                                </div>
+                                <UsageTable title="按运行时" data=u["by_agent"].clone() />
+                                <UsageTable title="按机器" data=u["by_node"].clone() />
+                                {(!workspaces.is_empty())
+                                    .then(|| {
                                         view! {
-                                            <div class="card usage-kpi">
-                                                <span class="muted">{label}</span>
-                                                <strong>{value}</strong>
-                                            </div>
+                                            <section class="card settings-card">
+                                                <h3>"按工作区"</h3>
+                                                <div class="settings-table-wrap">
+                                                    <table class="settings-table">
+                                                        <thead>
+                                                            <tr>
+                                                                <th>"工作区"</th>
+                                                                <th>"调用"</th>
+                                                                <th>"输出"</th>
+                                                                <th>"费用"</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            {workspaces
+                                                                .into_iter()
+                                                                .take(30)
+                                                                .map(|w| {
+                                                                    view! {
+                                                                        <tr>
+                                                                            <td>{s(&w, "workspace")}</td>
+                                                                            <td>{format!("{:.0}", n(&w["usage"], "calls"))}</td>
+                                                                            <td>{format!("{:.0}", n(&w["usage"], "output"))}</td>
+                                                                            <td>{format!("${:.4}", n(&w["usage"], "cost_usd"))}</td>
+                                                                        </tr>
+                                                                    }
+                                                                })
+                                                                .collect_view()}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            </section>
                                         }
-                                    })
-                                    .collect_view()}
-                            </div>
-                            <UsageTable title="按运行时" data=u["by_agent"].clone() />
-                            <UsageTable title="按机器" data=u["by_node"].clone() />
-                            {(!workspaces.is_empty())
-                                .then(|| {
-                                    view! {
-                                        <section class="card settings-card">
-                                            <h3>"按工作区"</h3>
-                                            <div class="settings-table-wrap">
-                                                <table class="settings-table">
-                                                    <thead>
-                                                        <tr>
-                                                            <th>"工作区"</th>
-                                                            <th>"调用"</th>
-                                                            <th>"输出"</th>
-                                                            <th>"费用"</th>
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody>
-                                                        {workspaces
-                                                            .into_iter()
-                                                            .take(30)
-                                                            .map(|w| {
-                                                                view! {
-                                                                    <tr>
-                                                                        <td>{s(&w, "workspace")}</td>
-                                                                        <td>{format!("{:.0}", n(&w["usage"], "calls"))}</td>
-                                                                        <td>{format!("{:.0}", n(&w["usage"], "output"))}</td>
-                                                                        <td>{format!("${:.4}", n(&w["usage"], "cost_usd"))}</td>
-                                                                    </tr>
-                                                                }
-                                                            })
-                                                            .collect_view()}
-                                                    </tbody>
-                                                </table>
-                                            </div>
-                                        </section>
-                                    }
-                                })}
+                                    })}
+                            }
+                                .into_any()
                         }
-                            .into_any()
-                    }
-                }}
-            </details>
+                    }}
+                </details>
+            </Show>
         </div>
     }
 }
@@ -227,16 +250,31 @@ fn UsageTable(title: &'static str, data: Value) -> impl IntoView {
 }
 
 #[component]
-fn Analytics(data: Value, days: u32) -> impl IntoView {
+fn Analytics(data: Value, days: u32, widen: Callback<()>) -> impl IntoView {
     let t = &data["totals"];
     if n(t, "runs") == 0.0 {
-        return view! {
-            <EmptyState
-                title="这段时间还没有运行"
-                detail="选择其他时间范围，或开始一次智能体对话。"
-            />
-        }
-        .into_any();
+        return if days < 90 {
+            view! {
+                <Blank
+                    icon=icon::FILTER
+                    title=empty::unmatched("运行")
+                    detail=format!("近 {days} 天没有运行，放宽时间范围看看。")
+                    action=Action::clear(move || widen.run(()))
+                    inset=true
+                />
+            }
+            .into_any()
+        } else {
+            view! {
+                <Blank
+                    icon=icon::CHART
+                    title=empty::never("运行")
+                    detail="近 90 天没有运行。开始一次智能体对话后，这里会有统计。"
+                    inset=true
+                />
+            }
+            .into_any()
+        };
     }
     let daily = list(&data, "daily");
     let now = js_sys::Date::new_0();
