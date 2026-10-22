@@ -476,6 +476,16 @@ fn render(seq: &u64, kind: &EntryKind) -> String {
         }
         EntryKind::Error { message } => format!("错误  {message}"),
         EntryKind::Notice { message } => format!("提示  {message}"),
+        EntryKind::ApiRetry {
+            attempt,
+            max_retries,
+            status,
+            error,
+            ..
+        } => format!(
+            "重试  第 {attempt}/{max_retries} 次（{}）",
+            status.map_or_else(|| error.clone(), |s| format!("HTTP {s}"))
+        ),
         EntryKind::Finished(Outcome::Success { denied, .. }) if !denied.is_empty() => {
             format!(
                 "被拦  {} 次操作被权限拒绝、没有执行：{}",

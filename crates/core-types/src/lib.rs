@@ -213,6 +213,17 @@ pub enum EntryKind {
     Notice {
         message: String,
     },
+    ApiRetry {
+        attempt: u32,
+        #[serde(default)]
+        max_retries: u32,
+        #[serde(default)]
+        delay_ms: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        status: Option<u16>,
+        #[serde(default)]
+        error: String,
+    },
 
     BackgroundTask {
         task_id: String,
@@ -340,7 +351,8 @@ impl ActivityState {
             EntryKind::TokenUsage(_)
             | EntryKind::RateLimit(_)
             | EntryKind::Progress { .. }
-            | EntryKind::Notice { .. } => None,
+            | EntryKind::Notice { .. }
+            | EntryKind::ApiRetry { .. } => None,
         }
     }
 }

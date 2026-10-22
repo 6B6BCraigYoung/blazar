@@ -26,6 +26,7 @@ pub fn parse_line(line: &str) -> Option<ParsedLine> {
             Some(st @ ("task_started" | "task_updated" | "task_notification")) => {
                 parse_task(st, &value).into_iter().collect()
             }
+            Some("api_retry") => parse_retry(&value).into_iter().collect(),
             _ => Vec::new(),
         },
         "assistant" => parse_assistant(&value),
@@ -309,6 +310,19 @@ fn permission_denials(v: &Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
+fn parse_retry(v: &Value) -> Option<EntryKind> {
+    let num = |k: &str| v.get(k).and_then(Value::as_u64);
+    Some(EntryKind::ApiRetry {
+        attempt: u32::try_from(num("attempt")?).ok()?,
+        max_retries: num("max_retries")
+            .and_then(|n| u32::try_from(n).ok())
+            .unwrap_or(0),
+        delay_ms: num("retry_delay_ms").unwrap_or(0),
+        status: num("error_status").and_then(|n| u16::try_from(n).ok()),
+        error: string_field(v, "error").unwrap_or_default(),
+    })
+}
+
 fn parse_task(subtype: &str, v: &Value) -> Option<EntryKind> {
     let task_id = v.get("task_id")?.as_str()?.to_owned();
     let desc = || string_field(v, "description");
@@ -391,6 +405,25 @@ mod tests {
         "overageStatus":"rejected","isUsingOverage":false,
         "unifiedWindows":{"five_hour":{"utilization":0.06,"resetsAt":1789664400},
                           "seven_day":{"utilization":0.6,"resetsAt":1789765200}}}}"#;
+
+    #[test]
+    fn api_retry_line_becomes_a_retry_entry() {
+        let line = r#"{"type":"system","subtype":"api_retry","attempt":2,"max_retries":10,
+            "retry_delay_ms":4000,"error_status":529,"error":"server_error","session_id":"s"}"#;
+        let parsed = parse_line(line).unwrap();
+        assert!(matches!(
+            parsed.entries.as_slice(),
+            [EntryKind::ApiRetry {
+                attempt: 2,
+                max_retries: 10,
+                delay_ms: 4000,
+                status: Some(529),
+                error,
+            }] if error == "server_error"
+        ));
+        let bare = parse_line(r#"{"type":"system","subtype":"api_retry"}"#).unwrap();
+        assert!(bare.entries.is_empty());
+    }
 
     #[test]
     fn rate_limit_yields_both_windows() {
