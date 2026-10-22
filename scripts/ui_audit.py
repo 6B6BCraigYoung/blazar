@@ -654,8 +654,8 @@ def seed_rows(db):
 
     inbox = [
         ("run_done", "atlas-api 跑完了", "给 /users 加分页：已提交 3f9c2ab，35 个测试通过。", "atlas-api", THREAD, None, ago(minutes=20), False, False),
-        ("approval", "quasar-ml（本机） · 等你裁决：Bash", "python train.py --config configs/base.yaml --steps 200", "quasar-ml", did(12, 2), APPROVAL, ago(minutes=4), False, False),
-        ("question", "quasar-ml（本机） · agent 在问你", "lr=3e-4 那组的节点离线了，要不要换到本机重跑？", "quasar-ml", did(12, 2), QUESTION, ago(minutes=3), False, False),
+        ("approval", "quasar-ml · 等你批准：Bash", "python train.py --config configs/base.yaml --steps 200", "quasar-ml", did(12, 2), APPROVAL, ago(minutes=4), False, False),
+        ("question", "quasar-ml · 智能体在问你", "lr=3e-4 那组的节点离线了，要不要换到本机重跑？", "quasar-ml", did(12, 2), QUESTION, ago(minutes=3), False, False),
         ("run_failed", "orbit-docs 失败了", "API Error: 529 overloaded", "orbit-docs", None, None, ago(hours=3), False, False),
         ("autopilot_paused", "自动化「夜间评测汇总」已暂停", "连续失败 3 次。", None, None, AUTOPILOTS[1], ago(hours=9), True, False),
         ("job", "后台任务「演示：导出评测表」失败了", "退出码 1", None, None, None, ago(hours=4), True, False),
@@ -699,9 +699,10 @@ def try_ui(cmd):
 
 
 class Shooter:
-    def __init__(self, out, round_name):
+    def __init__(self, out, round_name, rehearse=False):
         self.root = Path(out)
         self.round = round_name
+        self.rehearse = rehearse
         self.dir = self.root / round_name
         self.dir.mkdir(parents=True, exist_ok=True)
         self.entries = []
@@ -725,20 +726,22 @@ class Shooter:
         layout = ui({"action": "layout"})
         errors = ui({"action": "errors"}).get("errors", [])
         name = f"{no:02d}-{slug}-{theme}.png"
-        shot = ui({"action": "shot", "name": name, "settle_ms": 250})
-        shutil.move(shot["path"], self.dir / name)
+        size = None
+        if not self.rehearse:
+            shot = ui({"action": "shot", "name": name, "settle_ms": 250})
+            shutil.move(shot["path"], self.dir / name)
+            size = [shot["width"], shot["height"]]
         over = layout.get("overflowing", [])
         rel = (self.dir / name).relative_to(ROOT) if (self.dir / name).is_relative_to(ROOT) else self.dir / name
         self.entries.append({"file": str(rel), "route": route, "expect": expect, "state": state,
-                             "overflow": len(over), "errors": len(errors), "size": [shot["width"], shot["height"]],
-                             "warning": warning})
+                             "overflow": len(over), "errors": len(errors), "size": size, "warning": warning})
         if warning:
             self.issues.append(f"{name}\t路由或标题不对\t{warning}")
         for o in over:
             self.issues.append(f"{name}\t溢出\t{o.get('name', '')[:80]}\t{o.get('rect')}")
         for e in errors:
             self.issues.append(f"{name}\t错误\t{e[:300]}")
-        print(f"{name}\t溢出 {len(over)}\t错误 {len(errors)}")
+        print(f"{name}\t溢出 {len(over)}\t错误 {len(errors)}" + ("\t演练，没截图" if self.rehearse else ""))
 
     def page(self, no, slug, theme, route, expect, state, steps=(), scroll=True, settle=900):
         ui({"action": "errors"})
@@ -789,6 +792,9 @@ def viewport():
 
 
 def theme(value):
+    left = dismiss()
+    if left:
+        sys.exit(f"切主题前还有没关掉的{'、'.join(left)}，先处理再拍")
     ui({"action": "navigate", "path": "/settings?s=appearance", "settle_ms": 500})
     ui({"action": "type", "selector": "#settings-theme", "value": value, "settle_ms": 300})
 
@@ -798,6 +804,26 @@ TITLES = {"/": "工作区", "/inbox": "收件箱", "/tasks": "任务", "/autopil
           "/apps": "接入的软件", "/runtimes": "智能体", "/nodes": "机器与组网", "/usage": "智能体", "/settings": "设置"}
 TOAST_GONE = {"action": "wait", "selector": ".toasts .toast", "gone": True, "timeout_ms": 6000}
 ESC = {"action": "key", "key": "Escape", "optional": True}
+OVERLAYS = (("弹窗", "[data-modal-mask]"), ("右键菜单", ".ctx-menu"), ("状态弹层", ".side-pop"), ("被弹窗挡住的区域", "[inert]"))
+ESC_AT = {"右键菜单": ".ctx-menu", "状态弹层": ".side-status", "弹窗": "body"}
+
+
+def open_overlays():
+    return [name for name, selector in OVERLAYS if ui({"action": "text", "selector": selector})["matches"]]
+
+
+def dismiss():
+    for _ in range(4):
+        if not open_overlays():
+            return []
+        try_ui(dict(ESC))
+        left = open_overlays()
+        for name, selector in ESC_AT.items():
+            if name in left:
+                try_ui({"action": "key", "key": "Escape", "selector": selector, "settle_ms": 200})
+    return open_overlays()
+
+
 CLOSE_FILE = {"action": "click", "selector": "[aria-label=\"关闭 src/atlas/routes/users.py\"]", "optional": True}
 RESTORE = {"action": "click", "selector": "button[aria-label=\"还原检查器\"]", "optional": True}
 CLOSE_INSPECTOR = {"action": "click", "selector": "button[aria-label=\"关闭检查器\"]", "optional": True}
@@ -957,12 +983,14 @@ def workspace_parts():
     ]
 
 
-def shots(out, round_name):
-    sh = Shooter(out, round_name)
+def shots(out, round_name, rehearse=False):
+    sh = Shooter(out, round_name, rehearse)
     ui({"action": "init"})
     vp = viewport()
     if vp["dpr"] != "2":
-        sys.exit(f"devicePixelRatio 是 {vp['dpr']}，不是 2：窗口可能不在点亮的 Retina 显示器上，先处理再拍")
+        if not rehearse:
+            sys.exit(f"devicePixelRatio 是 {vp['dpr']}，不是 2：窗口可能不在点亮的 Retina 显示器上，先处理再拍")
+        print(f"演练：devicePixelRatio 是 {vp['dpr']}，不截图，只走流程", file=sys.stderr)
     state, items = plan(round_name)
     spawned = []
     preview = None
@@ -981,13 +1009,15 @@ def shots(out, round_name):
         for t in ("dark", "light"):
             theme(t)
             for no, (slug, route, expect, steps, scroll) in enumerate(items, 1):
-                for _ in range(2):
-                    try_ui(dict(ESC))
                 try:
                     sh.page(no, slug, t, route, expect, state, steps, scroll)
                 except Exception as e:
                     print(f"  ! {slug}-{t} 没截到：{e}", file=sys.stderr)
                     sh.issues.append(f"{no:02d}-{slug}-{t}.png\t没截到\t{e}")
+                left = dismiss()
+                if left:
+                    print(f"  ! {slug}-{t}：拍完后收不起来的{'、'.join(left)}", file=sys.stderr)
+                    sh.issues.append(f"{no:02d}-{slug}-{t}.png\t弹层没关掉\t{'、'.join(left)}")
         theme("system")
     finally:
         if preview:
@@ -1036,12 +1066,12 @@ def main():
         seed()
     elif cmd == "clean":
         unseed()
-    elif cmd == "shots" and len(sys.argv) == 4 and sys.argv[3] in ("empty", "data"):
-        shots(sys.argv[2], sys.argv[3])
+    elif cmd == "shots" and len(sys.argv) >= 4 and sys.argv[3] in ("empty", "data") and sys.argv[4:] in ([], ["--rehearse"]):
+        shots(sys.argv[2], sys.argv[3], rehearse=len(sys.argv) == 5)
     elif cmd == "index" and len(sys.argv) == 3:
         index(Path(sys.argv[2]))
     else:
-        sys.exit("用法：ui_audit.py seed | clean | shots <目录> empty|data | index <目录>")
+        sys.exit("用法：ui_audit.py seed | clean | shots <目录> empty|data [--rehearse] | index <目录>")
 
 
 if __name__ == "__main__":
