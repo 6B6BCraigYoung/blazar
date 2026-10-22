@@ -33,7 +33,7 @@ use head::WsHead;
 use inspector::Inspector;
 use layout::{Changes, Edge, LayoutState, Splitter, Tab};
 use term_panel::{TermPane, TermTabs, Terms};
-use tree::FileTree;
+use tree::{FileTree, TreeActs};
 
 pub(crate) const ICON_LEFT: &str = r#"<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.1"><rect class="fill" x="2" y="3" width="4" height="10" fill="currentColor" stroke="none"/><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><path d="M6 2.5v11"/></svg>"#;
 pub(crate) const ICON_REFRESH: &str = r#"<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>"#;
@@ -265,6 +265,59 @@ fn Workspace(id: String) -> impl IntoView {
     let show_aux = Callback::new(move |()| state.reveal_chat());
     let show_diff = Callback::new(move |()| state.open_changes(Changes::Diff));
     let draft = RwSignal::new(None::<String>);
+    let mention = RwSignal::new(None::<String>);
+    let terms = Terms::new(&id);
+    let local_files = RwSignal::new(false);
+    let acts = {
+        let node_local = Signal::derive(move || {
+            detail.with(|d| {
+                d.as_ref()
+                    .and_then(|d| d.as_ref().ok())
+                    .is_some_and(|d| d.node == "local")
+            })
+        });
+        leptos::task::spawn_local(async move {
+            let desktop_here = crate::desktop::available() && !crate::desktop::remote_hub().await;
+            let _ = local_files.try_set(desktop_here);
+        });
+        let local = Signal::derive(move || local_files.get() && node_local.get());
+        let term_ws = id.clone();
+        TreeActs {
+            root: Signal::derive(move || {
+                detail.with(|d| {
+                    d.as_ref()
+                        .and_then(|d| d.as_ref().ok())
+                        .map(|d| d.path.clone())
+                        .unwrap_or_default()
+                })
+            }),
+            local,
+            mention: Callback::new(move |p: String| {
+                mention.set(Some(p));
+                state.reveal_chat();
+            }),
+            changes: Callback::new(move |p: String| {
+                state.open_changes(Changes::Diff);
+                let inside = format!("{p}/");
+                let at = diff.files.with_untracked(|f| {
+                    f.iter()
+                        .position(|x| p.is_empty() || x.path == p || x.path.starts_with(&inside))
+                });
+                if let Some(i) = at {
+                    gloo_timers::callback::Timeout::new(120, move || {
+                        if let Some(el) = document().get_element_by_id(&format!("df-{i}")) {
+                            el.scroll_into_view();
+                        }
+                    })
+                    .forget();
+                }
+            }),
+            terminal: Callback::new(move |dir: String| {
+                terms.open_at(&term_ws, dir);
+                state.open_term();
+            }),
+        }
+    };
     let isolated = Signal::derive(move || {
         detail.with(|d| {
             d.as_ref()
@@ -284,7 +337,7 @@ fn Workspace(id: String) -> impl IntoView {
                 let c = chat::Chat::new(
                     &chat_id, &path, &node, files, diff, git, running, show_aux, show_diff,
                 );
-                view! { <chat::ChatPane chat=c tree_files draft /> }
+                view! { <chat::ChatPane chat=c tree_files draft mention /> }
             })
     };
     let chat_once = Memo::new(move |was: Option<&bool>| {
@@ -423,7 +476,7 @@ fn Workspace(id: String) -> impl IntoView {
                             "×"
                         </button>
                     </div>
-                    <FileTree root opened files root_name=root_name reload=tree_reload />
+                    <FileTree root opened files root_name=root_name reload=tree_reload acts />
                 </aside>
                 <Splitter edge=Edge::Files state />
                 <div class="ws-stage">
@@ -454,7 +507,7 @@ fn Workspace(id: String) -> impl IntoView {
                     </div>
                     <Splitter edge=Edge::Terminal state />
                     <section class="ws-term" aria-label="终端">
-                        <Terminal ws=id.clone() state />
+                        <Terminal ws=id.clone() state terms />
                     </section>
                 </div>
             </div>
@@ -463,8 +516,7 @@ fn Workspace(id: String) -> impl IntoView {
 }
 
 #[component]
-fn Terminal(ws: String, state: LayoutState) -> impl IntoView {
-    let terms = Terms::new(&ws);
+fn Terminal(ws: String, state: LayoutState, terms: Terms) -> impl IntoView {
     let shown = Signal::derive(move || state.lay.with(|l| l.term));
     view! {
         <div class="rhead">

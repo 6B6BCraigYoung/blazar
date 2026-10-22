@@ -97,6 +97,10 @@ impl LayoutState {
         self.change(|l| l.term = false);
     }
 
+    pub fn open_term(self) {
+        self.change(|l| l.term = true);
+    }
+
     pub fn toggle_term(self) {
         self.change(|l| l.term = !l.term);
     }

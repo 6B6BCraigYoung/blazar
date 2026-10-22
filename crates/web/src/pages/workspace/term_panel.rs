@@ -17,6 +17,7 @@ pub struct Terms {
     pub cur: RwSignal<u32>,
     pub state: RwSignal<&'static str>,
     pub reconnect: RwSignal<u32>,
+    cwd: StoredValue<std::collections::HashMap<u32, String>>,
 }
 
 impl Terms {
@@ -30,7 +31,20 @@ impl Terms {
             cur: RwSignal::new(cur),
             state: RwSignal::new("connecting"),
             reconnect: RwSignal::new(0),
+            cwd: StoredValue::new(std::collections::HashMap::new()),
         }
+    }
+
+    pub fn open_at(self, ws: &str, dir: String) {
+        let n = self
+            .tabs
+            .with_untracked(|t| t.iter().max().copied().unwrap_or(0) + 1);
+        self.cwd.update_value(|c| {
+            c.insert(n, dir);
+        });
+        self.tabs.update(|t| t.push(n));
+        self.cur.set(n);
+        storage::save(&tabs_key(ws), &self.tabs.get_untracked());
     }
 }
 
@@ -135,8 +149,14 @@ pub fn TermPane(ws: String, terms: Terms, active: Signal<bool>) -> impl IntoView
         } else {
             "ws"
         };
+        let cwd = terms
+            .cwd
+            .with_value(|c| c.get(&tab).cloned())
+            .filter(|d| !d.is_empty())
+            .map(|d| format!("&cwd={}", crate::api::enc(&d)))
+            .unwrap_or_default();
         let url = format!(
-            "{scheme}://{}/api/workspaces/{ws}/terminal/ws?tab={tab}",
+            "{scheme}://{}/api/workspaces/{ws}/terminal/ws?tab={tab}{cwd}",
             loc.host().unwrap_or_default()
         );
         let el: web_sys::HtmlElement = el.unchecked_into();

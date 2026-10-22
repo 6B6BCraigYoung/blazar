@@ -21,6 +21,7 @@ pub fn ChatPane(
     chat: Chat,
     tree_files: Signal<Vec<String>>,
     draft: RwSignal<Option<String>>,
+    mention: RwSignal<Option<String>>,
 ) -> impl IntoView {
     let bus = use_bus();
     chat.wire(bus);
@@ -81,6 +82,27 @@ pub fn ChatPane(
             chat.prompt.set(text);
             chat.show_aux.run(());
             crate::components::toast::toast("草稿已放进新对话，选好智能体后发送。");
+        }
+    });
+
+    Effect::new(move |_| {
+        if let Some(path) = mention.get() {
+            mention.set(None);
+            chat.prompt.update(|p| {
+                if !p.is_empty() && !p.ends_with(char::is_whitespace) {
+                    p.push(' ');
+                }
+                p.push('@');
+                p.push_str(&path);
+                p.push(' ');
+            });
+            request_animation_frame(|| {
+                if let Ok(Some(el)) = document().query_selector(".cc-box .prompt")
+                    && let Ok(el) = el.dyn_into::<web_sys::HtmlElement>()
+                {
+                    let _ = el.focus();
+                }
+            });
         }
     });
 

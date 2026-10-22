@@ -5,6 +5,8 @@ use leptos::prelude::*;
 use crate::components::status::{EmptyState, InlineError};
 
 use crate::api::{self, ChangeKind, DirItems, TreeEntry};
+use crate::components::dialog::{self, Choice};
+use crate::components::toast::toast;
 
 use super::files::Files;
 
@@ -22,10 +24,110 @@ struct Menu {
     path: String,
     name: String,
     dir: bool,
+    changed: bool,
+}
+
+#[derive(Clone, Copy)]
+pub struct TreeActs {
+    pub root: Signal<String>,
+    pub local: Signal<bool>,
+    pub mention: Callback<String>,
+    pub changes: Callback<String>,
+    pub terminal: Callback<String>,
+}
+
+fn absolute(root: &str, rel: &str) -> String {
+    let root = root.trim_end_matches('/');
+    if rel.is_empty() {
+        root.to_owned()
+    } else {
+        format!("{root}/{rel}")
+    }
+}
+
+fn copy_text(text: String) {
+    let Some(w) = web_sys::window() else { return };
+    let p = w.navigator().clipboard().write_text(&text);
+    leptos::task::spawn_local(async move {
+        if wasm_bindgen_futures::JsFuture::from(p).await.is_ok() {
+            toast("已复制路径");
+        } else {
+            toast("没能复制");
+        }
+    });
+}
+
+fn rename_entry(ws: String, m: Menu) {
+    leptos::task::spawn_local(async move {
+        let Some(name) = dialog::prompt_with("重命名", "新名称", &m.name, "重命名").await
+        else {
+            return;
+        };
+        if name == m.name {
+            return;
+        }
+        if let Err(e) = api::send::<serde_json::Value>(
+            "POST",
+            &format!("/api/workspaces/{}/rename", api::enc(&ws)),
+            &serde_json::json!({ "path": m.path, "name": name }),
+        )
+        .await
+        {
+            toast(format!("没能重命名：{e}"));
+        }
+    });
+}
+
+fn remove_entry(ws: String, m: Menu, files: Files) {
+    leptos::task::spawn_local(async move {
+        let what = if m.dir { "文件夹" } else { "文件" };
+        let body = if m.dir {
+            format!("「{}」和里面的所有内容会被删除，不能撤销。", m.name)
+        } else {
+            format!("「{}」会被删除，不能撤销。", m.name)
+        };
+        if dialog::ask(
+            &format!("删除这个{what}？"),
+            &body,
+            vec![Choice::plain("取消"), Choice::danger("删除")],
+        )
+        .await
+            != Some(1)
+        {
+            return;
+        }
+        match api::send::<serde_json::Value>(
+            "POST",
+            &format!("/api/workspaces/{}/remove", api::enc(&ws)),
+            &serde_json::json!({ "path": m.path }),
+        )
+        .await
+        {
+            Ok(_) => {
+                let inside = format!("{}/", m.path);
+                let gone: Vec<String> = files.open_tabs.with_untracked(|t| {
+                    t.iter()
+                        .filter(|p| **p == m.path || p.starts_with(&inside))
+                        .cloned()
+                        .collect()
+                });
+                for p in gone {
+                    files.close(p);
+                }
+            }
+            Err(e) => toast(format!("没能删除：{e}")),
+        }
+    });
 }
 
 #[component]
-fn TreeMenu(menu: RwSignal<Option<Menu>>, ws: String) -> impl IntoView {
+fn TreeMenu(
+    menu: RwSignal<Option<Menu>>,
+    ws: String,
+    files: Files,
+    acts: TreeActs,
+) -> impl IntoView {
+    let root_el = NodeRef::<leptos::html::Div>::new();
     let close_down = window_event_listener(leptos::ev::mousedown, move |e| {
         let inside = e
             .target()
@@ -36,33 +138,30 @@ fn TreeMenu(menu: RwSignal<Option<Menu>>, ws: String) -> impl IntoView {
             menu.set(None);
         }
     });
-    let close_key = window_event_listener(leptos::ev::keydown, move |e| {
-        if e.key() == "Escape" {
-            menu.set(None);
-        }
-    });
     let close_blur = window_event_listener(leptos::ev::blur, move |_| menu.set(None));
     on_cleanup(move || {
         close_down.remove();
-        close_key.remove();
         close_blur.remove();
+    });
+    Effect::new(move |_| {
+        if menu.with(Option::is_some) {
+            request_animation_frame(move || {
+                if let Some(r) = root_el.get_untracked()
+                    && let Ok(Some(first)) = r.query_selector(".ctx-item:not(:disabled)")
+                    && let Ok(first) = wasm_bindgen::JsCast::dyn_into::<web_sys::HtmlElement>(first)
+                {
+                    let _ = first.focus();
+                }
+            });
+        }
     });
     move || {
         menu.get().map(|m| {
-            let (w, h) = (
-                window()
-                    .inner_width()
-                    .ok()
-                    .and_then(|v| v.as_f64())
-                    .unwrap_or(0.0) as i32,
-                window()
-                    .inner_height()
-                    .ok()
-                    .and_then(|v| v.as_f64())
-                    .unwrap_or(0.0) as i32,
-            );
-            let x = m.x.min(w - 200).max(0);
-            let y = m.y.min(h - 48).max(0);
+            let size = |v: Result<wasm_bindgen::JsValue, wasm_bindgen::JsValue>| {
+                v.ok().and_then(|v| v.as_f64()).unwrap_or(0.0) as i32
+            };
+            let x = m.x.min(size(window().inner_width()) - 220).max(0);
+            let y = m.y.min(size(window().inner_height()) - 320).max(0);
             let url = format!(
                 "/api/workspaces/{}/download?path={}{}",
                 api::enc(&ws),
@@ -74,18 +173,125 @@ fn TreeMenu(menu: RwSignal<Option<Menu>>, ws: String) -> impl IntoView {
             } else {
                 m.name.clone()
             };
+            let is_root = m.path.is_empty();
+            let local = acts.local.get();
+            let abs = absolute(&acts.root.get_untracked(), &m.path);
+            let pick = move |f: Box<dyn Fn()>| {
+                move |_| {
+                    menu.set(None);
+                    f();
+                }
+            };
+            let path = m.path.clone();
+            let mention = pick(Box::new(move || acts.mention.run(path.clone())));
+            let path = m.path.clone();
+            let changes = pick(Box::new(move || acts.changes.run(path.clone())));
+            let copied = abs.clone();
+            let copy = pick(Box::new(move || copy_text(copied.clone())));
+            let shown = abs.clone();
+            let reveal = pick(Box::new(move || {
+                let path = shown.clone();
+                leptos::task::spawn_local(async move {
+                    if let Err(e) =
+                        crate::desktop::invoke("reveal_path", &serde_json::json!({ "path": path }))
+                            .await
+                    {
+                        toast(format!("没能在访达中显示：{e}"));
+                    }
+                });
+            }));
+            let dir = if m.dir {
+                m.path.clone()
+            } else {
+                m.path
+                    .rsplit_once('/')
+                    .map(|(d, _)| d.to_owned())
+                    .unwrap_or_default()
+            };
+            let terminal = pick(Box::new(move || acts.terminal.run(dir.clone())));
+            let download = pick(Box::new(move || crate::files_js::download_url(&url, &file)));
+            let (ws_r, m_r) = (ws.clone(), m.clone());
+            let rename = pick(Box::new(move || rename_entry(ws_r.clone(), m_r.clone())));
+            let (ws_d, m_d) = (ws.clone(), m.clone());
+            let remove = pick(Box::new(move || {
+                remove_entry(ws_d.clone(), m_d.clone(), files)
+            }));
             view! {
-                <div class="ctx-menu" role="menu" style=format!("left:{x}px;top:{y}px")>
+                <div
+                    class="ctx-menu tree-menu"
+                    role="menu"
+                    aria-label=m.name.clone()
+                    node_ref=root_el
+                    style=format!("left:{x}px;top:{y}px")
+                    on:keydown=move |e| {
+                        if let Some(r) = root_el.get_untracked() {
+                            crate::components::menu::menu_keydown(
+                                &e,
+                                &r,
+                                Callback::new(move |_| menu.set(None)),
+                            );
+                        }
+                    }
+                >
                     <button
                         type="button"
                         role="menuitem"
                         class="ctx-item"
-                        on:click=move |_| {
-                            menu.set(None);
-                            crate::files_js::download_url(&url, &file);
-                        }
+                        disabled=is_root
+                        on:click=mention
                     >
+                        "在对话中引用"
+                    </button>
+                    <button
+                        type="button"
+                        role="menuitem"
+                        class="ctx-item"
+                        disabled=!m.changed
+                        on:click=changes
+                    >
+                        "查看更改"
+                    </button>
+                    <button type="button" role="menuitem" class="ctx-item" on:click=copy>
+                        "复制路径"
+                    </button>
+                    <div class="menu-sep" role="separator"></div>
+                    {local
+                        .then(|| {
+                            view! {
+                                <button
+                                    type="button"
+                                    role="menuitem"
+                                    class="ctx-item"
+                                    on:click=reveal
+                                >
+                                    "在访达中显示"
+                                </button>
+                            }
+                        })}
+                    <button type="button" role="menuitem" class="ctx-item" on:click=terminal>
+                        "在终端中打开"
+                    </button>
+                    <button type="button" role="menuitem" class="ctx-item" on:click=download>
                         {if m.dir { "下载文件夹" } else { "下载" }}
+                    </button>
+                    <div class="menu-sep" role="separator"></div>
+                    <button
+                        type="button"
+                        role="menuitem"
+                        class="ctx-item"
+                        disabled=is_root
+                        on:click=rename
+                    >
+                        "重命名…"
+                    </button>
+                    <button
+                        type="button"
+                        role="menuitem"
+                        class="ctx-item"
+                        disabled=is_root
+                        on:click=remove
+                    >
+                        "删除…"
                     </button>
                 </div>
             }
@@ -412,6 +618,7 @@ pub fn FileTree(
     files: Files,
     #[prop(into)] root_name: Signal<String>,
     #[prop(into)] reload: Signal<u32>,
+    acts: TreeActs,
 ) -> impl IntoView {
     let filter = RwSignal::new(String::new());
     let root_open = RwSignal::new(true);
@@ -473,6 +680,7 @@ pub fn FileTree(
         tried.set_value(HashSet::new());
         opened.update(|_| {});
     });
+    let root_changed = move || root.with_untracked(|r| r.as_ref().is_some_and(|r| r.has_change));
     let list = move || {
         let f = filter.get();
         root.with(|r| {
@@ -494,7 +702,7 @@ pub fn FileTree(
             prop:value=move || filter.get()
             on:input=move |e| filter.set(event_target_value(&e))
         />
-        <TreeMenu menu ws=files.ws() />
+        <TreeMenu menu ws=files.ws() files acts />
         <div class="tree" on:scroll=move |_| menu.set(None)>
             <div class="tree-flow">
                 <button
@@ -513,6 +721,7 @@ pub fn FileTree(
                                 path: String::new(),
                                 name: root_name.get_untracked(),
                                 dir: true,
+                                changed: root_changed(),
                             }),
                         );
                     }
@@ -594,6 +803,7 @@ pub fn FileTree(
                                                 files.open(p.clone(), 0);
                                             }
                                         };
+                                        let changed = row.change.is_some() || row.has_change;
                                         let menu_path = row.path.clone();
                                         let menu_name = row.name.clone();
                                         let guides = guide_dirs(&row.path, row.depth)
@@ -647,6 +857,7 @@ pub fn FileTree(
                                                                 path: menu_path.clone(),
                                                                 name: menu_name.clone(),
                                                                 dir,
+                                                                changed,
                                                             }),
                                                         );
                                                     }
