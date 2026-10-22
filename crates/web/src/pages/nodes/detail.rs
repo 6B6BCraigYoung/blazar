@@ -351,7 +351,8 @@ fn NodeDetail(name: String) -> impl IntoView {
                     <span class="grow"></span>
                     <button
                         class="btn small"
-                        disabled=move || scanning.get()
+                        disabled=move || scanning.get() || !online()
+                        title=move || (!online()).then_some("机器离线，恢复在线后才能检查")
                         on:click=move |_| scan()
                     >
                         {move || if scanning.get() { "读取中…" } else { "检查运行时" }}
