@@ -567,3 +567,4 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 }
 @media (prefers-reduced-motion: reduce) { .fl-edge[data-act="running"] { animation: none; } }
 .page-meta { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-md); margin-top: calc(-1 * var(--space-md)); font-size: var(--font-size-label); }
+.nowrap { white-space: nowrap; }

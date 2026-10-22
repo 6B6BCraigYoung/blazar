@@ -205,7 +205,19 @@ pub fn InboxPage() -> impl IntoView {
                                                         }
                                                     >
                                                         <strong>{s(&it, "title")}</strong>
-                                                        <span class="muted">{s(&it, "body")}</span>
+                                                        {
+                                                            let raw = s(&it, "body");
+                                                            let human = crate::vocab::error(&raw, None);
+                                                            if human == raw {
+                                                                view! { <span class="muted">{raw}</span> }.into_any()
+                                                            } else {
+                                                                view! {
+                                                                    <span class="muted">{human}</span>
+                                                                    <small class="muted work-inbox-raw">{raw}</small>
+                                                                }
+                                                                    .into_any()
+                                                            }
+                                                        }
                                                         <small class="muted">
                                                             {format!(
                                                                 "{} · {}",

@@ -116,3 +116,5 @@
 .jobs-log.dlg.wide { width: min(860px, calc(100vw - 32px)); }
 .jobs-log-text { height: min(56vh, 520px); margin: 0; padding: var(--space-md); overflow: auto; border-radius: var(--r-md); background: var(--bg-canvas); border: 1px solid var(--line); font: var(--font-size-label) / 1.5 var(--font-mono); white-space: pre-wrap; word-break: break-all; }
 .jobs-log-note { min-height: 1.5em; margin-top: var(--space-sm); font-size: var(--font-size-caption); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.work-inbox-main small .status { margin-left: var(--space-md); }
+.work-inbox-raw { font: var(--font-size-caption) var(--font-mono); overflow-wrap: anywhere; }

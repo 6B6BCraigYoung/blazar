@@ -164,7 +164,7 @@ pub fn SimApp(id: &'static str, name: &'static str) -> impl IntoView {
             match api::send::<Value>("POST", &format!("/api/sims/{id}/install"), &json!({
                 "node": node, "version": inst_version.get_untracked(), "accept_eula": inst_eula.get_untracked(),
             })).await {
-                Ok(r) => toast(format!("已在 {} 上开始安装", s(&r, "node"))),
+                Ok(r) => toast(format!("已在 {} 上开始安装", fmt::machine(&s(&r, "node")))),
                 Err(e) => toast(e.to_string()),
             }
             inst_busy.set(false);
@@ -304,7 +304,11 @@ pub fn SimApp(id: &'static str, name: &'static str) -> impl IntoView {
                 "workspace": ws, "program": program, "args": arg_list, "display": display.get_untracked(),
             })).await {
                 Ok(r) => {
-                    toast(format!("已在 {} 上启动，显示 {}", s(&r, "node"), s(&r, "display")));
+                    toast(format!(
+                        "已在 {} 上启动，显示 {}",
+                        fmt::machine(&s(&r, "node")),
+                        s(&r, "display"),
+                    ));
                     viewing.set(Some((s(&r, "node"), s(&r, "display"))));
                     rev.update(|n| *n += 1);
                 }
@@ -479,7 +483,7 @@ pub fn SimApp(id: &'static str, name: &'static str) -> impl IntoView {
                                     .as_array()
                                     .cloned()
                                     .unwrap_or_default();
-                                let node = s(&v, "node");
+                                let node = fmt::machine(&s(&v, "node"));
                                 let standalone: Vec<String> = v["standalone"]
                                     .as_array()
                                     .map(|a| {
@@ -922,7 +926,7 @@ pub fn SimApp(id: &'static str, name: &'static str) -> impl IntoView {
                                         <div class="sim-row">
                                             <div>
                                                 <div class="nm">
-                                                    {format!("{} · {node}", s(&l, "workspace_name"))}
+                                                    {format!("{} · {}", s(&l, "workspace_name"), fmt::machine(&node))}
                                                 </div>
                                                 <div class="meta">
                                                     {format!(
@@ -1153,7 +1157,7 @@ fn SimViewer(node: String, disp: String, on_close: Callback<()>) -> impl IntoVie
     view! {
         <section class="card settings-card">
             <div class="apps-section-head">
-                <h3>{format!("画面 · {node} {disp}")}</h3>
+                <h3>{format!("画面 · {} {disp}", fmt::machine(&node))}</h3>
                 <span class="grow"></span>
                 <button class="btn small" on:click=move |_| on_close.run(())>
                     "关闭"

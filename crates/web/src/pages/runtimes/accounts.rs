@@ -65,7 +65,7 @@ fn status(a: &Account) -> impl IntoView + use<> {
             },
         )
     } else if a.status == "logged_out" {
-        ("failed", if tok { "需更新" } else { "未登录" }, "")
+        ("attention", if tok { "需更新" } else { "未登录" }, "")
     } else {
         ("attention", "待检查", "暂未获取登录状态")
     };

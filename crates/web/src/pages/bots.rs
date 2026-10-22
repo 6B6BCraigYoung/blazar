@@ -934,10 +934,10 @@ pub fn BotPage() -> impl IntoView {
                                             <span>
                                                 {format!(
                                                     "{}{}",
-                                                    s(&b, "node"),
+                                                    fmt::machine(&s(&b, "node")),
                                                     b["node_status"]
                                                         .as_str()
-                                                        .map(|st| format!(" · {st}"))
+                                                        .map(|st| format!(" · {}", crate::vocab::state(st).0))
                                                         .unwrap_or_default(),
                                                 )}
                                             </span>

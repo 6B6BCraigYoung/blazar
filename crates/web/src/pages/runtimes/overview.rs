@@ -48,7 +48,7 @@ pub(super) fn RuntimeCard(
                                 view! {
                                     <span
                                         class="status"
-                                        data-tone=if usable { "other" } else { "failed" }
+                                        data-tone=if usable { "other" } else { "attention" }
                                         title=a.label
                                     >
                                         {if usable { "可用" } else { "需登录" }}
@@ -66,7 +66,7 @@ pub(super) fn RuntimeCard(
                                 view! { <span class="status" data-tone="other">"已登录"</span> }.into_any()
                             }
                             Some(false) => {
-                                view! { <span class="status" data-tone="failed">"未登录"</span> }.into_any()
+                                view! { <span class="status" data-tone="attention">"未登录"</span> }.into_any()
                             }
                             None => {
                                 view! {

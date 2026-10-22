@@ -619,7 +619,7 @@ def seed_rows(db):
 
     inbox = [
         ("run_done", "atlas-api 跑完了", "给 /users 加分页：已提交 3f9c2ab，35 个测试通过。", "atlas-api", THREAD, None, ago(minutes=20), False, False),
-        ("approval", "quasar-ml 在等你审批", "Bash：python train.py --config configs/base.yaml --steps 200", "quasar-ml", did(12, 2), None, ago(minutes=4), False, False),
+        ("approval", "quasar-ml 在等你批准", "Bash：python train.py --config configs/base.yaml --steps 200", "quasar-ml", did(12, 2), None, ago(minutes=4), False, False),
         ("run_failed", "orbit-docs 失败了", "API Error: 529 overloaded", "orbit-docs", None, None, ago(hours=3), False, False),
         ("question", "demo-trainer 在问", "lr=3e-4 那组节点离线了，要不要换到本机重跑？", None, None, None, ago(hours=5), False, False),
         ("autopilot_paused", "自动化「夜间评测汇总」已暂停", "连续失败 3 次。", None, None, AUTOPILOTS[1], ago(hours=9), True, False),

@@ -198,7 +198,7 @@ pub fn AccountsSection(
             <span>"额度"</span>
             <span>"最近使用"</span>
             <span class="runtime-row-action">
-                <button class="btn small primary" on:click=move |_| form.set(Some(Form::Add))>
+                <button class="btn small" on:click=move |_| form.set(Some(Form::Add))>
                     "添加账号"
                 </button>
             </span>
@@ -302,10 +302,11 @@ pub fn login(a: &Account) {
 }
 
 pub fn node_login(node: String, after: Callback<bool>) {
+    let shown = crate::fmt::machine(&node);
     term_dialog::open(TermLogin {
-        title: format!("在 {node} 上登录 Codex"),
+        title: format!("在 {shown} 上登录 Codex"),
         hint: format!(
-            "在 {node} 上运行 codex login --device-auth（没装 Codex 会先装进 ~/.blazar）。在本地浏览器打开下面的链接、输入验证码即可，凭据只保存在 {node} 上。"
+            "在 {shown} 上运行 codex login --device-auth（没装 Codex 会先装进 ~/.blazar）。在本地浏览器打开下面的链接、输入验证码即可，凭据只保存在 {shown} 上。"
         ),
         path: format!("/api/nodes/{}/login/codex/ws", api::enc(&node)),
         verify_node: Some(node.clone()),

@@ -116,14 +116,23 @@ pub fn Sidebar() -> impl IntoView {
             .filter(|x| x.activity == "awaiting_approval")
             .count();
         let u = top().iter().filter(|x| app.unseen(x)).count();
-        let mut s = format!("{on} 台机器在线 · {r} 运行中");
+        let mut parts = vec![format!("{on} 台机器在线"), format!("{r} 运行中")];
         if a > 0 {
-            s.push_str(&format!(" · {a} 等你批准"));
+            parts.push(format!("{a} 等你批准"));
         }
         if u > 0 {
-            s.push_str(&format!(" · {u} 条新结果"));
+            parts.push(format!("{u} 条新结果"));
         }
-        s
+        parts
+            .into_iter()
+            .enumerate()
+            .map(|(i, p)| {
+                view! {
+                    {(i > 0).then_some(" · ")}
+                    <span class="nowrap">{p}</span>
+                }
+            })
+            .collect_view()
     };
     let alerts_on = move || {
         app.alerts_rev.track();

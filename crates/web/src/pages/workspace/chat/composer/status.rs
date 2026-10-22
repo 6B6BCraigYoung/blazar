@@ -35,7 +35,7 @@ pub(super) fn Todos(chat: Chat) -> impl IntoView {
                     }
                 >
                     {move || if open.get() { "▾ " } else { "▸ " }}
-                    <b>{format!("Tasks {done}/{}", todos.len())}</b>
+                    <b>{format!("待办 {done}/{}", todos.len())}</b>
                     {cur.map(|c| view! { <span class="td-cur">{c}</span> })}
                 </button>
                 {move || open.get().then(|| todo_list(&todos))}
