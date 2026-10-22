@@ -77,7 +77,7 @@ pub const SPECS: &[Spec] = &[
     Spec {
         key: "node_offline",
         label: "机器离线",
-        about: "机器离线这么久：进收件箱并写信给总控 bot，列出上面还在跑的任务和相关的 bot。打开时每 2 分钟探测一次机器。",
+        about: "机器离线这么久：进收件箱并写信给总控 bot，列出上面还在跑的任务和相关的 bot。机器每 2 分钟探测一次，不受这个开关影响。",
         unit: "分钟",
         default: Some(10),
         min: 1,
@@ -744,26 +744,38 @@ fn triggers(ev: &ServerEvent) -> bool {
     )
 }
 
-async fn probe_nodes(st: &Shared) {
-    let _ = crate::api::refresh_mesh(State(st.clone())).await;
+async fn probe_nodes(st: &Shared, last_error: &std::sync::Mutex<Option<String>>) {
+    let failed = crate::api::refresh_mesh(State(st.clone()))
+        .await
+        .err()
+        .map(|e| e.message());
+    if let Ok(mut last) = last_error.lock()
+        && *last != failed
+    {
+        if let Some(e) = &failed {
+            tracing::warn!(target: "blazar::mesh", "定时刷新组网失败，机器状态会停在上次成功的时间：{e}");
+        } else if last.is_some() {
+            tracing::info!(target: "blazar::mesh", "定时刷新组网恢复正常");
+        }
+        *last = failed;
+    }
 }
 
-pub async fn probe_due(st: &Shared, last: Option<Instant>) -> bool {
-    settings(st)
-        .await
-        .get("node_offline")
-        .is_some_and(|c| c.enabled)
-        && last.is_none_or(|t| t.elapsed() >= PROBE_EVERY)
+#[must_use]
+pub fn probe_due(last: Option<Instant>) -> bool {
+    last.is_none_or(|t| t.elapsed() >= PROBE_EVERY)
 }
 
 pub async fn watch(st: Shared) {
     let mut rx = st.bus.subscribe();
     let mut probed: Option<Instant> = None;
+    let probe_error = std::sync::Arc::new(std::sync::Mutex::new(None));
     loop {
-        if probe_due(&st, probed).await {
+        if probe_due(probed) {
             probed = Some(Instant::now());
             let probe = st.clone();
-            tokio::spawn(async move { probe_nodes(&probe).await });
+            let last_error = probe_error.clone();
+            tokio::spawn(async move { probe_nodes(&probe, &last_error).await });
         }
         run_once(&st).await;
         let sleep = tokio::time::sleep(EVERY);

@@ -893,16 +893,17 @@ async fn claim_expiry_follows_its_switch_and_release_threshold() {
 }
 
 #[tokio::test]
-async fn periodic_node_probes_follow_the_node_offline_switch() {
+async fn periodic_node_probes_run_every_two_minutes_regardless_of_the_offline_rule() {
     let h = hub().await;
-    assert!(probe_due(&h.st, None).await, "默认打开，第一次就探测");
+    assert!(probe_due(None), "启动后第一轮就探测");
     let now = std::time::Instant::now();
-    assert!(!probe_due(&h.st, Some(now)).await, "两分钟内不重复探测");
+    assert!(!probe_due(Some(now)), "两分钟内不重复探测");
     let long_ago = now.checked_sub(PROBE_EVERY).unwrap();
-    assert!(probe_due(&h.st, Some(long_ago)).await);
+    assert!(probe_due(Some(long_ago)));
+    assert_eq!(PROBE_EVERY, std::time::Duration::from_secs(120));
     h.set(json!({ "node_offline": { "enabled": false } })).await;
-    assert!(!probe_due(&h.st, None).await, "关掉就不定时探测");
-    assert!(!probe_due(&h.st, Some(long_ago)).await);
-    h.set(json!({ "node_offline": { "enabled": true } })).await;
-    assert!(probe_due(&h.st, Some(long_ago)).await, "重新打开照常探测");
+    let cfg = settings(&h.st).await;
+    assert!(!cfg["node_offline"].enabled, "规则关掉只影响提醒");
+    assert!(probe_due(Some(long_ago)), "规则关掉也照常探测");
+    assert!(probe_due(None));
 }
