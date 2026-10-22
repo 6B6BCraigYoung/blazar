@@ -387,7 +387,8 @@ def clean(db):
                        ("tasks", "id"), ("autopilot_runs", "autopilot_id"), ("autopilots", "id"), ("claims", "id"),
                        ("bot_mail", "to_bot"), ("bot_threads", "bot_id"), ("bots", "id"), ("agents", "id"),
                        ("skill_files", "skill_id"), ("skills", "id"), ("memories", "id"), ("inbox", "id"),
-                       ("jobs", "id"), ("workspace_scripts", "workspace_id"), ("workspaces", "id"), ("projects", "id")]:
+                       ("jobs", "id"), ("snippets", "id"), ("hooks", "id"), ("approval_rules", "id"),
+                       ("workspace_scripts", "workspace_id"), ("workspaces", "id"), ("projects", "id")]:
         db.execute(f"DELETE FROM {table} WHERE {col} LIKE ?", (like,))
     db.execute("DELETE FROM jobs WHERE label IN (?, ?)", JOB_LABELS)
     db.execute("DELETE FROM facts WHERE key LIKE 'demo/%'")
@@ -666,6 +667,28 @@ def seed_rows(db):
                    " VALUES (?,?,?,?,?,?,?,?,?,?)",
                    (did(21, i + 1), kind, title, body, WS.get(ws), thread, ref, iso(when) if read else None,
                     iso(when) if archived else None, iso(when)))
+    snippets = [
+        ("验收清单", "- 单元测试全部通过\n- 没有新的 clippy 警告\n- 改动的接口在 README 里有说明"),
+        ("提交规范", "Conventional Commits，英文小写祈使句，标题不超过 72 个字符，细节写进正文。"),
+    ]
+    for i, (name, body) in enumerate(snippets):
+        db.execute("INSERT INTO snippets (id, name, body, created_at, updated_at) VALUES (?,?,?,?,?)",
+                   (did(22, i + 1), name, body, iso(ago(days=3)), iso(ago(days=1))))
+    hooks = [
+        ("turn_start", "hub", "scripts/check-disk.sh", 1, 20),
+        ("session_end", "node", "git status --short > /tmp/blazar-last-status", 0, 30),
+    ]
+    for i, (event, target, command, blocking, timeout) in enumerate(hooks):
+        db.execute("INSERT INTO hooks (id, event, command, target, blocking, timeout_secs, enabled, created_at) VALUES (?,?,?,?,?,?,?,?)",
+                   (did(23, i + 1), event, command, target, blocking, timeout, 1, iso(ago(days=5))))
+    rules = [
+        ("Read", "", None, 1, 128),
+        ("Bash", "pytest", WS["atlas-api"], 1, 17),
+        ("Edit", "docs/", WS["orbit-docs"], 0, 0),
+    ]
+    for i, (tool, pattern, ws, enabled, hits) in enumerate(rules):
+        db.execute("INSERT INTO approval_rules (id, tool, pattern, workspace_id, enabled, hits, created_at) VALUES (?,?,?,?,?,?,?)",
+                   (did(24, i + 1), tool, pattern, ws, enabled, hits, iso(ago(days=2))))
 
 
 def session():
@@ -870,11 +893,37 @@ def tab_step(href):
     return {"action": "click", "selector": f"nav.section-tabs a[href=\"{href}\"]"}
 
 
+def settings_parts(round_name):
+    sheet = {"action": "wait", "selector": "[data-modal-root]", "timeout_ms": 4000}
+    items = [
+        ("settings-shortcut-recording", "/settings?s=shortcuts", "快捷键：点一下「任务」的键帽进入录入状态",
+         ({"action": "click", "selector": "button[aria-label=\"更改「任务」快捷键\"]"},), False),
+        ("settings-shortcut-conflict", "/settings?s=shortcuts", "快捷键：录入时按下已被「收件箱」占用的 ⌥I，行内给出冲突提示",
+         ({"action": "click", "selector": "button[aria-label=\"更改「任务」快捷键\"]"},
+          {"action": "key", "key": "i", "code": "KeyI", "alt": True, "selector": "button[aria-label=\"更改「任务」快捷键\"]"},
+          {"action": "wait", "ms": 300}), False),
+        ("settings-advanced-sheet", "/settings?s=chat", "「高级…」打开的说明面板（sheet）",
+         ({"action": "click", "text": "高级…"}, sheet), False),
+        ("settings-snippet-new", "/settings?s=snippets", "片段列表底部「+」打开的新建面板",
+         ({"action": "click", "selector": "button[aria-label=\"添加片段\"]"}, sheet), False),
+        ("settings-hook-new", "/settings?s=hooks", "自动执行脚本「+」打开的添加面板",
+         ({"action": "click", "selector": "button[aria-label=\"添加自动执行脚本\"]"}, sheet), False),
+    ]
+    if round_name == "data":
+        items.append(("settings-snippet-selected", "/settings?s=snippets", "片段列表选中一行（蓝色高亮，− 和「编辑…」可用）",
+                      ({"action": "wait", "selector": ".pref-item", "timeout_ms": 8000}, {"action": "click", "selector": ".pref-item"}), False))
+        items.append(("settings-snippet-edit", "/settings?s=snippets", "片段双击或「编辑…」打开的编辑面板",
+                      ({"action": "wait", "selector": ".pref-item", "timeout_ms": 8000}, {"action": "click", "selector": ".pref-item"},
+                       {"action": "click", "selector": "button[aria-label=\"编辑选中的片段\"]"}, sheet), False))
+    return items
+
+
 def plan(round_name):
     state = "空状态（dev profile 现有数据）" if round_name == "empty" else "演示数据"
     items = [(slug, route, expect, (), True) for slug, route, expect in ROUTES]
     for key, label in SETTINGS:
         items.append((f"settings-{key}", f"/settings?s={key}", f"设置 → {label}", (), True))
+    items += settings_parts(round_name)
     for group, route, tabs in TABS:
         for key, label, href in tabs:
             items.append((f"tab-{group}-{key}", route, f"页头标签「{label}」（从 {route} 点过去）", (tab_step(href),), False))
