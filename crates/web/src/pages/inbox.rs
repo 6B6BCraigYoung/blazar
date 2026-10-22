@@ -508,7 +508,7 @@ fn row_view(ctx: Ctx, i: usize, it: Item, pending: Option<Value>) -> impl IntoVi
                     </code>
                     <button
                         type="button"
-                        class="btn small primary"
+                        class="btn small"
                         disabled=move || ctx.gate.with(|g| g.busy(&a1))
                         on:click=move |_| decide(ctx, a2.clone(), true, None)
                     >

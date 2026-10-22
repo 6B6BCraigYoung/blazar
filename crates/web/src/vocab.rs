@@ -146,7 +146,14 @@ pub fn error(raw: &str, status: Option<u16>) -> String {
         "登录已失效，请重新登录".into()
     } else if status == Some(403) || has(&["403 ", "forbidden", "permission_error"]) {
         "没有权限".into()
-    } else if has(&["api error: 500", "internal server error"]) {
+    } else if has(&["billing_error"]) {
+        "额度不足，请检查账号".into()
+    } else if has(&[
+        "api error: 500",
+        "internal server error",
+        "server_error",
+        "api_error",
+    ]) {
         "服务出错了，稍后再试".into()
     } else if has(&["timed out", "timeout", "deadline exceeded"]) {
         "等待超时，稍后再试".into()
@@ -165,6 +172,20 @@ pub fn error(raw: &str, status: Option<u16>) -> String {
     } else {
         raw.to_owned()
     }
+}
+
+#[must_use]
+pub fn retrying(raw: &str) -> String {
+    if raw.is_empty() {
+        return "正在重试".into();
+    }
+    let why = error(raw, None);
+    let cause = if why == raw {
+        "请求没有成功"
+    } else {
+        why.split('，').next().unwrap_or(&why)
+    };
+    format!("{cause}，正在重试")
 }
 
 #[cfg(test)]
@@ -225,6 +246,18 @@ mod tests {
         );
         assert_eq!(error("HTTP 502", Some(502)), "服务出错了，稍后再试");
         assert_eq!(error("工作区不存在", Some(404)), "工作区不存在");
+        assert_eq!(error("server_error", None), "服务出错了，稍后再试");
+        assert_eq!(error("billing_error", None), "额度不足，请检查账号");
         assert_eq!(term("exclusive"), "独占");
+    }
+
+    #[test]
+    fn retries_name_the_cause_in_plain_words() {
+        assert_eq!(retrying("server_error"), "服务出错了，正在重试");
+        assert_eq!(retrying("overloaded_error"), "服务繁忙，正在重试");
+        assert_eq!(retrying("rate_limit"), "请求太频繁，正在重试");
+        assert_eq!(retrying("authentication_failed"), "登录已失效，正在重试");
+        assert_eq!(retrying("ECONNRESET"), "请求没有成功，正在重试");
+        assert_eq!(retrying(""), "正在重试");
     }
 }

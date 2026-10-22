@@ -138,7 +138,7 @@
 .inbox-meta { flex: 0 0 auto; display: inline-flex; align-items: center; gap: var(--space-md); padding-top: 3px; font-size: var(--font-size-caption); color: var(--fg-4); white-space: nowrap; }
 .inbox-act { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-sm); margin-top: var(--space-2xs); }
 .inbox-act .btn { display: inline-flex; align-items: center; gap: var(--space-xs); }
-.inbox-act .btn kbd { font: var(--font-size-caption) var(--font-sans); color: var(--on-accent-muted); }
+.inbox-act .btn kbd { font: var(--font-size-caption) var(--font-sans); color: var(--fg-3); }
 .inbox-act a.btn { color: var(--fg); }
 .inbox-cmd { flex: 1 1 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--font-size-caption-readable) var(--font-mono); color: var(--fg-2); }
 .inbox-reply { flex: 1 1 200px; min-width: 160px; height: 26px; padding: 0 var(--space-control); border: 1px solid var(--border); border-radius: var(--r-md); background: var(--bg-canvas); color: var(--fg); font: var(--font-size-label-readable) var(--font-sans); outline: none; }

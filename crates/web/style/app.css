@@ -626,7 +626,7 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 .home-time { flex: 0 0 auto; min-width: 56px; text-align: right; font-size: var(--font-size-caption); color: var(--fg-4); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .home-act { flex: 0 0 auto; display: flex; align-items: center; gap: var(--space-sm); }
 .home-act .btn { display: inline-flex; align-items: center; gap: var(--space-xs); }
-.home-act .btn kbd { font: var(--font-size-caption) var(--font-sans); color: var(--on-accent-muted); }
+.home-act .btn kbd { font: var(--font-size-caption) var(--font-sans); color: var(--fg-3); }
 .home-act a.btn { color: var(--fg); }
 .home-menu { min-width: 180px; }
 .home-page .page-actions .btn { display: inline-flex; align-items: center; gap: var(--space-sm); }

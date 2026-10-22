@@ -185,14 +185,7 @@ pub fn step_text(step: Option<&WorkspaceStep>, state: &str, root: &str) -> StepT
             label: "正在开始".into(),
             code: step.text.clone(),
         },
-        "retry" => StepText::plain(format!(
-            "正在重试 API{}",
-            if step.text.is_empty() {
-                String::new()
-            } else {
-                format!("：{}", crate::vocab::error(&step.text, None))
-            }
-        )),
+        "retry" => StepText::plain(crate::vocab::retrying(&step.text)),
         "error" => StepText::plain(crate::vocab::error(&step.text, None)),
         _ => StepText::plain(step.text.clone()),
     }
@@ -358,6 +351,15 @@ mod tests {
         assert_eq!(
             step_text(Some(&failed), "errored", "").label,
             "服务繁忙，稍后再试"
+        );
+        let retry = WorkspaceStep {
+            kind: "retry".into(),
+            text: "server_error".into(),
+            ..WorkspaceStep::default()
+        };
+        assert_eq!(
+            step_text(Some(&retry), "running", "").label,
+            "服务出错了，正在重试"
         );
         assert_eq!(step_text(None, "running", "").label, "正在开始…");
         assert_eq!(step_text(None, "idle", ""), StepText::default());
