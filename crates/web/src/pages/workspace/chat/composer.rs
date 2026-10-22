@@ -111,6 +111,14 @@ pub fn Composer(chat: Chat, tick: RwSignal<u32>, tree_files: Signal<Vec<String>>
     let pop = RwSignal::new(None::<Pop>);
     let sel = RwSignal::new(0usize);
     let ta = NodeRef::<html::Textarea>::new();
+    ta.on_load(|t| {
+        let idle = document()
+            .active_element()
+            .is_none_or(|a| a.tag_name() == "BODY");
+        if idle {
+            let _ = t.focus();
+        }
+    });
     let file_in = NodeRef::<html::Input>::new();
     let run_since = StoredValue::new(None::<f64>);
 

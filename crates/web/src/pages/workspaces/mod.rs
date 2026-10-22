@@ -1,4 +1,5 @@
 mod inspector;
+mod start;
 
 use leptos::ev;
 use leptos::html;
@@ -20,6 +21,7 @@ use crate::home_rows::{self, Group, Row, StepText};
 
 use super::work_shared::{approval_summary, decide_approval, list_keys_apply};
 pub use inspector::{Inspector, InspectorHost, remove_workspace, rename_workspace};
+use start::Start;
 
 pub fn diff_badge(w: &blazar_core_types::api::WorkspaceView) -> AnyView {
     match w.diff {
@@ -292,16 +294,7 @@ fn Home(project: Signal<Option<String>>) -> impl IntoView {
                             view! { <LoadingState text="加载工作区…" /> }.into_any()
                         }
                     }
-                    "start" => {
-                        view! {
-                            <Blank
-                                icon=icon::FOLDER
-                                title=empty::never("工作区")
-                                detail="工作区是一个代码目录，智能体在里面读代码、改代码、跑命令。"
-                            />
-                        }
-                            .into_any()
-                    }
+                    "start" => view! { <Start /> }.into_any(),
                     _ => groups(),
                 }}
             </div>
