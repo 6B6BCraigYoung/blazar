@@ -243,10 +243,11 @@ impl AppData {
                         let n = v
                             .iter()
                             .filter(|t| {
-                                matches!(
-                                    t["status"].as_str(),
-                                    Some("todo" | "in_progress" | "in_review")
-                                )
+                                t["parent_id"].as_str().is_none_or(str::is_empty)
+                                    && matches!(
+                                        t["status"].as_str(),
+                                        Some("todo" | "in_progress" | "in_review")
+                                    )
                             })
                             .count();
                         let _ = self.tasks_open.try_set(n);

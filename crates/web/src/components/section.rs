@@ -6,6 +6,7 @@ pub struct Tab {
     pub label: &'static str,
     pub href: &'static str,
     pub count: Option<Signal<usize>>,
+    pub counts: &'static str,
 }
 
 impl Tab {
@@ -15,6 +16,7 @@ impl Tab {
             label,
             href,
             count: None,
+            counts: "",
         }
     }
 
@@ -24,7 +26,14 @@ impl Tab {
             label,
             href,
             count: Some(count),
+            counts: "",
         }
+    }
+
+    #[must_use]
+    pub const fn counting(mut self, what: &'static str) -> Self {
+        self.counts = what;
+        self
     }
 }
 
@@ -40,8 +49,17 @@ pub fn SectionTabs(label: &'static str, tabs: Vec<Tab>, current: &'static str) -
                             href=tab.href
                             aria-current=(tab.href == current).then_some("page")
                             aria-label=move || match tab.count.map(|c| c.get()) {
+                                Some(n) if n > 0 && !tab.counts.is_empty() => {
+                                    format!("{}，{n} 个{}", tab.label, tab.counts)
+                                }
                                 Some(n) if n > 0 => format!("{} {n}", tab.label),
                                 _ => tab.label.to_owned(),
+                            }
+                            title=move || match tab.count.map(|c| c.get()) {
+                                Some(n) if n > 0 && !tab.counts.is_empty() => {
+                                    Some(format!("{n} 个{}", tab.counts))
+                                }
+                                _ => None,
                             }
                         >
                             {tab.label}
@@ -66,9 +84,11 @@ pub fn tasks(current: &'static str) -> impl IntoView {
             label="任务"
             current
             tabs=vec![
-                Tab::counted("全部", "/tasks", app.tasks_open.into()),
-                Tab::counted("自动化", "/autopilots", app.autopilots_active.into()),
-                Tab::counted("后台任务", "/jobs", app.jobs_running.into()),
+                Tab::counted("全部", "/tasks", app.tasks_open.into()).counting("未完成的任务"),
+                Tab::counted("自动化", "/autopilots", app.autopilots_active.into())
+                    .counting("启用中的自动化"),
+                Tab::counted("后台任务", "/jobs", app.jobs_running.into())
+                    .counting("运行中的后台任务"),
             ]
         />
     }
