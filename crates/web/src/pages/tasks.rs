@@ -1,4 +1,5 @@
 use super::work_shared::*;
+use crate::components::page_head::PageHead;
 use crate::components::{
     dialog::{self, Choice},
     modal::Modal,
@@ -176,17 +177,14 @@ pub fn TasksPage() -> impl IntoView {
     );
     view! {
         <div class="page work-page tasks-page">
-            <div class="page-head">
-                <h1>"任务"</h1>
-                {crate::components::section::tasks("/tasks")}
-                <span class="grow"></span>
+            <PageHead title="任务" nav=|| crate::components::section::tasks("/tasks")>
                 <button
                     class="btn primary"
                     on:click=move |_| ui.editor.set(Some(json!({"status":"todo"})))
                 >
                     "新建任务"
                 </button>
-            </div>
+            </PageHead>
             <div class="work-filters">
                 <input
                     class="input"

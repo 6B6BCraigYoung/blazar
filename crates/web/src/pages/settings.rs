@@ -2,6 +2,7 @@ use leptos::prelude::*;
 use leptos_router::hooks::use_query_map;
 use serde_json::{Value, json};
 
+use crate::components::page_head::PageHead;
 use crate::components::{
     dialog::{Choice, ask},
     toast::toast,
@@ -95,9 +96,7 @@ pub fn SettingsPage() -> impl IntoView {
     let section = move || query.with(|q| q.get("s").unwrap_or_else(|| "appearance".into()));
     view! {
         <div class="page settings-page">
-            <div class="page-head">
-                <h1>"设置"</h1>
-                <span class="grow"></span>
+            <PageHead title="设置">
                 <button
                     class="btn ghost"
                     disabled=move || reloading.get()
@@ -125,7 +124,7 @@ pub fn SettingsPage() -> impl IntoView {
                 >
                     "重新加载"
                 </button>
-            </div>
+            </PageHead>
             <div class="settings-layout">
                 <nav class="settings-nav" aria-label="设置分类">
                     {[

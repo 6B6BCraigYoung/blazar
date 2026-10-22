@@ -11,6 +11,7 @@ use crate::api;
 use crate::app_state::use_app;
 use crate::components::dialog::{Choice, ask};
 use crate::components::modal::Modal;
+use crate::components::page_head::PageHead;
 use crate::components::status::{EmptyState, InlineError, LoadingState};
 use crate::components::toast::toast;
 use crate::fmt;
@@ -420,18 +421,11 @@ pub fn SimApp(id: &'static str, name: &'static str) -> impl IntoView {
     };
 
     view! {
-        <div class="page-head">
-            <a href="/apps">"接入的软件"</a>
-            <span class="muted" aria-hidden="true">
-                "/"
-            </span>
-            <AppLogo id />
-            <h1>{name}</h1>
-            <span class="grow"></span>
+        <PageHead parent=("接入的软件", "/apps") icon=move || view! { <AppLogo id /> } title=name>
             <button class="btn" on:click=move |_| rev.update(|n| *n += 1)>
                 "刷新"
             </button>
-        </div>
+        </PageHead>
         <section class="card settings-card">
             <h3>"启动"</h3>
             <p class="muted">

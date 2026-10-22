@@ -8,6 +8,7 @@ use crate::app_state::use_app;
 use crate::chat_model;
 use crate::components::dialog::{self, Choice};
 use crate::components::modal::Modal;
+use crate::components::page_head::PageHead;
 use crate::components::section::{SectionTabs, Tab};
 use crate::components::status::{EmptyState, InlineError, LoadingState, StateOf, Status, Tone};
 use crate::components::toast::toast;
@@ -123,14 +124,18 @@ fn List(kind: Kind) -> impl IntoView {
     };
     view! {
         <div class="page workspaces-page">
-            <div class="page-head">
-                <h1>{title}</h1>
-                {if kind == Kind::Project {
-                    view! { <span class="gchip">{move || list().len()}</span> }.into_any()
-                } else {
-                    tabs().into_any()
-                }}
-                <span class="grow"></span>
+            <PageHead
+                title=Signal::derive(title)
+                status=move || {
+                    (kind == Kind::Project)
+                        .then(|| {
+                            view! {
+                                <Status tone=Tone::Other label=format!("{} 个工作区", list().len()) />
+                            }
+                        })
+                }
+                nav=move || (kind != Kind::Project).then(tabs)
+            >
                 <input
                     class="page-filter"
                     aria-label="筛选工作区"
@@ -149,7 +154,7 @@ fn List(kind: Kind) -> impl IntoView {
                 >
                     "新建工作区"
                 </button>
-            </div>
+            </PageHead>
             {move || {
                 app.state_error
                     .get()

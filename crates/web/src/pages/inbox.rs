@@ -1,4 +1,5 @@
 use super::work_shared::*;
+use crate::components::page_head::PageHead;
 use crate::components::status::{EmptyState, InlineError, LoadingState, Status, Tone};
 use crate::components::toast::toast;
 use crate::{api, app_state::use_app, fmt, storage};
@@ -61,14 +62,13 @@ pub fn InboxPage() -> impl IntoView {
     });
     view! {
         <div class="page work-page">
-            <div class="page-head">
-                <h1>"收件箱"</h1>
-                <Show when=move || app.inbox_unread.get() != 0>
-                    <span class="gchip">
-                        {move || format!("{} 未读", app.inbox_unread.get())}
-                    </span>
-                </Show>
-                <span class="grow"></span>
+            <PageHead
+                title="收件箱"
+                status=move || {
+                    let n = app.inbox_unread.get();
+                    (n != 0).then(|| view! { <Status tone=Tone::Attention label=format!("{n} 条未读") /> })
+                }
+            >
                 <button
                     type="button"
                     class="btn primary"
@@ -85,7 +85,7 @@ pub fn InboxPage() -> impl IntoView {
                 >
                     "归档已读"
                 </button>
-            </div>
+            </PageHead>
             <div class="work-filters">
                 {select_field(
                     "显示",

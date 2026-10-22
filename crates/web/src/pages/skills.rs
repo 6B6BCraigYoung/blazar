@@ -1,6 +1,7 @@
 use super::agents::{confirm, text};
 use crate::app_state::use_app;
 use crate::components::modal::Modal;
+use crate::components::page_head::PageHead;
 use crate::components::status::{EmptyState, InlineError, LoadingState};
 use crate::components::toast::toast;
 use crate::{api, md, storage};
@@ -117,10 +118,7 @@ pub fn SkillsPage() -> impl IntoView {
     };
     view! {
         <div class="page wide agent-page skills-page">
-            <div class="page-head">
-                <h1>"智能体"</h1>
-                {crate::components::section::agents("/skills")}
-            </div>
+            <PageHead title="智能体" nav=|| crate::components::section::agents("/skills") />
             <div class="agent-tabs" role="group" aria-label="技能内容">
                 {[("skills", "已安装"), ("market", "发现"), ("mcp", "MCP 服务器")]
                     .into_iter()

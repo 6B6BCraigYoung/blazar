@@ -10,6 +10,7 @@ use wasm_bindgen::{JsCast, closure::Closure};
 use crate::app_state::use_app;
 use crate::components::dialog::{self, Choice};
 use crate::components::modal::Modal;
+use crate::components::page_head::PageHead;
 use crate::components::status::{EmptyState, InlineError, LoadingState, StateOf};
 use crate::components::toast::toast;
 use crate::{api, fmt, storage};
@@ -188,14 +189,11 @@ pub fn AgentsPage() -> impl IntoView {
     };
     view! {
         <div class="page wide agent-page">
-            <div class="page-head">
-                <h1>"智能体"</h1>
-                {crate::components::section::agents("/agents")}
-                <span class="grow" />
+            <PageHead title="智能体" nav=|| crate::components::section::agents("/agents")>
                 <a class="btn primary" href="/agents/new">
                     "新建角色档案"
                 </a>
-            </div>
+            </PageHead>
             <div class="agent-toolbar">
                 <select
                     disabled=move || busy.get()
@@ -555,21 +553,16 @@ pub fn AgentCreatePage() -> impl IntoView {
     });
     view! {
         <div class="page agent-page">
-            <div class="page-head">
-                <a class="crumb" href="/agents">
-                    "角色档案"
-                </a>
-                <span>"/"</span>
-                <h1>
-                    {move || {
-                        if query.with(|q| q.get("template").is_some()) {
-                            "复制角色档案"
-                        } else {
-                            "新建角色档案"
-                        }
-                    }}
-                </h1>
-            </div>
+            <PageHead
+                parent=("角色档案", "/agents")
+                title=Signal::derive(move || {
+                    if query.with(|q| q.get("template").is_some()) {
+                        "复制角色档案".to_owned()
+                    } else {
+                        "新建角色档案".to_owned()
+                    }
+                })
+            />
             {move || match data.get() {
                 None => view! { <LoadingState text="正在加载配置…" /> }.into_any(),
                 Some(Err(e)) => {
@@ -640,15 +633,9 @@ pub fn AgentProfilePage() -> impl IntoView {
                     let a = StoredValue::new(a);
                     let closed = archived(&a.get_value());
                     view! {
-                        <div class="page-head">
-                            <a class="crumb" href="/agents">
-                                "角色档案"
-                            </a>
-                            <span>"/"</span>
-                            <h1>{text(&a.get_value(), "name")}</h1>
-                            <span class="grow" />
+                        <PageHead parent=("角色档案", "/agents") title=text(&a.get_value(), "name")>
                             <AgentActions agent=a.get_value() rev blocked=dirty />
-                        </div>
+                        </PageHead>
                         {closed
                             .then(|| {
                                 view! {

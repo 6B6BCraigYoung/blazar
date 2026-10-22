@@ -1,4 +1,5 @@
 use super::work_shared::*;
+use crate::components::page_head::PageHead;
 use crate::components::{
     dialog::{self, Choice},
     modal::Modal,
@@ -170,17 +171,12 @@ pub fn JobsPage() -> impl IntoView {
     };
     view! {
         <div class="page work-page jobs-page">
-            <div class="page-head">
-                <h1>"任务"</h1>
-                {crate::components::section::tasks("/jobs")}
-                <span class="grow"></span>
-            </div>
-            <div class="work-filters">
-                {select_field("状态", filter, FILTERS)}
-                <button class="btn small" on:click=move |_| refresh(rev)>
+            <PageHead title="任务" nav=|| crate::components::section::tasks("/jobs")>
+                <button class="btn" on:click=move |_| refresh(rev)>
                     "刷新"
                 </button>
-            </div>
+            </PageHead>
+            <div class="work-filters">{select_field("状态", filter, FILTERS)}</div>
             {move || match data.get() {
                 None => view! { <LoadingState text="正在读取后台任务…" /> }.into_any(),
                 Some(Err(e)) => view! {

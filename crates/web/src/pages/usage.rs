@@ -1,6 +1,7 @@
 use leptos::prelude::*;
 use serde_json::{Value, json};
 
+use crate::components::page_head::PageHead;
 use crate::components::status::{EmptyState, InlineError, LoadingState};
 use crate::{api, storage};
 
@@ -35,10 +36,7 @@ pub fn UsagePage() -> impl IntoView {
     });
     view! {
         <div class="page usage-page">
-            <div class="page-head">
-                <h1>"智能体"</h1>
-                {crate::components::section::agents("/usage")}
-                <span class="grow"></span>
+            <PageHead title="智能体" nav=|| crate::components::section::agents("/usage")>
                 <button
                     class="btn"
                     disabled=move || analytics.get().is_none() || usage.get().is_none()
@@ -46,7 +44,7 @@ pub fn UsagePage() -> impl IntoView {
                 >
                     "刷新"
                 </button>
-            </div>
+            </PageHead>
             <div class="settings-actions usage-period" role="group" aria-label="统计时间范围">
                 <h2>{move || format!("近 {} 天", days.get())}</h2>
                 {[7, 30, 90]

@@ -30,7 +30,7 @@ pub use workspaces::{ProjectPage, RunningPage, WaitingPage, WorkspacesPage};
 pub fn NotFound() -> impl IntoView {
     view! {
         <div class="page">
-            <h1>"页面不存在"</h1>
+            <crate::components::page_head::PageHead title="页面不存在" />
             <div class="empty">"链接可能已失效。"<a href="/">"返回工作区"</a></div>
         </div>
     }

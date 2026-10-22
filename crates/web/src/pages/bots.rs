@@ -1,6 +1,7 @@
 use super::work_shared::*;
 use crate::components::dialog::{self, Choice};
 use crate::components::modal::Modal;
+use crate::components::page_head::{MenuItem, MoreMenu, PageHead};
 use crate::components::status::{EmptyState, InlineError, LoadingState, StateOf};
 use crate::components::toast::toast;
 use crate::realtime::use_bus;
@@ -43,9 +44,7 @@ fn lifetime_chip(b: &Value) -> Option<AnyView> {
     let title = format!("临时 bot：闲置 {hours} 小时后自动归档");
     Some(
         view! {
-            <span class="gchip info" title=title>
-                "临时"
-            </span>
+            <span title=title>"临时"</span>
         }
         .into_any(),
     )
@@ -122,20 +121,14 @@ pub fn BotsPage() -> impl IntoView {
     };
     view! {
         <div class="page work-page bots-page">
-            <div class="page-head">
-                <h1>"bot"</h1>
-                <span class="grow"></span>
-                <button
-                    type="button"
-                    class="btn ghost"
-                    on:click=move |_| archived.update(|a| *a = !*a)
-                >
+            <PageHead title="bot">
+                <button type="button" class="btn" on:click=move |_| archived.update(|a| *a = !*a)>
                     {move || if archived.get() { "返回在用的" } else { "查看已归档" }}
                 </button>
                 <button type="button" class="btn primary" on:click=move |_| creating.set(true)>
                     "＋ 新建 bot"
                 </button>
-            </div>
+            </PageHead>
             {move || {
                 fleet
                     .get()
@@ -649,26 +642,21 @@ pub fn BotPage() -> impl IntoView {
                         bid.clone(),
                     );
                     let nodes = app.nodes();
+                    let state = s(&b, "state");
                     view! {
-                        <div class="page-head">
-                            <a class="linkbtn" href="/bots">
-                                "← bot"
-                            </a>
-                            <h1>{s(&b, "display_name")}</h1>
-                            <span class="mono muted">{s(&b, "handle")}</span>
-                            <span class="gchip">{role_label(&s(&b, "role"))}</span>
-                            <span class="gchip">{s(&b, "priority")}</span>
-                            {lifetime_chip(&b)}
-                            {pill(&s(&b, "state"))}
-                            <span class="grow"></span>
-                            <a class="btn small" href=format!("/w/{}", api::enc(&run_ws))>
+                        <PageHead
+                            parent=("bot", "/bots")
+                            title=s(&b, "display_name")
+                            status=move || pill(&state)
+                        >
+                            <a class="btn" href=format!("/w/{}", api::enc(&run_ws))>
                                 "打开对话"
                             </a>
                             {if is_archived {
                                 view! {
                                     <button
                                         type="button"
-                                        class="btn small primary"
+                                        class="btn primary"
                                         disabled=move || busy.get()
                                         on:click=move |_| call(
                                             "POST",
@@ -682,95 +670,88 @@ pub fn BotPage() -> impl IntoView {
                                 }
                                     .into_any()
                             } else {
-                                view! {
-                                    {temporary
-                                        .then(|| {
-                                            view! {
-                                                <button
-                                                    type="button"
-                                                    class="btn small ghost"
-                                                    disabled=move || busy.get()
-                                                    on:click=move |_| call(
-                                                        "POST",
-                                                        format!("/api/bots/{}/promote", api::enc(&b6)),
-                                                        json!({}),
-                                                        "已转为固定 bot，不再自动归档",
-                                                    )
-                                                >
-                                                    "转为固定"
-                                                </button>
-                                            }
-                                        })}
-                                    <button
-                                        type="button"
-                                        class="btn small ghost"
-                                        disabled=move || busy.get()
-                                        on:click=move |_| call(
-                                            "PUT",
-                                            format!("/api/bots/{}", api::enc(&b1)),
-                                            json!({ "hot_for_secs": if hot { 0 } else { 1800 } }),
-                                            if hot {
-                                                "已结束保持在线"
-                                            } else {
-                                                "接下来 30 分钟保持在线，新消息会立即送达"
-                                            },
-                                        )
-                                    >
-                                        {if hot { "结束保持在线" } else { "保持在线 30 分钟" }}
-                                    </button>
-                                    <button
-                                        type="button"
-                                        class="btn small ghost"
-                                        disabled=move || busy.get()
-                                        on:click=move |_| call(
+                                let mut items = Vec::new();
+                                if temporary {
+                                    items.push(MenuItem::new(
+                                        "转为固定",
+                                        move || call(
                                             "POST",
-                                            format!(
-                                                "/api/bots/{}/{}",
-                                                api::enc(&b2),
-                                                if paused { "resume" } else { "pause" },
-                                            ),
+                                            format!("/api/bots/{}/promote", api::enc(&b6)),
                                             json!({}),
-                                            "",
-                                        )
-                                    >
-                                        {if paused { "恢复" } else { "暂停" }}
-                                    </button>
-                                    <button
-                                        type="button"
-                                        class="btn small ghost danger"
-                                        disabled=move || busy.get()
-                                        on:click=move |_| {
-                                            let id = b3.clone();
-                                            spawn_local(async move {
-                                                if dialog::ask(
-                                                        "归档 bot",
-                                                        "归档后它不再收邮件，排队的邮件作废；家工作区和对话历史保留，可以再恢复。",
-                                                        vec![Choice::plain("取消"), Choice::danger("归档")],
+                                            "已转为固定 bot，不再自动归档",
+                                        ),
+                                    ));
+                                }
+                                items.push(MenuItem::new(
+                                    if hot { "结束保持在线" } else { "保持在线 30 分钟" },
+                                    move || call(
+                                        "PUT",
+                                        format!("/api/bots/{}", api::enc(&b1)),
+                                        json!({ "hot_for_secs": if hot { 0 } else { 1800 } }),
+                                        if hot {
+                                            "已结束保持在线"
+                                        } else {
+                                            "接下来 30 分钟保持在线，新消息会立即送达"
+                                        },
+                                    ),
+                                ));
+                                items.push(MenuItem::new(
+                                    if paused { "恢复" } else { "暂停" },
+                                    move || call(
+                                        "POST",
+                                        format!(
+                                            "/api/bots/{}/{}",
+                                            api::enc(&b2),
+                                            if paused { "resume" } else { "pause" },
+                                        ),
+                                        json!({}),
+                                        "",
+                                    ),
+                                ));
+                                items.push(MenuItem::danger(
+                                    "归档",
+                                    move || {
+                                        let id = b3.clone();
+                                        spawn_local(async move {
+                                            if dialog::ask(
+                                                    "归档 bot",
+                                                    "归档后它不再接收新工作，排队的工作会作废；工作目录和对话历史保留，可以再恢复。",
+                                                    vec![Choice::plain("取消"), Choice::danger("归档")],
+                                                )
+                                                .await == Some(1)
+                                            {
+                                                if let Err(e) = api::send::<
+                                                    Value,
+                                                >(
+                                                        "DELETE",
+                                                        &format!("/api/bots/{}", api::enc(&id)),
+                                                        &json!({}),
                                                     )
-                                                    .await == Some(1)
+                                                    .await
                                                 {
-                                                    if let Err(e) = api::send::<
-                                                        Value,
-                                                    >(
-                                                            "DELETE",
-                                                            &format!("/api/bots/{}", api::enc(&id)),
-                                                            &json!({}),
-                                                        )
-                                                        .await
-                                                    {
-                                                        toast(e.to_string());
-                                                    } else {
-                                                        let _ = window().location().set_href("/bots");
-                                                    }
+                                                    toast(e.to_string());
+                                                } else {
+                                                    let _ = window().location().set_href("/bots");
                                                 }
-                                            });
-                                        }
-                                    >
-                                        "归档"
-                                    </button>
+                                            }
+                                        });
+                                    },
+                                ));
+                                view! {
+                                    <MoreMenu
+                                        label="更多操作".to_owned()
+                                        items
+                                        disabled=Signal::derive(move || busy.get())
+                                    />
                                 }
                                     .into_any()
                             }}
+                        </PageHead>
+                        <div class="page-meta muted">
+                            <span class="mono">{s(&b, "handle")}</span>
+                            <span>{role_label(&s(&b, "role"))}</span>
+                            <span>{s(&b, "priority")}</span>
+                            {lifetime_chip(&b)}
                         </div>
                         {temporary
                             .then(|| {

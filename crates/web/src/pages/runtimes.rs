@@ -4,6 +4,7 @@ use leptos_router::hooks::use_params_map;
 use serde_json::{Value, json};
 
 use crate::api::{self, Account, Accounts, Runtime, Runtimes};
+use crate::components::page_head::PageHead;
 use crate::components::status::{EmptyState, InlineError, LoadingState};
 use crate::components::term_dialog::{self, TermLogin};
 use crate::components::toast::toast;
@@ -83,10 +84,7 @@ pub fn RuntimesPage() -> impl IntoView {
 
     view! {
         <div class="page runtimes-page">
-            <div class="page-head">
-                <h1>"智能体"</h1>
-                {crate::components::section::agents("/runtimes")}
-                <span class="grow"></span>
+            <PageHead title="智能体" nav=|| crate::components::section::agents("/runtimes")>
                 <button
                     class="btn"
                     disabled=move || refreshing.get()
@@ -102,7 +100,7 @@ pub fn RuntimesPage() -> impl IntoView {
                 >
                     "重新扫描"
                 </button>
-            </div>
+            </PageHead>
             {move || match runtimes.get() {
                 None => view! { <LoadingState text="正在查找运行时…" /> }.into_any(),
                 Some(Err(e)) => {

@@ -133,21 +133,14 @@ fn NodeDetail(name: String) -> impl IntoView {
 
     view! {
         <div class="page nodes-page">
-            <div class="page-head">
-                <a href="/nodes" class="crumb">
-                    "机器与组网"
-                </a>
-                <span class="sep">"/"</span>
-                <h1>{if name == "local" { "本机".to_owned() } else { name.clone() }}</h1>
-                {move || {
+            <PageHead
+                parent=("机器与组网", "/nodes")
+                title=crate::fmt::machine(&name)
+                status=move || {
                     let on = node.get().is_some_and(|n| n.status == "online");
-                    view! {
-                        <span class="state-pill" data-act=if on { "completed" } else { "idle" }>
-                            {if on { "在线" } else { "离线" }}
-                        </span>
-                    }
-                }}
-                <span class="grow"></span>
+                    view! { <StateOf state=if on { "online" } else { "offline" } /> }
+                }
+            >
                 <button
                     class="btn primary"
                     on:click=move |_| {
@@ -157,7 +150,7 @@ fn NodeDetail(name: String) -> impl IntoView {
                 >
                     "新建工作区"
                 </button>
-            </div>
+            </PageHead>
             <section class="card pad">
                 <h3>"工作区"</h3>
                 {move || {

@@ -1,4 +1,5 @@
 use super::work_shared::*;
+use crate::components::page_head::PageHead;
 use crate::components::{
     dialog::{self, Choice},
     modal::Modal,
@@ -147,17 +148,14 @@ pub fn AutopilotsPage() -> impl IntoView {
     on_cleanup(move || timer.dispose());
     view! {
         <div class="page work-page autopilots-page">
-            <div class="page-head">
-                <h1>"任务"</h1>
-                {crate::components::section::tasks("/autopilots")}
-                <span class="grow"></span>
-                <button class="btn small" on:click=move |_| refresh(ui.rev)>
+            <PageHead title="任务" nav=|| crate::components::section::tasks("/autopilots")>
+                <button class="btn" on:click=move |_| refresh(ui.rev)>
                     "刷新"
                 </button>
                 <button class="btn primary" on:click=move |_| ui.editor.set(Some(json!({})))>
                     "新建自动化"
                 </button>
-            </div>
+            </PageHead>
             <div class="work-layout">
                 <div class="work-main">
                     {move || match data.get() {

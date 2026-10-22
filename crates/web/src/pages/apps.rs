@@ -3,6 +3,7 @@ use leptos_router::hooks::{use_navigate, use_params_map};
 use serde_json::{Value, json};
 
 use super::settings::{NOTIFY_KINDS, flag, rows, save, text};
+use crate::components::page_head::PageHead;
 use crate::components::{
     dialog::{Choice, ask},
     status::{EmptyState, InlineError, LoadingState, Status, Tone},
@@ -102,9 +103,7 @@ fn AppLogo(id: &'static str) -> impl IntoView {
 pub fn AppsPage() -> impl IntoView {
     view! {
         <div class="page apps-page">
-            <div class="page-head">
-                <h1>"接入的软件"</h1>
-            </div>
+            <PageHead title="接入的软件" />
             <p class="muted">"连接常用软件，让智能体协助处理工作。"</p>
             <section class="apps-section">
                 <h2>"办公"</h2>
@@ -196,9 +195,7 @@ pub fn AppDetailPage() -> impl IntoView {
                         view! { <sims::SimApp id=app name /> }.into_any()
                     } else {
                         view! {
-                            <div class="page-head">
-                                <h1>"接入的软件"</h1>
-                            </div>
+                            <PageHead title="接入的软件" />
                             <EmptyState title="找不到这个软件" />
                             <a class="btn" href="/apps">
                                 "返回接入的软件"
@@ -220,18 +217,11 @@ fn AppDetail(id: &'static str, name: &'static str) -> impl IntoView {
         async move { api::get::<Value>(&format!("/api/office/{id}")).await }
     });
     view! {
-        <div class="page-head">
-            <a href="/apps">"接入的软件"</a>
-            <span class="muted" aria-hidden="true">
-                "/"
-            </span>
-            <AppLogo id />
-            <h1>{name}</h1>
-            <span class="grow"></span>
+        <PageHead parent=("接入的软件", "/apps") icon=move || view! { <AppLogo id /> } title=name>
             <button class="btn" on:click=move |_| rev.update(|n| *n += 1)>
                 "刷新"
             </button>
-        </div>
+        </PageHead>
         {move || match data.get() {
             None => view! { <LoadingState text="读取连接…" /> }.into_any(),
             Some(Err(e)) => {

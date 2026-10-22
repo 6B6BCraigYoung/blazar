@@ -5,6 +5,7 @@ use serde_json::{Value, json};
 
 use crate::api::{self, Accounts};
 use crate::components::dialog::{self, Choice};
+use crate::components::page_head::PageHead;
 use crate::components::status::{EmptyState, InlineError, LoadingState};
 use crate::components::toast::toast;
 use crate::realtime::use_bus;
@@ -117,21 +118,16 @@ pub(super) fn RuntimeDetail(id: String) -> impl IntoView {
 
     view! {
         <div class="page wide runtimes-page">
-            <div class="page-head">
-                <a href="/runtimes" class="crumb">
-                    "运行时"
-                </a>
-                <span class="sep">"/"</span>
-                <h1>
-                    {move || {
-                        spec.get()
-                            .and_then(Result::ok)
-                            .flatten()
-                            .map(|s| s.label)
-                            .unwrap_or_else(|| provider_label(&id_s.get_value()).to_owned())
-                    }}
-                </h1>
-            </div>
+            <PageHead
+                parent=("运行时", "/runtimes")
+                title=Signal::derive(move || {
+                    spec.get()
+                        .and_then(Result::ok)
+                        .flatten()
+                        .map(|s| s.label)
+                        .unwrap_or_else(|| provider_label(&id_s.get_value()).to_owned())
+                })
+            />
             {move || match spec.get() {
                 None => view! { <LoadingState text="正在加载运行时…" /> }.into_any(),
                 Some(Err(error)) => {

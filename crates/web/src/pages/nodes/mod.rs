@@ -6,6 +6,7 @@ use serde_json::{Value, json};
 use crate::api;
 use crate::app_state::{AppData, use_app};
 use crate::components::dialog::{self, Choice};
+use crate::components::page_head::PageHead;
 use crate::components::toast::toast;
 use crate::components::{
     modal::Modal,
@@ -248,30 +249,28 @@ pub fn NodesPage() -> impl IntoView {
                 }
             }
         >
-            <div class="page-head">
-                <h1>"机器与组网"</h1>
-                <span class="muted small">
-                    {move || {
-                        let n = nodes();
-                        format!(
-                            "{} 台开发机在线",
-                            n.iter().filter(|x| x.is_usable() && x.status == "online").count(),
-                        )
-                    }}
-                </span>
-                <span class="grow"></span>
+            <PageHead
+                title="机器与组网"
+                status=move || {
+                    let n = nodes()
+                        .iter()
+                        .filter(|x| x.is_usable() && x.status == "online")
+                        .count();
+                    view! { <Status tone=Tone::Other label=format!("{n} 台开发机在线") /> }
+                }
+            >
                 <button class="btn primary" on:click=move |_| ssh_pick.set(true)>
                     "添加机器"
                 </button>
-                <input type="file" node_ref=invite_in accept=".blazar" hidden on:change=on_file />
-                <input
-                    type="file"
-                    node_ref=toml_in
-                    accept=".toml,text/plain"
-                    hidden
-                    on:change=on_file
-                />
-            </div>
+            </PageHead>
+            <input type="file" node_ref=invite_in accept=".blazar" hidden on:change=on_file />
+            <input
+                type="file"
+                node_ref=toml_in
+                accept=".toml,text/plain"
+                hidden
+                on:change=on_file
+            />
             <p class="muted nodes-intro">"选择一台机器，创建或打开工作区。"</p>
             <PendingMachines nodes=Signal::derive(nodes) />
             <section class="card pad">
