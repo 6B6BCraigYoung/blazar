@@ -6,6 +6,7 @@ pub mod modal;
 pub mod new_workspace;
 pub mod page_head;
 pub mod palette;
+pub mod prefs;
 pub mod section;
 pub mod sidebar;
 pub mod status;

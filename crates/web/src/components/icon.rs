@@ -30,3 +30,9 @@ pub const CHECK: &str = r#"<circle cx="12" cy="12" r="9"/><path d="m8 12.5 2.8 2
 pub const FILTER: &str = r#"<path d="M4 5h16l-6.2 7.4V19l-3.6-1.8v-4.8z"/>"#;
 pub const WINDOW: &str = r#"<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 8.5h18M6.5 6.2h.01M9 6.2h.01"/>"#;
 pub const ACTIVITY: &str = r#"<path d="M3 12h4l2.5-6 5 12 2.5-6h4"/>"#;
+pub const PALETTE: &str = r#"<path d="M12 3a9 9 0 1 0 0 18c1.4 0 2-.9 2-1.8 0-.9-.7-1.3-.7-2.3 0-1 .8-1.9 2.2-1.9H17a4 4 0 0 0 4-4c0-4.4-4-8-9-8z"/><path d="M7.5 11.5h.01M10.5 7.5h.01M15 7.5h.01"/>"#;
+pub const BELL: &str =
+    r#"<path d="M6 16v-5a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20a2 2 0 0 0 4 0"/>"#;
+pub const KEYBOARD: &str = r#"<rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 10h.01M11 10h.01M15 10h.01M7.5 14h9"/>"#;
+pub const LINES: &str = r#"<path d="M4 6h16M4 12h10M4 18h7"/>"#;
+pub const INFO: &str = r#"<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>"#;

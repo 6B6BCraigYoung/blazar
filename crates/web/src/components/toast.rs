@@ -4,6 +4,7 @@ use leptos::prelude::*;
 struct Item {
     id: u32,
     text: String,
+    quiet: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -24,18 +25,25 @@ pub fn provide() {
 }
 
 pub fn toast(text: impl Into<String>) {
+    show(text.into(), false, 3800);
+}
+
+pub fn flash(text: impl Into<String>) {
+    show(text.into(), true, 1400);
+}
+
+fn show(text: String, quiet: bool, ms: u32) {
     let Some(t) = TOASTS.get() else { return };
     let id = t.next.get_value();
     t.next.set_value(id.wrapping_add(1));
-    let text = text.into();
     t.list.update(|l| {
         l.retain(|x| x.text != text);
-        l.push(Item { id, text });
+        l.push(Item { id, text, quiet });
         if l.len() > 3 {
             l.remove(0);
         }
     });
-    gloo_timers::callback::Timeout::new(3800, move || {
+    gloo_timers::callback::Timeout::new(ms, move || {
         t.list.try_update(|l| l.retain(|x| x.id != id));
     })
     .forget();
@@ -47,7 +55,9 @@ pub fn ToastHost() -> impl IntoView {
     view! {
         <div class="toasts" role="status" aria-live="polite" aria-relevant="additions">
             <For each=move || t.list.get() key=|x| x.id let:x>
-                <div class="toast">{x.text}</div>
+                <div class="toast" class:quiet=x.quiet>
+                    {x.text}
+                </div>
             </For>
         </div>
     }
