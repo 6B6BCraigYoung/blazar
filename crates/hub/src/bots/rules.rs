@@ -382,7 +382,7 @@ pub async fn apply(st: &Shared, rule: &'static str, conds: Vec<Cond>) {
 
 async fn fact_stale(st: &Shared) -> Vec<Cond> {
     sqlx::query(
-        "SELECT f.key, f.ttl_secs, f.updated_at, b.handle AS owner_handle
+        "SELECT f.key, f.ttl_secs, f.updated_at, COALESCE(NULLIF(b.display_name, ''), b.handle) AS owner_name
          FROM facts f LEFT JOIN bots b ON b.id = f.owner_bot WHERE f.status = 'lost'",
     )
     .fetch_all(st.db.pool())
@@ -398,8 +398,8 @@ async fn fact_stale(st: &Shared) -> Vec<Cond> {
             title: format!("事实 {key} 失联"),
             body: format!(
                 "超过心跳间隔（{ttl} 秒）的 5 倍没有更新，最后一次在 {last}{}。",
-                opt(r, "owner_handle")
-                    .map(|h| format!("，负责人 bot:{h}"))
+                opt(r, "owner_name")
+                    .map(|h| format!("，负责人是 {h}"))
                     .unwrap_or_default()
             ),
             ..Cond::default()
@@ -463,7 +463,7 @@ async fn bot_stuck(st: &Shared, mins: i64) -> Vec<Cond> {
             since: Some(since),
             after_secs: mins * 60,
             escalate_after_secs: Some(mins * 120),
-            title: format!("bot:{} 超过 {mins} 分钟没有动静", bot.handle),
+            title: format!("{} 超过 {mins} 分钟没有动静", bot.display_name),
             body: format!(
                 "它的会话还在跑，最后一个事件在 {}。可能卡在某个命令或网络上，到 bot 页面看看，必要时打断它。",
                 local(since)
@@ -605,12 +605,12 @@ async fn node_offline(st: &Shared, mins: i64) -> Vec<Cond> {
         .await
         .unwrap_or_default();
         let bots: Vec<String> = sqlx::query_scalar(
-            "SELECT DISTINCT b.handle FROM bots b
+            "SELECT DISTINCT COALESCE(NULLIF(b.display_name, ''), b.handle) FROM bots b
              WHERE b.archived_at IS NULL AND (
                  EXISTS (SELECT 1 FROM workspaces w WHERE w.node_id = ?1
                          AND (w.id = b.home_ws_id OR w.id = b.brain_ws_id))
                  OR EXISTS (SELECT 1 FROM claims c WHERE c.node_id = ?1 AND c.bot_id = b.id))
-             ORDER BY b.handle",
+             ORDER BY 1",
         )
         .bind(&id)
         .fetch_all(st.db.pool())
@@ -625,10 +625,9 @@ async fn node_offline(st: &Shared, mins: i64) -> Vec<Cond> {
         let bots = if bots.is_empty() {
             "没有家在这台机器上的 bot。".to_owned()
         } else {
-            let handles: Vec<String> = bots.iter().map(|h| format!("bot:{h}")).collect();
             format!(
-                "相关的 bot：{}，离线期间不给它们派活，恢复在线后留着的邮件照常处理。",
-                handles.join("、")
+                "相关的 bot：{}，离线期间不给它们派活，恢复在线后留着的工作照常处理。",
+                bots.join("、")
             )
         };
         out.push(Cond {

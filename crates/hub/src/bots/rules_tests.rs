@@ -228,7 +228,7 @@ async fn node_offline_waits_for_the_threshold_alerts_once_resolves_and_comes_bac
             .await
             .unwrap();
     assert!(
-        body.contains("train-far") && body.contains("bot:trainer"),
+        body.contains("train-far") && body.contains("相关的 bot：") && !body.contains("bot:"),
         "{body}"
     );
     let mail = h.rule_mail(&lead).await;

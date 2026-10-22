@@ -688,7 +688,7 @@ async fn idle_temporary_bots_are_archived_but_busy_ones_stay() {
     assert!(all(&st).await.is_empty(), "闲置到期归档");
     assert_eq!(archived(&st).await.len(), 1);
     let n: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM inbox WHERE title LIKE '临时 bot:tmp-a%'")
+        sqlx::query_scalar("SELECT COUNT(*) FROM inbox WHERE title LIKE '临时 bot「tmp-a」%'")
             .fetch_one(st.db.pool())
             .await
             .unwrap();

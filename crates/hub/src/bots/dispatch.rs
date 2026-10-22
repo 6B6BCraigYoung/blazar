@@ -119,7 +119,7 @@ pub async fn retire_idle(st: &Shared) {
                 st,
                 crate::inbox::Item {
                     kind: "run_done",
-                    title: format!("临时 bot:{} 已归档", bot.handle),
+                    title: format!("临时 bot「{}」已归档", bot.display_name),
                     body: format!(
                         "闲置超过 {} 小时。家工作区和对话都还在，需要可以在 bot 页面恢复或转成固定 bot。",
                         ttl / 3600
@@ -221,7 +221,7 @@ pub async fn dispatch_one(st: &Shared, bot: &Bot) {
             st,
             crate::inbox::Item {
                 kind: "alert",
-                title: format!("bot:{} 没能启动", bot.handle),
+                title: format!("{} 没能启动", bot.display_name),
                 body: e,
                 workspace_id: Some(bot.home_ws_id.clone()),
                 ref_id: Some(format!("bot:{}", bot.id)),
