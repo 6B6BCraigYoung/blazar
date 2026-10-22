@@ -33,7 +33,8 @@ button { font: inherit; color: inherit; }
 .page-sep { margin-inline: calc(var(--space-2xs) - var(--space-lg)); color: var(--decoration-muted); font-size: var(--font-size-page-title); }
 .page-icon { display: inline-flex; align-items: center; }
 .page-icon :is(img, svg) { width: 20px; height: 20px; }
-.page-status { display: inline-flex; align-items: center; }
+.page-status { display: inline-flex; align-items: center; gap: var(--space-md); }
+.page-note { color: var(--fg-3); font-size: var(--font-size-label); }
 .page-actions { display: flex; align-items: center; gap: var(--space-md); }
 
 .card { border: 0; border-radius: var(--r-lg); background: var(--bg-panel); box-shadow: var(--shadow-card); overflow: hidden; }
@@ -486,6 +487,7 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 .nodes-page .nodes-table .tb { min-width: 420px; }
 .nodes-page .nodes-maintenance > summary { color: var(--fg); font-weight: var(--font-weight-medium); font-size: var(--font-size-card-title); }
 .nodes-page .nodes-maintenance[open] > summary { margin-bottom: var(--space-lg); }
+.nodes-page .nodes-table .nodes-details { margin: 0; padding-top: 0; border-top: 0; }
 .nodes-dialog .ssh-row { white-space: normal; align-items: flex-start; }
 .nodes-dialog .ssh-row .mono.muted { overflow-wrap: anywhere; }
 .nodes-page .nodes-table td > .dot { display: inline-block; }

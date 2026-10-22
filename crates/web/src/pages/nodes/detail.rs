@@ -124,6 +124,7 @@ fn NodeDetail(name: String) -> impl IntoView {
             format!("{n} KB")
         }
     };
+    let online = move || node.with(|n| n.as_ref().is_some_and(|n| n.status == "online"));
     let ws_here = move || {
         app.workspaces()
             .into_iter()
@@ -138,11 +139,21 @@ fn NodeDetail(name: String) -> impl IntoView {
                 title=crate::fmt::machine(&name)
                 status=move || {
                     let on = node.get().is_some_and(|n| n.status == "online");
-                    view! { <StateOf state=if on { "online" } else { "offline" } /> }
+                    let seen = node
+                        .get()
+                        .and_then(|n| n.last_seen_at)
+                        .filter(|_| !on)
+                        .map(|t| format!("最后在线 {}", crate::fmt::ago(&t)));
+                    view! {
+                        <StateOf state=if on { "online" } else { "offline" } />
+                        {seen.map(|t| view! { <span class="page-note">{t}</span> })}
+                    }
                 }
             >
                 <button
                     class="btn primary"
+                    disabled=move || !online()
+                    title=move || (!online()).then_some("机器离线，恢复在线后才能新建工作区")
                     on:click=move |_| {
                         app.new_ws_node.set(Some(nm.get_value()));
                         app.new_ws.set(true);
@@ -221,7 +232,8 @@ fn NodeDetail(name: String) -> impl IntoView {
                     <span class="grow"></span>
                     <button
                         class="btn small"
-                        disabled=move || probing.get()
+                        disabled=move || probing.get() || !online()
+                        title=move || (!online()).then_some("机器离线，恢复在线后才能检查")
                         on:click=move |_| probe()
                     >
                         {move || if probing.get() { "检查中…" } else { "检查机器" }}
