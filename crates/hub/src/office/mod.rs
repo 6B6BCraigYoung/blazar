@@ -643,7 +643,7 @@ pub async fn github_status() -> Response {
 const KIND_TEXT: &[(&str, &str)] = &[
     ("run_done", "✅ 跑完了"),
     ("run_failed", "❌ 没跑成"),
-    ("approval", "⚠️ 等你裁决"),
+    ("approval", "⚠️ 等你批准"),
     ("question", "💬 在问你"),
     ("autopilot_paused", "⏸ 自动化暂停"),
     ("rate_limit", "📉 额度告警"),

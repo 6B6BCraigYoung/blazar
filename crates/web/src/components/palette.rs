@@ -298,7 +298,7 @@ pub fn AlertsDialog() -> impl IntoView {
             } else if alerts::request_permission().await == "granted" {
                 alerts::set_notify(true);
                 sys.set(true);
-                toast("已开启：跑完、出错、等你裁决时会弹系统通知");
+                toast("已开启：跑完、出错、等你批准时会弹系统通知");
             } else {
                 toast("浏览器没有给通知权限，可以在地址栏左侧的站点设置里打开");
             }

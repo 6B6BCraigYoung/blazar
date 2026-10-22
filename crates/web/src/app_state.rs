@@ -362,7 +362,7 @@ async fn notify_changes(app: AppData, fresh: Vec<WorkspaceView>) {
             "run_done" => "跑完了",
             "run_failed" => "出错了",
             "question" => "在等你回答",
-            _ => "在等你裁决",
+            _ => "在等你批准",
         };
         let id = w.id.clone();
         alerts::notify(
