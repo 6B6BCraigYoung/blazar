@@ -183,10 +183,11 @@ async function waitFor(command) {
   while (Date.now() < until) {
     const el = command.selector ? document.querySelector(command.selector) : null;
     const text = command.text ? (document.body.innerText || '').includes(command.text) : false;
-    if ((el && visible(el)) || text) return { found: true };
+    const shown = (el && visible(el)) || text;
+    if (command.gone ? !shown : shown) return { found: !command.gone };
     await sleep(100);
   }
-  return { found: false };
+  return { found: !!command.gone };
 }
 
 function scrolledSideways(el) {

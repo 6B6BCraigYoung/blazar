@@ -687,6 +687,8 @@ class Shooter:
         self.issues = []
 
     def shoot(self, no, slug, theme, route, expect, state):
+        if ui(TOAST_GONE).get("found"):
+            print(f"  ! {slug}：提示一直没有消失", file=sys.stderr)
         layout = ui({"action": "layout"})
         errors = ui({"action": "errors"}).get("errors", [])
         name = f"{no:02d}-{slug}-{theme}.png"
@@ -750,6 +752,7 @@ def theme(value):
     ui({"action": "type", "selector": "#settings-theme", "value": value, "settle_ms": 300})
 
 
+TOAST_GONE = {"action": "wait", "selector": ".toasts .toast", "gone": True, "timeout_ms": 6000}
 ESC = {"action": "key", "key": "Escape", "optional": True}
 CLOSE_FILE = {"action": "click", "selector": "[aria-label=\"关闭 src/atlas/routes/users.py\"]", "optional": True}
 RESTORE = {"action": "click", "selector": "button[title=\"还原面板\"]", "optional": True}
