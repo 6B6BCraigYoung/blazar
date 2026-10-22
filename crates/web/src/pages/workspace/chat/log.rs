@@ -743,7 +743,7 @@ fn UserMsg(
             }
             data-first=first.to_string()
             data-long=long.to_string()
-            data-open=move || open.get().to_string()
+            data-expanded=move || open.get().to_string()
         >
             <Show
                 when=move || !editing.get()

@@ -45,7 +45,7 @@
 .cc-user[data-stuck] .cc-xp, .cc-user[data-stuck] .cc-acts { display: none; }
 .cc-user[data-stuck]::before { content: ""; position: absolute; z-index: -1; inset: -14px -100vw 0; background: var(--bg-canvas); border-bottom: 1px solid var(--line); }
 .cc-user .cc-ut { white-space: pre-wrap; word-break: break-word; color: var(--fg); }
-.cc-user[data-long="true"]:not([data-open="true"]) .cc-ut { max-height: 7.5em; overflow: hidden; -webkit-mask-image: linear-gradient(var(--mask-opaque) 60%, transparent); mask-image: linear-gradient(var(--mask-opaque) 60%, transparent); }
+.cc-user[data-long="true"]:not([data-expanded="true"]) .cc-ut { max-height: 7.5em; overflow: hidden; -webkit-mask-image: linear-gradient(var(--mask-opaque) 60%, transparent); mask-image: linear-gradient(var(--mask-opaque) 60%, transparent); }
 .cc-xp { all: unset; cursor: pointer; font-size: var(--font-size-caption-readable); color: var(--accent); }
 .cc-uline { display: flex; align-items: flex-end; gap: var(--space-lg); }
 .cc-uline .cc-ut { flex: 1; min-width: 0; }
