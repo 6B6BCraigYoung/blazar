@@ -117,7 +117,19 @@ pub fn timezone(tz: &str) -> &str {
 pub fn error(raw: &str, status: Option<u16>) -> String {
     let lower = raw.to_ascii_lowercase();
     let has = |needles: &[&str]| needles.iter().any(|n| lower.contains(n));
-    if status == Some(529) || has(&["529", "overloaded"]) {
+    if has(&[
+        "机器连不上",
+        "退出码 255",
+        "ssh:",
+        "could not resolve hostname",
+        "no route to host",
+        "host is down",
+        "connection closed by",
+    ]) {
+        "机器连不上，确认它开着机、网络是通的".into()
+    } else if raw.starts_with("退出码 ") {
+        "远端命令没有成功执行".into()
+    } else if status == Some(529) || has(&["529", "overloaded"]) {
         "服务繁忙，稍后再试".into()
     } else if status == Some(429) || has(&["429", "rate limit", "rate_limit", "too many requests"])
     {
@@ -186,6 +198,23 @@ mod tests {
         assert_eq!(duration(7200.0), "2 小时");
         assert_eq!(weekdays(&[1, 2, 3, 4, 5]), "工作日");
         assert_eq!(weekdays(&[1, 3]), "每周一、三");
+    }
+
+    #[test]
+    fn machine_failures_hide_their_addresses() {
+        let raw = "退出码 255：ssh: connect to host 10.0.0.7 port 22: Operation timed out";
+        assert_eq!(
+            error(raw, Some(502)),
+            "机器连不上，确认它开着机、网络是通的"
+        );
+        assert_eq!(
+            error(
+                "机器连不上：ssh: Could not resolve hostname gpu-a.invalid",
+                None
+            ),
+            "机器连不上，确认它开着机、网络是通的"
+        );
+        assert_eq!(error("退出码 2：tar: x", None), "远端命令没有成功执行");
     }
 
     #[test]

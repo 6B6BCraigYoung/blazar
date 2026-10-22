@@ -418,7 +418,7 @@ pub fn FileTree(
     let dirs = RwSignal::new(HashMap::<String, DirItems>::new());
     let loading = RwSignal::new(HashSet::<String>::new());
     let menu = RwSignal::new(None::<Menu>);
-    let errors = RwSignal::new(HashMap::<String, String>::new());
+    let errors = RwSignal::new(HashMap::<String, api::ApiError>::new());
     let tried = StoredValue::new(HashSet::<String>::new());
     let ws = files.ws();
     let fetch = StoredValue::new(move |dir: String| {
@@ -435,7 +435,7 @@ pub fn FileTree(
                     dirs.try_update(|items| items.insert(dir.clone(), listing));
                 }
                 Err(error) => {
-                    errors.try_update(|messages| messages.insert(dir.clone(), error.to_string()));
+                    errors.try_update(|messages| messages.insert(dir.clone(), error));
                 }
             }
             loading.try_update(|paths| paths.remove(&dir));
@@ -538,7 +538,8 @@ pub fn FileTree(
                                 };
                                 view! {
                                     <InlineError
-                                        message=format!("读取{label}失败：{error}")
+                                        message=format!("读取{label}失败：{}", error.message)
+                                        detail=error.detail
                                         class="tree-state"
                                         retry=Callback::new(move |_| {
                                             fetch.with_value(|load| load(path.clone()))

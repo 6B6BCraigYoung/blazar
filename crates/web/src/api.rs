@@ -44,6 +44,7 @@ pub fn websocket_url(path: &str) -> String {
 pub struct ApiError {
     pub message: String,
     pub status: Option<u16>,
+    pub detail: Option<String>,
 }
 
 impl ApiError {
@@ -51,6 +52,7 @@ impl ApiError {
         Self {
             message: message.into(),
             status: None,
+            detail: None,
         }
     }
 
@@ -78,8 +80,10 @@ async fn read<T: DeserializeOwned>(resp: Result<Response, gloo_net::Error>) -> R
             .ok()
             .and_then(|v| v["error"].as_str().map(str::to_owned))
             .unwrap_or_else(|| format!("HTTP {}", resp.status()));
+        let message = crate::vocab::error(&msg, Some(resp.status()));
         return Err(ApiError {
-            message: crate::vocab::error(&msg, Some(resp.status())),
+            detail: (message != msg && !msg.starts_with("HTTP ")).then_some(msg),
+            message,
             status: Some(resp.status()),
         });
     }

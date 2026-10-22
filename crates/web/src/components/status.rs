@@ -33,10 +33,20 @@ pub fn InlineError(
     #[prop(into)] message: String,
     #[prop(optional)] retry: Option<Callback<()>>,
     #[prop(default = "")] class: &'static str,
+    #[prop(into, default = None)] detail: Option<String>,
 ) -> impl IntoView {
     view! {
         <div class=format!("ui-state ui-error {class}") role="alert">
             <span>{message}</span>
+            {detail
+                .map(|d| {
+                    view! {
+                        <details class="ui-detail">
+                            <summary>"详情"</summary>
+                            <pre>{d}</pre>
+                        </details>
+                    }
+                })}
             {retry
                 .map(|retry| {
                     view! {

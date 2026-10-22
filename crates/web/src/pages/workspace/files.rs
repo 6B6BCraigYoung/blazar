@@ -25,7 +25,7 @@ pub struct Files {
     pub dirty: RwSignal<HashSet<String>>,
     pub rev: RwSignal<u32>,
     pub revealed: RwSignal<u32>,
-    pub error: RwSignal<Option<String>>,
+    pub error: RwSignal<Option<(String, Option<String>)>>,
     meta: StoredValue<HashMap<String, Meta>>,
     editor: StoredValue<Option<Rc<Mounted>>, LocalStorage>,
     pending: StoredValue<HashMap<String, (String, bool, u32)>>,
@@ -120,7 +120,9 @@ impl Files {
                         self.rev.update(|n| *n = n.wrapping_add(1));
                     }
                 }
-                Err(e) => self.error.set(Some(format!("编辑器加载失败：{e:?}"))),
+                Err(e) => self
+                    .error
+                    .set(Some(("编辑器加载失败".into(), Some(format!("{e:?}"))))),
             }
         });
     }
@@ -191,7 +193,7 @@ impl Files {
                     }
                     api::put_editor_context(&ws, &path).await;
                 }
-                Err(e) => self.error.set(Some(format!("打开失败：{e}"))),
+                Err(e) => self.error.set(Some((format!("打开失败：{e}"), e.detail))),
             }
         });
     }
@@ -284,7 +286,7 @@ impl Files {
                     }
                 }
                 Ok(_) => self.conflict(path),
-                Err(e) => self.error.set(Some(format!("保存失败：{e}"))),
+                Err(e) => self.error.set(Some((format!("保存失败：{e}"), e.detail))),
             }
         });
     }

@@ -385,10 +385,10 @@ fn Workspace(id: String) -> impl IntoView {
                 files
                     .error
                     .get()
-                    .map(|e| {
+                    .map(|(message, detail)| {
                         view! {
                             <div class="ws-error">
-                                <InlineError message=e />
+                                <InlineError message detail />
                                 <button
                                     type="button"
                                     class="btn ghost"
