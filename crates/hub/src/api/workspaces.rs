@@ -186,6 +186,12 @@ pub fn repo_name(url: &str) -> Option<String> {
     Some(name.trim_matches('.').to_owned()).filter(|n| !n.is_empty())
 }
 
+fn clone_folder_name(name: &str) -> ApiResult<String> {
+    blazar_vfs::entry_name(name)
+        .map(str::to_owned)
+        .map_err(|e| ApiError::bad_request(format!("仓库文件夹名不合法：{e}")))
+}
+
 fn clone_script(url: &str, name: &str) -> String {
     format!(
         r#"set -e
@@ -208,14 +214,12 @@ pub async fn clone_workspace(
     if !looks_like_git_url(&url) {
         return Err(ApiError::bad_request("这不像一个 Git 地址"));
     }
-    let name = req
-        .name
-        .as_deref()
-        .map(str::trim)
-        .filter(|n| !n.is_empty())
-        .map(str::to_owned)
-        .or_else(|| repo_name(&url))
-        .ok_or_else(|| ApiError::bad_request("从地址里看不出仓库名"))?;
+    let name = match req.name.as_deref().map(str::trim).filter(|n| !n.is_empty()) {
+        Some(given) => clone_folder_name(given)?,
+        None => clone_folder_name(
+            &repo_name(&url).ok_or_else(|| ApiError::bad_request("从地址里看不出仓库名"))?,
+        )?,
+    };
     let node = req.node.clone().unwrap_or_else(|| "local".to_owned());
     let spec = blazar_transport::ExecSpec::new("bash")
         .arg("-lc")
@@ -1051,6 +1055,27 @@ mod tests {
         ] {
             assert!(!looks_like_git_url(bad), "{bad}");
         }
+    }
+
+    #[test]
+    fn clone_folder_names_cannot_leave_the_projects_root() {
+        let long = "n".repeat(256);
+        for bad in [
+            "../../tmp/x",
+            "..",
+            ".",
+            "a/b",
+            "a\\b",
+            "x\u{7}y",
+            "",
+            long.as_str(),
+        ] {
+            assert!(clone_folder_name(bad).is_err(), "{bad:?}");
+        }
+        for ok in ["atlas-api", "nebula_web", "orbit.docs", "深空", "a..b"] {
+            assert_eq!(clone_folder_name(ok).ok().as_deref(), Some(ok));
+        }
+        assert_eq!(repo_name("https://host/team/..").as_deref(), None);
     }
 
     #[test]
