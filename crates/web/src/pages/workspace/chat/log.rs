@@ -74,12 +74,78 @@ fn details(
     }
 }
 
+fn wrap_code(root: &web_sys::Element) {
+    let Ok(list) = root.query_selector_all("pre") else {
+        return;
+    };
+    let doc = document();
+    for i in 0..list.length() {
+        let Some(pre) = list
+            .item(i)
+            .and_then(|n| n.dyn_into::<web_sys::Element>().ok())
+        else {
+            continue;
+        };
+        let (Some(parent), Ok(wrap), Ok(button)) = (
+            pre.parent_node(),
+            doc.create_element("div"),
+            doc.create_element("button"),
+        ) else {
+            continue;
+        };
+        if pre
+            .parent_element()
+            .is_some_and(|p| p.class_list().contains("cc-code"))
+        {
+            continue;
+        }
+        wrap.set_class_name("cc-code");
+        button.set_class_name("cc-codecopy");
+        let _ = button.set_attribute("type", "button");
+        let _ = button.set_attribute("aria-label", "复制代码");
+        let _ = button.set_attribute("title", "复制");
+        button.set_inner_html(COPY);
+        if parent.insert_before(&wrap, Some(&pre)).is_ok() {
+            let _ = wrap.append_child(&pre);
+            let _ = wrap.append_child(&button);
+        }
+    }
+}
+
+fn copy_code(e: &leptos::ev::MouseEvent) {
+    let Some(button) = e
+        .target()
+        .and_then(|t| t.dyn_into::<web_sys::Element>().ok())
+        .and_then(|t| t.closest(".cc-codecopy").ok().flatten())
+    else {
+        return;
+    };
+    let text = button
+        .parent_element()
+        .and_then(|w| w.query_selector("pre").ok().flatten())
+        .and_then(|p| p.text_content())
+        .unwrap_or_default();
+    e.stop_propagation();
+    let Some(w) = web_sys::window() else { return };
+    let p = w.navigator().clipboard().write_text(&text);
+    leptos::task::spawn_local(async move {
+        if wasm_bindgen_futures::JsFuture::from(p).await.is_ok() {
+            let _ = button.set_attribute("data-done", "true");
+            gloo_timers::future::TimeoutFuture::new(1200).await;
+            let _ = button.remove_attribute("data-done");
+        } else {
+            toast("没能复制");
+        }
+    });
+}
+
 #[component]
 pub fn Md(text: String, ws: String) -> impl IntoView {
     let el = NodeRef::<html::Div>::new();
     let html = md::render(&text, "", &ws);
     Effect::new(move |_| {
         let Some(root) = el.get() else { return };
+        wrap_code(&root);
         let Ok(list) = root.query_selector_all("pre code[class^=\"language-\"]:not([data-hl])")
         else {
             return;
@@ -106,7 +172,14 @@ pub fn Md(text: String, ws: String) -> impl IntoView {
             });
         }
     });
-    view! { <div class="cc-md md-body" node_ref=el inner_html=html></div> }
+    view! {
+        <div
+            class="cc-md md-body"
+            node_ref=el
+            inner_html=html
+            on:click=move |e| copy_code(&e)
+        ></div>
+    }
 }
 
 fn result_view(r: Res, key: String, opened: Opened) -> impl IntoView {

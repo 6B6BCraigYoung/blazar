@@ -66,8 +66,14 @@
 .cc-md.md-body li::marker { color: var(--fg-4); }
 .cc-md.md-body strong { font-weight: var(--font-weight-semibold); color: var(--fg); }
 .cc-md.md-body code { font-size: var(--font-size-label); color: var(--fg); background: var(--inline-code-bg); padding: var(--inset-chat-inline-code); border-radius: var(--radius-keycap); }
-.cc-md.md-body pre { margin: var(--margin-chat-code-block); padding: var(--space-toolbar) var(--space-lg); border-radius: var(--r-md); white-space: pre-wrap; word-break: break-word; }
-.cc-md.md-body pre code { font-size: var(--font-size-label); line-height: var(--line-height-code); background: none; padding: 0; white-space: inherit; word-break: inherit; }
+.cc-md.md-body pre { margin: var(--margin-chat-code-block); padding: var(--space-toolbar) var(--space-lg); border-radius: var(--r-md); white-space: pre; word-break: normal; overflow-wrap: normal; overflow-x: auto; }
+.cc-md.md-body pre code { font-size: var(--font-size-label); line-height: var(--line-height-code); background: none; padding: 0; white-space: inherit; word-break: inherit; overflow-wrap: inherit; }
+.cc-code { position: relative; margin: var(--margin-chat-code-block); }
+.cc-md.md-body .cc-code > pre { margin: 0; padding-right: 44px; }
+.cc-codecopy { all: unset; cursor: pointer; position: absolute; top: var(--space-sm); right: var(--space-sm); width: 24px; height: 24px; display: grid; place-items: center; border-radius: var(--r-sm); background: var(--bg-code); box-shadow: 0 0 0 1px var(--line); color: var(--fg-4); }
+.cc-codecopy:hover { color: var(--fg); }
+.cc-codecopy[data-done] { color: var(--ok-fg); }
+.cc-codecopy svg { width: 14px; height: 14px; }
 .cc-md.md-body blockquote { margin: var(--margin-chat-quote); padding: 0 var(--space-lg); }
 .cc-md.md-body table { margin: var(--margin-chat-table); font-size: var(--font-size-label-readable); }
 .cc-md.md-body th, .cc-md.md-body td { padding: var(--space-xs) var(--space-toolbar); }
