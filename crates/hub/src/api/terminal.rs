@@ -9,6 +9,9 @@ pub struct TerminalQuery {
 
     #[serde(default)]
     pub tab: u32,
+
+    #[serde(default)]
+    pub cwd: String,
 }
 
 pub(crate) const fn default_cols() -> u16 {
@@ -32,8 +35,12 @@ pub async fn terminal_ws(
     Query(q): Query<TerminalQuery>,
 ) -> Response {
     ws.on_upgrade(move |socket| async move {
-        let Ok((node, path)) = locate(&st, &id).await else {
+        let Ok((node, root)) = locate(&st, &id).await else {
             return;
+        };
+        let path = match blazar_vfs::safe_relative_path(&q.cwd) {
+            Ok(rel) if !q.cwd.trim().is_empty() => format!("{}/{rel}", root.trim_end_matches('/')),
+            _ => root,
         };
 
         let tmux_session = Some(match q.tab {
