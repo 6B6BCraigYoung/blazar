@@ -29,6 +29,8 @@ pub struct AppData {
     pub bots: RwSignal<Vec<Value>>,
     pub seen: RwSignal<HashMap<String, String>>,
     pub current_ws: RwSignal<Option<String>>,
+    pub selected_ws: RwSignal<Option<String>>,
+    pub inspect_ws: RwSignal<Option<String>>,
     pub new_ws: RwSignal<bool>,
     pub new_ws_node: RwSignal<Option<String>>,
     pub new_ws_parent: RwSignal<Option<(String, String)>>,
@@ -126,22 +128,6 @@ impl AppData {
                 .map(|s| tree_order(&s.workspaces))
                 .unwrap_or_default()
         })
-    }
-
-    pub fn needs_you(self, w: &WorkspaceView) -> bool {
-        w.activity == "awaiting_approval"
-            || self
-                .children_of(&w.id)
-                .iter()
-                .any(|c| c.activity == "awaiting_approval")
-    }
-
-    pub fn busy(self, w: &WorkspaceView) -> bool {
-        w.activity == "running"
-            || self
-                .children_of(&w.id)
-                .iter()
-                .any(|c| c.activity == "running")
     }
 
     pub fn children_of(self, id: &str) -> Vec<WorkspaceView> {
@@ -386,6 +372,8 @@ pub fn provide(bus: Bus) -> AppData {
         bots: RwSignal::new(Vec::new()),
         seen: RwSignal::new(storage::load(SEEN_KEY).unwrap_or_default()),
         current_ws: RwSignal::new(None),
+        selected_ws: RwSignal::new(None),
+        inspect_ws: RwSignal::new(None),
         new_ws: RwSignal::new(false),
         new_ws_node: RwSignal::new(None),
         new_ws_parent: RwSignal::new(None),

@@ -2,8 +2,6 @@ use gloo_net::http::{Request, Response};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 
-pub use blazar_core_types::api::WorkspaceView;
-
 thread_local! {
     static SESSION_READY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
@@ -109,6 +107,7 @@ pub async fn send<T: DeserializeOwned>(
     session().await?;
     let b = match method {
         "PUT" => Request::put(path),
+        "PATCH" => Request::patch(path),
         "DELETE" => Request::delete(path),
         _ => Request::post(path),
     };

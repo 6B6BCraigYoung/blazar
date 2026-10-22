@@ -15,6 +15,7 @@ pub const SHORTCUTS: &[(&str, &str, &str)] = &[
     ("chat", "检查器", "Mod+Alt+B"),
     ("panel", "终端", "Mod+J"),
     ("newchat", "新对话", "Mod+T"),
+    ("newws", "新建工作区", "Mod+N"),
     ("diff", "更改", "Mod+Shift+D"),
     ("git", "Git", "Mod+Shift+G"),
     ("preview", "预览", "Mod+Shift+P"),

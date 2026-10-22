@@ -18,7 +18,6 @@ pub const BRANCH: &str = r#"<circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" 
 pub const SEARCH: &str = r#"<circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/>"#;
 pub const BOT: &str = r#"<rect x="5" y="8" width="14" height="11" rx="3"/><path d="M12 8V5M8 5h8M9.5 13h.01M14.5 13h.01M9 16.5h6"/>"#;
 pub const BELL: &str = r#"<path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>"#;
-pub const PLAY: &str = r#"<circle cx="12" cy="12" r="9"/><path d="M10 8.5v7l5.5-3.5z"/>"#;
 pub const CLOCK: &str = r#"<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>"#;
 pub const TERMINAL: &str =
     r#"<rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M12.5 15H17"/>"#;

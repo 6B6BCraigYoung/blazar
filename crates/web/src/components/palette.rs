@@ -46,6 +46,10 @@ pub fn Palette() -> impl IntoView {
             go_action("/");
             true
         }
+        "newws" => {
+            app.new_ws.set(true);
+            true
+        }
         "inbox" => {
             go_action("/inbox");
             true
@@ -87,37 +91,57 @@ pub fn Palette() -> impl IntoView {
     });
 
     let hits = move || {
-        let mut all: Vec<Hit> = [
-            ("工作区", "导航", "/", "全部工作区 workspaces"),
-            ("运行中", "导航", "/running", "running"),
-            ("等你批准", "导航", "/waiting", "审批 批准 approval"),
-            ("bot", "导航", "/bots", "全部 bot bots 机器人"),
-            ("运行时", "导航", "/runtimes", "runtimes 账号 智能体"),
-            ("收件箱", "导航", "/inbox", "inbox 通知"),
-            ("任务", "导航", "/tasks", "tasks"),
-            ("自动化", "导航", "/autopilots", "autopilots 定时 任务"),
-            ("后台任务", "导航", "/jobs", "jobs 后台 训练 进程"),
-            ("技能", "导航", "/skills", "skills mcp 智能体"),
-            (
-                "接入的软件",
-                "导航",
-                "/apps",
-                "apps 飞书 github obsidian 仿真",
-            ),
-            ("角色档案", "导航", "/agents", "智能体 agents"),
-            ("机器与组网", "导航", "/nodes", "节点 nodes mesh"),
-            ("用量", "导航", "/usage", "usage 费用 智能体"),
-            ("设置", "导航", "/settings", "settings 快捷键"),
-            ("新建工作区", "命令", "cmd:new", "new workspace"),
-        ]
-        .into_iter()
-        .map(|(t, k, h, keys)| Hit {
-            title: t.into(),
-            kind: k.into(),
-            href: h.into(),
-            keys: keys.into(),
-        })
-        .collect();
+        let mut all: Vec<Hit> = Vec::new();
+        if let Some(id) = app.selected_ws.get()
+            && let Some(w) = app.workspace(&id)
+        {
+            let t = crate::fmt::ws_title(&w.name, &w.node);
+            all.extend(
+                [
+                    (format!("打开「{t}」"), format!("/w/{id}")),
+                    (format!("「{t}」的详情"), format!("cmd:inspect:{id}")),
+                    (format!("改名「{t}」…"), format!("cmd:rename:{id}")),
+                    (format!("移除「{t}」…"), format!("cmd:remove:{id}")),
+                ]
+                .into_iter()
+                .map(|(title, href)| Hit {
+                    title,
+                    kind: "选中的工作区".into(),
+                    href,
+                    keys: "workspace".into(),
+                }),
+            );
+        }
+        all.extend(
+            [
+                ("工作区", "导航", "/", "全部工作区 workspaces"),
+                ("bot", "导航", "/bots", "全部 bot bots 机器人"),
+                ("运行时", "导航", "/runtimes", "runtimes 账号 智能体"),
+                ("收件箱", "导航", "/inbox", "inbox 通知"),
+                ("任务", "导航", "/tasks", "tasks"),
+                ("自动化", "导航", "/autopilots", "autopilots 定时 任务"),
+                ("后台任务", "导航", "/jobs", "jobs 后台 训练 进程"),
+                ("技能", "导航", "/skills", "skills mcp 智能体"),
+                (
+                    "接入的软件",
+                    "导航",
+                    "/apps",
+                    "apps 飞书 github obsidian 仿真",
+                ),
+                ("角色档案", "导航", "/agents", "智能体 agents"),
+                ("机器与组网", "导航", "/nodes", "节点 nodes mesh"),
+                ("用量", "导航", "/usage", "usage 费用 智能体"),
+                ("设置", "导航", "/settings", "settings 快捷键"),
+                ("新建工作区", "命令", "cmd:new", "new workspace"),
+            ]
+            .into_iter()
+            .map(|(t, k, h, keys)| Hit {
+                title: t.into(),
+                kind: k.into(),
+                href: h.into(),
+                keys: keys.into(),
+            }),
+        );
         if let Some(s) = app.state.get() {
             all.extend(
                 s.workspaces
@@ -152,6 +176,19 @@ pub fn Palette() -> impl IntoView {
         if h.href == "cmd:new" {
             app.palette.set(false);
             app.new_ws.set(true);
+            return;
+        }
+        if let Some(rest) = h.href.strip_prefix("cmd:")
+            && let Some((what, id)) = rest.split_once(':')
+        {
+            app.palette.set(false);
+            let id = id.to_owned();
+            match what {
+                "inspect" => app.inspect_ws.set(Some(id)),
+                "rename" => crate::pages::workspaces::rename_workspace(app, id),
+                "remove" => crate::pages::workspaces::remove_workspace(app, id),
+                _ => {}
+            }
             return;
         }
         let href = h.href.clone();

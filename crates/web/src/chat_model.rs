@@ -20,7 +20,7 @@ pub use builder::Model;
 pub use builder::build;
 pub use finish::step_sig;
 pub use groups::{Group, group_sig, group_steps};
-pub use tools::{edit_diff, rel_path, tool_name, write_preview};
+pub use tools::{SHELL_TOOLS, edit_diff, rel_path, tool_name, tool_title, write_preview};
 
 #[derive(Debug, Clone)]
 pub struct Row {

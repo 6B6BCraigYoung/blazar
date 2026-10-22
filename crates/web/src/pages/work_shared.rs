@@ -1,8 +1,83 @@
+use crate::action_gate::ActionGate;
 use crate::components::status::StateOf;
+use crate::components::toast::toast;
 use crate::{api, app_state::use_app, realtime::use_bus};
 use blazar_core_types::api::ServerEvent;
 use leptos::prelude::*;
+use leptos::task::spawn_local;
 use serde_json::{Value, json};
+
+pub fn decide_approval(
+    gate: RwSignal<ActionGate>,
+    id: String,
+    allow: bool,
+    answers: Option<Value>,
+    done: impl Fn() + 'static,
+) {
+    if !gate.write().begin(&id) {
+        return;
+    }
+    spawn_local(async move {
+        let mut body = json!({ "allow": allow, "message": "" });
+        if let Some(a) = answers {
+            body["answers"] = a;
+        }
+        match api::send::<Value>("POST", &format!("/api/approvals/{id}"), &body).await {
+            Ok(r) if r["delivered"].as_bool() == Some(true) => {
+                toast(if allow { "已允许" } else { "已拒绝" });
+            }
+            Ok(r) => toast(r["reason"].as_str().unwrap_or("没能送达").to_owned()),
+            Err(e) => toast(e.to_string()),
+        }
+        let _ = gate.try_update(|g| {
+            g.complete(&id, false);
+        });
+        done();
+    });
+}
+
+pub fn in_field(e: &leptos::ev::KeyboardEvent) -> bool {
+    use wasm_bindgen::JsCast;
+    e.target()
+        .and_then(|t| t.dyn_into::<web_sys::Element>().ok())
+        .is_some_and(|t| {
+            t.closest("input, textarea, select, [contenteditable]")
+                .ok()
+                .flatten()
+                .is_some()
+        })
+}
+
+pub fn overlay_open() -> bool {
+    document()
+        .query_selector("[data-modal-root], .ctx-menu, .menu")
+        .ok()
+        .flatten()
+        .is_some()
+}
+
+pub fn list_keys_apply(e: &leptos::ev::KeyboardEvent) -> bool {
+    !e.default_prevented() && !e.is_composing() && !in_field(e) && !overlay_open()
+}
+
+pub fn approval_summary(request: &Value, root: &str) -> (String, String) {
+    let tool = crate::chat_model::tool_name(request["tool_name"].as_str().unwrap_or(""));
+    if tool == "AskUserQuestion" {
+        let q = request["input"]["questions"][0]["question"]
+            .as_str()
+            .unwrap_or("")
+            .to_owned();
+        return ("提问".into(), q);
+    }
+    let label = if crate::chat_model::SHELL_TOOLS.contains(&tool.as_str()) {
+        "Bash".to_owned()
+    } else if tool.is_empty() {
+        "工具".to_owned()
+    } else {
+        tool
+    };
+    (label, crate::chat_model::approval_what(request, root))
+}
 
 pub fn s(v: &Value, key: &str) -> String {
     v[key].as_str().unwrap_or_default().to_owned()

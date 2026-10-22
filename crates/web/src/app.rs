@@ -46,8 +46,8 @@ pub fn App() -> impl IntoView {
                 <main class="main">
                     <Routes fallback=NotFound>
                         <Route path=path!("/") view=WorkspacesPage />
-                        <Route path=path!("/running") view=RunningPage />
-                        <Route path=path!("/waiting") view=WaitingPage />
+                        <Route path=path!("/running") view=WorkspacesPage />
+                        <Route path=path!("/waiting") view=WorkspacesPage />
                         <Route path=path!("/project/:name") view=ProjectPage />
                         <Route path=path!("/runtimes") view=RuntimesPage />
                         <Route path=path!("/runtimes/:id") view=RuntimeDetailPage />
@@ -77,6 +77,7 @@ pub fn App() -> impl IntoView {
                 </main>
             </div>
             <NewWorkspace />
+            <InspectorHost />
             <MeshHost />
             <Palette />
             <AlertsDialog />
