@@ -686,7 +686,19 @@ class Shooter:
         self.entries = []
         self.issues = []
 
-    def shoot(self, no, slug, theme, route, expect, state):
+    def arrive(self, route, settle):
+        path = route.split("?")[0]
+        want = TITLES.get(path)
+        for attempt in range(3):
+            url = ui({"action": "init"}).get("url")
+            head = (ui({"action": "snapshot"}).get("headings") or [""])[0] if want else None
+            if url == path and head == want:
+                return None
+            if attempt < 2:
+                ui({"action": "navigate", "path": route, "settle_ms": settle + 600 * (attempt + 1)})
+        return f"想要 {route}（{want or '不查标题'}），实际停在 {url}（{head or '无标题'}）"
+
+    def shoot(self, no, slug, theme, route, expect, state, warning=None):
         if ui(TOAST_GONE).get("found"):
             print(f"  ! {slug}：提示一直没有消失", file=sys.stderr)
         layout = ui({"action": "layout"})
@@ -697,7 +709,10 @@ class Shooter:
         over = layout.get("overflowing", [])
         rel = (self.dir / name).relative_to(ROOT) if (self.dir / name).is_relative_to(ROOT) else self.dir / name
         self.entries.append({"file": str(rel), "route": route, "expect": expect, "state": state,
-                             "overflow": len(over), "errors": len(errors), "size": [shot["width"], shot["height"]]})
+                             "overflow": len(over), "errors": len(errors), "size": [shot["width"], shot["height"]],
+                             "warning": warning})
+        if warning:
+            self.issues.append(f"{name}\t路由或标题不对\t{warning}")
         for o in over:
             self.issues.append(f"{name}\t溢出\t{o.get('name', '')[:80]}\t{o.get('rect')}")
         for e in errors:
@@ -710,6 +725,7 @@ class Shooter:
             nav = ui({"action": "navigate", "path": route, "settle_ms": settle})
             if not nav.get("ok"):
                 print(f"  ! 没跳到 {route}：{nav}", file=sys.stderr)
+        warning = self.arrive(route, settle) if route else None
         after = [st for st in steps if st.get("after")]
         for step in (st for st in steps if not st.get("after")):
             if step["action"] == "scroll_mid":
@@ -719,7 +735,11 @@ class Shooter:
                 raise RuntimeError(f"准备步骤失败：{step}")
         if scroll:
             try_ui({"action": "scroll", "selector": "main.main", "top": "start", "settle_ms": 100})
-        self.shoot(no, slug, theme, route, expect, state)
+        if route and not steps and not warning:
+            warning = self.arrive(route, settle)
+        if warning:
+            print(f"  ! {slug}：{warning}", file=sys.stderr)
+        self.shoot(no, slug, theme, route, expect, state, warning)
         for step in after:
             try_ui(step)
         if not scroll:
@@ -752,6 +772,9 @@ def theme(value):
     ui({"action": "type", "selector": "#settings-theme", "value": value, "settle_ms": 300})
 
 
+TITLES = {"/": "工作区", "/running": "工作区", "/waiting": "工作区", "/inbox": "收件箱", "/tasks": "任务", "/autopilots": "任务",
+          "/jobs": "任务", "/bots": "bot", "/agents": "智能体", "/agents/new": "新建角色档案", "/skills": "智能体",
+          "/apps": "接入的软件", "/runtimes": "智能体", "/nodes": "机器与组网", "/usage": "智能体", "/settings": "设置"}
 TOAST_GONE = {"action": "wait", "selector": ".toasts .toast", "gone": True, "timeout_ms": 6000}
 ESC = {"action": "key", "key": "Escape", "optional": True}
 CLOSE_FILE = {"action": "click", "selector": "[aria-label=\"关闭 src/atlas/routes/users.py\"]", "optional": True}
@@ -949,12 +972,12 @@ def index(out):
         data = json.loads(m.read_text())
         vp = vp or data.get("viewport")
         lines.append(f"\n## {round_name}/\n")
-        lines.append("| 文件 | 路由 | 画面里应当有什么 | 数据状态 | 溢出 | 控制台错误 |")
-        lines.append("| --- | --- | --- | --- | --- | --- |")
+        lines.append("| 文件 | 路由 | 画面里应当有什么 | 数据状态 | 溢出 | 控制台错误 | 警告 |")
+        lines.append("| --- | --- | --- | --- | --- | --- | --- |")
         for e in data["entries"]:
             files.append(e["file"])
             size = size or e.get("size")
-            lines.append(f"| `{e['file']}` | `{e['route']}` | {e['expect']} | {e['state']} | {e['overflow']} | {e['errors']} |")
+            lines.append(f"| `{e['file']}` | `{e['route']}` | {e['expect']} | {e['state']} | {e['overflow']} | {e['errors']} | {e.get('warning') or ''} |")
         issues += [f"- {round_name}/{i}".replace("\t", " · ") for i in data["issues"]]
     (out / "files.txt").write_text("\n".join(files) + "\n")
     head = ["# 界面审计截图索引", ""]
