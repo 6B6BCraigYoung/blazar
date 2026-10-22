@@ -101,12 +101,13 @@
 .bot-steps, .bot-claims { list-style: none; margin: var(--space-md) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-sm); font-size: var(--font-size-label); }
 .bot-steps li { overflow-wrap: anywhere; color: var(--fg-2); }
 .bot-claims li { display: flex; align-items: center; gap: var(--space-sm); flex-wrap: wrap; min-height: 24px; }
-.bot-claim-form { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; gap: var(--space-sm); margin-top: var(--space-md); align-items: center; }
+.bot-claim-form { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: var(--space-sm); margin-top: var(--space-md); align-items: center; }
+.bot-claim-form > input { grid-column: 1 / -1; }
+.bot-claims:empty { display: none; }
 .bot-claim-form .input { height: 28px; }
 .jobs-page .page-head { flex-wrap: wrap; }
 .jobs-table { max-width: 100%; overflow-x: auto; }
 .jobs-table .tb { min-width: 860px; margin-top: 0; }
-.jobs-table td { vertical-align: middle; }
 .jobs-table td.num { font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--fg-2); }
 .jobs-table .jobs-label { max-width: 280px; }
 .jobs-table .jobs-label > div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

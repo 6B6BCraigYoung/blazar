@@ -248,9 +248,14 @@ pub fn JobsPage() -> impl IntoView {
                                                     <div class="jobs-label-text" title=s(&j, "command")>
                                                         {s(&j, "label")}
                                                     </div>
-                                                    <div class="jobs-waits muted" title=waits(&j)>
-                                                        {waits(&j)}
-                                                    </div>
+                                                    {(!waits(&j).is_empty())
+                                                        .then(|| {
+                                                            view! {
+                                                                <div class="jobs-waits muted" title=waits(&j)>
+                                                                    {waits(&j)}
+                                                                </div>
+                                                            }
+                                                        })}
                                                 </td>
                                                 <td>{fmt::machine(&s(&j, "node"))}</td>
                                                 <td>{owner(&j)}</td>

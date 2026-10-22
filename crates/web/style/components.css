@@ -135,3 +135,4 @@ summary::-webkit-details-marker { display: none; }
 summary::before { content: ""; display: inline-block; flex: 0 0 auto; width: 10px; height: 10px; margin-right: var(--space-sm); vertical-align: -0.05em; background: currentColor; opacity: .6; -webkit-mask: var(--chevron) center / contain no-repeat; mask: var(--chevron) center / contain no-repeat; transition: transform var(--duration-caret); }
 details[open] > summary::before { transform: rotate(90deg); }
 .cc-fd > summary::before, .cc-shell summary::before { content: none; }
+.row-actions { display: flex; align-items: center; gap: var(--space-md); flex-wrap: wrap; }
