@@ -15,6 +15,7 @@ const DEFAULTS: &[(&str, &str)] = &[
     ("inbox", "Alt+I"),
     ("tasks", "Alt+T"),
     ("workspaces", "Alt+W"),
+    ("settings", "Mod+,"),
 ];
 
 pub fn action(e: &web_sys::KeyboardEvent) -> Option<&'static str> {

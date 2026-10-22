@@ -2,6 +2,7 @@ use leptos::prelude::*;
 use serde_json::{Value, json};
 
 use crate::api;
+use crate::components::prefs::{PrefGroup, PrefRow, Switch};
 use crate::components::status::{InlineError, LoadingState};
 
 use super::{flag, save, text};
@@ -28,71 +29,71 @@ fn GitForm(initial: Value) -> impl IntoView {
     let draft = RwSignal::new(flag(&initial, "pr_draft"));
     let ai = RwSignal::new(flag(&initial, "ai_draft"));
     let busy = RwSignal::new(false);
-    let failed = RwSignal::new(false);
+    let put = move |body: Value, undo: Box<dyn FnOnce() + 'static>| {
+        busy.set(true);
+        leptos::task::spawn_local(async move {
+            if !save("PUT", "/api/settings", body).await {
+                undo();
+            }
+            busy.set(false);
+        });
+    };
     view! {
-        <section class="card settings-card">
-            <h3>"Git 与 Pull Request"</h3>
-            <form
-                class="settings-form"
-                on:submit=move |e| {
-                    e.prevent_default();
-                    if busy.get_untracked() {
-                        return;
-                    }
-                    busy.set(true);
-                    failed.set(false);
-                    leptos::task::spawn_local(async move {
-                        let saved = save(
-                                "PUT",
-                                "/api/settings",
-                                json!(
-                                    {"git":{"branch_prefix":prefix.get_untracked().trim(),"pr_draft":draft.get_untracked(),"ai_draft":ai.get_untracked()}}
-                                ),
-                            )
-                            .await;
-                        failed.set(!saved);
-                        busy.set(false);
-                    });
-                }
+        <PrefGroup title="Git 与 Pull Request">
+            <PrefRow
+                label="分支前缀"
+                detail="新建隔离工作区时，分支名以它开头。"
+                for_id="settings-branch-prefix"
             >
-                <fieldset disabled=move || busy.get()>
-                    <label class="settings-field">
-                        "隔离工作区分支前缀"
-                        <input
-                            class="settings-input"
-                            prop:value=move || prefix.get()
-                            on:input=move |e| prefix.set(event_target_value(&e))
-                        />
-                    </label>
-                    <span class="muted">
+                <div class="pref-stack">
+                    <input
+                        id="settings-branch-prefix"
+                        class="settings-input"
+                        autocomplete="off"
+                        spellcheck="false"
+                        disabled=move || busy.get()
+                        prop:value=move || prefix.get()
+                        on:change=move |e| {
+                            let next = event_target_value(&e).trim().to_owned();
+                            let old = prefix.get_untracked();
+                            if next == old {
+                                event_target::<web_sys::HtmlInputElement>(&e).set_value(&next);
+                                return;
+                            }
+                            prefix.set(next.clone());
+                            put(
+                                json!({"git":{"branch_prefix":next}}),
+                                Box::new(move || prefix.set(old)),
+                            );
+                        }
+                    />
+                    <span class="pref-hint">
                         {move || format!("示例：{}fix-login", prefix.get())}
                     </span>
-                    <label>
-                        <input
-                            type="checkbox"
-                            prop:checked=move || draft.get()
-                            on:change=move |e| draft.set(event_target_checked(&e))
-                        />
-                        " 默认创建草稿 PR"
-                    </label>
-                    <label>
-                        <input
-                            type="checkbox"
-                            prop:checked=move || ai.get()
-                            on:change=move |e| ai.set(event_target_checked(&e))
-                        />
-                        " 启用 AI 起草提交信息和 PR 描述"
-                    </label>
-                    <div>
-                        <button type="submit" class="btn primary">
-                            {move || if busy.get() { "保存中…" } else { "保存设置" }}
-                        </button>
-                    </div>
-                </fieldset>
-            </form>
-            <Show when=move || failed.get()>
-                <InlineError message="未能保存设置，请重试。" />
-            </Show>
-        </section>
+                </div>
+            </PrefRow>
+            <PrefRow label="默认创建草稿 PR" for_id="settings-pr-draft">
+                <Switch
+                    id="settings-pr-draft"
+                    checked=draft
+                    disabled=busy
+                    on_change=move |v: bool| {
+                        draft.set(v);
+                        put(json!({"git":{"pr_draft":v}}), Box::new(move || draft.set(!v)));
+                    }
+                />
+            </PrefRow>
+            <PrefRow label="AI 起草提交信息和 PR 描述" for_id="settings-ai-draft">
+                <Switch
+                    id="settings-ai-draft"
+                    checked=ai
+                    disabled=busy
+                    on_change=move |v: bool| {
+                        ai.set(v);
+                        put(json!({"git":{"ai_draft":v}}), Box::new(move || ai.set(!v)));
+                    }
+                />
+            </PrefRow>
+        </PrefGroup>
     }
 }

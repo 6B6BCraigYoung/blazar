@@ -1,8 +1,9 @@
 use leptos::prelude::*;
 use serde_json::{Value, json};
 
+use crate::components::prefs::{PrefAdvanced, PrefGroup, PrefRow, Switch};
 use crate::components::status::{InlineError, LoadingState};
-use crate::components::toast::toast;
+use crate::components::toast::{flash, toast};
 use crate::markdown_mode::{self, MarkdownMode};
 use crate::{api, storage};
 
@@ -13,18 +14,17 @@ pub(super) fn ChatSettings() -> impl IntoView {
     let ui = ui_prefs();
     let diff =
         storage::load::<Value>("blazar.diffprefs").unwrap_or(json!({"view":"unified","w":false}));
+    let whitespace = RwSignal::new(flag(&diff, "w"));
     let md = markdown_mode::load().as_str();
     let set_diff = |k: &str, v: Value| {
         let mut d = storage::load::<Value>("blazar.diffprefs").unwrap_or(json!({}));
         d[k] = v;
         storage::save("blazar.diffprefs", &d);
-        toast("已保存");
+        flash("已保存");
     };
     view! {
-        <section class="card settings-card">
-            <h3>"对话与编辑"</h3>
-            <div class="settings-row">
-                <label for="settings-send">"发送键"</label>
+        <PrefGroup title="对话">
+            <PrefRow label="发送键" for_id="settings-send">
                 <select
                     id="settings-send"
                     class="settings-input"
@@ -38,9 +38,8 @@ pub(super) fn ChatSettings() -> impl IntoView {
                         "⌘ / Ctrl + Enter 发送，Enter 换行"
                     </option>
                 </select>
-            </div>
-            <div class="settings-row">
-                <label for="settings-md">"打开 Markdown 时"</label>
+            </PrefRow>
+            <PrefRow label="打开 Markdown 时" for_id="settings-md">
                 <select
                     id="settings-md"
                     class="settings-input"
@@ -49,7 +48,7 @@ pub(super) fn ChatSettings() -> impl IntoView {
                         markdown_mode::save(
                             MarkdownMode::from_stored(Some(&event_target_value(&e))),
                         );
-                        toast("已保存");
+                        flash("已保存");
                     }
                 >
                     <option value="preview" selected=md == "preview">
@@ -59,9 +58,10 @@ pub(super) fn ChatSettings() -> impl IntoView {
                         "先看源码"
                     </option>
                 </select>
-            </div>
-            <div class="settings-row">
-                <label for="settings-diff">"差异默认视图"</label>
+            </PrefRow>
+        </PrefGroup>
+        <PrefGroup title="差异">
+            <PrefRow label="默认视图" for_id="settings-diff">
                 <select
                     id="settings-diff"
                     class="settings-input"
@@ -75,17 +75,18 @@ pub(super) fn ChatSettings() -> impl IntoView {
                         "并排"
                     </option>
                 </select>
-            </div>
-            <div class="settings-row">
-                <label for="settings-whitespace">"差异里忽略空白"</label>
-                <input
+            </PrefRow>
+            <PrefRow label="忽略空白" for_id="settings-whitespace">
+                <Switch
                     id="settings-whitespace"
-                    type="checkbox"
-                    prop:checked=flag(&diff, "w")
-                    on:change=move |e| set_diff("w", json!(event_target_checked(&e)))
+                    checked=whitespace
+                    on_change=move |v: bool| {
+                        whitespace.set(v);
+                        set_diff("w", json!(v));
+                    }
                 />
-            </div>
-        </section>
+            </PrefRow>
+        </PrefGroup>
     }
 }
 
@@ -106,22 +107,17 @@ pub(super) fn FleetSettings() -> impl IntoView {
             let on = RwSignal::new(flag(&p["fleet"], "enabled"));
             let limit = RwSignal::new(p["bots"]["max_concurrent"].as_u64().unwrap_or(6));
             view! {
-                <section class="card settings-card">
-                    <h3>"多机调度"</h3>
-                    <p class="muted">
-                        "打开后，Blazar 启动的每个会话都会挂上调度工具，不管它跑在哪台机器上：列出机器、建工作区、给任意机器上的智能体发指令、等它跑完、读它的记录和改动、在工作区之间拷文件。远端机器经本机 hub 中转，自己不需要别的机器的密钥；每个会话一枚独立令牌，结束即作废。下一轮启动生效。"
-                    </p>
-                    <div class="settings-row">
-                        <label for="settings-fleet">
-                            "给 Blazar 启动的智能体挂上调度工具"
-                        </label>
-                        <input
+                <PrefGroup title="多机调度">
+                    <PrefRow
+                        label="给 Blazar 启动的智能体挂上调度工具"
+                        detail="下一轮启动生效。"
+                        for_id="settings-fleet"
+                    >
+                        <Switch
                             id="settings-fleet"
-                            type="checkbox"
-                            prop:checked=move || on.get()
-                            disabled=move || busy.get()
-                            on:change=move |e| {
-                                let v = event_target_checked(&e);
+                            checked=on
+                            disabled=busy
+                            on_change=move |v: bool| {
                                 on.set(v);
                                 busy.set(true);
                                 leptos::task::spawn_local(async move {
@@ -138,15 +134,15 @@ pub(super) fn FleetSettings() -> impl IntoView {
                                 });
                             }
                         />
-                    </div>
-                    <div class="settings-row">
-                        <label class="settings-label" for="settings-bot-limit">
-                            <b>"同时运行的 bot 上限"</b>
-                            <span>"超过时新的邮件先排队，等有 bot 停下再派。取 1 到 16。"</span>
-                        </label>
+                    </PrefRow>
+                    <PrefRow
+                        label="同时运行的 bot 上限"
+                        detail="超过时新的邮件先排队，等有 bot 停下再派。取 1 到 16。"
+                        for_id="settings-bot-limit"
+                    >
                         <input
                             id="settings-bot-limit"
-                            class="settings-input settings-number"
+                            class="settings-input"
                             type="number"
                             min="1"
                             max=BOT_LIMIT_MAX
@@ -182,9 +178,18 @@ pub(super) fn FleetSettings() -> impl IntoView {
                                 }
                             }
                         />
-                    </div>
-                </section>
-            }.into_any()
+                    </PrefRow>
+                    <PrefAdvanced title="多机调度">
+                        <p>
+                            "打开后，Blazar 启动的每个会话都会挂上调度工具，不管它跑在哪台机器上：列出机器、建工作区、给任意机器上的智能体发指令、等它跑完、读它的记录和改动、在工作区之间拷文件。"
+                        </p>
+                        <p>
+                            "远端机器经本机 hub 中转，自己不需要别的机器的密钥；每个会话一枚独立令牌，结束即作废。"
+                        </p>
+                    </PrefAdvanced>
+                </PrefGroup>
+            }
+                .into_any()
         }
     }
 }

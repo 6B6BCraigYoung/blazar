@@ -1,6 +1,8 @@
 use leptos::prelude::*;
 use serde_json::{Value, json};
 
+use crate::components::prefs::{PrefGroup, PrefRow, Switch};
+
 use super::{flag, set_ui, text, ui_prefs};
 
 #[component]
@@ -11,11 +13,8 @@ pub(super) fn AppearanceSettings() -> impl IntoView {
         p.update(|p| p[k] = v);
     };
     view! {
-        <section class="card settings-card">
-            <h3>"外观"</h3>
-            <p class="muted">"更改后自动保存，仅对这台设备生效。"</p>
-            <div class="settings-row">
-                <label for="settings-theme">"主题"</label>
+        <PrefGroup title="外观" note="仅对这台设备生效。">
+            <PrefRow label="主题" for_id="settings-theme">
                 <select
                     id="settings-theme"
                     class="settings-input"
@@ -32,47 +31,39 @@ pub(super) fn AppearanceSettings() -> impl IntoView {
                         "深色"
                     </option>
                 </select>
-            </div>
-        </section>
-        <section class="card settings-card">
-            <h3>"编辑器"</h3>
-            <div class="settings-row">
-                <label for="settings-font">"字号"</label>
-                <div class="settings-actions">
-                    <input
-                        id="settings-font"
-                        type="range"
-                        min="11"
-                        max="18"
-                        step="0.5"
-                        prop:value=move || p.get()["fontSize"].as_f64().unwrap_or(12.5)
-                        on:input=move |e| {
-                            if let Ok(n) = event_target_value(&e).parse::<f64>() {
-                                change("fontSize", json!(n));
-                            }
+            </PrefRow>
+        </PrefGroup>
+        <PrefGroup title="编辑器">
+            <PrefRow label="字号" for_id="settings-font">
+                <input
+                    id="settings-font"
+                    type="range"
+                    min="11"
+                    max="18"
+                    step="0.5"
+                    prop:value=move || p.get()["fontSize"].as_f64().unwrap_or(12.5)
+                    on:input=move |e| {
+                        if let Ok(n) = event_target_value(&e).parse::<f64>() {
+                            change("fontSize", json!(n));
                         }
-                    />
-                    <span>{move || p.get()["fontSize"].to_string()}</span>
-                </div>
-            </div>
-            <div class="settings-row">
-                <label for="settings-minimap">"小地图"</label>
-                <input
+                    }
+                />
+                <span class="pref-value">{move || p.get()["fontSize"].to_string()}</span>
+            </PrefRow>
+            <PrefRow label="小地图" for_id="settings-minimap">
+                <Switch
                     id="settings-minimap"
-                    type="checkbox"
-                    prop:checked=move || flag(&p.get(), "minimap")
-                    on:change=move |e| change("minimap", json!(event_target_checked(&e)))
+                    checked=Signal::derive(move || flag(&p.get(), "minimap"))
+                    on_change=move |v: bool| change("minimap", json!(v))
                 />
-            </div>
-            <div class="settings-row">
-                <label for="settings-wrap">"自动换行"</label>
-                <input
+            </PrefRow>
+            <PrefRow label="自动换行" for_id="settings-wrap">
+                <Switch
                     id="settings-wrap"
-                    type="checkbox"
-                    prop:checked=move || flag(&p.get(), "wordWrap")
-                    on:change=move |e| change("wordWrap", json!(event_target_checked(&e)))
+                    checked=Signal::derive(move || flag(&p.get(), "wordWrap"))
+                    on_change=move |v: bool| change("wordWrap", json!(v))
                 />
-            </div>
-        </section>
+            </PrefRow>
+        </PrefGroup>
     }
 }

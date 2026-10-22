@@ -5,6 +5,7 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 
 use crate::components::modal::Modal;
+use crate::components::prefs::{PrefGroup, PrefRow};
 use crate::{api, files_js};
 
 fn export_name() -> String {
@@ -68,16 +69,18 @@ pub fn TransferSettings() -> impl IntoView {
         });
     };
     view! {
-        <section class="card settings-card">
-            <h3>"迁移配置"</h3>
-            <p class="muted">
-                "把智能体档案、skills、MCP、自动化、审批规则等配置导出成一个文件，再导入到另一台机器上的 hub。会话历史和账号不迁移，密钥的值导出时会清空。"
-            </p>
-            <div class="settings-actions">
+        <PrefGroup
+            title="迁移配置"
+            note="把智能体档案、skills、MCP、自动化、审批规则等配置导出成一个文件，再导入到另一台机器上的 hub。会话历史和账号不迁移，密钥的值导出时会清空。"
+        >
+            <PrefRow label="导出配置" detail="下载成一个 JSON 文件。">
                 <a class="btn" href="/api/export" download="" on:click=export>
                     "导出"
                 </a>
+            </PrefRow>
+            <PrefRow label="导入配置" detail="先预览会新建和跳过什么，再决定导入。">
                 <button
+                    type="button"
                     class="btn"
                     disabled=move || busy.get()
                     on:click=move |_| {
@@ -95,11 +98,11 @@ pub fn TransferSettings() -> impl IntoView {
                     hidden
                     on:change=on_file
                 />
-            </div>
-            <p class="settings-status" class:bad=move || status.get().1>
+            </PrefRow>
+            <p class="pref-status" class:bad=move || status.get().1>
                 {move || status.get().0}
             </p>
-        </section>
+        </PrefGroup>
         {move || {
             pending
                 .get()

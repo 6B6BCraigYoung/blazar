@@ -2,11 +2,9 @@ use leptos::prelude::*;
 use leptos_router::hooks::use_query_map;
 use serde_json::{Value, json};
 
+use crate::components::icon;
 use crate::components::page_head::PageHead;
-use crate::components::{
-    dialog::{Choice, ask},
-    toast::toast,
-};
+use crate::components::toast::{flash, toast};
 use crate::{api, storage};
 
 mod about;
@@ -33,6 +31,19 @@ use platforms::PlatformSettings;
 use rules::RuleSettings;
 use shortcuts::ShortcutSettings;
 use snippets::SnippetSettings;
+
+const SECTIONS: &[(&str, &str, &str)] = &[
+    ("appearance", "外观", icon::PALETTE),
+    ("chat", "对话与编辑", icon::CHAT),
+    ("notify", "提醒", icon::BELL),
+    ("shortcuts", "快捷键", icon::KEYBOARD),
+    ("rules", "自动批准", icon::CHECK),
+    ("snippets", "片段", icon::LINES),
+    ("hooks", "自动执行脚本", icon::TERMINAL),
+    ("git", "Git 与 PR", icon::BRANCH),
+    ("platforms", "技能来源", icon::SPARK),
+    ("about", "数据与关于", icon::INFO),
+];
 
 pub(super) fn text(v: &Value, key: &str) -> String {
     v[key].as_str().unwrap_or_default().into()
@@ -72,17 +83,17 @@ fn set_ui(key: &str, value: Value) {
     p[key] = value;
     storage::save("blazar.ui", &p);
     apply_ui_preferences();
-    toast("已保存");
+    flash("已保存");
 }
 
 pub(super) async fn save(method: &str, path: &str, body: Value) -> bool {
     match api::send::<Value>(method, path, &body).await {
         Ok(_) => {
-            toast("已保存");
+            flash("已保存");
             true
         }
         Err(e) => {
-            toast(e.to_string());
+            toast(format!("没保存上：{e}"));
             false
         }
     }
@@ -91,103 +102,61 @@ pub(super) async fn save(method: &str, path: &str, body: Value) -> bool {
 #[component]
 pub fn SettingsPage() -> impl IntoView {
     let query = use_query_map();
-    let refresh = RwSignal::new(0u32);
-    let reloading = RwSignal::new(false);
     let section = move || query.with(|q| q.get("s").unwrap_or_else(|| "appearance".into()));
     view! {
         <div class="page settings-page">
-            <PageHead title="设置">
-                <button
-                    class="btn ghost"
-                    disabled=move || reloading.get()
-                    on:click=move |_| {
-                        if reloading.get_untracked() {
-                            return;
-                        }
-                        reloading.set(true);
-                        leptos::task::spawn_local(async move {
-                            if ask(
-                                    "重新加载设置",
-                                    "尚未保存的表单内容将丢失。",
-                                    vec![
-                                        Choice::plain("继续编辑"),
-                                        Choice::danger("重新加载"),
-                                    ],
-                                )
-                                .await == Some(1)
-                            {
-                                refresh.update(|n| *n += 1);
-                            }
-                            reloading.set(false);
-                        });
-                    }
-                >
-                    "重新加载"
-                </button>
-            </PageHead>
+            <PageHead title="设置" />
             <div class="settings-layout">
                 <nav class="settings-nav" aria-label="设置分类">
-                    {[
-                        ("appearance", "外观"),
-                        ("chat", "对话与编辑"),
-                        ("notify", "提醒"),
-                        ("shortcuts", "快捷键"),
-                        ("rules", "自动批准"),
-                        ("snippets", "片段"),
-                        ("hooks", "自动执行脚本"),
-                        ("git", "Git 与 PR"),
-                        ("platforms", "技能来源"),
-                        ("about", "数据与关于"),
-                    ]
-                        .into_iter()
-                        .map(move |(id, label)| {
+                    {SECTIONS
+                        .iter()
+                        .map(move |&(id, label, ic)| {
                             view! {
                                 <a
+                                    class="nav"
                                     href=format!("/settings?s={id}")
                                     aria-current=move || (section() == id).then_some("page")
                                 >
-                                    {label}
+                                    <span class="ic" inner_html=icon::svg(ic)></span>
+                                    <span class="nm">{label}</span>
                                 </a>
                             }
                         })
                         .collect_view()}
                 </nav>
                 <div class="settings-body">
-                    {move || {
-                        refresh.get();
-                        match section().as_str() {
-                            "chat" => {
-                                view! {
-                                    <ChatSettings />
-                                    <FleetSettings />
-                                }
-                                    .into_any()
+                    {move || match section().as_str() {
+                        "chat" => {
+                            view! {
+                                <ChatSettings />
+                                <FleetSettings />
                             }
-                            "notify" => view! { <NotifySettings /> }.into_any(),
-                            "shortcuts" => view! { <ShortcutSettings /> }.into_any(),
-                            "rules" => view! { <RuleSettings /> }.into_any(),
-                            "snippets" => view! { <SnippetSettings /> }.into_any(),
-                            "hooks" => view! { <HookSettings /> }.into_any(),
-                            "git" => view! { <GitSettings /> }.into_any(),
-                            "platforms" => view! { <PlatformSettings /> }.into_any(),
-                            "about" => {
-                                view! {
-                                    <HubSettings />
-                                    <super::transfer::TransferSettings />
-                                    <AboutSettings />
-                                }
-                                    .into_any()
-                            }
-                            "lark" => {
-                                view! {
-                                    <a class="btn" href="/apps/lark">
-                                        "打开飞书 / Lark 设置"
-                                    </a>
-                                }
-                                    .into_any()
-                            }
-                            _ => view! { <AppearanceSettings /> }.into_any(),
+                                .into_any()
                         }
+                        "notify" => view! { <NotifySettings /> }.into_any(),
+                        "shortcuts" => view! { <ShortcutSettings /> }.into_any(),
+                        "rules" => view! { <RuleSettings /> }.into_any(),
+                        "snippets" => view! { <SnippetSettings /> }.into_any(),
+                        "hooks" => view! { <HookSettings /> }.into_any(),
+                        "git" => view! { <GitSettings /> }.into_any(),
+                        "platforms" => view! { <PlatformSettings /> }.into_any(),
+                        "about" => {
+                            view! {
+                                <HubSettings />
+                                <super::transfer::TransferSettings />
+                                <AboutSettings />
+                            }
+                                .into_any()
+                        }
+                        "lark" => {
+                            view! {
+                                <a class="btn" href="/apps/lark">
+                                    "打开飞书 / Lark 设置"
+                                </a>
+                            }
+                                .into_any()
+                        }
+                        _ => view! { <AppearanceSettings /> }.into_any(),
                     }}
                 </div>
             </div>

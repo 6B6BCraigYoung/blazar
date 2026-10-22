@@ -58,6 +58,10 @@ pub fn Palette() -> impl IntoView {
             go_action("/tasks");
             true
         }
+        "settings" => {
+            go_action("/settings");
+            true
+        }
         _ => false,
     };
     let run_key = run.clone();

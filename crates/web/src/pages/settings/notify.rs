@@ -1,8 +1,9 @@
 use leptos::prelude::*;
 use serde_json::{Value, json};
 
+use crate::components::prefs::{PrefAdvanced, PrefGroup, PrefRow, Switch};
 use crate::components::status::{InlineError, LoadingState};
-use crate::components::toast::toast;
+use crate::components::toast::{flash, toast};
 use crate::{alerts, api, app_state::use_app};
 
 use super::{flag, rows, save, text};
@@ -25,32 +26,26 @@ pub(super) fn NotifySettings() -> impl IntoView {
     let system = RwSignal::new(alerts::notify_on());
     let busy = RwSignal::new(false);
     let server = LocalResource::new(|| api::get::<Value>("/api/settings"));
+    let supported = alerts::notify_supported();
+    let sound_on = Signal::derive(move || sound.get().on);
     let update_sound = move |p: alerts::SoundPrefs| {
         alerts::set_sound_prefs(&p);
         sound.set(p);
         app.alerts_rev.update(|n| *n += 1);
-        toast("已保存");
+        flash("已保存");
     };
     view! {
-        <section class="card settings-card">
-            <h3>"本机提醒"</h3>
-            {(!alerts::notify_supported())
-                .then(|| {
-                    view! {
-                        <p class="muted">
-                            "当前环境不支持系统通知，可使用提示音。"
-                        </p>
-                    }
-                })}
-            <div class="settings-row">
-                <label for="settings-system-notify">"系统通知"</label>
-                <input
+        <PrefGroup title="本机提醒">
+            <PrefRow
+                label="系统通知"
+                detail=if supported { "" } else { "当前环境不支持系统通知。" }
+                for_id="settings-system-notify"
+            >
+                <Switch
                     id="settings-system-notify"
-                    type="checkbox"
-                    disabled=move || busy.get() || !alerts::notify_supported()
-                    prop:checked=move || system.get()
-                    on:change=move |e| {
-                        let enabled = event_target_checked(&e);
+                    checked=system
+                    disabled=Signal::derive(move || busy.get() || !supported)
+                    on_change=move |enabled: bool| {
                         system.set(enabled);
                         busy.set(true);
                         leptos::task::spawn_local(async move {
@@ -61,30 +56,30 @@ pub(super) fn NotifySettings() -> impl IntoView {
                             app.alerts_rev.update(|n| *n += 1);
                             if enabled && !on {
                                 toast("浏览器没有授予通知权限");
+                            } else {
+                                flash("已保存");
                             }
                             busy.set(false);
                         });
                     }
                 />
-            </div>
-            <div class="settings-row">
-                <label for="settings-sound">"提示音"</label>
-                <input
+            </PrefRow>
+            <PrefRow label="提示音" for_id="settings-sound">
+                <Switch
                     id="settings-sound"
-                    type="checkbox"
-                    prop:checked=move || sound.get().on
-                    on:change=move |e| {
+                    checked=sound_on
+                    on_change=move |on: bool| {
                         let mut p = sound.get_untracked();
-                        p.on = event_target_checked(&e);
+                        p.on = on;
                         update_sound(p);
                     }
                 />
-            </div>
-            <div class="settings-row">
-                <label for="settings-tone">"音色"</label>
+            </PrefRow>
+            <PrefRow label="音色" for_id="settings-tone" enabled=sound_on>
                 <select
                     id="settings-tone"
                     class="settings-input"
+                    disabled=move || !sound_on.get()
                     prop:value=move || sound.get().tone
                     on:change=move |e| {
                         let mut p = sound.get_untracked();
@@ -103,15 +98,15 @@ pub(super) fn NotifySettings() -> impl IntoView {
                         "木质"
                     </option>
                 </select>
-            </div>
-            <div class="settings-row">
-                <label for="settings-volume">"音量"</label>
+            </PrefRow>
+            <PrefRow label="音量" for_id="settings-volume" enabled=sound_on>
                 <input
                     id="settings-volume"
                     type="range"
                     min="0.05"
                     max="1"
                     step="0.05"
+                    disabled=move || !sound_on.get()
                     prop:value=move || sound.get().volume
                     on:change=move |e| {
                         let mut p = sound.get_untracked();
@@ -119,16 +114,26 @@ pub(super) fn NotifySettings() -> impl IntoView {
                         update_sound(p);
                     }
                 />
-            </div>
-            <div class="settings-actions">
-                <button class="btn" on:click=|_| alerts::play("done", true)>
-                    "试听完成提示"
+            </PrefRow>
+            <PrefRow label="试听" enabled=sound_on>
+                <button
+                    type="button"
+                    class="btn small"
+                    disabled=move || !sound_on.get()
+                    on:click=|_| alerts::play("done", true)
+                >
+                    "完成提示"
                 </button>
-                <button class="btn" on:click=|_| alerts::play("attention", true)>
-                    "试听待处理提示"
+                <button
+                    type="button"
+                    class="btn small"
+                    disabled=move || !sound_on.get()
+                    on:click=|_| alerts::play("attention", true)
+                >
+                    "待处理提示"
                 </button>
-            </div>
-        </section>
+            </PrefRow>
+        </PrefGroup>
         {move || match server.get() {
             None => view! { <LoadingState text="正在加载提醒设置…" /> }.into_any(),
             Some(Err(e)) => {
@@ -143,10 +148,13 @@ pub(super) fn NotifySettings() -> impl IntoView {
             Some(Ok(p)) => view! { <InboxSettings initial=p /> }.into_any(),
         }}
         <AlertRuleSettings />
-        <section class="card settings-card">
-            <h3>"转发到飞书"</h3>
-            <a href="/apps/lark">"配置飞书提醒转发 →"</a>
-        </section>
+        <PrefGroup title="飞书">
+            <PrefRow label="转发到飞书" detail="把提醒同时发到飞书机器人。">
+                <a class="btn" href="/apps/lark">
+                    "配置…"
+                </a>
+            </PrefRow>
+        </PrefGroup>
     }
 }
 
@@ -160,24 +168,22 @@ fn InboxSettings(initial: Value) -> impl IntoView {
     );
     let busy = RwSignal::new(false);
     view! {
-        <section class="card settings-card">
-            <h3>"提醒哪些事项"</h3>
-            <p class="muted">
-                "关闭的类型仍记录到收件箱，不计未读、不提示或转发。"
-            </p>
+        <PrefGroup
+            title="提醒哪些事项"
+            note="关闭的类型仍记录到收件箱，不计未读、不提示或转发。"
+        >
             {NOTIFY_KINDS
                 .iter()
                 .map(move |&(key, label)| {
                     view! {
-                        <div class="settings-row">
-                            <label for=format!("notify-kind-{key}")>{label}</label>
-                            <input
+                        <PrefRow label=label for_id=format!("notify-kind-{key}")>
+                            <Switch
                                 id=format!("notify-kind-{key}")
-                                type="checkbox"
-                                disabled=move || busy.get()
-                                prop:checked=move || !muted.get().iter().any(|s| s == key)
-                                on:change=move |e| {
-                                    let enabled = event_target_checked(&e);
+                                checked=Signal::derive(move || {
+                                    !muted.get().iter().any(|s| s == key)
+                                })
+                                disabled=busy
+                                on_change=move |enabled: bool| {
                                     let old = muted.get_untracked();
                                     let mut next = old.clone();
                                     next.retain(|x| x != key);
@@ -202,11 +208,11 @@ fn InboxSettings(initial: Value) -> impl IntoView {
                                     });
                                 }
                             />
-                        </div>
+                        </PrefRow>
                     }
                 })
                 .collect_view()}
-        </section>
+        </PrefGroup>
     }
 }
 
@@ -214,11 +220,7 @@ fn InboxSettings(initial: Value) -> impl IntoView {
 fn AlertRuleSettings() -> impl IntoView {
     let data = LocalResource::new(|| api::get::<Value>("/api/alert-rules"));
     view! {
-        <section class="card settings-card">
-            <h3>"提醒规则"</h3>
-            <p class="muted">
-                "hub 每 30 秒检查一次，事情发生时也会立刻检查。同一件事持续期间只提醒一次，消失后在收件箱里标为已解决。"
-            </p>
+        <PrefGroup title="提醒规则">
             {move || match data.get() {
                 None => view! { <LoadingState text="正在加载提醒规则…" /> }.into_any(),
                 Some(Err(e)) => {
@@ -238,7 +240,12 @@ fn AlertRuleSettings() -> impl IntoView {
                         .into_any()
                 }
             }}
-        </section>
+            <PrefAdvanced title="提醒规则">
+                <p>
+                    "hub 每 30 秒检查一次，事情发生时也会立刻检查。同一件事持续期间只提醒一次，消失后在收件箱里标为已解决。"
+                </p>
+            </PrefAdvanced>
+        </PrefGroup>
     }
 }
 
@@ -246,6 +253,7 @@ fn AlertRuleSettings() -> impl IntoView {
 fn AlertRuleRow(rule: Value) -> impl IntoView {
     let key = text(&rule, "key");
     let unit = text(&rule, "unit");
+    let label = text(&rule, "label");
     let (min, max) = (
         rule["min"].as_i64().unwrap_or(0),
         rule["max"].as_i64().unwrap_or(0),
@@ -264,71 +272,62 @@ fn AlertRuleRow(rule: Value) -> impl IntoView {
     };
     let switch_key = key.clone();
     let number_key = key.clone();
+    let number_label = label.clone();
     view! {
-        <div class="settings-row alert-rule">
-            <div class="settings-label">
-                <b>{text(&rule, "label")}</b>
-                <span>{text(&rule, "about")}</span>
-            </div>
-            <div class="settings-actions alert-rule-controls">
-                <span class="alert-rule-threshold">
-                    {threshold
-                        .get_untracked()
-                        .map(|_| {
-                            let key = number_key.clone();
-                            view! {
-                                <input
-                                    id=format!("alert-rule-{key}-threshold")
-                                    class="settings-input"
-                                    type="number"
-                                    min=min
-                                    max=max
-                                    aria-label=format!("「{}」的阈值（{unit}）", text(&rule, "label"))
-                                    disabled=move || busy.get()
-                                    prop:value=move || {
-                                        threshold.get().map(|n| n.to_string()).unwrap_or_default()
-                                    }
-                                    on:change=move |e| {
-                                        let old = threshold.get_untracked();
-                                        match event_target_value(&e).trim().parse::<i64>() {
-                                            Ok(n) if (min..=max).contains(&n) => {
-                                                if old == Some(n) {
-                                                    return;
-                                                }
-                                                threshold.set(Some(n));
-                                                put(
-                                                    key.clone(),
-                                                    json!({ "threshold": n }),
-                                                    Box::new(move || threshold.set(old)),
-                                                );
-                                            }
-                                            _ => {
-                                                event_target::<web_sys::HtmlInputElement>(&e)
-                                                    .set_value(
-                                                        &old.map(|n| n.to_string()).unwrap_or_default(),
-                                                    );
-                                                toast(format!("阈值要在 {min} 到 {max} 之间"));
-                                            }
-                                        }
-                                    }
-                                />
-                                <span class="alert-rule-unit">{unit.clone()}</span>
+        <PrefRow label=label.clone() detail=text(&rule, "about") for_id=format!("alert-rule-{key}")>
+            {threshold
+                .get_untracked()
+                .map(|_| {
+                    let key = number_key.clone();
+                    view! {
+                        <input
+                            id=format!("alert-rule-{key}-threshold")
+                            class="settings-input"
+                            type="number"
+                            min=min
+                            max=max
+                            aria-label=format!("「{number_label}」的阈值（{unit}）")
+                            disabled=move || busy.get() || !on.get()
+                            prop:value=move || {
+                                threshold.get().map(|n| n.to_string()).unwrap_or_default()
                             }
-                        })}
-                </span>
-                <input
-                    id=format!("alert-rule-{switch_key}")
-                    type="checkbox"
-                    aria-label=format!("启用「{}」", text(&rule, "label"))
-                    disabled=move || busy.get()
-                    prop:checked=move || on.get()
-                    on:change=move |e| {
-                        let v = event_target_checked(&e);
-                        on.set(v);
-                        put(switch_key.clone(), json!({ "enabled": v }), Box::new(move || on.set(!v)));
+                            on:change=move |e| {
+                                let old = threshold.get_untracked();
+                                match event_target_value(&e).trim().parse::<i64>() {
+                                    Ok(n) if (min..=max).contains(&n) => {
+                                        if old == Some(n) {
+                                            return;
+                                        }
+                                        threshold.set(Some(n));
+                                        put(
+                                            key.clone(),
+                                            json!({ "threshold": n }),
+                                            Box::new(move || threshold.set(old)),
+                                        );
+                                    }
+                                    _ => {
+                                        event_target::<web_sys::HtmlInputElement>(&e)
+                                            .set_value(
+                                                &old.map(|n| n.to_string()).unwrap_or_default(),
+                                            );
+                                        toast(format!("阈值要在 {min} 到 {max} 之间"));
+                                    }
+                                }
+                            }
+                        />
+                        <span class="pref-unit">{unit.clone()}</span>
                     }
-                />
-            </div>
-        </div>
+                })}
+            <Switch
+                id=format!("alert-rule-{switch_key}")
+                label=format!("启用「{label}」")
+                checked=on
+                disabled=busy
+                on_change=move |v: bool| {
+                    on.set(v);
+                    put(switch_key.clone(), json!({ "enabled": v }), Box::new(move || on.set(!v)));
+                }
+            />
+        </PrefRow>
     }
 }
