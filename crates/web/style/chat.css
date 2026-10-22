@@ -108,7 +108,7 @@
 .cc-earlier { width: fit-content; margin: var(--space-sm) auto var(--space-md); }
 .cc-more:hover { color: var(--accent); }
 .cc-diff { margin-top: var(--space-xs); border: 1px solid var(--line); border-radius: var(--r-md); background: var(--bg-code); font: var(--font-size-label)/var(--line-height-code) var(--font-mono); overflow: hidden; }
-.cc-diff > div { padding: 0 var(--space-md) 0 calc(var(--space-md) + 14px); text-indent: -14px; white-space: pre-wrap; word-break: break-all; }
+.cc-diff > div { padding: 0 var(--space-md) 0 calc(var(--space-md) + 14px); text-indent: -14px; white-space: pre-wrap; word-break: normal; overflow-wrap: anywhere; }
 .cc-diff .dm { display: inline-block; width: 14px; color: var(--fg-4); }
 .cc-diff .dadd { background: var(--chat-diff-added-bg); color: var(--chat-diff-added-fg); }
 .cc-diff .ddel { background: var(--chat-diff-removed-bg); color: var(--chat-diff-removed-fg); }
@@ -270,7 +270,7 @@
 .cc-appr[data-folded="true"] .afold svg { transform: rotate(0); }
 .cc-appr[data-folded="true"] > :not(.ahd):not(.anav) { display: none; }
 .abody { margin: var(--space-md) 0; }
-.acmd { margin: 0; padding: var(--space-field) var(--space-control); max-height: 200px; overflow: auto; background: var(--bg-code); border: 1px solid var(--line); border-radius: var(--r-sm); font: var(--font-size-label)/var(--line-height-code) var(--font-mono); white-space: pre-wrap; word-break: break-all; color: var(--fg); }
+.acmd { margin: 0; padding: var(--space-field) var(--space-control); max-height: 200px; overflow: auto; background: var(--bg-code); border: 1px solid var(--line); border-radius: var(--r-sm); font: var(--font-size-label)/var(--line-height-code) var(--font-mono); white-space: pre-wrap; word-break: normal; overflow-wrap: anywhere; color: var(--fg); }
 .adesc { margin-top: var(--space-sm); color: var(--fg-2); font-size: var(--font-size-label); }
 .aplan { max-height: 300px; overflow: auto; padding: var(--space-xs) var(--space-2xs); }
 .aopts { display: flex; flex-direction: column; gap: var(--space-label); }

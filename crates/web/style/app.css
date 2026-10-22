@@ -259,7 +259,7 @@ b.mk { font: var(--font-weight-semibold) var(--font-size-caption) var(--font-mon
 .ln { position: relative; padding-right: var(--space-md); text-align: right; color: var(--diff-line-number); user-select: none; }
 .dg { color: var(--fg-4); user-select: none; text-align: center; }
 .dc { padding-right: var(--space-lg); white-space: pre; color: var(--code-text-fixed); }
-.diffview[data-wrap="true"] .dc { white-space: pre-wrap; word-break: break-all; }
+.diffview[data-wrap="true"] .dc { white-space: pre-wrap; word-break: normal; overflow-wrap: anywhere; }
 .dr[data-t="+"], .half[data-t="+"] { background: var(--diff-added-bg); }
 .dr[data-t="-"], .half[data-t="-"] { background: var(--diff-removed-bg); }
 .dr[data-t="+"] .dg { color: var(--ok-fg); } .dr[data-t="-"] .dg { color: var(--err-fg); }

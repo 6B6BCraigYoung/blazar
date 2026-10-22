@@ -17,7 +17,7 @@
 @keyframes dlgfade { from { opacity: 0; } }
 @keyframes dlgpop { from { opacity: 0; } }
 .dlg h3 { margin: 0 0 var(--space-md); font-size: var(--font-size-section-title); font-weight: var(--font-weight-semibold); }
-.dlg-body { color: var(--fg-2); word-break: break-all; }
+.dlg-body { color: var(--fg-2); overflow-wrap: anywhere; }
 .dlg-foot { display: flex; justify-content: flex-end; gap: var(--space-md); margin-top: var(--space-section); flex-wrap: wrap; }
 .btn.danger:hover:not(:disabled) { background: var(--danger-control-hover); color: var(--err-fg); }
 .dlg-foot .btn.danger { color: var(--err-fg); }
