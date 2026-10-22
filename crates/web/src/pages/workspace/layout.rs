@@ -89,6 +89,14 @@ impl LayoutState {
         self.change(|l| l.files = !l.files);
     }
 
+    pub fn close_files(self) {
+        self.change(|l| l.files = false);
+    }
+
+    pub fn close_term(self) {
+        self.change(|l| l.term = false);
+    }
+
     pub fn toggle_term(self) {
         self.change(|l| l.term = !l.term);
     }
@@ -221,9 +229,9 @@ pub fn Splitter(edge: Edge, state: LayoutState) -> impl IntoView {
         }
     };
     let collapse = move |_| match edge {
-        Edge::Files => state.toggle_files(),
+        Edge::Files => state.close_files(),
         Edge::Inspector => state.close(),
-        Edge::Terminal => state.toggle_term(),
+        Edge::Terminal => state.close_term(),
     };
     view! {
         <div

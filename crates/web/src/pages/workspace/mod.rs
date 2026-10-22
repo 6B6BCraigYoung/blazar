@@ -418,7 +418,7 @@ fn Workspace(id: String) -> impl IntoView {
                             class="laybtn"
                             aria-label="收起文件"
                             title=crate::shortcuts::titled("收起", "explorer")
-                            on:click=move |_| state.toggle_files()
+                            on:click=move |_| state.close_files()
                         >
                             "×"
                         </button>
@@ -496,7 +496,7 @@ fn Terminal(ws: String, state: LayoutState) -> impl IntoView {
                 class="laybtn"
                 aria-label="收起终端"
                 title=crate::shortcuts::titled("收起终端", "panel")
-                on:click=move |_| state.toggle_term()
+                on:click=move |_| state.close_term()
             >
                 "▾"
             </button>
