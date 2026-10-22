@@ -8,6 +8,7 @@ use serde_json::Value;
 mod approvals;
 mod builder;
 mod finish;
+mod groups;
 mod tools;
 
 pub use approvals::{always_rule, approval_choices, approval_title, approval_what, first_open};
@@ -15,6 +16,7 @@ pub use builder::Model;
 #[cfg(test)]
 pub use builder::build;
 pub use finish::step_sig;
+pub use groups::{Group, group_sig, group_steps};
 pub use tools::{edit_diff, rel_path, tool_name, write_preview};
 
 #[derive(Debug, Clone)]
@@ -120,6 +122,8 @@ pub enum Extra {
     Diff {
         rows: Vec<(char, String)>,
         more: usize,
+        added: usize,
+        removed: usize,
     },
     Files(Vec<String>),
     Plan(String),
@@ -144,6 +148,7 @@ pub struct Tool {
     pub state: St,
     pub extra: Extra,
     pub result: Option<Res>,
+    pub ms: Option<u64>,
 
     pub sub: Vec<Step>,
     pub sub_calls: usize,
@@ -169,8 +174,6 @@ pub enum Step {
 pub struct Fold {
     pub steps: Vec<Step>,
     pub live: bool,
-    pub summary: String,
-    pub state: St,
 }
 
 #[derive(Debug, Clone, PartialEq)]

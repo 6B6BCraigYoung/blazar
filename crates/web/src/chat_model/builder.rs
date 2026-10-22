@@ -7,10 +7,10 @@ use serde_json::Value;
 use super::approvals::{appr_kind_label, decision_text};
 use super::finish::finish_items;
 use super::tools::{
-    SHELL_TOOLS, command_of, edit_diff, fleet_target, result_of, s, shell_display, short, todos_of,
-    tool_name, tool_title,
+    SHELL_TOOLS, command_of, edit_diff, fleet_target, result_of, s, shell_display, shell_result,
+    short, todos_of, tool_name, tool_title, write_preview,
 };
-use super::{Body, Extra, Item, Pending, Res, Row, St, Todo, Tool, Transcript, fmt_tokens};
+use super::{Extra, Item, Pending, Res, Row, St, Todo, Tool, Transcript};
 
 fn est_tokens(s: &str) -> u64 {
     let (wide, narrow) = s.chars().fold((0u64, 0u64), |(w, n), c| {
@@ -64,7 +64,7 @@ pub(super) enum BStep {
 pub(super) struct BTool {
     pub(super) tool: Tool,
     pub(super) sub: Vec<BStep>,
-    input: Value,
+    start: i64,
 }
 
 pub(super) enum BBody {
@@ -432,7 +432,7 @@ impl<'a> Builder<'a> {
             }
             EntryKind::ToolUse { id, name, input } => {
                 self.carry.turn_est += est_tokens(&input.to_string()) + 8;
-                let t = self.new_tool(id.0.clone(), name, input.clone());
+                let t = self.new_tool(id.0.clone(), name, input.clone(), r.ts);
                 if self.tools[t].tool.name == "TodoWrite"
                     && let Extra::Todos(list) = &self.tools[t].tool.extra
                 {
@@ -444,9 +444,9 @@ impl<'a> Builder<'a> {
                 id, ok, content, ..
             } => {
                 if let Some(t) = self.tool_index(&id.0) {
-                    self.finish_tool(t, *ok, content);
+                    self.finish_tool(t, *ok, content, r.ts);
                 } else if !self.bail
-                    && let Some(res) = result_of("", *ok, content, &Value::Null, self.root)
+                    && let Some(res) = result_of("", *ok, content)
                 {
                     self.fold(&key).push(BStep::Orphan(res));
                 }
@@ -541,20 +541,22 @@ impl<'a> Builder<'a> {
         }
     }
 
-    fn new_tool(&mut self, id: String, raw_name: &str, input: Value) -> usize {
+    fn new_tool(&mut self, id: String, raw_name: &str, input: Value, ts: i64) -> usize {
         let name = tool_name(raw_name);
         let (label, arg) = tool_title(&name, &input, self.root);
         let extra = if SHELL_TOOLS.contains(&name.as_str()) {
             let c = command_of(&input);
-            if c.is_empty() {
-                Extra::None
-            } else {
+            if c.trim().contains('\n') {
                 Extra::Cmd(c)
+            } else {
+                Extra::None
             }
         } else if name == "TodoWrite" {
             Extra::Todos(todos_of(&input))
         } else if name == "Edit" || name == "MultiEdit" {
             edit_diff(&input, self.root)
+        } else if name == "Write" {
+            write_preview(&input)
         } else if name == "ExitPlanMode" && !s(&input, "plan").is_empty() {
             Extra::Plan(s(&input, "plan").to_owned())
         } else if let Some(ws) = fleet_target(&name, &input) {
@@ -570,6 +572,7 @@ impl<'a> Builder<'a> {
             state: St::Run,
             extra,
             result: None,
+            ms: None,
             sub: Vec::new(),
             sub_calls: 0,
             sub_last: String::new(),
@@ -578,7 +581,7 @@ impl<'a> Builder<'a> {
         self.tools.push(BTool {
             tool: t,
             sub: Vec::new(),
-            input,
+            start: ts,
         });
         self.running += 1;
         let i = self.tools.len() - 1;
@@ -586,11 +589,17 @@ impl<'a> Builder<'a> {
         i
     }
 
-    fn finish_tool(&mut self, t: usize, ok: bool, content: &str) {
+    fn finish_tool(&mut self, t: usize, ok: bool, content: &str, ts: i64) {
         let b = &self.tools[t];
-        let res = result_of(&b.tool.name, ok, content, &b.input, self.root);
+        let ms = (b.start > 0 && ts >= b.start).then(|| (ts - b.start) as u64);
+        let res = if SHELL_TOOLS.contains(&b.tool.name.as_str()) {
+            Some(shell_result(ok, content, ms))
+        } else {
+            result_of(&b.tool.name, ok, content)
+        };
         self.set_state(t, if ok { St::Ok } else { St::Err });
         self.tools[t].tool.result = res;
+        self.tools[t].tool.ms = ms;
     }
 
     fn sub_row(&mut self, parent: usize, r: &Row) {
@@ -599,7 +608,7 @@ impl<'a> Builder<'a> {
         }
         match &r.kind {
             EntryKind::ToolUse { id, name, input } => {
-                let t = self.new_tool(id.0.clone(), name, input.clone());
+                let t = self.new_tool(id.0.clone(), name, input.clone(), r.ts);
                 let (label, arg) = (
                     self.tools[t].tool.label.clone(),
                     self.tools[t].tool.arg.clone(),
@@ -622,7 +631,7 @@ impl<'a> Builder<'a> {
                 id, ok, content, ..
             } => {
                 if let Some(t) = self.tool_index(&id.0) {
-                    self.finish_tool(t, *ok, content);
+                    self.finish_tool(t, *ok, content, r.ts);
                 }
             }
             EntryKind::AssistantMessage { text } if !text.trim().is_empty() => {
@@ -719,22 +728,9 @@ impl<'a> Builder<'a> {
             },
         });
         let live_last = running && fold_open && !in_rewound;
-        let waiting = pending.first().map(|p| p.ask);
         let mut tools: Vec<Option<BTool>> = tools.into_iter().map(Some).collect();
-        let mut fresh = finish_items(top, &mut tools, live_last, waiting);
+        let fresh = finish_items(top, &mut tools, live_last);
         let turn_tokens = carry.turn_tokens.values().sum::<u64>().max(carry.turn_est);
-        if turn_tokens > 0
-            && pending.is_empty()
-            && let Some(Item {
-                body: Body::Fold(f),
-                sig,
-                ..
-            }) = fresh.last_mut()
-            && f.live
-        {
-            f.summary = format!("{} · {} tokens", f.summary, fmt_tokens(turn_tokens));
-            *sig ^= turn_tokens.wrapping_mul(0x9e37_79b9_7f4a_7c15);
-        }
         let offset = base.items.len();
         let index = fresh
             .iter()

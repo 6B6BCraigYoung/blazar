@@ -2,7 +2,7 @@ use super::*;
 use serde_json::json;
 
 use crate::chat_model::{
-    Step, always_rule, approval_choices, approval_title, first_open, step_sig,
+    Body, Step, always_rule, approval_choices, approval_title, first_open, step_sig,
 };
 
 fn row(sid: &str, seq: u64, ts: i64, kind: Value) -> Row {
@@ -59,16 +59,19 @@ fn folds_intermediate_steps_and_pairs_results() {
     let Body::Fold(f) = &t.items[1].body else {
         panic!()
     };
-    assert_eq!(f.summary, "调用了 1 次工具");
     assert!(matches!(&f.steps[0], Step::Thinking { secs: 1, .. }));
     let Step::Tool(tool) = &f.steps[1] else {
         panic!()
     };
     assert_eq!(
         (tool.label.as_str(), tool.arg.as_str(), tool.state),
-        ("Bash", "列目录", St::Ok)
+        ("Bash", "ls -la", St::Ok)
     );
-    assert_eq!(tool.result.as_ref().map(|r| r.more), Some(2));
+    assert_eq!(tool.ms, Some(500));
+    assert_eq!(
+        tool.result.as_ref().map(|r| (r.shown.as_str(), r.more)),
+        Some(("成功 · 0.5 秒", 6))
+    );
     assert!(
         matches!(&t.items[2].body, Body::Assistant { .. }),
         "最终文本和上一条回答一样，不重复"
@@ -164,7 +167,6 @@ fn live_fold_and_pending_approval() {
         panic!()
     };
     assert!(f.live);
-    assert_eq!(f.summary, "等你批准…");
     assert_eq!(t.pending.len(), 1);
     assert_eq!(
         approval_title(&t.pending[0].request, "/w", None),
@@ -177,7 +179,9 @@ fn live_fold_and_pending_approval() {
         tool.extra,
         Extra::Diff {
             rows: vec![('-', "a".into()), ('+', "b".into())],
-            more: 0
+            more: 0,
+            added: 1,
+            removed: 1,
         }
     );
 
@@ -219,10 +223,7 @@ fn live_turn_shows_its_token_count() {
     ];
     let t = build(&rows, "", true);
     assert_eq!(t.turn_tokens, 1200, "每次调用取最大值再加总");
-    let Body::Fold(f) = &t.items[1].body else {
-        panic!()
-    };
-    assert_eq!(f.summary, "思考中… · 1.2k tokens");
+    assert!(matches!(&t.items[1].body, Body::Fold(f) if f.live));
     let mut more = rows.clone();
     more.push(row(
         "s",
@@ -329,7 +330,10 @@ fn elided_subagent_rows_hide_output_until_full_rows_replace_them() {
         panic!()
     };
     assert_eq!(call.state, St::Err);
-    assert_eq!(call.result.as_ref().map(|r| r.full.as_str()), Some("a\nb"));
+    assert_eq!(
+        call.result.as_ref().map(|r| r.full.as_str()),
+        Some("失败\na\nb")
+    );
     assert_ne!(
         step_sig(&Step::Tool(Box::new(thin))),
         step_sig(&Step::Tool(Box::new(full)))

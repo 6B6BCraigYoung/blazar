@@ -21,13 +21,16 @@
 .cc-row::after { content: ""; position: absolute; left: 5.5px; top: 20px; bottom: -10px; width: 1px; background: var(--line); }
 .cc-row:last-child::after, .cc-row:has(+ .cc-user)::after, .cc-row:has(+ .cc-meta)::after { display: none; }
 .cc-turn:has(+ .cc-row, + .cc-spin) > .cc-row:last-child::after { display: block; }
+.cc-turn > .cc-fold:not(:last-child) > .cc-row:last-child::after { display: block; }
+.cc-fold:has(+ .cc-user, + .cc-meta) > .cc-row:last-child::after { display: none; }
+.cc-turn:has(+ .cc-row, + .cc-spin) > .cc-fold:last-child > .cc-row:last-child::after { display: block; }
 .cc-dot { flex: 0 0 auto; width: 12px; height: 20px; display: flex; align-items: center; justify-content: center; color: var(--fg-3); position: relative; z-index: var(--layer-chat-marker); }
 .cc-dot::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
 .cc-msg > .cc-dot { color: var(--fg); }
 .cc-row[data-st="ok"] > .cc-dot { color: var(--ok); }
 .cc-row[data-st="err"] > .cc-dot { color: var(--err); }
 .cc-row[data-st="run"] > .cc-dot { color: var(--fg-3); animation: ccpulse var(--duration-activity-pulse) ease-in-out infinite; }
-.cc-fold[data-live="false"][data-st="run"] > .cc-dot { animation: none; }
+.cc-fold[data-live="false"] .cc-row[data-st="run"] > .cc-dot { animation: none; }
 .cc-err > .cc-dot { color: var(--err); }
 .cc-warn > .cc-dot { color: var(--warn); }
 .cc-main { flex: 1; min-width: 0; }
@@ -83,7 +86,9 @@
 .cc-fd > summary:hover { color: var(--fg); }
 .cc-fchev { width: 12px; height: 12px; transition: transform var(--duration-control); }
 .cc-fd[open] > summary .cc-fchev { transform: rotate(90deg); }
-.cc-fold[data-live="true"] .cc-fl { animation: ccpulse var(--duration-tab-pulse) ease-in-out infinite; }
+.cc-reads[data-st="run"] .cc-fl { animation: ccpulse var(--duration-tab-pulse) ease-in-out infinite; }
+.cc-reads[data-st="err"] .cc-fl { color: var(--err-fg); }
+.cc-tool[data-st="err"] > .cc-main > .cc-head b { color: var(--err-fg); }
 .cc-fb { margin-top: var(--space-md); }
 .cc-fb > .cc-row:last-child::after { display: none; }
 
@@ -91,6 +96,10 @@
 .cc-head b { font-weight: var(--font-weight-semibold); flex: 0 0 auto; }
 .cc-arg { color: var(--fg-2); font: var(--font-size-label) var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cc-arg[data-open] { cursor: pointer; }
+.cc-cnt { flex: 0 0 auto; display: inline-flex; gap: var(--space-xs); font: var(--font-size-label) var(--font-mono); }
+.cc-cnt i { font-style: normal; }
+.cc-cnt .ok { color: var(--ok-fg); }
+.cc-cnt .bad { color: var(--err-fg); }
 .cc-arg[data-open]:hover { color: var(--accent); text-decoration: underline; }
 .cc-tool .cc-diff { cursor: pointer; }
 .cc-tool .cc-diff:hover { border-color: var(--border-strong); }
@@ -101,7 +110,6 @@
 .cc-ws.gone { color: var(--fg-3); font-family: var(--font-mono); }
 .cc-io, .cc-out { display: flex; gap: var(--space-md); margin-top: var(--space-label); }
 .cc-io { padding: var(--space-sm) var(--space-md); border: 1px solid var(--line); border-radius: var(--r-md); background: var(--bg-code); }
-.cc-io .lb { font: var(--font-weight-semibold) var(--font-size-keycap) var(--font-mono); color: var(--fg-4); padding-top: var(--space-2xs); }
 .cc-pre { flex: 1; min-width: 0; font: var(--font-size-label)/var(--line-height-code) var(--font-mono); white-space: pre-wrap; word-break: break-word; color: var(--fg-2); }
 .cc-out { color: var(--fg-3); }
 .cc-elbow { color: var(--fg-4); font-family: var(--font-mono); }
@@ -116,6 +124,7 @@
 .cc-diff .dadd { background: var(--chat-diff-added-bg); color: var(--chat-diff-added-fg); }
 .cc-diff .ddel { background: var(--chat-diff-removed-bg); color: var(--chat-diff-removed-fg); }
 .cc-diff .dgap, .cc-diff .dh { color: var(--fg-4); }
+.cc-diff + .cc-more { margin-top: var(--space-2xs); }
 .cc-todos { margin-top: var(--space-xs); display: flex; flex-direction: column; gap: var(--space-hairline); font-size: var(--font-size-label-readable); }
 .cc-todo { display: flex; gap: var(--space-sm); color: var(--fg-2); }
 .cc-todo.completed { color: var(--fg-4); text-decoration: line-through; }

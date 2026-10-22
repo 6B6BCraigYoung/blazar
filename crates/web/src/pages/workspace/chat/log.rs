@@ -6,7 +6,9 @@ use leptos::prelude::*;
 use crate::components::status::{InlineError, LoadingState};
 use wasm_bindgen::JsCast;
 
-use crate::chat_model::{Body, Extra, Fold, Item, Res, Step, Tool, fmt_tokens, step_sig};
+use crate::chat_model::{
+    Body, Extra, Fold, Group, Item, Res, St, Step, Tool, fmt_tokens, group_sig, group_steps,
+};
 use crate::components::dialog::{self, Choice};
 use crate::components::toast::toast;
 use crate::md;
@@ -143,40 +145,69 @@ fn result_view(r: Res, key: String, opened: Opened) -> impl IntoView {
     }
 }
 
+const DIFF_PEEK: usize = 6;
+
+fn diff_view(rows: Vec<(char, String)>, more: usize, opened: Opened, key: String) -> impl IntoView {
+    let all = RwSignal::new(opened.is(&key));
+    let hidden = rows.len().saturating_sub(DIFF_PEEK);
+    let rows = StoredValue::new(rows);
+    let line = |(c, l): &(char, String)| {
+        let cls = match c {
+            '+' => "dadd",
+            '-' => "ddel",
+            _ => "dgap",
+        };
+        view! {
+            <div class=cls>
+                <span class="dm">{if *c == '⋯' { ' ' } else { *c }}</span>
+                {if *c == '⋯' { "⋯".to_owned() } else { l.clone() }}
+            </div>
+        }
+    };
+    view! {
+        <div class="cc-diff" title="在「更改」里查看">
+            {move || {
+                let n = if all.get() { usize::MAX } else { DIFF_PEEK };
+                rows.with_value(|r| r.iter().take(n).map(line).collect_view())
+            }}
+            {move || {
+                (all.get() && more > 0)
+                    .then(|| view! { <div class="dgap">{format!("… 还有 {more} 行")}</div> })
+            }}
+        </div>
+        {move || {
+            (hidden > 0 && !all.get())
+                .then(|| {
+                    let k = key.clone();
+                    view! {
+                        <button
+                            class="cc-more"
+                            on:click=move |_| {
+                                all.set(true);
+                                opened.set(&k, true);
+                            }
+                        >
+                            {format!("再显示 {hidden} 行")}
+                        </button>
+                    }
+                })
+        }}
+    }
+}
+
 fn extra_view(e: &Extra, opened: Opened, key: &str, ws: &str) -> AnyView {
     match e {
         Extra::None => ().into_any(),
         Extra::Cmd(c) => view! {
             <div class="cc-io">
-                <span class="lb">"IN"</span>
                 <div class="cc-pre">{c.clone()}</div>
             </div>
         }
         .into_any(),
         Extra::Todos(list) => todo_list(list).into_any(),
-        Extra::Diff { rows, more } => view! {
-            <div class="cc-diff" title="在「更改」里查看">
-                {rows
-                    .iter()
-                    .map(|(c, l)| {
-                        let cls = match c {
-                            '+' => "dadd",
-                            '-' => "ddel",
-                            _ => "dgap",
-                        };
-                        view! {
-                            <div class=cls>
-                                <span class="dm">{if *c == '⋯' { ' ' } else { *c }}</span>
-                                {if *c == '⋯' { "⋯".to_owned() } else { l.clone() }}
-                            </div>
-                        }
-                    })
-                    .collect_view()}
-                {(*more > 0)
-                    .then(|| view! { <div class="dgap">{format!("… {more} more lines")}</div> })}
-            </div>
+        Extra::Diff { rows, more, .. } => {
+            diff_view(rows.clone(), *more, opened, format!("diff:{key}")).into_any()
         }
-        .into_any(),
         Extra::Files(f) => view! {
             <div class="cc-diff">
                 {f.iter().map(|x| view! { <div class="dh">{x.clone()}</div> }).collect_view()}
@@ -277,13 +308,21 @@ fn subagent_pending(chat: Chat, id: String) -> impl IntoView {
     }
 }
 
+fn sub_summary(t: &Tool) -> String {
+    if t.sub_calls == 0 {
+        return "子智能体工作中…".to_owned();
+    }
+    let lead = match t.state {
+        St::Run => "进行中",
+        St::Ok => "已完成",
+        St::Err => "没有完成",
+    };
+    format!("{lead} · {} 步 · 最近：{}", t.sub_calls, t.sub_last)
+}
+
 fn tool_view(t: Tool, chat: Chat, opened: Opened, ws: String) -> AnyView {
     let sub = (!t.sub.is_empty() || t.sub_calls > 0).then(|| {
-        let summary = if t.sub_calls > 0 {
-            format!("调用了 {} 次工具 · 最近：{}", t.sub_calls, t.sub_last)
-        } else {
-            "子智能体工作中…".to_owned()
-        };
+        let summary = sub_summary(&t);
         let steps = t.sub.clone();
         let ws = ws.clone();
         let elided = t.sub_elided;
@@ -301,20 +340,19 @@ fn tool_view(t: Tool, chat: Chat, opened: Opened, ws: String) -> AnyView {
                     }
                     return subagent_pending(chat, id).into_any();
                 }
-                view! {
-                    <div class="cc-subl">
-                        {steps
-                            .into_iter()
-                            .map(|s| step_view(s, chat, opened, ws.clone()))
-                            .collect_view()}
-                    </div>
-                }
-                .into_any()
+                view! { <div class="cc-subl">{steps_view(steps, chat, opened, ws)}</div> }
+                    .into_any()
             },
         )
     });
     let fleet = match &t.extra {
         Extra::Fleet(id) => Some(id.clone()),
+        _ => None,
+    };
+    let counts = match (&t.extra, t.name.as_str()) {
+        (Extra::Diff { added, removed, .. }, "Edit" | "MultiEdit" | "Write" | "NotebookEdit") => {
+            Some((*added, *removed))
+        }
         _ => None,
     };
     let open = matches!(
@@ -323,7 +361,7 @@ fn tool_view(t: Tool, chat: Chat, opened: Opened, ws: String) -> AnyView {
     )
     .then(|| t.arg.clone())
     .filter(|a| !a.is_empty() && !a.starts_with('/') && !a.starts_with('~'));
-    let open_tip = open.as_ref().map(|_| "在编辑器里打开");
+    let open_tip = open.as_ref().map(|_| "在检查器里打开");
     view! {
         <div class="cc-row cc-tool" data-st=t.state.as_str() data-name=t.name.clone()>
             <span class="cc-dot"></span>
@@ -339,6 +377,15 @@ fn tool_view(t: Tool, chat: Chat, opened: Opened, ws: String) -> AnyView {
                                 </span>
                             }
                         })}
+                    {counts
+                        .map(|(a, r)| {
+                            view! {
+                                <span class="cc-cnt">
+                                    <i class="ok">{format!("+{a}")}</i>
+                                    <i class="bad">{format!("−{r}")}</i>
+                                </span>
+                            }
+                        })}
                 </div>
                 {extra_view(&t.extra, opened, &t.id, &ws)}
                 {sub}
@@ -349,6 +396,82 @@ fn tool_view(t: Tool, chat: Chat, opened: Opened, ws: String) -> AnyView {
         </div>
     }
     .into_any()
+}
+
+fn reads_view(
+    tools: Vec<Tool>,
+    summary: String,
+    state: St,
+    chat: Chat,
+    opened: Opened,
+    ws: String,
+) -> AnyView {
+    let key = format!(
+        "reads:{}",
+        tools.first().map(|t| t.id.as_str()).unwrap_or_default()
+    );
+    let error = tools
+        .iter()
+        .find(|t| t.state == St::Err)
+        .and_then(|t| t.result.as_ref())
+        .map(|r| r.shown.lines().next().unwrap_or_default().to_owned())
+        .filter(|l| !l.is_empty());
+    view! {
+        <div class="cc-row cc-reads" data-st=state.as_str()>
+            <span class="cc-dot"></span>
+            <div class="cc-main">
+                {details(
+                    opened,
+                    key,
+                    "cc-fd",
+                    view! {
+                        <span class="cc-fl">{summary}</span>
+                        <span inner_html=CHEVRON></span>
+                    }
+                        .into_any(),
+                    move || {
+                        view! {
+                            <div class="cc-fb">
+                                {tools
+                                    .into_iter()
+                                    .map(|t| tool_view(t, chat, opened, ws.clone()))
+                                    .collect_view()}
+                            </div>
+                        }
+                            .into_any()
+                    },
+                )}
+                {error
+                    .map(|e| {
+                        view! {
+                            <div class="cc-out err">
+                                <span class="cc-elbow">"⎿"</span>
+                                <div class="cc-pre">{e}</div>
+                            </div>
+                        }
+                    })}
+            </div>
+        </div>
+    }
+    .into_any()
+}
+
+fn group_view(g: Group, chat: Chat, opened: Opened, ws: String) -> AnyView {
+    match g {
+        Group::Reads {
+            tools,
+            summary,
+            state,
+        } => reads_view(tools, summary, state, chat, opened, ws),
+        Group::One(s) => step_view(s, chat, opened, ws),
+    }
+}
+
+fn steps_view(steps: Vec<Step>, chat: Chat, opened: Opened, ws: String) -> impl IntoView {
+    group_steps(&steps)
+        .into_iter()
+        .map(|(_, g)| group_view(g, chat, opened, ws.clone()))
+        .collect_view()
 }
 
 fn step_view(s: Step, chat: Chat, opened: Opened, ws: String) -> AnyView {
@@ -407,39 +530,10 @@ fn step_view(s: Step, chat: Chat, opened: Opened, ws: String) -> AnyView {
     }
 }
 
-fn fold_view(key: String, f: Fold, chat: Chat, opened: Opened, ws: String) -> AnyView {
-    let Fold {
-        steps,
-        live,
-        summary,
-        state,
-    } = f;
+fn fold_view(f: Fold, chat: Chat, opened: Opened, ws: String) -> AnyView {
     view! {
-        <div class="cc-row cc-fold" data-st=state.as_str() data-live=live.to_string()>
-            <span class="cc-dot"></span>
-            <div class="cc-main">
-                {details(
-                    opened,
-                    format!("fold:{key}"),
-                    "cc-fd",
-                    view! {
-                        <span class="cc-fl">{summary}</span>
-                        <span inner_html=CHEVRON></span>
-                    }
-                        .into_any(),
-                    move || {
-                        view! {
-                            <div class="cc-fb">
-                                {steps
-                                    .into_iter()
-                                    .map(|s| step_view(s, chat, opened, ws.clone()))
-                                    .collect_view()}
-                            </div>
-                        }
-                            .into_any()
-                    },
-                )}
-            </div>
+        <div class="cc-fold" data-live=f.live.to_string()>
+            {steps_view(f.steps, chat, opened, ws)}
         </div>
     }
     .into_any()
@@ -821,7 +915,7 @@ fn item_view(it: Item, chat: Chat, opened: Opened, ws: String) -> AnyView {
             }
             .into_any()
         }
-        Body::Fold(f) => fold_view(key, f, chat, opened, ws),
+        Body::Fold(f) => fold_view(f, chat, opened, ws),
         Body::Error { text, by_account } => error_view(chat, text, by_account),
         Body::Warn { denied } => view! {
             <div class="cc-row cc-warn">
@@ -868,58 +962,32 @@ fn item_view(it: Item, chat: Chat, opened: Opened, ws: String) -> AnyView {
 
 fn fold_slot(key: String, chat: Chat, opened: Opened, ws: String) -> AnyView {
     let k = key.clone();
-    let head = Memo::new(move |_| {
+    let live = Memo::new(move |_| {
         chat.transcript.with(|t| match t.item(&k) {
             Some(Item {
                 body: Body::Fold(f),
                 ..
-            }) => Some((f.summary.clone(), f.live, f.state)),
-            _ => None,
+            }) => f.live,
+            _ => false,
         })
     });
-    let k = key.clone();
-    let steps = move || {
-        chat.transcript.with(|t| match t.item(&k) {
+    let groups = move || {
+        chat.transcript.with(|t| match t.item(&key) {
             Some(Item {
                 body: Body::Fold(f),
                 ..
-            }) => f
-                .steps
-                .iter()
-                .enumerate()
-                .map(|(i, s)| (i, step_sig(s), s.clone()))
+            }) => group_steps(&f.steps)
+                .into_iter()
+                .map(|(i, g)| (i, group_sig(&g), g))
                 .collect::<Vec<_>>(),
             _ => Vec::new(),
         })
     };
-    let state = move || head.get().map_or("ok", |h| h.2.as_str());
-    let live = move || head.get().is_some_and(|h| h.1).to_string();
-    let summary = move || head.get().map(|h| h.0).unwrap_or_default();
     view! {
-        <div class="cc-row cc-fold" data-st=state data-live=live>
-            <span class="cc-dot"></span>
-            <div class="cc-main">
-                {details(
-                    opened,
-                    format!("fold:{key}"),
-                    "cc-fd",
-                    view! {
-                        <span class="cc-fl">{summary}</span>
-                        <span inner_html=CHEVRON></span>
-                    }
-                        .into_any(),
-                    move || {
-                        view! {
-                            <div class="cc-fb">
-                                <For each=steps key=|(i, sig, _)| (*i, *sig) let:step>
-                                    {step_view(step.2, chat, opened, ws.clone())}
-                                </For>
-                            </div>
-                        }
-                            .into_any()
-                    },
-                )}
-            </div>
+        <div class="cc-fold" data-live=move || live.get().to_string()>
+            <For each=groups key=|(i, sig, _)| (*i, *sig) let:group>
+                {group_view(group.2, chat, opened, ws.clone())}
+            </For>
         </div>
     }
     .into_any()
@@ -984,13 +1052,8 @@ fn Spinner(chat: Chat, tick: RwSignal<u32>) -> impl IntoView {
     });
     let mode = move || chat.effective_mode().map(|m| m.0).unwrap_or("");
     let tokens = move || {
-        chat.transcript.with(|t| {
-            let live = t
-                .items
-                .last()
-                .is_some_and(|it| matches!(&it.body, Body::Fold(f) if f.live));
-            (t.turn_tokens > 0 && !live).then(|| fmt_tokens(t.turn_tokens))
-        })
+        chat.transcript
+            .with(|t| (t.turn_tokens > 0).then(|| fmt_tokens(t.turn_tokens)))
     };
     view! {
         <div class="cc-spin" data-mode=mode>

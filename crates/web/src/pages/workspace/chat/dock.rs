@@ -216,7 +216,7 @@ fn ApprovalCard(chat: Chat, p: Pending) -> impl IntoView {
         view! {
             <pre class="acmd">{what}</pre>
             {match diff {
-                Extra::Diff { rows, more } => {
+                Extra::Diff { rows, more, .. } => {
                     Some(
                         view! {
                             <div class="cc-diff">

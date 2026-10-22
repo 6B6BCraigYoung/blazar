@@ -114,11 +114,12 @@ fn first_line(text: &str) -> &str {
 pub fn tool_title(name: &str, input: &Value, root: &str) -> (String, String) {
     let rp = |k: &str| rel_path(s(input, k), root);
     let arg = if SHELL_TOOLS.contains(&name) {
-        let d = s(input, "description");
-        if d.is_empty() {
-            short(command_of(input).lines().next().unwrap_or(""), 140)
-        } else {
-            short(d, 140)
+        let c = command_of(input);
+        let c = c.trim();
+        match c.split_once('\n') {
+            Some((head, _)) => format!("{} …", short(head.trim_end(), 140)),
+            None if c.is_empty() => short(s(input, "description"), 140),
+            None => short(c, 140),
         }
     } else {
         match name {
@@ -244,20 +245,23 @@ pub fn todos_of(input: &Value) -> Vec<Todo> {
         .unwrap_or_default()
 }
 
+const DIFF_MAX: usize = 400;
+
 pub fn write_preview(input: &Value) -> Extra {
     let content = s(input, "content");
     if content.is_empty() {
         return Extra::None;
     }
-    const MAX: usize = 14;
     let lines: Vec<&str> = content.trim_end_matches('\n').split('\n').collect();
     Extra::Diff {
         rows: lines
             .iter()
-            .take(MAX)
+            .take(DIFF_MAX)
             .map(|l| ('+', (*l).to_owned()))
             .collect(),
-        more: lines.len().saturating_sub(MAX),
+        more: lines.len().saturating_sub(DIFF_MAX),
+        added: lines.len(),
+        removed: 0,
     }
 }
 
@@ -290,7 +294,6 @@ pub fn edit_diff(input: &Value, root: &str) -> Extra {
             };
         }
     };
-    const MAX: usize = 14;
     let mut rows = Vec::new();
     for e in &edits {
         let old = s(e, "old_string");
@@ -305,9 +308,16 @@ pub fn edit_diff(input: &Value, root: &str) -> Extra {
             rows.push(('⋯', String::new()));
         }
     }
-    let more = rows.len().saturating_sub(MAX);
-    rows.truncate(MAX);
-    Extra::Diff { rows, more }
+    let count = |c: char| rows.iter().filter(|r| r.0 == c).count();
+    let (added, removed) = (count('+'), count('-'));
+    let more = rows.len().saturating_sub(DIFF_MAX);
+    rows.truncate(DIFF_MAX);
+    Extra::Diff {
+        rows,
+        more,
+        added,
+        removed,
+    }
 }
 
 fn res(text: &str, cls: &'static str, max: usize) -> Res {
@@ -325,7 +335,7 @@ fn res(text: &str, cls: &'static str, max: usize) -> Res {
     }
 }
 
-pub fn result_of(name: &str, ok: bool, content: &str, input: &Value, root: &str) -> Option<Res> {
+pub fn result_of(name: &str, ok: bool, content: &str) -> Option<Res> {
     let text = content.trim_end();
     let n = if text.is_empty() {
         0
@@ -333,32 +343,21 @@ pub fn result_of(name: &str, ok: bool, content: &str, input: &Value, root: &str)
         text.split('\n').count()
     };
     if !ok {
-        return Some(res(if text.is_empty() { "出错了" } else { text }, "err", 6));
+        return Some(res(
+            if text.is_empty() {
+                "出错了"
+            } else {
+                text.trim_start()
+            },
+            "err",
+            1,
+        ));
     }
     Some(match name {
         "Read" => res(&format!("读取了 {n} 行"), "sum", 4),
         "TodoWrite" => return None,
         "ExitPlanMode" => res("你已批准这个计划", "sum", 4),
-        "Edit" | "MultiEdit" => {
-            let f = rel_path(s(input, "file_path"), root);
-            res(
-                &if f.is_empty() {
-                    "已更新文件".to_owned()
-                } else {
-                    format!("已更新 {f}")
-                },
-                "sum",
-                4,
-            )
-        }
-        "Write" => {
-            let w = s(input, "content").split('\n').count();
-            res(
-                &format!("向 {} 写入了 {w} 行", rel_path(s(input, "file_path"), root)),
-                "sum",
-                4,
-            )
-        }
+        "Edit" | "MultiEdit" | "Write" => return None,
         "Glob" | "LS" => res(
             &if n > 0 {
                 format!("找到 {n} 个文件\n{text}")
@@ -475,6 +474,55 @@ pub fn result_of(name: &str, ok: bool, content: &str, input: &Value, root: &str)
     })
 }
 
+fn exit_code(line: &str) -> Option<i32> {
+    let l = line.trim().to_ascii_lowercase();
+    l.strip_prefix("exit code")
+        .map(|r| r.trim_start_matches([':', ' ']))
+        .and_then(|r| r.parse().ok())
+}
+
+pub(super) fn shell_result(ok: bool, content: &str, ms: Option<u64>) -> Res {
+    let text = content.trim_end();
+    let mut lines: Vec<&str> = text.split('\n').collect();
+    let code = lines.first().and_then(|l| exit_code(l));
+    if code.is_some() {
+        lines.remove(0);
+    }
+    let output = lines.join("\n").trim_matches('\n').to_owned();
+    let n = if output.is_empty() {
+        0
+    } else {
+        output.split('\n').count()
+    };
+    let took = ms.map(|ms| {
+        if ms < 10_000 {
+            format!(" · {:.1} 秒", ms as f64 / 1000.0)
+        } else {
+            format!(" · {}", crate::vocab::duration(ms as f64 / 1000.0))
+        }
+    });
+    let status = match (ok, code) {
+        (true, _) => "成功".to_owned(),
+        (false, Some(c)) => format!("退出码 {c}"),
+        (false, None) => "失败".to_owned(),
+    } + took.as_deref().unwrap_or("");
+    let shown = match first_line(&output) {
+        line if !ok && !line.is_empty() => format!("{status}\n{line}"),
+        _ => status,
+    };
+    let full = if output.is_empty() {
+        shown.clone()
+    } else {
+        format!("{}\n{output}", shown.lines().next().unwrap_or_default())
+    };
+    Res {
+        more: if output.is_empty() { 0 } else { n },
+        shown,
+        full,
+        cls: if ok { "sum" } else { "err" },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -503,23 +551,67 @@ mod tests {
         assert_eq!(fleet_target("search_code", &json!({"query":"x"})), None);
         assert_eq!(fleet_target("send_prompt", &json!({})), None);
         assert_eq!(
-            result_of("get_history", true, "[{},{}]", &json!({}), "").map(|r| r.shown),
+            result_of("get_history", true, "[{},{}]").map(|r| r.shown),
             Some("读取了 2 条记录".into())
         );
         assert_eq!(
-            result_of("wait_workspace", true, "timed out", &json!({}), "").map(|r| r.shown),
+            result_of("wait_workspace", true, "timed out").map(|r| r.shown),
             Some("timed out".into())
         );
         assert_eq!(
             result_of(
                 "send_prompt",
                 true,
-                r#"{"admitted":false,"reason":"该工作区已有会话在运行"}"#,
-                &json!({}),
-                ""
+                r#"{"admitted":false,"reason":"该工作区已有会话在运行"}"#
             )
             .map(|r| r.shown),
             Some("没有送达\n该工作区已有会话在运行".into())
         );
+    }
+
+    #[test]
+    fn shell_results_lead_with_the_outcome() {
+        let ok = shell_result(true, "a\nb\n", Some(400));
+        assert_eq!(
+            (ok.shown.as_str(), ok.more, ok.cls),
+            ("成功 · 0.4 秒", 2, "sum")
+        );
+        assert_eq!(ok.full, "成功 · 0.4 秒\na\nb");
+        let bad = shell_result(false, "Exit code 2\n\nno such file: x\nmore", None);
+        assert_eq!(
+            (bad.shown.as_str(), bad.cls),
+            ("退出码 2\nno such file: x", "err")
+        );
+        assert_eq!(shell_result(false, "", None).shown, "失败");
+        assert_eq!(shell_result(true, "", None).more, 0);
+    }
+
+    #[test]
+    fn edits_count_what_they_add_and_remove() {
+        let e = edit_diff(&json!({"old_string":"a\nb","new_string":"c"}), "");
+        assert!(matches!(
+            e,
+            Extra::Diff {
+                added: 1,
+                removed: 2,
+                more: 0,
+                ..
+            }
+        ));
+        let w = write_preview(&json!({"content":"x\ny\n"}));
+        assert!(matches!(
+            w,
+            Extra::Diff {
+                added: 2,
+                removed: 0,
+                ..
+            }
+        ));
+        let (_, arg) = tool_title(
+            "Bash",
+            &json!({"command":"cd a\nmake","description":"build"}),
+            "",
+        );
+        assert_eq!(arg, "cd a …");
     }
 }

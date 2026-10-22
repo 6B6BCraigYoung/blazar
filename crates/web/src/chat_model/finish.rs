@@ -1,7 +1,7 @@
 use std::hash::{Hash, Hasher};
 
 use super::builder::{BBody, BItem, BStep, BTool};
-use super::{Body, Fold, Item, St, Step, Tool};
+use super::{Body, Fold, Item, Step};
 
 fn take_step(tools: &mut Vec<Option<BTool>>, st: BStep) -> Step {
     match st {
@@ -18,67 +18,6 @@ fn take_step(tools: &mut Vec<Option<BTool>>, st: BStep) -> Step {
     }
 }
 
-fn fold_summary(steps: &[Step], live: bool, waiting: Option<bool>) -> (String, St) {
-    let tools: Vec<&Tool> = steps
-        .iter()
-        .filter_map(|s| {
-            if let Step::Tool(t) = s {
-                Some(&**t)
-            } else {
-                None
-            }
-        })
-        .collect();
-    let errs = tools.iter().filter(|t| t.state == St::Err).count();
-    let running = tools.iter().rev().find(|t| t.state == St::Run);
-    let thinks: Vec<i64> = steps
-        .iter()
-        .filter_map(|s| {
-            if let Step::Thinking { secs, .. } = s {
-                Some(*secs)
-            } else {
-                None
-            }
-        })
-        .collect();
-    let text = match (live, waiting) {
-        (true, Some(true)) => "等你回答…".to_owned(),
-        (true, Some(false)) => "等你批准…".to_owned(),
-        _ if live && running.is_some() => match running.map_or("", |t| t.name.as_str()) {
-            "wait_workspace" => "等待子工作区…".to_owned(),
-            "send_prompt" => "正在派活…".to_owned(),
-            _ => format!("正在运行 {}…", running.map_or("", |t| t.label.as_str())),
-        },
-        _ if live && tools.is_empty() => "思考中…".to_owned(),
-        _ if !tools.is_empty() => format!(
-            "调用了 {} 次工具{}",
-            tools.len(),
-            if errs > 0 {
-                format!(" · {errs} 次失败")
-            } else {
-                String::new()
-            }
-        ),
-        _ if !thinks.is_empty() => {
-            let secs: i64 = thinks.iter().sum();
-            if secs > 0 {
-                format!("思考了 {secs} 秒")
-            } else {
-                "思考过".to_owned()
-            }
-        }
-        _ => format!("{} 步", steps.len()),
-    };
-    let st = if live {
-        St::Run
-    } else if errs > 0 {
-        St::Err
-    } else {
-        St::Ok
-    };
-    (text, st)
-}
-
 fn sig_step(st: &Step, h: &mut impl Hasher) {
     match st {
         Step::Thinking { text, secs } => (0u8, text.len(), secs).hash(h),
@@ -90,6 +29,7 @@ fn sig_step(st: &Step, h: &mut impl Hasher) {
                 &t.id,
                 t.state,
                 &t.result,
+                t.ms,
                 t.sub_calls,
                 t.sub_elided,
                 &t.arg,
@@ -114,7 +54,7 @@ fn sig_body(b: &Body) -> u64 {
         Body::User { text, first, .. } => (0u8, text, first).hash(&mut h),
         Body::Assistant { text } => (1u8, text).hash(&mut h),
         Body::Fold(f) => {
-            (2u8, f.live, &f.summary, f.state, f.steps.len()).hash(&mut h);
+            (2u8, f.live, f.steps.len()).hash(&mut h);
             for s in &f.steps {
                 sig_step(s, &mut h);
             }
@@ -136,7 +76,6 @@ pub(super) fn finish_items(
     items: Vec<BItem>,
     tools: &mut Vec<Option<BTool>>,
     live_last: bool,
-    waiting: Option<bool>,
 ) -> Vec<Item> {
     let n = items.len();
     items
@@ -163,17 +102,13 @@ pub(super) fn finish_items(
                 BBody::Meta { text, bad } => Body::Meta { text, bad },
                 BBody::Rewound { turns, items } => Body::Rewound {
                     turns,
-                    items: finish_items(items, tools, false, None),
+                    items: finish_items(items, tools, false),
                 },
                 BBody::Fold(steps) => {
                     let steps: Vec<Step> = steps.into_iter().map(|s| take_step(tools, s)).collect();
-                    let live = live_last && i + 1 == n;
-                    let (summary, state) = fold_summary(&steps, live, waiting);
                     Body::Fold(Fold {
                         steps,
-                        live,
-                        summary,
-                        state,
+                        live: live_last && i + 1 == n,
                     })
                 }
             };
