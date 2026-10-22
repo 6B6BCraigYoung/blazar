@@ -52,6 +52,12 @@ impl Action {
         self.keys = (!label.is_empty()).then_some(label);
         self
     }
+
+    #[must_use]
+    pub fn primary(mut self) -> Self {
+        self.primary = true;
+        self
+    }
 }
 
 #[component]

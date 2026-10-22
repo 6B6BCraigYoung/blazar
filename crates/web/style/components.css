@@ -136,3 +136,9 @@ summary::before { content: ""; display: inline-block; flex: 0 0 auto; width: 10p
 details[open] > summary::before { transform: rotate(90deg); }
 .cc-fd > summary::before, .cc-shell summary::before { content: none; }
 .row-actions { display: flex; align-items: center; gap: var(--space-md); flex-wrap: wrap; }
+.menu button:disabled { opacity: .45; }
+.menu button:disabled:hover { background: none; color: var(--fg); }
+.menu [aria-checked] { display: flex; align-items: center; gap: var(--space-sm); }
+.menu [aria-checked]::before { content: ""; width: 12px; flex: 0 0 auto; text-align: center; }
+.menu [aria-checked="true"]::before { content: "✓"; }
+.menu-note { padding: var(--space-xs) var(--space-control) var(--space-sm); font-size: var(--font-size-caption-readable); color: var(--fg-3); }

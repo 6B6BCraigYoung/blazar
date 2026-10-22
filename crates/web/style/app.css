@@ -300,8 +300,10 @@ b.mk { font: var(--font-weight-semibold) var(--font-size-caption) var(--font-mon
 .gp-out pre { margin: var(--space-sm) 0 0; padding: var(--space-control) var(--space-lg); max-height: 260px; overflow: auto; background: var(--bg-code); border: 1px solid var(--line); border-radius: var(--r-md); font: var(--font-size-caption-readable)/var(--line-height-code) var(--font-mono); color: var(--fg-2); white-space: pre-wrap; }
 .diffbar > *, .gp-head > *, .gp-acts > * { flex-shrink: 0; }
 
-.pv-url { flex: 1 1 200px; min-width: 120px; height: 24px; padding: 0 var(--space-md); border: 0; border-radius: 6px; background: var(--control-track); color: var(--fg); font: var(--font-size-caption-readable) var(--font-mono); outline: none; }
-.pv-url:focus { border-color: var(--accent); }
+.pv-url { flex: 1 1 auto; min-width: 0; width: 0; height: 24px; padding: 0 var(--space-md); border: 0; border-radius: 6px; background: var(--control-track); color: var(--fg); font: var(--font-size-caption-readable) var(--font-mono); outline: none; }
+.diffbar.pvbar { overflow: visible; }
+.pv-menu { top: 30px; min-width: 200px; }
+.pvbody > .blank { margin: auto; }
 .pvbody { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: auto; overscroll-behavior: contain; }
 .pv-stage { flex: 1; min-height: 0; display: flex; justify-content: center; background: var(--bg-canvas); }
 .pv-stage iframe { border: 0; background: var(--preview-canvas); }
@@ -485,9 +487,9 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 .nodes-page .nodes-form, .nodes-dialog .nodes-form { border: 0; padding: 0; margin: 0; min-width: 0; }
 .nodes-page .nodes-table { max-width: 100%; overflow-x: auto; }
 .nodes-page .nodes-table .tb { min-width: 420px; }
+.nodes-page .nodes-table .nodes-details { margin: 0; padding-top: 0; border-top: 0; }
 .nodes-page .nodes-maintenance > summary { color: var(--fg); font-weight: var(--font-weight-medium); font-size: var(--font-size-card-title); }
 .nodes-page .nodes-maintenance[open] > summary { margin-bottom: var(--space-lg); }
-.nodes-page .nodes-table .nodes-details { margin: 0; padding-top: 0; border-top: 0; }
 .nodes-dialog .ssh-row { white-space: normal; align-items: flex-start; }
 .nodes-dialog .ssh-row .mono.muted { overflow-wrap: anywhere; }
 .nodes-page .nodes-table td > .dot { display: inline-block; }

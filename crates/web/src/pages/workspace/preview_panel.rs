@@ -1,10 +1,14 @@
 use leptos::prelude::*;
 
+use crate::components::empty::{Action, Blank};
+use crate::components::icon;
+use crate::components::menu::menu_keydown;
 use crate::components::modal::Modal;
 use crate::components::status::{EmptyState, InlineError, LoadingState};
 use leptos::task::spawn_local;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use wasm_bindgen::JsCast;
 
 use crate::api;
 use crate::components::toast::toast;
@@ -84,6 +88,140 @@ const DEVICES: [(&str, &str, &str, &str); 3] = [
     ("fluid", "自适应", "70%", "100%"),
 ];
 
+#[derive(Clone, Copy)]
+enum PvSet {
+    Device(&'static str),
+    Log,
+}
+
+impl PvSet {
+    fn apply(self, p: &mut PvPrefs) {
+        match self {
+            Self::Device(d) => p.device = d.into(),
+            Self::Log => p.log = !p.log,
+        }
+    }
+}
+
+#[component]
+fn PvMenu(
+    prefs: RwSignal<PvPrefs>,
+    set_prefs: Callback<PvSet>,
+    url: Signal<String>,
+    tunnel: Signal<Option<String>>,
+    scripts_open: RwSignal<bool>,
+    panel_max: RwSignal<bool>,
+) -> impl IntoView {
+    let open = RwSignal::new(false);
+    let root = NodeRef::<leptos::html::Div>::new();
+    let button = NodeRef::<leptos::html::Button>::new();
+    let close = Callback::new(move |()| {
+        open.set(false);
+        if let Some(b) = button.get_untracked() {
+            let _ = b.focus();
+        }
+    });
+    let pick = move |f: &dyn Fn()| {
+        open.set(false);
+        f();
+    };
+    view! {
+        <span
+            class="more"
+            on:focusout=move |e| {
+                let inside = e
+                    .related_target()
+                    .and_then(|t| t.dyn_into::<web_sys::Node>().ok())
+                    .zip(e.current_target().and_then(|t| t.dyn_into::<web_sys::Node>().ok()))
+                    .is_some_and(|(t, me)| me.contains(Some(&t)));
+                if !inside {
+                    open.set(false);
+                }
+            }
+        >
+            <button
+                type="button"
+                class="laybtn"
+                node_ref=button
+                aria-label="预览更多操作"
+                title="更多"
+                aria-haspopup="menu"
+                aria-expanded=move || open.get().to_string()
+                on:click=move |_| open.update(|o| *o = !*o)
+            >
+                "⋯"
+            </button>
+            <Show when=move || open.get()>
+                <div
+                    class="menu pv-menu"
+                    node_ref=root
+                    role="menu"
+                    aria-label="预览"
+                    on:keydown=move |event| {
+                        if let Some(r) = root.get_untracked() {
+                            menu_keydown(&event, r.unchecked_ref(), close);
+                        }
+                    }
+                >
+                    {tunnel.get().map(|t| view! { <div class="menu-note">{t}</div> })}
+                    {DEVICES
+                        .iter()
+                        .map(|&(k, label, _, _)| {
+                            view! {
+                                <button
+                                    type="button"
+                                    role="menuitemradio"
+                                    aria-checked=move || (prefs.get().device == k).to_string()
+                                    on:click=move |_| pick(&|| set_prefs.run(PvSet::Device(k)))
+                                >
+                                    {label}
+                                </button>
+                            }
+                        })
+                        .collect_view()}
+                    <div class="menu-sep"></div>
+                    <button
+                        type="button"
+                        role="menuitemcheckbox"
+                        aria-checked=move || prefs.get().log.to_string()
+                        on:click=move |_| pick(&|| set_prefs.run(PvSet::Log))
+                    >
+                        "日志"
+                    </button>
+                    <button
+                        type="button"
+                        role="menuitem"
+                        disabled=move || url.with(String::is_empty)
+                        on:click=move |_| {
+                            pick(&|| {
+                                let _ = window()
+                                    .open_with_url_and_target(&url.get_untracked(), "_blank");
+                            })
+                        }
+                    >
+                        "在浏览器打开"
+                    </button>
+                    <button
+                        type="button"
+                        role="menuitem"
+                        on:click=move |_| pick(&|| scripts_open.set(true))
+                    >
+                        "脚本设置…"
+                    </button>
+                    <div class="menu-sep"></div>
+                    <button
+                        type="button"
+                        role="menuitem"
+                        on:click=move |_| pick(&|| panel_max.update(|m| *m = !*m))
+                    >
+                        {move || if panel_max.get() { "还原面板" } else { "最大化面板" }}
+                    </button>
+                </div>
+            </Show>
+        </span>
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 struct ScriptRun {
     kind: String,
@@ -115,8 +253,16 @@ pub fn PreviewBar(
     let ws = StoredValue::new(ws);
     let bus = use_bus();
 
+    let cfg = RwSignal::new(None::<Scripts>);
     let load = move || {
         let id = ws.get_value();
+        let scripts = id.clone();
+        spawn_local(async move {
+            if let Ok(c) = api::get::<Scripts>(&format!("/api/workspaces/{scripts}/scripts")).await
+            {
+                let _ = cfg.try_set(Some(c));
+            }
+        });
         spawn_local(async move {
             let d = match api::get::<Dev>(&format!("/api/workspaces/{id}/dev")).await {
                 Ok(dev) => {
@@ -252,19 +398,21 @@ pub fn PreviewBar(
 
     view! {
         <div class="diffbar pvbar">
-            <button
-                class="btn small"
-                class:primary=move || !running()
-                disabled=move || busy.get().is_some()
-                on:click=move |_| start_stop(if running() { "stop" } else { "start" })
-            >
-                {move || match busy.get() {
-                    Some("start") => "启动中…",
-                    Some("stop") => "停止中…",
-                    _ if running() => "停止",
-                    _ => "启动预览",
-                }}
-            </button>
+            <Show when=move || busy.get().is_some() || running() || url().is_empty()>
+                <button
+                    class="btn small"
+                    class:primary=move || !running()
+                    disabled=move || busy.get().is_some()
+                    on:click=move |_| start_stop(if running() { "stop" } else { "start" })
+                >
+                    {move || match busy.get() {
+                        Some("start") => "启动中…",
+                        Some("stop") => "停止中…",
+                        _ if running() => "停止",
+                        _ => "启动预览",
+                    }}
+                </button>
+            </Show>
             <input
                 class="pv-url"
                 aria-label="预览地址"
@@ -284,53 +432,6 @@ pub fn PreviewBar(
                     }
                 }
             />
-            <button
-                class="laybtn"
-                aria-label="刷新预览"
-                title="刷新页面"
-                inner_html=super::ICON_REFRESH
-                on:click=move |_| {
-                    reload.update(|n| *n += 1);
-                    load();
-                }
-            ></button>
-            <span class="seg">
-                {DEVICES
-                    .iter()
-                    .map(|&(k, label, _, _)| {
-                        view! {
-                            <button
-                                aria-pressed=move || (prefs.get().device == k).to_string()
-                                data-on=move || (prefs.get().device == k).to_string()
-                                on:click=move |_| set_prefs(&|p| p.device = k.into())
-                            >
-                                {label}
-                            </button>
-                        }
-                    })
-                    .collect_view()}
-            </span>
-            <span class="grow"></span>
-            {move || {
-                dev.get()
-                    .and_then(|d| {
-                        d.tunnel
-                            .map(|t| {
-                                view! {
-                                    <span
-                                        class="gchip info"
-                                        title=format!(
-                                            "远端工作区：hub 起了一条 ssh 隧道，把 {} 的 {} 端口接到本机 {t}",
-                                            d.node,
-                                            d.port.unwrap_or(0),
-                                        )
-                                    >
-                                        "远端已连接"
-                                    </span>
-                                }
-                            })
-                    })
-            }}
             {move || {
                 dev.get()
                     .and_then(|d| {
@@ -345,39 +446,42 @@ pub fn PreviewBar(
                     })
             }}
             <button
-                class="btn small"
-                aria-pressed=move || prefs.get().log.to_string()
+                class="laybtn"
+                aria-label="刷新预览"
+                title="刷新页面"
+                inner_html=super::ICON_REFRESH
                 on:click=move |_| {
-                    set_prefs(&|p| p.log = !p.log);
+                    reload.update(|n| *n += 1);
                     load();
                 }
-            >
-                "日志"
-            </button>
-            <button
-                class="btn small"
-                disabled=move || url().is_empty()
-                on:click=move |_| {
-                    let _ = window().open_with_url_and_target(&url(), "_blank");
-                }
-            >
-                "在浏览器打开"
-            </button>
-            <button
-                class="btn small"
-                aria-haspopup="dialog"
-                on:click=move |_| scripts_open.set(true)
-            >
-                "脚本设置"
-            </button>
-            <button
-                class="laybtn"
-                title=move || if panel_max.get() { "还原面板" } else { "最大化面板" }
-                aria-pressed=move || panel_max.get().to_string()
-                on:click=move |_| panel_max.update(|m| *m = !*m)
-            >
-                "⤢"
-            </button>
+            ></button>
+            <PvMenu
+                prefs
+                set_prefs=Callback::new(move |f: PvSet| {
+                    set_prefs(&|p| f.apply(p));
+                    if matches!(f, PvSet::Log) {
+                        load();
+                    }
+                })
+                url=Signal::derive(url)
+                tunnel=Signal::derive(move || {
+                    dev.with(|d| {
+                        d.as_ref()
+                            .and_then(|d| {
+                                d.tunnel
+                                    .map(|t| {
+                                        format!(
+                                            "远端已连接：ssh 隧道把 {} 的 {} 端口接到本机 {t}",
+                                            d.node,
+                                            d.port.unwrap_or(0),
+                                        )
+                                    })
+                            })
+                    })
+                })
+                scripts_open
+                panel_max
+            />
         </div>
         <div class="pvbody">
             {move || {
@@ -438,16 +542,58 @@ pub fn PreviewBar(
                         }
                             .into_any();
                     }
-                    let msg = if d.running {
-                        "预览已启动。查看日志，或在上方输入地址。".to_owned()
+                    let start = Action::new("启动预览", move || start_stop("start"));
+                    let settings = Action::new("去设置", move || scripts_open.set(true))
+                        .primary();
+                    let c = cfg.get().unwrap_or_default();
+                    let manual = d.source.as_deref() == Some("manual");
+                    let port = c.preview_port.map(u32::from).or(d.port.filter(|_| manual));
+                    let (title, detail, action) = if d.running {
+                        (
+                            "预览已启动".to_owned(),
+                            "还没识别出地址，可以在上方输入地址，或打开日志看看。".to_owned(),
+                            None,
+                        )
                     } else if !d.reason.is_empty() {
-                        d.reason.clone()
+                        ("预览没有启动".to_owned(), d.reason.clone(), Some(settings))
+                    } else if let Some(port) = port {
+                        if c.dev.trim().is_empty() {
+                            (
+                                format!("将连接 localhost:{port}"),
+                                "还没有启动命令，可以自己启动服务后刷新。".to_owned(),
+                                Some(settings),
+                            )
+                        } else {
+                            (
+                                format!("将连接 localhost:{port}"),
+                                "启动后会在这里显示页面。".to_owned(),
+                                Some(start),
+                            )
+                        }
+                    } else if !c.dev.trim().is_empty() {
+                        (
+                            "启动后自动识别地址".to_owned(),
+                            "从开发服务器的日志或监听的端口里找。".to_owned(),
+                            Some(start),
+                        )
                     } else {
-                        "在「脚本设置」中填写启动命令，然后启动预览。"
-                            .to_owned()
+                        (
+                            "还没有启动命令".to_owned(),
+                            "在脚本设置里填上启动命令，或指定一个端口。".to_owned(),
+                            Some(settings),
+                        )
                     };
                     return view! {
-                        <EmptyState title=msg />
+                        {match action {
+                            Some(action) => {
+                                view! { <Blank icon=icon::WINDOW title detail action inset=true /> }
+                                    .into_any()
+                            }
+                            None => {
+                                view! { <Blank icon=icon::WINDOW title detail inset=true /> }
+                                    .into_any()
+                            }
+                        }}
                         {log}
                     }
                         .into_any();

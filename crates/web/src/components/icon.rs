@@ -28,4 +28,5 @@ pub const LOCK: &str =
     r#"<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>"#;
 pub const CHECK: &str = r#"<circle cx="12" cy="12" r="9"/><path d="m8 12.5 2.8 2.8L16.5 9.5"/>"#;
 pub const FILTER: &str = r#"<path d="M4 5h16l-6.2 7.4V19l-3.6-1.8v-4.8z"/>"#;
+pub const WINDOW: &str = r#"<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 8.5h18M6.5 6.2h.01M9 6.2h.01"/>"#;
 pub const ACTIVITY: &str = r#"<path d="M3 12h4l2.5-6 5 12 2.5-6h4"/>"#;
