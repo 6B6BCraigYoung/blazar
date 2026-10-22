@@ -65,7 +65,7 @@
 
 .work-page .row-actions { display: flex; align-items: center; gap: var(--space-md); flex-wrap: wrap; }
 .work-page .input, .work-dialog .input { padding: var(--space-field) var(--space-control); border: 1px solid var(--border); border-radius: var(--r-md); background: var(--bg-canvas); color: var(--fg); font: var(--font-size-body) var(--font-sans); box-sizing: border-box; outline: none; }
-.work-page .input:focus, .work-dialog .input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent); }
+.work-page .input:focus, .work-dialog .input:focus { border-color: var(--border-strong); }
 .work-flow > .pad { padding: var(--space-xl); }
 .work-page .md-body { padding: var(--space-md) 0; margin: 0; font-size: var(--font-size-body); }
 .work-page .bad, .work-dialog .bad { color: var(--err-fg); }

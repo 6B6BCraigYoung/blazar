@@ -26,6 +26,7 @@ pub(super) fn Todos(chat: Chat) -> impl IntoView {
             <div class="cc-todobar">
                 <button
                     class="td-h"
+                    aria-expanded=move || open.get().to_string()
                     on:click=move |_| {
                         open.update(|o| *o = !*o);
                         storage::save_raw(
@@ -34,7 +35,7 @@ pub(super) fn Todos(chat: Chat) -> impl IntoView {
                         );
                     }
                 >
-                    {move || if open.get() { "▾ " } else { "▸ " }}
+                    <span class="chev" aria-hidden="true"></span>
                     <b>{format!("待办 {done}/{}", todos.len())}</b>
                     {cur.map(|c| view! { <span class="td-cur">{c}</span> })}
                 </button>

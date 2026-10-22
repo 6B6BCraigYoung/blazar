@@ -214,12 +214,14 @@
   --shadow-menu: 0 0 0 .5px rgba(0,0,0,.6), 0 10px 32px rgba(0,0,0,.45);
   --shadow-dialog: 0 0 0 .5px rgba(0,0,0,.6), 0 30px 80px rgba(0,0,0,.55);
   --material-menu: rgba(44,44,47,.86);
+  --material-palette: rgba(44,44,47,.96);
   --material-bar: rgba(30,30,32,.8);
   --control-bg: #3a3a3d;
   --control-bg-hover: #444448;
   --control-track: rgba(118,118,128,.24);
   --gradient-primary: linear-gradient(180deg, #2e95ff, #0a7cf5);
   --blur-material: saturate(180%) blur(24px);
+  --blur-palette: saturate(180%) blur(30px);
 
   --layer-chat-marker: 1;
   --layer-detail-sticky: 1;
@@ -234,6 +236,7 @@
   --layer-toast: 60;
 
   --duration-caret: .1s;
+  --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M6 3.5 10.5 8 6 12.5' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   --duration-control: .12s;
   --duration-content-dim: .15s;
   --duration-approval-enter: .2s;
@@ -321,6 +324,7 @@
   --shadow-menu: 0 0 0 .5px rgba(0,0,0,.12), 0 10px 32px rgba(0,0,0,.16);
   --shadow-dialog: 0 0 0 .5px rgba(0,0,0,.12), 0 30px 80px rgba(0,0,0,.25);
   --material-menu: rgba(250,250,252,.86);
+  --material-palette: rgba(250,250,252,.96);
   --material-bar: rgba(255,255,255,.8);
   --control-bg: #ffffff;
   --control-bg-hover: #f5f5f7;
@@ -407,6 +411,7 @@
     --shadow-menu: 0 0 0 .5px rgba(0,0,0,.12), 0 10px 32px rgba(0,0,0,.16);
     --shadow-dialog: 0 0 0 .5px rgba(0,0,0,.12), 0 30px 80px rgba(0,0,0,.25);
     --material-menu: rgba(250,250,252,.86);
+    --material-palette: rgba(250,250,252,.96);
     --material-bar: rgba(255,255,255,.8);
     --control-bg: #ffffff;
     --control-bg-hover: #f5f5f7;

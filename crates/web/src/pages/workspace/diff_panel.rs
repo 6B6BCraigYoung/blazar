@@ -527,7 +527,7 @@ fn file_view(
                     aria-expanded=move || (!folded.get()).to_string()
                     aria-label=title.clone()
                 >
-                    <span class="caret">"▾"</span>
+                    <span class="caret" aria-hidden="true"></span>
                     <b class=format!("mk {cls}")>{mk}</b>
                     <span class="path">{title.clone()}</span>
                     <span class="st">

@@ -35,7 +35,8 @@
 .transfer-file { margin: 0 0 var(--space-lg); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .transfer-groups { display: flex; flex-direction: column; border-top: 1px solid var(--line); }
 .transfer-group { border-bottom: 1px solid var(--line); }
-.transfer-group > summary { display: flex; align-items: center; justify-content: space-between; gap: var(--space-lg); padding: var(--space-lg) 0; cursor: pointer; font-weight: var(--font-weight-medium); }
+.transfer-group > summary .transfer-count { margin-left: auto; }
+.transfer-group > summary { display: flex; align-items: center; gap: var(--space-sm); padding: var(--space-lg) 0; cursor: pointer; font-weight: var(--font-weight-medium); }
 .transfer-count { color: var(--fg-3); font-variant-numeric: tabular-nums; font-weight: var(--font-weight-regular); }
 .transfer-items { list-style: none; margin: 0 0 var(--space-lg); padding: 0; max-height: 220px; overflow-y: auto; overscroll-behavior: contain; }
 .transfer-items li { display: grid; grid-template-columns: 7em minmax(0, 1fr); gap: 0 var(--space-lg); padding: var(--space-sm) 0; font-size: var(--font-size-label); }
