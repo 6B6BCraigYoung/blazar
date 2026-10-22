@@ -7,7 +7,7 @@ use crate::storage;
 
 const KEY: &str = "blazar.v4.ws.layout";
 const EX: (f64, f64) = (200.0, 480.0);
-const CHAT_MIN: f64 = 320.0;
+const CHAT_MIN: f64 = 480.0;
 const INSP_MIN: f64 = 360.0;
 const PANEL_MIN: f64 = 90.0;
 pub const NARROW: f64 = 1200.0;
