@@ -854,8 +854,10 @@ def plan(round_name):
     items.append(("new-workspace-folder-menu", "/", "新建工作区对话框里目录的右键菜单",
                   ({"action": "click", "text": "新建工作区"}, {"action": "wait", "ms": 600},
                    {"action": "context_menu", "text": "tmp"}), False))
+    detail = ".ws-card button[aria-label$=\"的详情\"]"
     items.append(("workspace-card-detail", "/", "工作区卡片的详情弹层",
-                  ({"action": "click", "selector": "button[aria-label$=\"的详情\"], button[title$=\"的详情\"]"},), False))
+                  ({"action": "wait", "selector": detail, "timeout_ms": 8000},
+                   {"action": "click", "selector": detail}), False))
     ws_rows = db_rows("SELECT id, name FROM workspaces ORDER BY created_at")
     for wid, name in ws_rows:
         items.append((f"workspace-{slugify(name)}", f"/w/{wid}", f"工作区页：{name}",
