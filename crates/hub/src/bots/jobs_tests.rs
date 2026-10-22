@@ -696,6 +696,7 @@ fn verdicts_follow_the_run_state() {
         owner_kind: "user".into(),
         bot_id: None,
         bot_handle: None,
+        bot_name: None,
         session_id: None,
         owner_workspace: None,
         workspace_id: None,
@@ -758,4 +759,27 @@ fn verdicts_follow_the_run_state() {
         "{text}"
     );
     assert!(text.contains("line 30") && text.contains("line 11") && !text.contains("line 10\n"));
+}
+
+#[tokio::test]
+async fn a_bot_job_names_its_owner_by_display_name_for_people_and_by_handle_for_bots() {
+    let h = hub().await;
+    let b = crate::bots::create(
+        &h.st,
+        NewBot {
+            handle: "demo-trainer".into(),
+            display_name: Some("训练助手".into()),
+            agent_id: "agent-a".into(),
+            role: Some("worker".into()),
+            home_path: Some(h.root.path().join("demo-trainer").display().to_string()),
+            ..NewBot::default()
+        },
+    )
+    .await
+    .unwrap();
+    let job = h.spawn("true", &bot_owner(&b)).await;
+    let job = get(&h.st, &job.id).await.unwrap();
+    assert_eq!(job.bot_name.as_deref(), Some("训练助手"));
+    assert_eq!(job.owner_label(), "训练助手");
+    assert_eq!(brief(&job)["owner"], "demo-trainer");
 }

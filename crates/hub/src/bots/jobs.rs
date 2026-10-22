@@ -42,6 +42,7 @@ pub struct Job {
     pub owner_kind: String,
     pub bot_id: Option<String>,
     pub bot_handle: Option<String>,
+    pub bot_name: Option<String>,
     pub session_id: Option<String>,
     pub owner_workspace: Option<String>,
     pub workspace_id: Option<String>,
@@ -122,8 +123,9 @@ impl Job {
     pub fn owner_label(&self) -> String {
         match self.owner_kind.as_str() {
             "bot" => self
-                .bot_handle
+                .bot_name
                 .clone()
+                .or_else(|| self.bot_handle.clone())
                 .unwrap_or_else(|| "已删除的 bot".into()),
             "session" => self
                 .owner_workspace
@@ -140,6 +142,7 @@ fn job_of(r: &SqliteRow) -> Job {
         owner_kind: s(r, "owner_kind"),
         bot_id: opt(r, "bot_id"),
         bot_handle: opt(r, "bot_handle"),
+        bot_name: opt(r, "bot_name"),
         session_id: opt(r, "session_id"),
         owner_workspace: opt(r, "owner_workspace"),
         workspace_id: opt(r, "workspace_id"),
@@ -166,7 +169,7 @@ fn job_of(r: &SqliteRow) -> Job {
     }
 }
 
-const SELECT: &str = "SELECT j.*, n.name AS node, b.handle AS bot_handle, w.name AS workspace_name,
+const SELECT: &str = "SELECT j.*, n.name AS node, b.handle AS bot_handle, b.display_name AS bot_name, w.name AS workspace_name,
         (SELECT ow.name FROM sessions os JOIN workspaces ow ON ow.id = os.workspace_id
          WHERE COALESCE(os.thread_id, os.id) = j.session_id ORDER BY os.created_at DESC LIMIT 1)
         AS owner_workspace
@@ -317,7 +320,7 @@ pub fn brief(j: &Job) -> Value {
         "label": j.label,
         "node": j.node,
         "status": j.status,
-        "owner": j.owner_label(),
+        "owner": j.bot_handle.clone().filter(|_| j.owner_kind == "bot").unwrap_or_else(|| j.owner_label()),
         "workspace_id": j.workspace_id,
         "started_at": j.created_at,
         "ended_at": j.ended_at,
