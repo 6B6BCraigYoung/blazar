@@ -261,7 +261,7 @@ pub fn Sidebar() -> impl IntoView {
                         on:click=move |_| app.alerts_open.set(true)
                     >
                         <span class="ic-inline" inner_html=icon::svg(icon::BELL)></span>
-                        {move || if alerts_on() { " 提醒已开" } else { " 开启提醒" }}
+                        <span>{move || if alerts_on() { "提醒已开" } else { "开启提醒" }}</span>
                     </button>
                 </div>
                 <span class="conn" role="status" data-up=move || bus.connected.get().to_string()>
