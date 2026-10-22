@@ -70,6 +70,15 @@ impl Hub {
         }
     }
 
+    pub async fn local_roots(&self) -> Result<Vec<String>, String> {
+        match self {
+            Self::Embedded { state, .. } => blazar_hub::api::local_roots(state)
+                .await
+                .map_err(|e| e.to_string()),
+            Self::Remote(_) => Err("远程 hub 的文件不在这台电脑上".into()),
+        }
+    }
+
     pub fn url(&self) -> &str {
         match self {
             Self::Embedded { url, .. } => url,

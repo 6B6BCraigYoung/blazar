@@ -127,6 +127,19 @@ pub(crate) async fn locate(st: &AppState, id: &str) -> anyhow::Result<(String, S
     Ok((row.try_get("node")?, row.try_get("path")?))
 }
 
+pub async fn local_roots(st: &AppState) -> anyhow::Result<Vec<String>> {
+    let rows = sqlx::query(
+        "SELECT w.path FROM workspaces w
+         JOIN nodes n ON n.id = w.node_id WHERE n.name = 'local'",
+    )
+    .fetch_all(st.db.pool())
+    .await?;
+    Ok(rows
+        .into_iter()
+        .filter_map(|r| r.try_get::<String, _>("path").ok())
+        .collect())
+}
+
 pub(crate) fn vfs_for(st: &AppState, node: &str, path: &str) -> Vfs {
     Vfs::new(st.transport(node), path)
 }

@@ -116,21 +116,39 @@ pub async fn forward_port(hub: State<'_, Arc<Hub>>, port: u16) -> Result<u16, St
     r.forward(port).await
 }
 
+fn expand_home(path: &str) -> std::path::PathBuf {
+    match (path.strip_prefix("~/"), std::env::var_os("HOME")) {
+        (Some(rest), Some(home)) => std::path::Path::new(&home).join(rest),
+        _ => std::path::PathBuf::from(path),
+    }
+}
+
+fn inside_workspace(path: &str, roots: &[String]) -> Result<std::path::PathBuf, String> {
+    let path = std::path::Path::new(path);
+    if !path.is_absolute() {
+        return Err("只能显示工作区里的文件".into());
+    }
+    let real = path
+        .canonicalize()
+        .map_err(|_| "找不到这个文件".to_owned())?;
+    roots
+        .iter()
+        .filter_map(|r| expand_home(r).canonicalize().ok())
+        .any(|root| real.starts_with(&root))
+        .then_some(real)
+        .ok_or_else(|| "只能显示本机工作区里的文件".into())
+}
+
 #[tauri::command]
-pub fn reveal_path(hub: State<'_, Arc<Hub>>, path: String) -> Result<(), String> {
-    if hub.remote().is_some() {
-        return Err("远程 hub 的文件不在这台电脑上".into());
-    }
-    let path = std::path::Path::new(&path);
-    if !path.is_absolute() || !path.exists() {
-        return Err("找不到这个文件".into());
-    }
+pub async fn reveal_path(hub: State<'_, Arc<Hub>>, path: String) -> Result<(), String> {
+    let roots = hub.local_roots().await?;
+    let real = inside_workspace(&path, &roots)?;
     if !cfg!(target_os = "macos") {
         return Err("只有 macOS 能在访达中显示".into());
     }
     std::process::Command::new("open")
         .arg("-R")
-        .arg(path)
+        .arg(&real)
         .status()
         .map_err(|e| e.to_string())
         .and_then(|s| {
@@ -140,4 +158,44 @@ pub fn reveal_path(hub: State<'_, Arc<Hub>>, path: String) -> Result<(), String>
                 Err("访达没有打开".into())
             }
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reveal_stays_inside_local_workspaces() {
+        let ws = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::create_dir(ws.path().join("src")).unwrap();
+        std::fs::write(ws.path().join("src/a.rs"), "a").unwrap();
+        std::fs::write(outside.path().join("secret"), "s").unwrap();
+        let roots = vec![ws.path().to_string_lossy().into_owned()];
+        let at = |rel: &str| ws.path().join(rel).to_string_lossy().into_owned();
+
+        assert!(inside_workspace(&at("src/a.rs"), &roots).is_ok());
+        assert!(inside_workspace(&at("src"), &roots).is_ok());
+        assert!(inside_workspace(&at(""), &roots).is_ok());
+
+        let escape = format!("{}/../{}/secret", at("src"), outside.path().display());
+        assert!(inside_workspace(&escape, &roots).is_err());
+        let up = ws.path().join("src/../..").to_string_lossy().into_owned();
+        assert!(inside_workspace(&up, &roots).is_err());
+
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(outside.path().join("secret"), ws.path().join("link"))
+                .unwrap();
+            std::os::unix::fs::symlink(outside.path(), ws.path().join("dir-link")).unwrap();
+            assert!(inside_workspace(&at("link"), &roots).is_err());
+            assert!(inside_workspace(&at("dir-link/secret"), &roots).is_err());
+        }
+
+        assert!(inside_workspace(&at("src/missing.rs"), &roots).is_err());
+        assert!(inside_workspace("src/a.rs", &roots).is_err());
+        assert!(inside_workspace(&at("src/a.rs"), &[]).is_err());
+        let gone = vec![outside.path().join("nope").to_string_lossy().into_owned()];
+        assert!(inside_workspace(&at("src/a.rs"), &gone).is_err());
+    }
 }
