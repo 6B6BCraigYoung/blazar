@@ -6,7 +6,7 @@ use leptos::prelude::*;
 use serde_json::{Value, json};
 use wasm_bindgen::JsCast;
 
-use crate::chat_model::{self, Extra, Pending};
+use crate::chat_model::{self, ApprovalKey, Extra, Pending};
 use crate::components::toast::toast;
 
 use super::log::Md;
@@ -170,24 +170,57 @@ fn ApprovalCard(chat: Chat, p: Pending) -> impl IntoView {
             }
             return;
         }
-        let k = e.key();
-        if let Ok(n) = k.parse::<usize>()
-            && (1..=opts.len()).contains(&n)
-        {
-            e.prevent_default();
-            pick2(n - 1);
-        } else if k == "Escape" {
-            e.prevent_default();
-            e.stop_propagation();
-            no2();
-        } else if k == "ArrowDown" || k == "ArrowUp" {
-            e.prevent_default();
-            step(if k == "ArrowDown" { 1 } else { -1 });
-        } else if k == "Enter" && pos(&active).is_none_or(|i| i >= opts.len()) {
-            e.prevent_default();
-            pick2(0);
+        if e.meta_key() || e.ctrl_key() || e.alt_key() || ime(&e) {
+            return;
+        }
+        match chat_model::approval_key(&e.key(), opts.len()) {
+            Some(ApprovalKey::Pick(i)) => {
+                e.prevent_default();
+                pick2(i);
+            }
+            Some(ApprovalKey::Reject) => {
+                e.prevent_default();
+                e.stop_propagation();
+                no2();
+            }
+            Some(ApprovalKey::Move(d)) => {
+                e.prevent_default();
+                step(d);
+            }
+            Some(ApprovalKey::Confirm) => match pos(&active) {
+                Some(i) if i < opts.len() => {
+                    e.prevent_default();
+                    pick2(i);
+                }
+                Some(_) => {}
+                None => {
+                    e.prevent_default();
+                    pick2(0);
+                }
+            },
+            None => {}
         }
     };
+    let keys = StoredValue::new_local(keys);
+    let stray = window_event_listener(ev::keydown, move |e| {
+        if !e.is_trusted() || e.default_prevented() || focused_is_text() {
+            return;
+        }
+        let inside = document().active_element().is_some_and(|a| {
+            root.try_get_untracked()
+                .flatten()
+                .is_some_and(|r| r.contains(Some(&a)))
+        });
+        let blocked = document()
+            .query_selector("dialog[open], [role=\"dialog\"], .menu, .ctx-menu")
+            .ok()
+            .flatten()
+            .is_some();
+        if !inside && !blocked {
+            keys.with_value(|k| k(e));
+        }
+    });
+    on_cleanup(move || stray.remove());
     focus_first_later(root, ".aopt");
 
     let body = if plan {
@@ -260,8 +293,12 @@ fn ApprovalCard(chat: Chat, p: Pending) -> impl IntoView {
             node_ref=root
             tabindex="0"
             data-folded=move || folded.get().to_string()
-            on:keydown=keys
+            on:keydown=move |e| keys.with_value(|k| k(e))
         >
+            <div class="astat" role="status">
+                <span class="dot" aria-hidden="true"></span>
+                "等你批准"
+            </div>
             <div class="ahd">
                 <span class="ah">{title}</span>
                 <button
@@ -281,8 +318,8 @@ fn ApprovalCard(chat: Chat, p: Pending) -> impl IntoView {
                     .map(|(i, l)| {
                         let pick = pick.clone();
                         view! {
-                            <button class="aopt" class:primary={i == 0} on:click=move |_| pick(i)>
-                                <span class="ak">{i + 1}</span>
+                            <button class="aopt" on:click=move |_| pick(i)>
+                                <span class="ak">{format!("{}.", i + 1)}</span>
                                 {l}
                             </button>
                         }
@@ -296,7 +333,7 @@ fn ApprovalCard(chat: Chat, p: Pending) -> impl IntoView {
                     on:input=move |e| reject.set(event_target_value(&e))
                 />
             </div>
-            <div class="ahint">"Esc 拒绝 · ↑↓ 移动 · Enter 选择"</div>
+            <div class="ahint">"按 1–3 选择 · ↑↓ 移动 · Enter 确认 · Esc 拒绝"</div>
         </div>
     }
 }
@@ -520,6 +557,10 @@ fn AskCard(chat: Chat, p: Pending) -> impl IntoView {
             data-folded=move || folded.get().to_string()
             on:keydown=keys
         >
+            <div class="astat" role="status">
+                <span class="dot" aria-hidden="true"></span>
+                "等你回答"
+            </div>
             <div class="anav">
                 {(0..n)
                     .map(|qi| {

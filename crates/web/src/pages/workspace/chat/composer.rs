@@ -605,6 +605,12 @@ pub fn Composer(chat: Chat, tick: RwSignal<u32>, tree_files: Signal<Vec<String>>
     };
 
     let review_n = move || chat.diff.comments.with(Vec::len);
+    let deciding = Memo::new(move |_| {
+        chat.transcript.with(|t| {
+            chat.decided
+                .with(|d| crate::chat_model::first_open(&t.pending, |id| d.contains(id)).is_some())
+        })
+    });
     let failed_edit = RwSignal::new(None::<(u32, Value)>);
 
     view! {
@@ -833,6 +839,7 @@ pub fn Composer(chat: Chat, tick: RwSignal<u32>, tree_files: Signal<Vec<String>>
             <Dock chat />
             <div
                 class="cc-box"
+                hidden=move || deciding.get()
                 data-bash=move || chat.prompt.with(|p| p.trim_start().starts_with('!')).to_string()
                 on:dragover=move |e: ev::DragEvent| {
                     if e

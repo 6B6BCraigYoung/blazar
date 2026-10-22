@@ -11,7 +11,10 @@ mod finish;
 mod groups;
 mod tools;
 
-pub use approvals::{always_rule, approval_choices, approval_title, approval_what, first_open};
+pub use approvals::{
+    ApprovalKey, always_rule, approval_choices, approval_key, approval_title, approval_what,
+    first_open,
+};
 pub use builder::Model;
 #[cfg(test)]
 pub use builder::build;

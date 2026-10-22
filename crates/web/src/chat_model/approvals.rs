@@ -108,9 +108,49 @@ pub fn approval_choices(plan: bool) -> ([&'static str; 3], &'static str) {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ApprovalKey {
+    Pick(usize),
+    Move(i32),
+    Confirm,
+    Reject,
+}
+
+pub fn approval_key(key: &str, options: usize) -> Option<ApprovalKey> {
+    match key {
+        "ArrowDown" => Some(ApprovalKey::Move(1)),
+        "ArrowUp" => Some(ApprovalKey::Move(-1)),
+        "Enter" => Some(ApprovalKey::Confirm),
+        "Escape" => Some(ApprovalKey::Reject),
+        _ => key
+            .parse::<usize>()
+            .ok()
+            .filter(|n| (1..=options).contains(n))
+            .map(|n| ApprovalKey::Pick(n - 1)),
+    }
+}
+
 pub fn first_open(
     pending: &[super::Pending],
     decided: impl Fn(&str) -> bool,
 ) -> Option<&super::Pending> {
     pending.iter().find(|p| !decided(&p.id))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn approval_keys_follow_the_cli() {
+        assert_eq!(approval_key("1", 3), Some(ApprovalKey::Pick(0)));
+        assert_eq!(approval_key("3", 3), Some(ApprovalKey::Pick(2)));
+        assert_eq!(approval_key("4", 3), None);
+        assert_eq!(approval_key("0", 3), None);
+        assert_eq!(approval_key("ArrowDown", 3), Some(ApprovalKey::Move(1)));
+        assert_eq!(approval_key("ArrowUp", 3), Some(ApprovalKey::Move(-1)));
+        assert_eq!(approval_key("Enter", 3), Some(ApprovalKey::Confirm));
+        assert_eq!(approval_key("Escape", 3), Some(ApprovalKey::Reject));
+        assert_eq!(approval_key("a", 3), None);
+    }
 }
