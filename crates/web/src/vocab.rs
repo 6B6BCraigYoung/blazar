@@ -51,7 +51,7 @@ pub fn term(raw: &str) -> &str {
         "shared" => "共享",
         "read" => "只读",
         "claude_cli" | "claude" => "Claude Code",
-        "codex" => "Codex",
+        "codex_app_server" | "codex" => "Codex",
         "job_spawn" => "启动后台任务",
         "job_register" => "登记后台任务",
         "node_offline" => "机器离线",
@@ -249,6 +249,14 @@ mod tests {
         assert_eq!(error("server_error", None), "服务出错了，稍后再试");
         assert_eq!(error("billing_error", None), "额度不足，请检查账号");
         assert_eq!(term("exclusive"), "独占");
+    }
+
+    #[test]
+    fn runtimes_read_as_product_names() {
+        assert_eq!(term("claude_cli"), "Claude Code");
+        assert_eq!(term("codex_app_server"), "Codex");
+        assert_eq!(term("codex"), "Codex");
+        assert_eq!(term("local"), "本机");
     }
 
     #[test]

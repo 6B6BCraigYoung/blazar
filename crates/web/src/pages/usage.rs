@@ -5,7 +5,7 @@ use crate::components::empty::{self, Action, Blank};
 use crate::components::icon;
 use crate::components::page_head::PageHead;
 use crate::components::status::{EmptyState, InlineError, LoadingState};
-use crate::{api, storage};
+use crate::{api, storage, vocab};
 
 fn n(v: &Value, k: &str) -> f64 {
     v[k].as_f64().unwrap_or_default()
@@ -25,13 +25,8 @@ pub fn UsagePage() -> impl IntoView {
             .filter(|n| [7, 30, 90].contains(n))
             .unwrap_or(30),
     );
-    let refresh = RwSignal::new(0u32);
-    let usage = LocalResource::new(move || {
-        refresh.get();
-        async { api::get::<Value>("/api/usage").await }
-    });
+    let usage = LocalResource::new(move || async { api::get::<Value>("/api/usage").await });
     let analytics = LocalResource::new(move || {
-        refresh.get();
         let d = days.get();
         let tz = -js_sys::Date::new_0().get_timezone_offset();
         async move { api::get::<Value>(&format!("/api/analytics?days={d}&tz={tz}")).await }
@@ -46,15 +41,7 @@ pub fn UsagePage() -> impl IntoView {
     });
     view! {
         <div class="page usage-page">
-            <PageHead title="智能体" nav=|| crate::components::section::agents("/usage")>
-                <button
-                    class="btn"
-                    disabled=move || analytics.get().is_none() || usage.get().is_none()
-                    on:click=move |_| refresh.update(|n| *n += 1)
-                >
-                    "刷新"
-                </button>
-            </PageHead>
+            <PageHead title="智能体" nav=|| crate::components::section::agents("/usage") />
             <Show
                 when=move || !never()
                 fallback=|| {
@@ -164,9 +151,9 @@ pub fn UsagePage() -> impl IntoView {
                                                         <thead>
                                                             <tr>
                                                                 <th>"工作区"</th>
-                                                                <th>"调用"</th>
-                                                                <th>"输出"</th>
-                                                                <th>"费用"</th>
+                                                                <th class="num">"调用"</th>
+                                                                <th class="num">"输出"</th>
+                                                                <th class="num">"费用"</th>
                                                             </tr>
                                                         </thead>
                                                         <tbody>
@@ -177,9 +164,9 @@ pub fn UsagePage() -> impl IntoView {
                                                                     view! {
                                                                         <tr>
                                                                             <td>{s(&w, "workspace")}</td>
-                                                                            <td>{format!("{:.0}", n(&w["usage"], "calls"))}</td>
-                                                                            <td>{format!("{:.0}", n(&w["usage"], "output"))}</td>
-                                                                            <td>{format!("${:.4}", n(&w["usage"], "cost_usd"))}</td>
+                                                                            <td class="num">{format!("{:.0}", n(&w["usage"], "calls"))}</td>
+                                                                            <td class="num">{format!("{:.0}", n(&w["usage"], "output"))}</td>
+                                                                            <td class="num">{format!("${:.4}", n(&w["usage"], "cost_usd"))}</td>
                                                                         </tr>
                                                                     }
                                                                 })
@@ -219,11 +206,11 @@ fn UsageTable(title: &'static str, data: Value) -> impl IntoView {
                     <thead>
                         <tr>
                             <th>"名称"</th>
-                            <th>"调用"</th>
-                            <th>"输入"</th>
-                            <th>"输出"</th>
-                            <th>"缓存读"</th>
-                            <th>"费用"</th>
+                            <th class="num">"调用"</th>
+                            <th class="num">"输入"</th>
+                            <th class="num">"输出"</th>
+                            <th class="num">"缓存读"</th>
+                            <th class="num">"费用"</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -232,12 +219,14 @@ fn UsageTable(title: &'static str, data: Value) -> impl IntoView {
                             .map(|(k, v)| {
                                 view! {
                                     <tr>
-                                        <td>{k}</td>
+                                        <td>{vocab::term(&k).to_owned()}</td>
                                         {["calls", "input", "output", "cache_read"]
                                             .into_iter()
-                                            .map(|k| view! { <td>{format!("{:.0}", n(&v, k))}</td> })
+                                            .map(|k| {
+                                                view! { <td class="num">{format!("{:.0}", n(&v, k))}</td> }
+                                            })
                                             .collect_view()}
-                                        <td>{format!("${:.4}", n(&v, "cost_usd"))}</td>
+                                        <td class="num">{format!("${:.4}", n(&v, "cost_usd"))}</td>
                                     </tr>
                                 }
                             })
@@ -304,6 +293,52 @@ fn Analytics(data: Value, days: u32, widen: Callback<()>) -> impl IntoView {
         .fold(0.0001_f64, f64::max);
     let first = series.first().map(|d| s(d, "day")).unwrap_or_default();
     let last = series.last().map(|d| s(d, "day")).unwrap_or_default();
+    let count = series.len();
+    let hover = RwSignal::new(None::<usize>);
+    let keyed = RwSignal::new(None::<usize>);
+    let shown = move || {
+        hover
+            .get()
+            .or(keyed.get())
+            .unwrap_or(count.saturating_sub(1))
+            .min(count.saturating_sub(1))
+    };
+    let by_day = StoredValue::new(series.clone());
+    let readout = move || {
+        by_day.with_value(|all| {
+            all.get(shown())
+                .map(|d| {
+                    format!(
+                        "{} · {:.0} 次 · ${:.2}",
+                        s(d, "day"),
+                        n(d, "runs"),
+                        n(d, "cost")
+                    )
+                })
+                .unwrap_or_default()
+        })
+    };
+    let step = move |delta: i64| {
+        let end = count.saturating_sub(1) as i64;
+        let next = (shown() as i64 + delta).clamp(0, end) as usize;
+        keyed.set(Some(next));
+        hover.set(None);
+    };
+    let points = series
+        .iter()
+        .enumerate()
+        .map(|(i, d)| {
+            format!(
+                "{},{:.2}",
+                i as f64 + 0.5,
+                100.0 - n(d, "cost") / max_cost * 100.0
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    let line_svg = format!(
+        r#"<svg viewBox="0 0 {count} 100" preserveAspectRatio="none" aria-hidden="true"><polyline points="{points}" vector-effect="non-scaling-stroke"/></svg>"#
+    );
     let mut heat = [[0.0_f64; 24]; 7];
     for h in list(&data, "heat") {
         if let (Some(w), Some(hour), Some(count)) = (h[0].as_u64(), h[1].as_u64(), h[2].as_f64())
@@ -354,53 +389,60 @@ fn Analytics(data: Value, days: u32, widen: Callback<()>) -> impl IntoView {
                 })
                 .collect_view()}
         </div>
-        <section class="card settings-card">
-            <h3>"运行趋势"</h3>
-            <p class="muted">
-                "柱形表示运行次数，细线表示费用。明细中可查看具体数值。"
-            </p>
-            <div class="usage-chart" role="img" aria-label="每天的运行次数与费用">
+        <section class="card settings-card usage-trend">
+            <div class="usage-chart-head">
+                <h3>"运行趋势"</h3>
+                <span class="grow"></span>
+                <div class="usage-readout" role="status">
+                    {readout}
+                </div>
+            </div>
+            <p class="muted">"柱形是运行次数，红色是失败，折线是费用。"</p>
+            <div
+                class="usage-chart"
+                role="group"
+                tabindex="0"
+                aria-label="每天的运行次数与费用，用左右方向键选日期"
+                on:pointerleave=move |_| hover.set(None)
+                on:keydown=move |e: leptos::ev::KeyboardEvent| {
+                    let delta = match e.key().as_str() {
+                        "ArrowLeft" => -1,
+                        "ArrowRight" => 1,
+                        "Home" => -(count as i64),
+                        "End" => count as i64,
+                        _ => return,
+                    };
+                    e.prevent_default();
+                    step(delta);
+                }
+            >
                 {series
                     .into_iter()
-                    .map(|d| {
+                    .enumerate()
+                    .map(|(i, d)| {
+                        let runs = n(&d, "runs");
+                        let failed = n(&d, "failed");
                         view! {
                             <div
                                 class="usage-day"
-                                title=format!(
-                                    "{}：{:.0} 次；成功 {:.0}，失败 {:.0}，中断 {:.0}；${:.4}",
-                                    s(&d, "day"),
-                                    n(&d, "runs"),
-                                    n(&d, "done"),
-                                    n(&d, "failed"),
-                                    n(&d, "interrupted"),
-                                    n(&d, "cost"),
-                                )
+                                data-sel=move || (shown() == i).to_string()
+                                on:pointerenter=move |_| hover.set(Some(i))
                             >
                                 <div class="usage-stack">
-                                    {[
-                                        ("done", "ok"),
-                                        ("failed", "bad"),
-                                        ("interrupted", "interrupted"),
-                                    ]
-                                        .into_iter()
-                                        .map(|(k, c)| {
-                                            view! {
-                                                <i
-                                                    class=c
-                                                    style:height=format!("{}%", n(&d, k) / max_runs * 100.0)
-                                                ></i>
-                                            }
-                                        })
-                                        .collect_view()}
+                                    <i
+                                        class="run"
+                                        style:height=format!(
+                                            "{}%",
+                                            (runs - failed).max(0.0) / max_runs * 100.0,
+                                        )
+                                    ></i>
+                                    <i class="bad" style:height=format!("{}%", failed / max_runs * 100.0)></i>
                                 </div>
-                                <i
-                                    class="usage-cost"
-                                    style:height=format!("{}%", n(&d, "cost") / max_cost * 100.0)
-                                ></i>
                             </div>
                         }
                     })
                     .collect_view()}
+                <div class="usage-line" inner_html=line_svg></div>
             </div>
             <div class="settings-actions muted">
                 <span>{first}</span>
@@ -414,11 +456,11 @@ fn Analytics(data: Value, days: u32, widen: Callback<()>) -> impl IntoView {
                         <thead>
                             <tr>
                                 <th>"日期"</th>
-                                <th>"运行"</th>
-                                <th>"成功"</th>
-                                <th>"失败"</th>
-                                <th>"中断"</th>
-                                <th>"费用"</th>
+                                <th class="num">"运行"</th>
+                                <th class="num">"成功"</th>
+                                <th class="num">"失败"</th>
+                                <th class="num">"中断"</th>
+                                <th class="num">"费用"</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -431,10 +473,12 @@ fn Analytics(data: Value, days: u32, widen: Callback<()>) -> impl IntoView {
                                             {["runs", "done", "failed", "interrupted"]
                                                 .into_iter()
                                                 .map(|key| {
-                                                    view! { <td>{format!("{:.0}", n(&d, key))}</td> }
+                                                    view! {
+                                                        <td class="num">{format!("{:.0}", n(&d, key))}</td>
+                                                    }
                                                 })
                                                 .collect_view()}
-                                            <td>{format!("${:.4}", n(&d, "cost"))}</td>
+                                            <td class="num">{format!("${:.4}", n(&d, "cost"))}</td>
                                         </tr>
                                     }
                                 })
@@ -455,10 +499,10 @@ fn Analytics(data: Value, days: u32, widen: Callback<()>) -> impl IntoView {
                             <thead>
                                 <tr>
                                     <th>"智能体 / 运行时"</th>
-                                    <th>"运行"</th>
-                                    <th>"成功率"</th>
-                                    <th>"平均耗时"</th>
-                                    <th>"费用"</th>
+                                    <th class="num">"运行"</th>
+                                    <th class="num">"成功率"</th>
+                                    <th class="num">"平均耗时"</th>
+                                    <th class="num">"费用"</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -466,39 +510,39 @@ fn Analytics(data: Value, days: u32, widen: Callback<()>) -> impl IntoView {
                                     .into_iter()
                                     .map(|b| {
                                         let fin = n(&b, "done") + n(&b, "failed");
+                                        let runtime = vocab::term(&s(&b, "runtime")).to_owned();
                                         view! {
                                             <tr>
                                                 <td>
-                                                    {if let Some(id) = b["agent_id"].as_str() {
-                                                        view! {
-                                                            <a href=format!(
-                                                                "/agent/{}",
-                                                                api::enc(id),
-                                                            )>{format!("{} {}", s(&b, "avatar"), s(&b, "who"))}</a>
+                                                    {match b["agent_id"].as_str() {
+                                                        Some(id) => {
+                                                            view! {
+                                                                <a href=format!(
+                                                                    "/agent/{}",
+                                                                    api::enc(id),
+                                                                )>{s(&b, "who")}</a>
+                                                                <span class="muted">{format!(" {runtime}")}</span>
+                                                            }
+                                                                .into_any()
                                                         }
-                                                            .into_any()
-                                                    } else {
-                                                        s(&b, "who").into_any()
+                                                        None => runtime.into_any(),
                                                     }}
-                                                    <span class="muted">
-                                                        {format!(" {}", s(&b, "runtime"))}
-                                                    </span>
                                                 </td>
-                                                <td>{format!("{:.0}", n(&b, "runs"))}</td>
-                                                <td>
+                                                <td class="num">{format!("{:.0}", n(&b, "runs"))}</td>
+                                                <td class="num">
                                                     {if fin > 0.0 {
                                                         format!("{:.0}%", n(&b, "done") / fin * 100.0)
                                                     } else {
                                                         "—".into()
                                                     }}
                                                 </td>
-                                                <td>
+                                                <td class="num">
                                                     {b["avg_secs"]
                                                         .as_f64()
                                                         .map(|v| format!("{v:.0} 秒"))
                                                         .unwrap_or_else(|| "—".into())}
                                                 </td>
-                                                <td>{format!("${:.2}", n(&b, "cost"))}</td>
+                                                <td class="num">{format!("${:.2}", n(&b, "cost"))}</td>
                                             </tr>
                                         }
                                     })
@@ -584,7 +628,7 @@ fn Analytics(data: Value, days: u32, widen: Callback<()>) -> impl IntoView {
                             <tr>
                                 <th>"星期"</th>
                                 <th>"时间"</th>
-                                <th>"运行"</th>
+                                <th class="num">"运行"</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -600,7 +644,7 @@ fn Analytics(data: Value, days: u32, widen: Callback<()>) -> impl IntoView {
                                                 )}
                                             </td>
                                             <td>{format!("{hour:02}:00")}</td>
-                                            <td>{format!("{count:.0}")}</td>
+                                            <td class="num">{format!("{count:.0}")}</td>
                                         </tr>
                                     }
                                 })
