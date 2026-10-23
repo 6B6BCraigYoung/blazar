@@ -958,6 +958,18 @@ def plan(round_name):
                   ({"action": "wait", "selector": ".machines-foot .linkbtn", "timeout_ms": 8000},
                    {"action": "click", "selector": ".machines-foot .linkbtn"},
                    {"action": "wait", "selector": "[data-modal-root]", "timeout_ms": 4000}), False))
+    mesh_more = ".nodes-page .pref-group .pref-more-btn"
+    items.append(("nodes-mesh-advanced", "/nodes", "团队组网「本机组网」一组的「高级…」打开的组网详情面板",
+                  ({"action": "wait", "selector": mesh_more, "timeout_ms": 8000},
+                   {"action": "scroll", "selector": "main.main", "top": "end", "settle_ms": 300},
+                   {"action": "click", "selector": mesh_more},
+                   {"action": "wait", "selector": "[data-modal-root]", "timeout_ms": 4000}), False))
+    items.append(("settings-return", "", "设置页按 Esc 回到进入前的页面（这里从收件箱进入）",
+                  ({"action": "navigate", "path": "/inbox", "settle_ms": 600},
+                   {"action": "navigate", "path": "/settings?s=chat", "settle_ms": 600},
+                   {"action": "wait", "selector": "nav.side .side-back", "timeout_ms": 4000},
+                   {"action": "key", "key": "Escape", "code": "Escape", "selector": "body"},
+                   {"action": "wait", "selector": ".inbox-page", "timeout_ms": 4000}), False))
     ws_rows = db_rows("SELECT id, name FROM workspaces ORDER BY created_at")
     if not ws_rows:
         TITLES["/"] = "开始"
