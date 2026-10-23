@@ -57,6 +57,18 @@ impl Default for Layout {
     }
 }
 
+impl Layout {
+    pub fn files_shown(self) -> bool {
+        self.inspect && self.tab == Tab::Editor && self.files
+    }
+
+    pub fn toggle_files(&mut self) {
+        self.files = !self.files_shown();
+        self.inspect = true;
+        self.tab = Tab::Editor;
+    }
+}
+
 #[derive(Clone, Copy)]
 pub struct LayoutState {
     pub lay: RwSignal<Layout>,
@@ -86,7 +98,7 @@ impl LayoutState {
     }
 
     pub fn toggle_files(self) {
-        self.change(|l| l.files = !l.files);
+        self.change(Layout::toggle_files);
     }
 
     pub fn close_files(self) {

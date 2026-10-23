@@ -7,8 +7,9 @@ use super::diff_panel::{DiffBar, DiffState, DiffView};
 use super::editor::{EdBar, MdView, Tabs};
 use super::files::Files;
 use super::git_panel::{Git, GitView};
-use super::layout::{Changes, LayoutState, Tab};
+use super::layout::{Changes, Edge, LayoutState, Splitter, Tab};
 use super::preview_panel::PreviewBar;
+use super::tree::{FileTree, TreePane};
 use crate::api;
 use crate::components::empty::{Action, Blank};
 use crate::components::icon;
@@ -20,6 +21,7 @@ const ICON_RESTORE: &str = r#"<svg viewBox="0 0 16 16" fill="none" stroke="curre
 pub fn Inspector(
     ws: String,
     files: Files,
+    tree: TreePane,
     git: Git,
     diff: DiffState,
     state: LayoutState,
@@ -63,12 +65,35 @@ pub fn Inspector(
         }
     };
     let sub = move |c: Changes| move || (lay().changes == c).to_string();
-    let open_files = Action::new("显示文件", move || {
-        if !state.lay.get_untracked().files {
-            state.toggle_files();
+    let tree_on = move || lay().files;
+    let open_files = StoredValue::new(
+        Action::new("显示文件", move || state.toggle_files())
+            .keys(&crate::shortcuts::current("explorer")),
+    );
+    let welcome = move || {
+        if tree_on() {
+            view! {
+                <Blank
+                    icon=icon::FILE
+                    title="没有打开的文件"
+                    detail="从左边的文件树打开，或点对话里的文件链接。"
+                    inset=true
+                />
+            }
+            .into_any()
+        } else {
+            view! {
+                <Blank
+                    icon=icon::FILE
+                    title="没有打开的文件"
+                    detail="从文件树打开，或点对话里的文件链接。"
+                    action=open_files.get_value()
+                    inset=true
+                />
+            }
+            .into_any()
         }
-    })
-    .keys(&crate::shortcuts::current("explorer"));
+    };
     view! {
         <div class="rhead insp-head">
             <div class="rtabs" role="tablist" aria-label="检查器">
@@ -121,23 +146,52 @@ pub fn Inspector(
             </button>
         </div>
         <div class="insp-body">
-            <div class="ipane col" data-active=on(Tab::Editor)>
-                <Tabs files changes />
-                <EdBar files preview=md_preview />
-                <div class="editor-stack">
-                    <div class="editor-host" node_ref=host aria-label="代码编辑器"></div>
-                    <MdView files preview=md_preview />
-                    <Show when=move || files.open_tabs.with(Vec::is_empty)>
-                        <div class="welcome">
-                            <Blank
-                                icon=icon::FILE
-                                title="没有打开的文件"
-                                detail="从文件树打开，或点对话里的文件链接。"
-                                action=open_files.clone()
-                                inset=true
-                            />
-                        </div>
-                    </Show>
+            <div
+                class="ipane ed"
+                data-active=on(Tab::Editor)
+                data-tree=move || tree_on().to_string()
+            >
+                <aside class="ed-files" aria-label="文件">
+                    <div class="rhead">
+                        <span class="rtitle">"文件"</span>
+                        <span class="count">{move || tree.count.get()}</span>
+                        <span class="grow"></span>
+                        <button
+                            class="laybtn"
+                            aria-label="刷新文件树"
+                            title="重新扫描"
+                            inner_html=super::ICON_REFRESH
+                            on:click=move |_| tree.rev.update(|n| *n += 1)
+                        ></button>
+                        <button
+                            class="laybtn"
+                            aria-label="收起文件"
+                            title=crate::shortcuts::titled("收起", "explorer")
+                            on:click=move |_| state.close_files()
+                        >
+                            "×"
+                        </button>
+                    </div>
+                    <FileTree
+                        root=tree.root
+                        opened=tree.opened
+                        files
+                        root_name=tree.root_name
+                        reload=tree.reload
+                        acts=tree.acts
+                    />
+                </aside>
+                <Splitter edge=Edge::Files state />
+                <div class="ed-main">
+                    <Tabs files changes />
+                    <EdBar files preview=md_preview />
+                    <div class="editor-stack">
+                        <div class="editor-host" node_ref=host aria-label="代码编辑器"></div>
+                        <MdView files preview=md_preview />
+                        <Show when=move || files.open_tabs.with(Vec::is_empty)>
+                            <div class="welcome">{welcome}</div>
+                        </Show>
+                    </div>
                 </div>
             </div>
             <div class="ipane col" data-active=on(Tab::Changes)>

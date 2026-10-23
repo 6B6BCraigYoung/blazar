@@ -36,6 +36,17 @@ pub struct TreeActs {
     pub terminal: Callback<String>,
 }
 
+#[derive(Clone, Copy)]
+pub struct TreePane {
+    pub root: Memo<Option<Node>>,
+    pub opened: RwSignal<HashSet<String>>,
+    pub root_name: Signal<String>,
+    pub reload: Signal<u32>,
+    pub rev: RwSignal<u32>,
+    pub count: Signal<Option<String>>,
+    pub acts: TreeActs,
+}
+
 fn absolute(root: &str, rel: &str) -> String {
     let root = root.trim_end_matches('/');
     if rel.is_empty() {

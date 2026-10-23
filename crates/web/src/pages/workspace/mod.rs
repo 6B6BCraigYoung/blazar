@@ -33,7 +33,7 @@ use head::WsHead;
 use inspector::Inspector;
 use layout::{Changes, Edge, LayoutState, Splitter, Tab};
 use term_panel::{TermPane, TermTabs, Terms};
-use tree::{FileTree, TreeActs};
+use tree::{TreeActs, TreePane};
 
 pub(crate) const ICON_LEFT: &str = r#"<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.1"><rect class="fill" x="2" y="3" width="4" height="10" fill="currentColor" stroke="none"/><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><path d="M6 2.5v11"/></svg>"#;
 pub(crate) const ICON_REFRESH: &str = r#"<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>"#;
@@ -184,7 +184,7 @@ fn Workspace(id: String) -> impl IntoView {
                 .unwrap_or_default()
         })
     });
-    let tree_count = move || {
+    let tree_count = Signal::derive(move || {
         tree.with(|t| {
             t.as_ref().and_then(|r| r.as_ref().ok()).map(|t| {
                 let files_n = t.entries.iter().filter(|e| !e.is_dir).count();
@@ -195,7 +195,7 @@ fn Workspace(id: String) -> impl IntoView {
                 }
             })
         })
-    };
+    });
 
     Effect::new(move |done: Option<bool>| {
         if done == Some(true) {
@@ -318,6 +318,15 @@ fn Workspace(id: String) -> impl IntoView {
             }),
         }
     };
+    let tree_pane = TreePane {
+        root,
+        opened,
+        root_name,
+        reload: tree_reload,
+        rev: tree_rev,
+        count: tree_count,
+        acts,
+    };
     let isolated = Signal::derive(move || {
         detail.with(|d| {
             d.as_ref()
@@ -402,7 +411,6 @@ fn Workspace(id: String) -> impl IntoView {
     view! {
         <div
             class="ws"
-            data-files=move || lay().files.to_string()
             data-insp=move || lay().inspect.to_string()
             data-max=move || lay().max.to_string()
             data-term=move || lay().term.to_string()
@@ -455,30 +463,6 @@ fn Workspace(id: String) -> impl IntoView {
                     })
             }}
             <div class="ws-body" style=move || state.style() inert=move || gone.get()>
-                <aside class="ws-files" aria-label="文件">
-                    <div class="rhead">
-                        <span class="rtitle">"文件"</span>
-                        <span class="count">{tree_count}</span>
-                        <span class="grow"></span>
-                        <button
-                            class="laybtn"
-                            aria-label="刷新文件树"
-                            title="重新扫描"
-                            inner_html=ICON_REFRESH
-                            on:click=move |_| tree_rev.update(|n| *n += 1)
-                        ></button>
-                        <button
-                            class="laybtn"
-                            aria-label="收起文件"
-                            title=crate::shortcuts::titled("收起", "explorer")
-                            on:click=move |_| state.close_files()
-                        >
-                            "×"
-                        </button>
-                    </div>
-                    <FileTree root opened files root_name=root_name reload=tree_reload acts />
-                </aside>
-                <Splitter edge=Edge::Files state />
                 <div class="ws-stage">
                     <div class="ws-row">
                         <section class="ws-chat" aria-label="对话">
@@ -494,6 +478,7 @@ fn Workspace(id: String) -> impl IntoView {
                             <Inspector
                                 ws=id.clone()
                                 files
+                                tree=tree_pane
                                 git
                                 diff
                                 state

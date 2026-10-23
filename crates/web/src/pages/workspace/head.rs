@@ -340,7 +340,7 @@ pub fn WsHead(
                 class="laybtn"
                 aria-label="文件"
                 title=crate::shortcuts::titled("文件", "explorer")
-                aria-pressed=move || lay().files.to_string()
+                aria-pressed=move || lay().files_shown().to_string()
                 on:click=move |_| state.toggle_files()
                 inner_html=super::ICON_LEFT
             ></button>
