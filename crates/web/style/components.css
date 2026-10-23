@@ -40,7 +40,7 @@
 .menu-sep { height: 1px; margin: var(--space-xs) var(--space-control); background: var(--border); }
 .menu { max-height: 320px; overflow: auto; overscroll-behavior: contain; }
 .toasts { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: var(--layer-toast); display: flex; flex-direction: column; gap: var(--space-md); align-items: center; pointer-events: none; }
-.toast { padding: var(--space-md) var(--space-xl); border: 0; border-radius: var(--radius-pill); background: var(--material-menu); -webkit-backdrop-filter: var(--blur-material); backdrop-filter: var(--blur-material); color: var(--fg); font-size: var(--font-size-label-readable); font-weight: var(--font-weight-medium); box-shadow: var(--shadow-toast); max-width: min(560px, calc(100vw - 32px)); animation: dlgpop var(--duration-approval-enter) ease-out; }
+.toast { padding: var(--space-md) var(--space-xl); border: 0; border-radius: var(--radius-pill); background: var(--material-menu); -webkit-backdrop-filter: var(--blur-material); backdrop-filter: var(--blur-material); color: var(--fg); font-size: var(--font-size-label-readable); font-weight: var(--font-weight-medium); box-shadow: var(--shadow-toast); max-width: min(560px, calc(100vw - 32px)); }
 .dlg.wide { width: min(620px, calc(100vw - 32px)); }
 .toast.quiet { padding: var(--space-sm) var(--space-lg); font-size: var(--font-size-label); font-weight: var(--font-weight-regular); color: var(--fg-2); }
 .toast.act { display: inline-flex; align-items: center; gap: var(--space-md); pointer-events: auto; }
