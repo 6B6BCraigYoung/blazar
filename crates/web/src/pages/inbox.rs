@@ -3,8 +3,8 @@ use crate::action_gate::ActionGate;
 use crate::components::empty::{self, Action, Blank};
 use crate::components::group::ListGroup;
 use crate::components::icon;
-use crate::components::menu::menu_keydown;
 use crate::components::page_head::PageHead;
+use crate::components::rows::{MenuAt, RowAction, RowMenu};
 use crate::components::status::{InlineError, LoadingState, Status, Tone};
 use crate::components::toast::toast;
 use crate::{api, app_state::use_app, fmt, storage};
@@ -117,7 +117,7 @@ fn item_of(it: &Value) -> Item {
 #[derive(Clone, Copy)]
 struct Ctx {
     sel: RwSignal<usize>,
-    menu: RwSignal<Option<(i32, i32, usize)>>,
+    menu: RwSignal<Option<MenuAt>>,
     gate: RwSignal<ActionGate>,
     mark: Callback<(String, Vec<String>)>,
     rev: RwSignal<u32>,
@@ -409,8 +409,19 @@ pub fn InboxPage() -> impl IntoView {
             {move || {
                 ctx.menu
                     .get()
-                    .and_then(|(x, y, i)| {
-                        items.with(|it| it.get(i).cloned()).map(|it| view! { <RowMenu ctx x y item=it /> })
+                    .and_then(|at| {
+                        items
+                            .with(|it| it.get(at.index).cloned())
+                            .map(|it| {
+                                view! {
+                                    <RowMenu
+                                        at
+                                        label="通知的操作"
+                                        groups=inbox_menu(ctx, it)
+                                        on_close=Callback::new(move |()| ctx.menu.set(None))
+                                    />
+                                }
+                            })
                     })
             }}
         </div>
@@ -540,13 +551,13 @@ fn row_view(ctx: Ctx, i: usize, it: Item, pending: Option<Value>) -> impl IntoVi
             data-unread=(!read).to_string()
             data-archived=it.archived.to_string()
             data-sel=move || (ctx.sel.get() == i).to_string()
-            data-menu=move || ctx.menu.with(|m| m.is_some_and(|m| m.2 == i)).to_string()
+            data-menu=move || ctx.menu.with(|m| m.is_some_and(|m| m.index == i)).to_string()
             tabindex=move || if ctx.sel.get() == i { "0" } else { "-1" }
             on:focusin=move |_| ctx.sel.set(i)
             on:contextmenu=move |e: ev::MouseEvent| {
                 e.prevent_default();
                 ctx.sel.set(i);
-                ctx.menu.set(Some((e.client_x(), e.client_y(), i)));
+                ctx.menu.set(Some(MenuAt::from(&e, i)));
             }
         >
             <span class="inbox-dot" aria-hidden="true"></span>
@@ -585,88 +596,29 @@ fn row_view(ctx: Ctx, i: usize, it: Item, pending: Option<Value>) -> impl IntoVi
     }
 }
 
-#[component]
-fn RowMenu(ctx: Ctx, x: i32, y: i32, item: Item) -> impl IntoView {
-    let root = NodeRef::<html::Div>::new();
-    let first = NodeRef::<html::A>::new();
-    let close = move || ctx.menu.set(None);
-    let close_down = window_event_listener(ev::mousedown, move |e| {
-        let inside = e
-            .target()
-            .and_then(|t| t.dyn_into::<web_sys::Element>().ok())
-            .and_then(|el| el.closest(".ctx-menu").ok().flatten())
-            .is_some();
-        if !inside {
-            close();
-        }
-    });
-    let close_blur = window_event_listener(ev::blur, move |_| close());
-    on_cleanup(move || {
-        close_down.remove();
-        close_blur.remove();
-    });
-    request_animation_frame(move || {
-        if let Some(a) = first.try_get_untracked().flatten() {
-            let _ = a.focus();
-        }
-    });
-    let w = window()
-        .inner_width()
-        .ok()
-        .and_then(|v| v.as_f64())
-        .unwrap_or(0.0) as i32;
-    let h = window()
-        .inner_height()
-        .ok()
-        .and_then(|v| v.as_f64())
-        .unwrap_or(0.0) as i32;
-    let (x, y) = (x.min(w - 200).max(0), y.min(h - 120).max(0));
+fn inbox_menu(ctx: Ctx, item: Item) -> Vec<Vec<RowAction>> {
     let (id_read, id_arch) = (item.id.clone(), item.id.clone());
     let (read, archived) = (item.read, item.archived);
-    view! {
-        <div
-            class="ctx-menu inbox-menu"
-            role="menu"
-            aria-label="通知的操作"
-            node_ref=root
-            style=format!("left:{x}px;top:{y}px")
-            on:keydown=move |e| {
-                if let Some(r) = root.get_untracked() {
-                    menu_keydown(&e, r.unchecked_ref(), Callback::new(move |_| close()));
-                }
-            }
-        >
-            <a role="menuitem" class="ctx-item" href=item.href.clone() node_ref=first on:click=move |_| close()>
-                "打开"
-            </a>
-            <button
-                type="button"
-                role="menuitem"
-                class="ctx-item"
-                on:click=move |_| {
-                    close();
-                    ctx.mark.run((if read { "unread" } else { "read" }.into(), vec![id_read.clone()]));
-                }
-            >
-                <span>{if read { "标为未读" } else { "标为已读" }}</span>
-                <kbd>"U"</kbd>
-            </button>
-            <button
-                type="button"
-                role="menuitem"
-                class="ctx-item"
-                on:click=move |_| {
-                    close();
-                    ctx.mark
-                        .run((
-                            if archived { "unarchive" } else { "archive" }.into(),
-                            vec![id_arch.clone()],
-                        ));
-                }
-            >
-                <span>{if archived { "恢复" } else { "归档" }}</span>
-                <kbd>"E"</kbd>
-            </button>
-        </div>
-    }
+    vec![
+        vec![RowAction::open(item.href.clone())],
+        vec![
+            RowAction::new(
+                if read { "标为未读" } else { "标为已读" },
+                move || {
+                    ctx.mark.run((
+                        if read { "unread" } else { "read" }.into(),
+                        vec![id_read.clone()],
+                    ));
+                },
+            )
+            .hint("U"),
+            RowAction::new(if archived { "恢复" } else { "归档" }, move || {
+                ctx.mark.run((
+                    if archived { "unarchive" } else { "archive" }.into(),
+                    vec![id_arch.clone()],
+                ));
+            })
+            .hint("E"),
+        ],
+    ]
 }

@@ -5,6 +5,7 @@ use crate::components::{
     empty::{self, Action, Blank},
     icon,
     modal::Modal,
+    rows::{RowAction, RowKey, RowMenu, Rows},
     status::{EmptyState, InlineError, LoadingState},
     toast::toast,
     undo::{self, Request},
@@ -189,6 +190,43 @@ pub fn TasksPage() -> impl IntoView {
             })
             .collect::<Vec<_>>()
     };
+    let rows = Rows::default();
+    let shown = RwSignal::new(Vec::<Value>::new());
+    rows.listen(
+        "button.work-task",
+        move || shown.with_untracked(Vec::len),
+        move |key, i| {
+            let Some(t) = shown.with_untracked(|l| l.get(i).cloned()) else {
+                return;
+            };
+            match key {
+                RowKey::Open => ui.selected.set(s(&t, "id")),
+                RowKey::Inspect => ui.editor.set(Some(t)),
+                RowKey::Delete => ui.remove(&t),
+            }
+        },
+    );
+    let menu_of = move |t: Value| {
+        let id = s(&t, "id");
+        let can_run = !s(&t, "workspace_id").is_empty() && !assignee(&t).is_empty();
+        let running = t["running"] == true;
+        let started = !s(&t, "thread_id").is_empty();
+        let (open_id, start_id) = (id.clone(), id.clone());
+        let (for_edit, for_delete) = (t.clone(), t.clone());
+        vec![
+            vec![
+                RowAction::opens(move || ui.selected.set(open_id.clone())),
+                RowAction::inspect(move || ui.editor.set(Some(for_edit.clone()))),
+            ],
+            vec![
+                RowAction::new(if started { "继续" } else { "开始" }, move || {
+                    ui.mutate(start_id.clone(), "POST", "/start", json!({}))
+                })
+                .when(can_run && !running),
+            ],
+            vec![RowAction::delete("删除", move || ui.remove(&for_delete))],
+        ]
+    };
     let move_task = Callback::new(
         move |(id, status, before): (String, String, Option<String>)| {
             let all = data
@@ -286,6 +324,18 @@ pub fn TasksPage() -> impl IntoView {
                                     };
                                     let list = filtered();
                                     let board = mode.get() == "board";
+                                    let mut counter = 0usize;
+                                    shown.set(
+                                        STATUSES
+                                            .iter()
+                                            .filter(|(k, _)| {
+                                                hidden.get() || !matches!(*k, "backlog" | "cancelled")
+                                            })
+                                            .flat_map(|(key, _)| {
+                                                list.iter().filter(|t| s(t, "status") == *key).cloned()
+                                            })
+                                            .collect(),
+                                    );
                                     if !list.iter().any(shown_status) {
                                         return if has_any() {
                                             view! {
@@ -369,6 +419,8 @@ pub fn TasksPage() -> impl IntoView {
                                                                 {items
                                                                     .into_iter()
                                                                     .map(|t| {
+                                                                        let i = counter;
+                                                                        counter += 1;
                                                                         let id = s(&t, "id");
                                                                         let (drag_id, drop_id) = (id.clone(), id.clone());
                                                                         let drop_key = key.clone();
@@ -379,6 +431,11 @@ pub fn TasksPage() -> impl IntoView {
                                                                                 class:card=board
                                                                                 class:lrow=!board
                                                                                 class:work-selected=move || ui.selected.get() == selected_id
+                                                                                data-index=i.to_string()
+                                                                                data-sel=move || rows.selected(i).to_string()
+                                                                                data-menu=move || rows.menu_on(i).to_string()
+                                                                                on:focusin=move |_| rows.sel.set(Some(i))
+                                                                                on:contextmenu=move |e| rows.open_menu(&e, i)
                                                                                 draggable="true"
                                                                                 on:dragstart=move |e: leptos::ev::DragEvent| {
                                                                                     if let Some(d) = e.data_transfer() {
@@ -454,6 +511,21 @@ pub fn TasksPage() -> impl IntoView {
                 </Show>
             </div>
             {move || ui.editor.get().map(|init| view! { <TaskEditor init ui /> })}
+            {move || {
+                rows.menu
+                    .get()
+                    .and_then(|at| shown.with(|l| l.get(at.index).cloned()).map(|t| (at, t)))
+                    .map(|(at, t)| {
+                        view! {
+                            <RowMenu
+                                at
+                                label=format!("{} 的操作", s(&t, "title"))
+                                groups=menu_of(t)
+                                on_close=Callback::new(move |()| rows.close_menu())
+                            />
+                        }
+                    })
+            }}
         </div>
     }
 }

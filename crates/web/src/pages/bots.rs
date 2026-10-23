@@ -4,6 +4,7 @@ use crate::components::group::ListGroup;
 use crate::components::icon;
 use crate::components::modal::Modal;
 use crate::components::page_head::{MenuItem, MoreMenu, PageHead};
+use crate::components::rows::{RowAction, RowKey, RowMenu, Rows};
 use crate::components::status::{InlineError, LoadingState, StateOf};
 use crate::components::toast::toast;
 use crate::components::undo::{self, Request};
@@ -121,6 +122,9 @@ pub fn BotsPage() -> impl IntoView {
         }
     });
     let has_active = move || data.with(|d| matches!(d, Some(Ok(r)) if !arr(r, "bots").is_empty()));
+    let nav = StoredValue::new(use_navigate());
+    let rows = Rows::default();
+    let shown = RwSignal::new(Vec::<Value>::new());
     let fleet = LocalResource::new(move || {
         rev.track();
         async move { api::get::<Value>("/api/fleet/status").await }
@@ -139,6 +143,69 @@ pub fn BotsPage() -> impl IntoView {
             app.load_bots();
             busy.try_set(false);
         });
+    };
+    let open_bot = move |b: &Value| {
+        let href = format!("/bots/{}", api::enc(&s(b, "id")));
+        nav.with_value(|n| n(&href, Default::default()));
+    };
+    rows.listen(
+        "article.bot-card",
+        move || shown.with_untracked(Vec::len),
+        move |key, i| {
+            let Some(b) = shown.with_untracked(|l| l.get(i).cloned()) else {
+                return;
+            };
+            match key {
+                RowKey::Open | RowKey::Inspect => open_bot(&b),
+                RowKey::Delete => {
+                    if b["archived"].as_bool() != Some(true) {
+                        archive_bot(&s(&b, "id"), &s(&b, "display_name"), move || {
+                            refresh(rev);
+                            app.load_bots();
+                        });
+                    }
+                }
+            }
+        },
+    );
+    let menu_of = move |b: Value| {
+        let id = s(&b, "id");
+        let name = s(&b, "display_name");
+        let paused = b["paused"].as_bool() == Some(true);
+        let gone = b["archived"].as_bool() == Some(true);
+        let temporary = b["temporary"].as_bool() == Some(true);
+        let (id_toggle, id_promote, id_restore, id_archive) =
+            (id.clone(), id.clone(), id.clone(), id.clone());
+        let mut middle = Vec::new();
+        if gone {
+            middle.push(RowAction::new("恢复", move || {
+                act(id_restore.clone(), "restore")
+            }));
+        } else {
+            middle.push(RowAction::new(
+                if paused { "恢复" } else { "暂停" },
+                move || act(id_toggle.clone(), if paused { "resume" } else { "pause" }),
+            ));
+            if temporary {
+                middle.push(RowAction::new("转为固定", move || {
+                    act(id_promote.clone(), "promote")
+                }));
+            }
+        }
+        vec![
+            vec![RowAction::open(format!("/bots/{}", api::enc(&id)))],
+            middle,
+            if gone {
+                Vec::new()
+            } else {
+                vec![RowAction::delete("归档", move || {
+                    archive_bot(&id_archive, &name, move || {
+                        refresh(rev);
+                        app.load_bots();
+                    });
+                })]
+            },
+        ]
     };
     view! {
         <div class="page work-page bots-page">
@@ -198,6 +265,7 @@ pub fn BotsPage() -> impl IntoView {
                         .filter(|b| undo::shows(&s(b, "id")))
                         .collect();
                     let showing_archived = archived.get_untracked();
+                    shown.set(bots.clone());
                     if bots.is_empty() {
                         return if showing_archived {
                             view! {
@@ -225,7 +293,8 @@ pub fn BotsPage() -> impl IntoView {
                         <ListGroup class="bots-list">
                             {bots
                                 .into_iter()
-                                .map(|b| {
+                                .enumerate()
+                                .map(|(i, b)| {
                                     let id = s(&b, "id");
                                     let href = format!("/bots/{}", api::enc(&id));
                                     let state = s(&b, "state");
@@ -241,7 +310,15 @@ pub fn BotsPage() -> impl IntoView {
                                         id.clone(),
                                     );
                                     view! {
-                                        <article class="bot-card lrow">
+                                        <article
+                                            class="bot-card lrow"
+                                            tabindex="-1"
+                                            data-index=i.to_string()
+                                            data-sel=move || rows.selected(i).to_string()
+                                            data-menu=move || rows.menu_on(i).to_string()
+                                            on:focusin=move |_| rows.sel.set(Some(i))
+                                            on:contextmenu=move |e| rows.open_menu(&e, i)
+                                        >
                                             <div class="bot-head">
                                                 <a href=href.clone()>
                                                     <strong>{s(&b, "display_name")}</strong>
@@ -345,6 +422,21 @@ pub fn BotsPage() -> impl IntoView {
                     }
                         .into_any()
                 }
+            }}
+            {move || {
+                rows.menu
+                    .get()
+                    .and_then(|at| shown.with(|l| l.get(at.index).cloned()).map(|b| (at, b)))
+                    .map(|(at, b)| {
+                        view! {
+                            <RowMenu
+                                at
+                                label=format!("{} 的操作", s(&b, "display_name"))
+                                groups=menu_of(b)
+                                on_close=Callback::new(move |()| rows.close_menu())
+                            />
+                        }
+                    })
             }}
             <Show when=move || creating.get()>
                 <NewBotForm on_close=Callback::new(move |_| {

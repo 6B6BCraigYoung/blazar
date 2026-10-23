@@ -14,9 +14,9 @@ use crate::app_state::use_app;
 use crate::components::empty::{self, Blank};
 use crate::components::group::ListGroup;
 use crate::components::icon;
-use crate::components::menu::menu_keydown;
 use crate::components::page_head::PageHead;
 use crate::components::prefs::{PrefGroup, PrefRow};
+use crate::components::rows::{MenuAt, RowAction, RowMenu};
 use crate::components::status::{InlineError, LoadingState, StateOf, Status, Tone};
 use crate::fmt;
 use crate::home_rows::{self, Group, Row, StepText};
@@ -178,13 +178,6 @@ fn ProjectDetail(project: Signal<Option<String>>) -> impl IntoView {
             </div>
         </div>
     }
-}
-
-#[derive(Clone, PartialEq)]
-struct MenuAt {
-    x: i32,
-    y: i32,
-    index: usize,
 }
 
 #[derive(Clone, Copy)]
@@ -417,7 +410,14 @@ fn Home() -> impl IntoView {
                         rows.with(|r| r.get(at.index).cloned())
                             .map(|row| {
                                 let pending = pending_of(&row);
-                                view! { <RowMenu ctx at row pending /> }
+                                view! {
+                                    <RowMenu
+                                        at
+                                        label=format!("{} 的操作", fmt::ws_title(&row.ws.name, &row.ws.node))
+                                        groups=home_menu(ctx, &row, pending)
+                                        on_close=Callback::new(move |()| ctx.menu.set(None))
+                                    />
+                                }
                             })
                     })
             }}
@@ -512,14 +512,7 @@ fn row_view(ctx: Ctx, i: usize, row: Row, pending: Option<Value>) -> impl IntoVi
             on:contextmenu=move |e| {
                 e.prevent_default();
                 ctx.sel.set(Some(i));
-                ctx.menu
-                    .set(
-                        Some(MenuAt {
-                            x: e.client_x(),
-                            y: e.client_y(),
-                            index: i,
-                        }),
-                    );
+                ctx.menu.set(Some(MenuAt::from(&e, i)));
             }
         >
             <a class="home-main" href=href title=location>
@@ -552,128 +545,35 @@ fn row_view(ctx: Ctx, i: usize, row: Row, pending: Option<Value>) -> impl IntoVi
     }
 }
 
-#[component]
-fn RowMenu(ctx: Ctx, at: MenuAt, row: Row, pending: Option<Value>) -> impl IntoView {
+fn home_menu(ctx: Ctx, row: &Row, pending: Option<Value>) -> Vec<Vec<RowAction>> {
     let app = use_app();
-    let root = NodeRef::<html::Div>::new();
-    let first = NodeRef::<html::A>::new();
-    let close = move || ctx.menu.set(None);
-    let close_down = window_event_listener(ev::mousedown, move |e| {
-        let inside = e
-            .target()
-            .and_then(|t| t.dyn_into::<web_sys::Element>().ok())
-            .and_then(|el| el.closest(".ctx-menu").ok().flatten())
-            .is_some();
-        if !inside {
-            close();
-        }
-    });
-    let close_blur = window_event_listener(ev::blur, move |_| close());
-    on_cleanup(move || {
-        close_down.remove();
-        close_blur.remove();
-    });
-    request_animation_frame(move || {
-        if let Some(b) = first.try_get_untracked().flatten() {
-            let _ = b.focus();
-        }
-    });
-    let w = window()
-        .inner_width()
-        .ok()
-        .and_then(|v| v.as_f64())
-        .unwrap_or(0.0) as i32;
-    let h = window()
-        .inner_height()
-        .ok()
-        .and_then(|v| v.as_f64())
-        .unwrap_or(0.0) as i32;
-    let (x, y) = (at.x.min(w - 200).max(0), at.y.min(h - 190).max(0));
     let id = row.ws.id.clone();
     let href = format!("/w/{}", row.subject().id);
     let approval = pending
         .filter(|a| !is_question(a))
         .map(|a| a["id"].as_str().unwrap_or("").to_owned());
     let (id_detail, id_rename, id_remove) = (id.clone(), id.clone(), id);
-    view! {
-        <div
-            class="ctx-menu home-menu"
-            role="menu"
-            aria-label=format!("{} 的操作", fmt::ws_title(&row.ws.name, &row.ws.node))
-            node_ref=root
-            style=format!("left:{x}px;top:{y}px")
-            on:keydown=move |e| {
-                if let Some(r) = root.get_untracked() {
-                    menu_keydown(&e, r.unchecked_ref(), Callback::new(move |_| close()));
-                }
-            }
-        >
-            {approval
-                .map(|aid| {
-                    let (a1, a2) = (aid.clone(), aid);
-                    view! {
-                        <button
-                            type="button"
-                            role="menuitem"
-                            class="ctx-item"
-                            on:click=move |_| {
-                                close();
-                                decide(ctx, a1.clone(), true);
-                            }
-                        >
-                            "允许"
-                        </button>
-                        <button
-                            type="button"
-                            role="menuitem"
-                            class="ctx-item"
-                            on:click=move |_| {
-                                close();
-                                decide(ctx, a2.clone(), false);
-                            }
-                        >
-                            "拒绝"
-                        </button>
-                        <div class="menu-sep"></div>
-                    }
-                })}
-            <a role="menuitem" class="ctx-item" href=href node_ref=first on:click=move |_| close()>
-                "打开"
-            </a>
-            <button
-                type="button"
-                role="menuitem"
-                class="ctx-item"
-                on:click=move |_| {
-                    close();
-                    app.inspect_ws.set(Some(id_detail.clone()));
-                }
-            >
-                "详情"
-            </button>
-            <button
-                type="button"
-                role="menuitem"
-                class="ctx-item"
-                on:click=move |_| {
-                    close();
-                    rename_workspace(app, id_rename.clone());
-                }
-            >
-                "改名…"
-            </button>
-            <div class="menu-sep"></div>
-            <button
-                type="button"
-                role="menuitem"
-                class="ctx-item danger"
-                on:click=move |_| {
-                    close();
-                    remove_workspace(app, id_remove.clone());
-                }
-            >
-                "移除…"
-            </button>
-        </div>
-    }
+    vec![
+        approval
+            .map(|aid| {
+                let (a1, a2) = (aid.clone(), aid);
+                vec![
+                    RowAction::new("允许", move || decide(ctx, a1.clone(), true))
+                        .hint(crate::shortcuts::label("Mod+Enter")),
+                    RowAction::new("拒绝", move || decide(ctx, a2.clone(), false))
+                        .hint(crate::shortcuts::label("Mod+Backspace")),
+                ]
+            })
+            .unwrap_or_default(),
+        vec![
+            RowAction::open(href),
+            RowAction::inspect(move || app.inspect_ws.set(Some(id_detail.clone()))),
+            RowAction::new("改名…", move || {
+                rename_workspace(app, id_rename.clone())
+            }),
+        ],
+        vec![RowAction::delete("移除…", move || {
+            remove_workspace(app, id_remove.clone())
+        })],
+    ]
 }

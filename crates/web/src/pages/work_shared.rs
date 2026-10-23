@@ -36,29 +36,7 @@ pub fn decide_approval(
     });
 }
 
-pub fn in_field(e: &leptos::ev::KeyboardEvent) -> bool {
-    use wasm_bindgen::JsCast;
-    e.target()
-        .and_then(|t| t.dyn_into::<web_sys::Element>().ok())
-        .is_some_and(|t| {
-            t.closest("input, textarea, select, [contenteditable]")
-                .ok()
-                .flatten()
-                .is_some()
-        })
-}
-
-pub fn overlay_open() -> bool {
-    document()
-        .query_selector("[data-modal-root], .ctx-menu, .menu")
-        .ok()
-        .flatten()
-        .is_some()
-}
-
-pub fn list_keys_apply(e: &leptos::ev::KeyboardEvent) -> bool {
-    !e.default_prevented() && !e.is_composing() && !in_field(e) && !overlay_open()
-}
+pub use crate::components::rows::{in_field, list_keys_apply, overlay_open};
 
 pub fn approval_summary(request: &Value, root: &str) -> (String, String) {
     let tool = crate::chat_model::tool_name(request["tool_name"].as_str().unwrap_or(""));

@@ -6,6 +6,7 @@ use crate::components::{
     group::ListGroup,
     icon,
     modal::Modal,
+    rows::{RowAction, RowKey, RowMenu, Rows},
     status::{EmptyState, InlineError, LoadingState},
     toast::toast,
     undo::{self, Request},
@@ -151,6 +152,48 @@ pub fn AutopilotsPage() -> impl IntoView {
         ui.rev.track();
         api::get::<Vec<Value>>("/api/autopilots")
     });
+    let rows = Rows::default();
+    let shown = RwSignal::new(Vec::<Value>::new());
+    rows.listen(
+        "button.work-ap-row",
+        move || shown.with_untracked(Vec::len),
+        move |key, i| {
+            let Some(a) = shown.with_untracked(|l| l.get(i).cloned()) else {
+                return;
+            };
+            match key {
+                RowKey::Open => ui.selected.set(s(&a, "id")),
+                RowKey::Inspect => ui.editor.set(Some(a)),
+                RowKey::Delete => ui.remove(&a),
+            }
+        },
+    );
+    let menu_of = move |a: Value| {
+        let id = s(&a, "id");
+        let paused = s(&a, "status") == "paused";
+        let (open_id, run_id, toggle_id) = (id.clone(), id.clone(), id.clone());
+        let (for_edit, for_delete) = (a.clone(), a.clone());
+        vec![
+            vec![
+                RowAction::opens(move || ui.selected.set(open_id.clone())),
+                RowAction::inspect(move || ui.editor.set(Some(for_edit.clone()))),
+            ],
+            vec![
+                RowAction::new("立即运行", move || {
+                    ui.mutate(run_id.clone(), "POST", "/run", json!({}))
+                }),
+                RowAction::new(if paused { "恢复" } else { "暂停" }, move || {
+                    ui.mutate(
+                        toggle_id.clone(),
+                        "PUT",
+                        "",
+                        json!({"status": if paused { "active" } else { "paused" }}),
+                    )
+                }),
+            ],
+            vec![RowAction::delete("删除", move || ui.remove(&for_delete))],
+        ]
+    };
     let tick = RwSignal::new(0u32);
     let timer = StoredValue::new_local(gloo_timers::callback::Interval::new(30_000, move || {
         tick.try_update(|n| *n = n.wrapping_add(1));
@@ -195,11 +238,16 @@ pub fn AutopilotsPage() -> impl IntoView {
                                         }
                                             .into_any();
                                     }
-                                    let rows = items
+                                    let listed: Vec<Value> = items
                                         .iter()
                                         .filter(|a| undo::shows(&s(a, "id")))
                                         .cloned()
-                                        .map(|a| {
+                                        .collect();
+                                    shown.set(listed.clone());
+                                    let list = listed
+                                        .into_iter()
+                                        .enumerate()
+                                        .map(|(i, a)| {
                                             let id = s(&a, "id");
                                             let selected = id.clone();
                                             let next = s(&a, "next_run_at");
@@ -207,6 +255,11 @@ pub fn AutopilotsPage() -> impl IntoView {
                                                 <button
                                                     class="work-ap-row lrow"
                                                     class:work-selected=move || ui.selected.get() == selected
+                                                    data-index=i.to_string()
+                                                    data-sel=move || rows.selected(i).to_string()
+                                                    data-menu=move || rows.menu_on(i).to_string()
+                                                    on:focusin=move |_| rows.sel.set(Some(i))
+                                                    on:contextmenu=move |e| rows.open_menu(&e, i)
                                                     on:click=move |_| ui.selected.set(id.clone())
                                                 >
                                                     <div class="row-actions">
@@ -247,7 +300,7 @@ pub fn AutopilotsPage() -> impl IntoView {
                                             }
                                         })
                                         .collect_view();
-                                    view! { <ListGroup>{rows}</ListGroup> }.into_any()
+                                    view! { <ListGroup>{list}</ListGroup> }.into_any()
                                 }
                             }
                         }
@@ -263,6 +316,21 @@ pub fn AutopilotsPage() -> impl IntoView {
                 </Show>
             </div>
             {move || ui.editor.get().map(|init| view! { <AutopilotEditor init ui /> })}
+            {move || {
+                rows.menu
+                    .get()
+                    .and_then(|at| shown.with(|l| l.get(at.index).cloned()).map(|a| (at, a)))
+                    .map(|(at, a)| {
+                        view! {
+                            <RowMenu
+                                at
+                                label=format!("{} 的操作", s(&a, "name"))
+                                groups=menu_of(a)
+                                on_close=Callback::new(move |()| rows.close_menu())
+                            />
+                        }
+                    })
+            }}
         </div>
     }
 }

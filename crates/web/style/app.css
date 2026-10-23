@@ -643,13 +643,19 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 .home-act .btn { display: inline-flex; align-items: center; gap: var(--space-xs); }
 .home-act .btn kbd { font: var(--font-size-caption) var(--font-sans); color: var(--fg-3); }
 .home-act a.btn { color: var(--fg); }
-.home-menu { min-width: 180px; }
 .home-page .page-actions .btn { display: inline-flex; align-items: center; gap: var(--space-sm); }
 .home-page .page-actions .btn kbd, .detail-page .page-actions .btn kbd { font: var(--font-size-caption) var(--font-sans); color: var(--on-accent-muted); }
 .ctx-item kbd { float: right; margin-left: var(--space-xl); font: var(--font-size-caption) var(--font-sans); color: var(--fg-4); }
 .ctx-item:not(:disabled):is(:hover, :focus-visible) kbd { color: var(--on-accent-muted); }
 .ctx-item.danger { color: var(--err-fg); }
 .ctx-item.danger:not(:disabled):is(:hover, :focus-visible) { background: var(--err); color: var(--on-accent); }
+.row-menu { min-width: 180px; }
+.row-menu .ctx-item { display: flex; align-items: center; gap: var(--space-xl); }
+.row-menu .ctx-item > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row-menu .ctx-item kbd { float: none; margin-left: auto; }
+.lrow[data-sel="true"], .lrow[data-menu="true"], .lgroup-body tr[data-sel="true"], .lgroup-body tr[data-menu="true"] { background: var(--bg-selected); }
+.lgroup-body tr[tabindex]:focus { outline: none; }
+.lrow[tabindex]:focus { outline: none; }
 @media (max-width: 760px) {
   .home-project, .home-machine, .home-diff { display: none; }
   .home-name { max-width: 50%; }

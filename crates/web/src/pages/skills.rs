@@ -5,6 +5,7 @@ use crate::components::group::ListGroup;
 use crate::components::icon;
 use crate::components::modal::Modal;
 use crate::components::page_head::PageHead;
+use crate::components::rows::{RowAction, RowKey, RowMenu, Rows};
 use crate::components::status::{EmptyState, InlineError, LoadingState};
 use crate::components::toast::toast;
 use crate::components::undo::{self, Request};
@@ -39,6 +40,15 @@ pub(super) fn parse_kv(source: &str) -> Result<Value, String> {
     }
     Ok(Value::Object(map))
 }
+fn install_of(item: &Value) -> Value {
+    let o = &item["origin"];
+    if text(o, "provider") == "clawhub" {
+        json!({"kind":"clawhub","owner":o["owner"],"slug":o["slug"]})
+    } else {
+        json!({"kind":"github","repo":o["repo"],"path":o["path"],"ref":o["ref"]})
+    }
+}
+
 fn remove_skill(v: &Value, is_mcp: bool, done: impl Fn() + 'static) {
     let id = text(v, "id");
     let path = format!(
@@ -97,6 +107,48 @@ pub fn SkillsPage() -> impl IntoView {
     let busy = RwSignal::new(false);
     let error = RwSignal::new(String::new());
     let preview = RwSignal::new(None::<(Value, bool)>);
+    let list_rows = Rows::default();
+    let shown = RwSignal::new(Vec::<Value>::new());
+    let open_item = move |v: &Value| {
+        if tab.get_untracked() == "mcp" {
+            mcp.set(Some(v.clone()));
+        } else {
+            editing.set(Some(text(v, "id")));
+        }
+    };
+    list_rows.listen(
+        "tr.skill-row",
+        move || shown.with_untracked(Vec::len),
+        move |key, i| {
+            let Some(v) = shown.with_untracked(|l| l.get(i).cloned()) else {
+                return;
+            };
+            match key {
+                RowKey::Open | RowKey::Inspect => open_item(&v),
+                RowKey::Delete => remove_skill(&v, tab.get_untracked() == "mcp", move || {
+                    rev.update(|r| *r += 1)
+                }),
+            }
+        },
+    );
+    let menu_of = move |v: Value| {
+        let is_mcp = tab.get_untracked() == "mcp";
+        let (for_open, for_update, for_delete) = (v.clone(), v.clone(), v.clone());
+        let updatable = !is_mcp && !v["origin"].is_null();
+        vec![
+            vec![RowAction::opens(move || open_item(&for_open))],
+            if updatable {
+                vec![RowAction::new("更新", move || {
+                    preview.set(Some((install_of(&for_update), true)))
+                })]
+            } else {
+                Vec::new()
+            },
+            vec![RowAction::delete("删除", move || {
+                remove_skill(&for_delete, is_mcp, move || rev.update(|r| *r += 1));
+            })],
+        ]
+    };
     let lib = LocalResource::new(move || {
         rev.track();
         let t = tab.get();
@@ -245,6 +297,7 @@ pub fn SkillsPage() -> impl IntoView {
                                     .into_iter()
                                     .filter(|v| undo::shows(&text(v, "id")))
                                     .collect();
+                                shown.set(lib.clone());
                                 if lib.is_empty() {
                                     return if is_mcp {
                                         view! {
@@ -287,10 +340,19 @@ pub fn SkillsPage() -> impl IntoView {
                                                 <tbody>
                                                     {lib
                                                         .into_iter()
-                                                        .map(|item| {
+                                                        .enumerate()
+                                                        .map(|(i, item)| {
                                                             let v = StoredValue::new(item.clone());
                                                             view! {
-                                                                <tr>
+                                                                <tr
+                                                                    class="skill-row"
+                                                                    tabindex="-1"
+                                                                    data-index=i.to_string()
+                                                                    data-sel=move || list_rows.selected(i).to_string()
+                                                                    data-menu=move || list_rows.menu_on(i).to_string()
+                                                                    on:focusin=move |_| list_rows.sel.set(Some(i))
+                                                                    on:contextmenu=move |e| list_rows.open_menu(&e, i)
+                                                                >
                                                                     <td>
                                                                         <button
                                                                             class="agent-link"
@@ -355,33 +417,13 @@ pub fn SkillsPage() -> impl IntoView {
                                                                                         <button
                                                                                             class="btn"
                                                                                             on:click=move |_| {
-                                                                                                let item = v.get_value();
-                                                                                                let o = &item["origin"];
-                                                                                                let install = if text(o, "provider") == "clawhub" {
-                                                                                                    json!(
-                                                                                                        {"kind":"clawhub","owner":o["owner"],"slug":o["slug"]}
-                                                                                                    )
-                                                                                                } else {
-                                                                                                    json!(
-                                                                                                        {"kind":"github","repo":o["repo"],"path":o["path"],"ref":o["ref"]}
-                                                                                                    )
-                                                                                                };
-                                                                                                preview.set(Some((install, true)));
+                                                                                                preview.set(Some((install_of(&v.get_value()), true)));
                                                                                             }
                                                                                         >
                                                                                             "更新"
                                                                                         </button>
                                                                                     }
                                                                                 })}
-                                                                            <button
-                                                                                class="btn danger"
-                                                                                disabled=move || busy.get()
-                                                                                on:click=move |_| {
-                                                                                    remove_skill(&v.get_value(), is_mcp, move || rev.update(|r| *r += 1));
-                                                                                }
-                                                                            >
-                                                                                "删除"
-                                                                            </button>
                                                                         </div>
                                                                     </td>
                                                                 </tr>
@@ -399,6 +441,22 @@ pub fn SkillsPage() -> impl IntoView {
                     }
                         .into_any()
                 }
+            }}
+            {move || {
+                list_rows
+                    .menu
+                    .get()
+                    .and_then(|at| shown.with(|l| l.get(at.index).cloned()).map(|v| (at, v)))
+                    .map(|(at, v)| {
+                        view! {
+                            <RowMenu
+                                at
+                                label=format!("{} 的操作", text(&v, "name"))
+                                groups=menu_of(v)
+                                on_close=Callback::new(move |()| list_rows.close_menu())
+                            />
+                        }
+                    })
             }}
             {move || {
                 editing

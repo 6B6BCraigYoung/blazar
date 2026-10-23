@@ -147,7 +147,4 @@
 .inbox-cmd { flex: 1 1 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--font-size-caption-readable) var(--font-mono); color: var(--fg-2); }
 .inbox-reply { flex: 1 1 200px; min-width: 160px; height: 26px; padding: 0 var(--space-control); border: 1px solid var(--border); border-radius: var(--r-md); background: var(--bg-canvas); color: var(--fg); font: var(--font-size-label-readable) var(--font-sans); outline: none; }
 .inbox-reply:focus { border-color: var(--border-strong); }
-.inbox-menu { min-width: 170px; }
-.inbox-menu .ctx-item { display: flex; align-items: center; }
-.inbox-menu .ctx-item span { flex: 1; }
 @media (max-width: 620px) { .inbox-row { flex-wrap: wrap; } .inbox-meta { width: 100%; padding-left: calc(8px + var(--space-xl)); } }

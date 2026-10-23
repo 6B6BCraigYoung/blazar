@@ -14,6 +14,7 @@ use crate::components::group::ListGroup;
 use crate::components::icon;
 use crate::components::modal::Modal;
 use crate::components::page_head::{MenuItem, MoreMenu, PageHead};
+use crate::components::rows::{RowAction, RowKey, RowMenu, Rows};
 use crate::components::status::{EmptyState, InlineError, LoadingState, StateOf};
 use crate::components::toast::toast;
 use crate::components::undo::{self, Request};
@@ -164,7 +165,71 @@ pub fn AgentsPage() -> impl IntoView {
             || profiles.with(|p| matches!(p, Some(Ok(l)) if !l.is_empty()))
     };
     let navigate = use_navigate();
+    let nav = StoredValue::new(navigate.clone());
     let create = Callback::new(move |()| navigate("/agents/new", Default::default()));
+    let rows = Rows::default();
+    let shown = RwSignal::new(Vec::<Value>::new());
+    let open_profile = move |a: &Value| {
+        let href = format!("/agent/{}", api::enc(&text(a, "id")));
+        nav.with_value(|n| n(&href, Default::default()));
+    };
+    rows.listen(
+        "tr.agent-row",
+        move || shown.with_untracked(Vec::len),
+        move |key, i| {
+            let Some(a) = shown.with_untracked(|l| l.get(i).cloned()) else {
+                return;
+            };
+            match key {
+                RowKey::Open | RowKey::Inspect => open_profile(&a),
+                RowKey::Delete => remove_profile(&a, archived(&a), move || rev.update(|r| *r += 1)),
+            }
+        },
+    );
+    let act_on = move |id: String, action: &'static str| {
+        if busy.get_untracked() {
+            return;
+        }
+        busy.set(true);
+        spawn_local(async move {
+            match api::send::<Value>(
+                "POST",
+                &format!("/api/agent-profiles/{}/{action}", api::enc(&id)),
+                &json!({}),
+            )
+            .await
+            {
+                Ok(_) => rev.update(|r| *r += 1),
+                Err(e) => toast(e.to_string()),
+            }
+            busy.set(false);
+        });
+    };
+    let menu_of = move |a: Value| {
+        let id = text(&a, "id");
+        let gone = archived(&a);
+        let copy = format!("/agents/new?template={}", api::enc(&id));
+        let (for_restore, for_delete) = (id.clone(), a.clone());
+        vec![
+            vec![RowAction::open(format!("/agent/{}", api::enc(&id)))],
+            vec![RowAction::new("复制", move || {
+                nav.with_value(|n| n(&copy, Default::default()));
+            })],
+            if gone {
+                vec![RowAction::new("恢复", move || {
+                    act_on(for_restore.clone(), "restore")
+                })]
+            } else {
+                Vec::new()
+            },
+            vec![RowAction::delete(
+                if gone { "删除" } else { "归档" },
+                move || {
+                    remove_profile(&for_delete, gone, move || rev.update(|r| *r += 1));
+                },
+            )],
+        ]
+    };
     Effect::new(move |_| {
         storage::save(
             "blazar.agents.view",
@@ -427,6 +492,7 @@ pub fn AgentsPage() -> impl IntoView {
                             };
                             if asc.get() { cmp } else { cmp.reverse() }
                         });
+                    shown.set(profiles.clone());
                     if profiles.is_empty() {
                         let archived_scope = scope.get() == "archived";
                         return if has_profiles {
@@ -482,13 +548,22 @@ pub fn AgentsPage() -> impl IntoView {
                                     <tbody>
                                         {profiles
                                             .into_iter()
-                                            .map(|a| {
+                                            .enumerate()
+                                            .map(|(i, a)| {
                                                 let id = text(&a, "id");
                                                 let check_id = id.clone();
                                                 let toggle_id = id.clone();
                                                 let status = availability(&a, &rts);
                                                 view! {
-                                                    <tr>
+                                                    <tr
+                                                        class="agent-row"
+                                                        tabindex="-1"
+                                                        data-index=i.to_string()
+                                                        data-sel=move || rows.selected(i).to_string()
+                                                        data-menu=move || rows.menu_on(i).to_string()
+                                                        on:focusin=move |_| rows.sel.set(Some(i))
+                                                        on:contextmenu=move |e| rows.open_menu(&e, i)
+                                                    >
                                                         <td>
                                                             <input
                                                                 type="checkbox"
@@ -584,6 +659,21 @@ pub fn AgentsPage() -> impl IntoView {
                     }
                         .into_any()
                 }
+            }}
+            {move || {
+                rows.menu
+                    .get()
+                    .and_then(|at| shown.with(|l| l.get(at.index).cloned()).map(|a| (at, a)))
+                    .map(|(at, a)| {
+                        view! {
+                            <RowMenu
+                                at
+                                label=format!("{} 的操作", text(&a, "name"))
+                                groups=menu_of(a)
+                                on_close=Callback::new(move |()| rows.close_menu())
+                            />
+                        }
+                    })
             }}
         </div>
     }

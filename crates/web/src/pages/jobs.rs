@@ -6,6 +6,7 @@ use crate::components::{
     group::ListGroup,
     icon,
     modal::Modal,
+    rows::{RowAction, RowKey, RowMenu, Rows},
     status::{InlineError, LoadingState, StateOf},
     toast::toast,
 };
@@ -128,6 +129,8 @@ pub fn JobsPage() -> impl IntoView {
     on_cleanup(move || ticker.dispose());
     let log_of = RwSignal::new(None::<Value>);
     let killing = RwSignal::new(String::new());
+    let rows = Rows::default();
+    let shown = RwSignal::new(Vec::<Value>::new());
     let data = LocalResource::new(move || {
         rev.track();
         let f = filter.get();
@@ -174,6 +177,41 @@ pub fn JobsPage() -> impl IntoView {
             refresh(rev);
         });
     };
+    rows.listen(
+        "tr.job-row",
+        move || shown.with_untracked(Vec::len),
+        move |key, i| {
+            let Some(j) = shown.with_untracked(|l| l.get(i).cloned()) else {
+                return;
+            };
+            match key {
+                RowKey::Open | RowKey::Inspect => log_of.set(Some(j)),
+                RowKey::Delete => {
+                    if s(&j, "status") == "running" {
+                        kill(j);
+                    }
+                }
+            }
+        },
+    );
+    let menu_of = move |j: Value| {
+        let (for_log, for_kill) = (j.clone(), j.clone());
+        let command = s(&j, "command");
+        vec![
+            vec![RowAction::opens(move || log_of.set(Some(for_log.clone())))],
+            vec![
+                RowAction::new("复制命令", move || {
+                    spawn_local(copy(command.clone()));
+                })
+                .when(!s(&j, "command").is_empty()),
+            ],
+            if s(&j, "status") == "running" {
+                vec![RowAction::delete("结束", move || kill(for_kill.clone()))]
+            } else {
+                Vec::new()
+            },
+        ]
+    };
     view! {
         <div class="page work-page jobs-page">
             <PageHead title="任务" nav=|| crate::components::section::tasks("/jobs") />
@@ -214,7 +252,9 @@ pub fn JobsPage() -> impl IntoView {
                             .into_any()
                     }
                 }
-                Some(Ok(list)) => view! {
+                Some(Ok(list)) => {
+                    shown.set(list.clone());
+                    view! {
                     <ListGroup>
                         <div class="jobs-table">
                             <table class="tb">
@@ -234,14 +274,22 @@ pub fn JobsPage() -> impl IntoView {
                                 <tbody>
                                     {list
                                         .into_iter()
-                                        .map(|j| {
-                                            let running = s(&j, "status") == "running";
+                                        .enumerate()
+                                        .map(|(i, j)| {
                                             let error = s(&j, "last_error");
-                                            let id = s(&j, "id");
-                                            let (for_log, for_kill, row) = (j.clone(), j.clone(), j.clone());
+                                            let (for_log, for_open, row) = (j.clone(), j.clone(), j.clone());
                                             let started = s(&j, "created_at");
                                             view! {
-                                                <tr>
+                                                <tr
+                                                    class="job-row"
+                                                    tabindex="-1"
+                                                    data-index=i.to_string()
+                                                    data-sel=move || rows.selected(i).to_string()
+                                                    data-menu=move || rows.menu_on(i).to_string()
+                                                    on:focusin=move |_| rows.sel.set(Some(i))
+                                                    on:contextmenu=move |e| rows.open_menu(&e, i)
+                                                    on:dblclick=move |_| log_of.set(Some(for_open.clone()))
+                                                >
                                                     <td>
                                                         <StateOf
                                                             state=s(&j, "status")
@@ -276,18 +324,6 @@ pub fn JobsPage() -> impl IntoView {
                                                         >
                                                             "日志"
                                                         </button>
-                                                        {running
-                                                            .then(|| {
-                                                                view! {
-                                                                    <button
-                                                                        class="btn small danger"
-                                                                        disabled=move || killing.get() == id
-                                                                        on:click=move |_| kill(for_kill.clone())
-                                                                    >
-                                                                        "结束"
-                                                                    </button>
-                                                                }
-                                                            })}
                                                     </td>
                                                 </tr>
                                             }
@@ -298,9 +334,25 @@ pub fn JobsPage() -> impl IntoView {
                         </div>
                     </ListGroup>
                 }
-                .into_any(),
+                .into_any()
+                }
             }}
             {move || log_of.get().map(|j| view! { <JobLog job=j on_close=Callback::new(move |()| log_of.set(None)) /> })}
+            {move || {
+                rows.menu
+                    .get()
+                    .and_then(|at| shown.with(|l| l.get(at.index).cloned()).map(|j| (at, j)))
+                    .map(|(at, j)| {
+                        view! {
+                            <RowMenu
+                                at
+                                label=format!("{} 的操作", s(&j, "label"))
+                                groups=menu_of(j)
+                                on_close=Callback::new(move |()| rows.close_menu())
+                            />
+                        }
+                    })
+            }}
         </div>
     }
 }
