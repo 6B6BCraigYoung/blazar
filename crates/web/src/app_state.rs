@@ -37,6 +37,7 @@ pub struct AppData {
     pub palette: RwSignal<bool>,
     pub side_collapsed: RwSignal<bool>,
     pub side_rail: RwSignal<bool>,
+    pub settings_from: RwSignal<String>,
     pub alerts_open: RwSignal<bool>,
     pub alerts_rev: RwSignal<u32>,
 }
@@ -409,6 +410,7 @@ pub fn provide(bus: Bus) -> AppData {
                 }),
         ),
         side_rail: RwSignal::new(false),
+        settings_from: RwSignal::new("/".into()),
         alerts_open: RwSignal::new(false),
         alerts_rev: RwSignal::new(0),
     };

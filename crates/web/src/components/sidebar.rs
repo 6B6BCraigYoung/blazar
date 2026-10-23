@@ -2,7 +2,7 @@ use leptos::ev;
 use leptos::html;
 use leptos::prelude::*;
 use leptos_router::components::A;
-use leptos_router::hooks::use_location;
+use leptos_router::hooks::{use_location, use_navigate, use_query_map};
 use wasm_bindgen::JsCast;
 
 use super::icon;
@@ -63,31 +63,27 @@ fn n(v: usize) -> String {
 #[component]
 pub fn Sidebar() -> impl IntoView {
     let app = use_app();
+    let location = use_location();
     let keys = RwSignal::new(0u32);
     let watch_keys = crate::shortcuts::on_change(move || keys.update(|n| *n += 1));
     on_cleanup(move || watch_keys.remove());
-    let palette_key = move || {
-        keys.track();
-        crate::shortcuts::label(&crate::shortcuts::current("palette"))
-    };
-    let top = move || app.top_workspaces();
-    let none = Signal::derive(String::new);
-    let projects = move || {
-        let mut m: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
-        for w in top() {
-            if let Some(p) = w.project.clone().filter(|p| !p.trim().is_empty()) {
-                let e = m.entry(p).or_default();
-                if app.attention(&w) {
-                    *e += 1;
-                }
-            }
+    let in_settings = Memo::new(move |_| location.pathname.with(|p| p == "/settings"));
+    Effect::new(move |_| {
+        let path = location.pathname.get();
+        let query = location.query.get();
+        if path != "/settings" {
+            app.settings_from
+                .set(format!("{path}{}", query.to_query_string()));
         }
-        m.into_iter().collect::<Vec<_>>()
-    };
+    });
 
     const LOGO: &str = r##"<svg viewBox="100 100 824 824" aria-hidden="true"><rect x="100" y="100" width="824" height="824" rx="185" fill="#0b0f19"/><g fill="none" stroke-linecap="round" transform="translate(0 24)"><path d="M365 616 A208 208 0 1 1 659 616" stroke="#e5e7f0" stroke-width="46"/><path d="M471 478 L449 690 M553 478 L575 690" stroke="#5ee6f0" stroke-width="54"/></g></svg>"##;
     view! {
-        <nav class="side" aria-label="主导航">
+        <nav
+            class="side"
+            aria-label="主导航"
+            data-mode=move || if in_settings.get() { "settings" } else { "main" }
+        >
             <div class="brand">
                 <span class="logo" inner_html=LOGO></span>
                 <span class="nm">"Blazar"</span>
@@ -117,95 +113,166 @@ pub fn Sidebar() -> impl IntoView {
             >
                 <span class="ic">"»"</span>
             </button>
-            <button
-                type="button"
-                class="nav search"
-                aria-haspopup="dialog"
-                aria-expanded=move || app.palette.get().to_string()
-                title=rail_tip("搜索")
-                on:click=move |_| app.palette.set(true)
-            >
-                <span class="ic" inner_html=icon::svg(icon::SEARCH)></span>
-                <span class="nm muted">"搜索…"</span>
-                <span class="n">{palette_key}</span>
-            </button>
-            <div class="grp">
-                {nav(
-                    "/inbox",
-                    icon::INBOX,
-                    "收件箱",
-                    Signal::derive(move || n(usize::try_from(app.inbox_unread.get()).unwrap_or(0))),
-                    false,
-                )}
-                {section(
-                    "/",
-                    icon::FOLDER,
-                    "工作区",
-                    Signal::derive(move || n(app.attention_count())),
-                    &["/", "/running", "/waiting", "/workspaces"],
-                )}
-                {section("/bots", icon::BOT, "bot", none, &["/bots"])}
-                {section(
-                    "/tasks",
-                    icon::TASKS,
-                    "任务",
-                    Signal::derive(move || n(app.tasks_review.get())),
-                    &["/tasks", "/autopilots", "/jobs"],
-                )}
-            </div>
             {move || {
-                let p = projects();
-                (!p.is_empty())
-                    .then(|| {
-                        view! {
-                            <div class="grp side-projects">
-                                <span>"项目"</span>
-                                {p
-                                    .into_iter()
-                                    .map(|(name, c)| {
-                                        let href = format!(
-                                            "/project/{}",
-                                            js_sys::encode_uri_component(&name),
-                                        );
-                                        let title = name.clone();
-                                        view! {
-                                            <A href=href attr:class="nav" attr:title=title>
-                                                <span class="ic" inner_html=icon::svg(icon::FOLDER)></span>
-                                                <span class="nm">{name}</span>
-                                                <span class="n">{n(c)}</span>
-                                            </A>
-                                        }
-                                    })
-                                    .collect_view()}
-                            </div>
-                        }
-                    })
+                if in_settings.get() {
+                    view! { <SettingsNav /> }.into_any()
+                } else {
+                    view! { <MainNav keys /> }.into_any()
+                }
             }}
-            <div class="grp">
-                <span>"管理"</span>
-                {section(
-                    "/agents",
-                    icon::AGENT,
-                    "智能体",
-                    none,
-                    &[
-                        "/agents",
-                        "/agent",
-                        "/skills",
-                        "/library",
-                        "/runtimes",
-                        "/accounts",
-                        "/usage",
-                    ],
-                )}
-                {nav("/apps", icon::APPS, "接入的软件", none, false)}
-                {section("/nodes", icon::NODES, "机器与组网", none, &["/nodes", "/mesh"])}
-            </div>
-            <div class="foot">
-                {nav("/settings", icon::GEAR, "设置", none, false)}
-                <StatusDot />
-            </div>
         </nav>
+    }
+}
+
+#[component]
+fn SettingsNav() -> impl IntoView {
+    let app = use_app();
+    let query = use_query_map();
+    let navigate = use_navigate();
+    let section = move || query.with(|q| q.get("s").unwrap_or_else(|| "appearance".into()));
+    view! {
+        <button
+            type="button"
+            class="side-back"
+            title="返回之前的页面（Esc）"
+            on:click=move |_| navigate(&app.settings_from.get_untracked(), Default::default())
+        >
+            <span class="ic" aria-hidden="true">
+                "‹"
+            </span>
+            <span class="nm">"返回"</span>
+        </button>
+        <div class="grp" aria-label="设置分类">
+            {crate::pages::SECTIONS
+                .iter()
+                .map(|&(id, label, ic)| {
+                    view! {
+                        <a
+                            class="nav"
+                            href=format!("/settings?s={id}")
+                            title=rail_tip(label)
+                            aria-current=move || (section() == id).then_some("page")
+                        >
+                            <span class="ic" inner_html=icon::svg(ic)></span>
+                            <span class="nm">{label}</span>
+                        </a>
+                    }
+                })
+                .collect_view()}
+        </div>
+    }
+}
+
+#[component]
+fn MainNav(keys: RwSignal<u32>) -> impl IntoView {
+    let app = use_app();
+    let palette_key = move || {
+        keys.track();
+        crate::shortcuts::label(&crate::shortcuts::current("palette"))
+    };
+    let top = move || app.top_workspaces();
+    let none = Signal::derive(String::new);
+    let projects = move || {
+        let mut m: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+        for w in top() {
+            if let Some(p) = w.project.clone().filter(|p| !p.trim().is_empty()) {
+                let e = m.entry(p).or_default();
+                if app.attention(&w) {
+                    *e += 1;
+                }
+            }
+        }
+        m.into_iter().collect::<Vec<_>>()
+    };
+    view! {
+        <button
+            type="button"
+            class="nav search"
+            aria-haspopup="dialog"
+            aria-expanded=move || app.palette.get().to_string()
+            title=rail_tip("搜索")
+            on:click=move |_| app.palette.set(true)
+        >
+            <span class="ic" inner_html=icon::svg(icon::SEARCH)></span>
+            <span class="nm muted">"搜索…"</span>
+            <span class="n">{palette_key}</span>
+        </button>
+        <div class="grp">
+            {nav(
+                "/inbox",
+                icon::INBOX,
+                "收件箱",
+                Signal::derive(move || n(usize::try_from(app.inbox_unread.get()).unwrap_or(0))),
+                false,
+            )}
+            {section(
+                "/",
+                icon::FOLDER,
+                "工作区",
+                Signal::derive(move || n(app.attention_count())),
+                &["/", "/running", "/waiting", "/workspaces"],
+            )}
+            {section("/bots", icon::BOT, "bot", none, &["/bots"])}
+            {section(
+                "/tasks",
+                icon::TASKS,
+                "任务",
+                Signal::derive(move || n(app.tasks_review.get())),
+                &["/tasks", "/autopilots", "/jobs"],
+            )}
+        </div>
+        {move || {
+            let p = projects();
+            (!p.is_empty())
+                .then(|| {
+                    view! {
+                        <div class="grp side-projects">
+                            <span>"项目"</span>
+                            {p
+                                .into_iter()
+                                .map(|(name, c)| {
+                                    let href = format!(
+                                        "/project/{}",
+                                        js_sys::encode_uri_component(&name),
+                                    );
+                                    let title = name.clone();
+                                    view! {
+                                        <A href=href attr:class="nav" attr:title=title>
+                                            <span class="ic" inner_html=icon::svg(icon::FOLDER)></span>
+                                            <span class="nm">{name}</span>
+                                            <span class="n">{n(c)}</span>
+                                        </A>
+                                    }
+                                })
+                                .collect_view()}
+                        </div>
+                    }
+                })
+        }}
+        <div class="grp">
+            <span>"管理"</span>
+            {section(
+                "/agents",
+                icon::AGENT,
+                "智能体",
+                none,
+                &[
+                    "/agents",
+                    "/agent",
+                    "/skills",
+                    "/library",
+                    "/runtimes",
+                    "/accounts",
+                    "/usage",
+                ],
+            )}
+            {nav("/apps", icon::APPS, "接入的软件", none, false)}
+            {section("/nodes", icon::NODES, "机器与组网", none, &["/nodes", "/mesh"])}
+        </div>
+        <div class="foot">
+            {nav("/settings", icon::GEAR, "设置", none, false)}
+            <StatusDot />
+        </div>
     }
 }
 

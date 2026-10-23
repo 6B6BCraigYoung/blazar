@@ -1,7 +1,10 @@
+use leptos::ev;
 use leptos::prelude::*;
-use leptos_router::hooks::use_query_map;
+use leptos_router::hooks::{use_navigate, use_query_map};
 use serde_json::{Value, json};
+use wasm_bindgen::JsCast;
 
+use crate::app_state::use_app;
 use crate::components::icon;
 use crate::components::page_head::PageHead;
 use crate::components::toast::{flash, toast};
@@ -32,7 +35,7 @@ use rules::RuleSettings;
 use shortcuts::ShortcutSettings;
 use snippets::SnippetSettings;
 
-const SECTIONS: &[(&str, &str, &str)] = &[
+pub(crate) const SECTIONS: &[(&str, &str, &str)] = &[
     ("appearance", "外观", icon::PALETTE),
     ("chat", "对话与编辑", icon::CHAT),
     ("notify", "提醒", icon::BELL),
@@ -101,64 +104,75 @@ pub(super) async fn save(method: &str, path: &str, body: Value) -> bool {
 
 #[component]
 pub fn SettingsPage() -> impl IntoView {
+    let app = use_app();
     let query = use_query_map();
     let section = move || query.with(|q| q.get("s").unwrap_or_else(|| "appearance".into()));
+    let navigate = use_navigate();
+    let esc = window_event_listener(ev::keydown, move |e| {
+        if e.key() != "Escape" || e.default_prevented() || e.is_composing() {
+            return;
+        }
+        if document()
+            .query_selector("[data-modal-root], .ctx-menu")
+            .ok()
+            .flatten()
+            .is_some()
+        {
+            return;
+        }
+        let in_field = e
+            .target()
+            .and_then(|t| t.dyn_into::<web_sys::Element>().ok())
+            .is_some_and(|t| {
+                t.closest("input, textarea, select, [contenteditable], .keycap")
+                    .ok()
+                    .flatten()
+                    .is_some()
+            });
+        if in_field {
+            return;
+        }
+        e.prevent_default();
+        navigate(&app.settings_from.get_untracked(), Default::default());
+    });
+    on_cleanup(move || esc.remove());
     view! {
         <div class="page settings-page">
             <PageHead title="设置" />
-            <div class="settings-layout">
-                <nav class="settings-nav" aria-label="设置分类">
-                    {SECTIONS
-                        .iter()
-                        .map(move |&(id, label, ic)| {
-                            view! {
-                                <a
-                                    class="nav"
-                                    href=format!("/settings?s={id}")
-                                    aria-current=move || (section() == id).then_some("page")
-                                >
-                                    <span class="ic" inner_html=icon::svg(ic)></span>
-                                    <span class="nm">{label}</span>
-                                </a>
-                            }
-                        })
-                        .collect_view()}
-                </nav>
-                <div class="settings-body">
-                    {move || match section().as_str() {
-                        "chat" => {
-                            view! {
-                                <ChatSettings />
-                                <FleetSettings />
-                            }
-                                .into_any()
+            <div class="settings-body">
+                {move || match section().as_str() {
+                    "chat" => {
+                        view! {
+                            <ChatSettings />
+                            <FleetSettings />
                         }
-                        "notify" => view! { <NotifySettings /> }.into_any(),
-                        "shortcuts" => view! { <ShortcutSettings /> }.into_any(),
-                        "rules" => view! { <RuleSettings /> }.into_any(),
-                        "snippets" => view! { <SnippetSettings /> }.into_any(),
-                        "hooks" => view! { <HookSettings /> }.into_any(),
-                        "git" => view! { <GitSettings /> }.into_any(),
-                        "platforms" => view! { <PlatformSettings /> }.into_any(),
-                        "about" => {
-                            view! {
-                                <HubSettings />
-                                <super::transfer::TransferSettings />
-                                <AboutSettings />
-                            }
-                                .into_any()
+                            .into_any()
+                    }
+                    "notify" => view! { <NotifySettings /> }.into_any(),
+                    "shortcuts" => view! { <ShortcutSettings /> }.into_any(),
+                    "rules" => view! { <RuleSettings /> }.into_any(),
+                    "snippets" => view! { <SnippetSettings /> }.into_any(),
+                    "hooks" => view! { <HookSettings /> }.into_any(),
+                    "git" => view! { <GitSettings /> }.into_any(),
+                    "platforms" => view! { <PlatformSettings /> }.into_any(),
+                    "about" => {
+                        view! {
+                            <HubSettings />
+                            <super::transfer::TransferSettings />
+                            <AboutSettings />
                         }
-                        "lark" => {
-                            view! {
-                                <a class="btn" href="/apps/lark">
-                                    "打开飞书 / Lark 设置"
-                                </a>
-                            }
-                                .into_any()
+                            .into_any()
+                    }
+                    "lark" => {
+                        view! {
+                            <a class="btn" href="/apps/lark">
+                                "打开飞书 / Lark 设置"
+                            </a>
                         }
-                        _ => view! { <AppearanceSettings /> }.into_any(),
-                    }}
-                </div>
+                            .into_any()
+                    }
+                    _ => view! { <AppearanceSettings /> }.into_any(),
+                }}
             </div>
         </div>
     }

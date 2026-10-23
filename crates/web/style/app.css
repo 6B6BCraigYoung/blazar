@@ -428,6 +428,12 @@ input[type="range"] { accent-color: var(--accent); }
 .shell[data-side="rail"] > .side .side-unfold { all: unset; display: flex; align-items: center; justify-content: center; height: 26px; border-radius: var(--r-md); color: var(--fg-3); font-size: var(--font-size-body); cursor: pointer; }
 .shell[data-side="rail"] > .side .side-unfold:hover { background: var(--bg-hover); color: var(--fg); }
 .shell[data-side="rail"] > .side .side-unfold:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset-inset); }
+.side .side-back { all: unset; box-sizing: border-box; cursor: pointer; display: flex; align-items: center; gap: var(--space-md); padding: var(--space-icon) var(--space-md); border-radius: var(--r-md); color: var(--fg-2); font-weight: var(--font-weight-medium); }
+.side .side-back:hover { background: var(--bg-hover); color: var(--fg); }
+.side .side-back:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset-inset); }
+.side .side-back .ic { width: 16px; height: 16px; flex: 0 0 auto; display: grid; place-items: center; padding-bottom: 2px; font-size: 20px; line-height: 1; color: var(--fg-3); }
+.side .side-back:hover .ic { color: var(--fg); }
+.shell[data-side="rail"] > .side .side-back { justify-content: center; padding-inline: 0; }
 @media (max-width: 900px) {
   .page-head { flex-wrap: wrap; }
   .page-filter { max-width: 100%; }
