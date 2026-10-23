@@ -126,7 +126,6 @@ fn HubModeForm(state: Value) -> impl IntoView {
             .ok_or_else(|| "端口要在 1 到 65535 之间".to_owned())?;
         Ok((host, port))
     };
-    let remote_on = Signal::derive(move || remote.get());
     view! {
         <PrefRow label="连接到">
             <div class="seg" role="group" aria-label="连接到">
@@ -150,101 +149,103 @@ fn HubModeForm(state: Value) -> impl IntoView {
                 </button>
             </div>
         </PrefRow>
-        <PrefRow label="SSH 主机别名" for_id="hub-ssh" enabled=remote_on>
-            <input
-                id="hub-ssh"
-                class="settings-input"
-                placeholder="hub-host"
-                autocomplete="off"
-                spellcheck="false"
-                prop:value=move || ssh.get()
-                disabled=move || busy.get() || !remote.get()
-                on:input=move |e| ssh.set(event_target_value(&e))
-            />
-        </PrefRow>
-        <PrefRow label="端口" for_id="hub-port" enabled=remote_on>
-            <input
-                id="hub-port"
-                class="settings-input"
-                type="number"
-                min="1"
-                max="65535"
-                prop:value=move || port.get()
-                disabled=move || busy.get() || !remote.get()
-                on:input=move |e| port.set(event_target_value(&e))
-            />
-        </PrefRow>
-        <PrefRow label="远程 hub" detail="切换后 Blazar 会重启并连到那台机器。" enabled=remote_on>
-            <button
-                type="button"
-                class="btn"
-                disabled=move || busy.get() || !remote.get()
-                on:click=move |_| {
-                    if busy.get_untracked() {
-                        return;
-                    }
-                    let (host, port) = match target() {
-                        Ok(t) => t,
-                        Err(e) => {
-                            status.set((e, true));
+        <Show when=move || remote.get()>
+            <PrefRow label="SSH 主机别名" for_id="hub-ssh">
+                <input
+                    id="hub-ssh"
+                    class="settings-input"
+                    placeholder="hub-host"
+                    autocomplete="off"
+                    spellcheck="false"
+                    prop:value=move || ssh.get()
+                    disabled=move || busy.get()
+                    on:input=move |e| ssh.set(event_target_value(&e))
+                />
+            </PrefRow>
+            <PrefRow label="端口" for_id="hub-port">
+                <input
+                    id="hub-port"
+                    class="settings-input"
+                    type="number"
+                    min="1"
+                    max="65535"
+                    prop:value=move || port.get()
+                    disabled=move || busy.get()
+                    on:input=move |e| port.set(event_target_value(&e))
+                />
+            </PrefRow>
+            <PrefRow label="远程 hub" detail="切换后 Blazar 会重启并连到那台机器。">
+                <button
+                    type="button"
+                    class="btn"
+                    disabled=move || busy.get()
+                    on:click=move |_| {
+                        if busy.get_untracked() {
                             return;
                         }
-                    };
-                    busy.set(true);
-                    status.set((format!("正在测试 {host}，最多 15 秒…"), false));
-                    leptos::task::spawn_local(async move {
-                        match desktop::invoke(
-                                "test_remote_hub",
-                                &json!({"ssh": host, "port": port}),
-                            )
-                            .await
-                        {
-                            Ok(v) => {
-                                status.set((v.as_str().unwrap_or("能连上").to_owned(), false))
+                        let (host, port) = match target() {
+                            Ok(t) => t,
+                            Err(e) => {
+                                status.set((e, true));
+                                return;
                             }
-                            Err(e) => status.set((e, true)),
-                        }
-                        busy.set(false);
-                    });
-                }
-            >
-                "测试连接"
-            </button>
-            <button
-                type="button"
-                class="btn primary"
-                disabled=move || busy.get() || !remote.get()
-                on:click=move |_| {
-                    if busy.get_untracked() {
-                        return;
+                        };
+                        busy.set(true);
+                        status.set((format!("正在测试 {host}，最多 15 秒…"), false));
+                        leptos::task::spawn_local(async move {
+                            match desktop::invoke(
+                                    "test_remote_hub",
+                                    &json!({"ssh": host, "port": port}),
+                                )
+                                .await
+                            {
+                                Ok(v) => {
+                                    status.set((v.as_str().unwrap_or("能连上").to_owned(), false))
+                                }
+                                Err(e) => status.set((e, true)),
+                            }
+                            busy.set(false);
+                        });
                     }
-                    let (host, port) = match target() {
-                        Ok(t) => t,
-                        Err(e) => {
-                            status.set((e, true));
+                >
+                    "测试连接"
+                </button>
+                <button
+                    type="button"
+                    class="btn primary"
+                    disabled=move || busy.get() || !remote.get()
+                    on:click=move |_| {
+                        if busy.get_untracked() {
                             return;
                         }
-                    };
-                    busy.set(true);
-                    leptos::task::spawn_local(async move {
-                        let result = switch_hub(
-                                json!({"mode": "remote", "ssh": host, "port": port}),
-                                "切换到远程 hub",
-                                format!(
-                                    "Blazar 会重启并连到 {host} 上的 hub。这台电脑上的 hub 会停下，它的数据保留，随时可以切回来。",
-                                ),
-                            )
-                            .await;
-                        if let Err(e) = result {
-                            status.set((e, true));
-                        }
-                        busy.set(false);
-                    });
-                }
-            >
-                "切换并重启…"
-            </button>
-        </PrefRow>
+                        let (host, port) = match target() {
+                            Ok(t) => t,
+                            Err(e) => {
+                                status.set((e, true));
+                                return;
+                            }
+                        };
+                        busy.set(true);
+                        leptos::task::spawn_local(async move {
+                            let result = switch_hub(
+                                    json!({"mode": "remote", "ssh": host, "port": port}),
+                                    "切换到远程 hub",
+                                    format!(
+                                        "Blazar 会重启并连到 {host} 上的 hub。这台电脑上的 hub 会停下，它的数据保留，随时可以切回来。",
+                                    ),
+                                )
+                                .await;
+                            if let Err(e) = result {
+                                status.set((e, true));
+                            }
+                            busy.set(false);
+                        });
+                    }
+                >
+                    "切换并重启…"
+                </button>
+            </PrefRow>
+        </Show>
         <p class="pref-status" class:bad=move || status.get().1>
             {move || status.get().0}
         </p>
