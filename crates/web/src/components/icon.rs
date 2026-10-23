@@ -36,3 +36,11 @@ pub const BELL: &str =
 pub const KEYBOARD: &str = r#"<rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 10h.01M11 10h.01M15 10h.01M7.5 14h9"/>"#;
 pub const LINES: &str = r#"<path d="M4 6h16M4 12h10M4 18h7"/>"#;
 pub const INFO: &str = r#"<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>"#;
+pub const ARROW: &str = r#"<path d="M5 12h14M13 6l6 6-6 6"/>"#;
+pub const PENCIL: &str = r#"<path d="M4 20h4L18.5 9.5a2 2 0 0 0 0-2.8l-1.2-1.2a2 2 0 0 0-2.8 0L4 16z"/><path d="M13.5 6.5l4 4"/>"#;
+pub const COPY: &str =
+    r#"<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/>"#;
+pub const TRASH: &str =
+    r#"<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/><path d="M10 11v6M14 11v6"/>"#;
+pub const EYE: &str = r#"<path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="2.5"/>"#;
+pub const PLUS: &str = r#"<path d="M12 5v14M5 12h14"/>"#;

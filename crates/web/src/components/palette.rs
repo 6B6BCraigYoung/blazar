@@ -170,7 +170,6 @@ enum Act {
 
 #[derive(Clone)]
 struct Item {
-    group: Group,
     icon: &'static str,
     title: String,
     sub: String,
@@ -180,9 +179,8 @@ struct Item {
 }
 
 impl Item {
-    fn page(group: Group, p: &(&str, &str, &'static str, &str, Option<&'static str>)) -> Self {
+    fn page(p: &(&str, &str, &'static str, &str, Option<&'static str>)) -> Self {
         Self {
-            group,
             icon: p.2,
             title: p.0.to_owned(),
             sub: String::new(),
@@ -192,12 +190,8 @@ impl Item {
         }
     }
 
-    fn command(
-        group: Group,
-        c: &(&str, &'static str, &'static str, &str, Option<&'static str>),
-    ) -> Self {
+    fn command(c: &(&str, &'static str, &'static str, &str, Option<&'static str>)) -> Self {
         Self {
-            group,
             icon: c.2,
             title: c.0.to_owned(),
             sub: String::new(),
@@ -207,9 +201,8 @@ impl Item {
         }
     }
 
-    fn workspace(group: Group, w: &blazar_core_types::api::WorkspaceView) -> Self {
+    fn workspace(w: &blazar_core_types::api::WorkspaceView) -> Self {
         Self {
-            group,
             icon: icon::FOLDER,
             title: fmt::ws_title(&w.name, &w.node),
             sub: if w.node == "local" {
@@ -235,7 +228,6 @@ impl Item {
             "离线"
         };
         Self {
-            group: Group::Node,
             icon: icon::NODES,
             title: fmt::machine(&n.name),
             sub: match n.ipv4.as_deref().filter(|v| !v.is_empty()) {
@@ -253,20 +245,35 @@ impl Item {
             .map(|k| crate::shortcuts::label(&crate::shortcuts::current(k)))
             .filter(|k| !k.is_empty())
     }
+
+    fn kind(&self) -> &'static str {
+        match self.act {
+            Act::Go(_) => Group::Page.title(),
+            Act::Cmd(_) => Group::Command.title(),
+            Act::Ws(_) => Group::Workspace.title(),
+            Act::Node(_) => Group::Node.title(),
+        }
+    }
 }
 
 #[derive(Clone)]
 struct Action {
     label: &'static str,
+    icon: &'static str,
     hint: Option<String>,
     danger: bool,
     run: Callback<()>,
 }
 
 impl Action {
-    fn new(label: &'static str, run: impl Fn() + Send + Sync + 'static) -> Self {
+    fn new(
+        label: &'static str,
+        icon: &'static str,
+        run: impl Fn() + Send + Sync + 'static,
+    ) -> Self {
         Self {
             label,
+            icon,
             hint: None,
             danger: false,
             run: Callback::new(move |()| run()),
@@ -443,17 +450,17 @@ pub fn Palette() -> impl IntoView {
             for href in recent() {
                 if let Some(id) = href.strip_prefix("/w/") {
                     if let Some(w) = app.workspace(id) {
-                        recent_items.push(Item::workspace(Group::Recent, &w));
+                        recent_items.push(Item::workspace(&w));
                     }
                 } else if let Some(p) = PAGES.iter().find(|p| p.1 == href) {
-                    recent_items.push(Item::page(Group::Recent, p));
+                    recent_items.push(Item::page(p));
                 }
             }
             let suggested = vec![
-                Item::command(Group::Suggested, &COMMANDS[0]),
-                Item::command(Group::Suggested, &COMMANDS[1]),
-                Item::page(Group::Suggested, &PAGES[0]),
-                Item::page(Group::Suggested, &PAGES[PAGES.len() - 1]),
+                Item::command(&COMMANDS[0]),
+                Item::command(&COMMANDS[1]),
+                Item::page(&PAGES[0]),
+                Item::page(&PAGES[PAGES.len() - 1]),
             ];
             return vec![(Group::Recent, recent_items), (Group::Suggested, suggested)]
                 .into_iter()
@@ -474,7 +481,7 @@ pub fn Palette() -> impl IntoView {
                 s.workspaces
                     .iter()
                     .filter(|w| crate::app_state::is_top(w, &s.workspaces))
-                    .map(|w| Item::workspace(Group::Workspace, w))
+                    .map(Item::workspace)
                     .collect()
             })
             .unwrap_or_default();
@@ -484,18 +491,10 @@ pub fn Palette() -> impl IntoView {
             .unwrap_or_default();
         vec![
             (Group::Workspace, rank(workspaces)),
-            (
-                Group::Page,
-                rank(PAGES.iter().map(|p| Item::page(Group::Page, p)).collect()),
-            ),
+            (Group::Page, rank(PAGES.iter().map(Item::page).collect())),
             (
                 Group::Command,
-                rank(
-                    COMMANDS
-                        .iter()
-                        .map(|c| Item::command(Group::Command, c))
-                        .collect(),
-                ),
+                rank(COMMANDS.iter().map(Item::command).collect()),
             ),
             (Group::Node, rank(nodes)),
         ]
@@ -519,19 +518,23 @@ pub fn Palette() -> impl IntoView {
                 let (href, i1, i2, i3) = (format!("/w/{id}"), id.clone(), id.clone(), id.clone());
                 let (p1, p2) = (path.clone(), path);
                 let mut list = vec![
-                    Action::new("打开", move || go(&href)).hint(crate::shortcuts::label("Enter")),
-                    Action::new("简介", move || app.inspect_ws.set(Some(i1.clone()))).hint(
-                        crate::shortcuts::label(&crate::shortcuts::current("inspect")),
-                    ),
-                    Action::new("改名…", move || {
+                    Action::new("打开", icon::ARROW, move || go(&href))
+                        .hint(crate::shortcuts::label("Enter")),
+                    Action::new("简介", icon::INFO, move || {
+                        app.inspect_ws.set(Some(i1.clone()))
+                    })
+                    .hint(crate::shortcuts::label(
+                        &crate::shortcuts::current("inspect"),
+                    )),
+                    Action::new("改名…", icon::PENCIL, move || {
                         crate::pages::workspaces::rename_workspace(app, i2.clone())
                     }),
-                    Action::new("复制路径", move || {
+                    Action::new("复制路径", icon::COPY, move || {
                         spawn_local(crate::pages::work_shared::copy(p1.clone()))
                     }),
                 ];
                 if local && crate::desktop::available() {
-                    list.push(Action::new("在访达中显示", move || {
+                    list.push(Action::new("在访达中显示", icon::EYE, move || {
                         let path = p2.clone();
                         spawn_local(async move {
                             if let Err(e) =
@@ -544,7 +547,7 @@ pub fn Palette() -> impl IntoView {
                     }));
                 }
                 list.push(
-                    Action::new("移除…", move || {
+                    Action::new("移除…", icon::TRASH, move || {
                         crate::pages::workspaces::remove_workspace(app, i3.clone())
                     })
                     .hint(crate::shortcuts::label(&crate::shortcuts::current(
@@ -557,15 +560,17 @@ pub fn Palette() -> impl IntoView {
             Act::Node(name) => {
                 let (n1, n2, n3) = (name.clone(), name.clone(), name.clone());
                 vec![
-                    Action::new("打开", move || {
+                    Action::new("打开", icon::ARROW, move || {
                         go(&format!("/nodes/{}", api::enc(&n1)));
                     })
                     .hint(crate::shortcuts::label("Enter")),
-                    Action::new("新建工作区", move || {
+                    Action::new("新建工作区", icon::PLUS, move || {
                         app.new_ws_node.set(Some(n2.clone()));
                         app.new_ws.set(true);
                     }),
-                    Action::new("检查", move || spawn_local(probe(n3.clone()))),
+                    Action::new("检查", icon::ACTIVITY, move || {
+                        spawn_local(probe(n3.clone()))
+                    }),
                 ]
             }
             _ => Vec::new(),
@@ -750,6 +755,7 @@ pub fn Palette() -> impl IntoView {
                                                         data-sel=move || (sel.get() == i).to_string()
                                                         on:click=move |_| run_action(&a2)
                                                     >
+                                                        <span class="ic" inner_html=icon::svg(a.icon)></span>
                                                         <span class="t">{a.label}</span>
                                                         <span class="s"></span>
                                                         {a.hint.map(|h| view! { <kbd>{h}</kbd> })}
@@ -789,7 +795,7 @@ pub fn Palette() -> impl IntoView {
                                                         {match right {
                                                             Some(k) => view! { <kbd>{k}</kbd> }.into_any(),
                                                             None => {
-                                                                view! { <span class="c">{it.group.title()}</span> }
+                                                                view! { <span class="c">{it.kind()}</span> }
                                                                     .into_any()
                                                             }
                                                         }}
