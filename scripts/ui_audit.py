@@ -851,6 +851,7 @@ CLOSE_FILE = {"action": "click", "selector": "[aria-label=\"关闭 src/atlas/rou
 RESTORE = {"action": "click", "selector": "button[aria-label=\"还原检查器\"]", "optional": True}
 CLOSE_INSPECTOR = {"action": "click", "selector": "button[aria-label=\"关闭检查器\"]", "optional": True}
 OPEN_FILES = {"action": "click", "selector": ".ws-head button[aria-label=\"文件\"][aria-pressed=\"false\"]", "optional": True}
+EDITOR_TAB = {"action": "click", "selector": ".ws-insp .rtabs .rtab:first-child", "optional": True}
 CLOSE_FILES = {"action": "click", "selector": "button[aria-label=\"收起文件\"]", "optional": True}
 CLOSE_TERM = {"action": "click", "selector": "button[aria-label=\"收起终端\"]", "optional": True}
 PREVIEW_KEY = {"action": "key", "key": "P", "code": "KeyP", "meta": True, "shift": True, "selector": "body"}
@@ -858,7 +859,8 @@ CHANGES = {"action": "click", "selector": "button.ws-changes"}
 
 
 def calm(*after):
-    return tuple(dict(step, after=True) if after else dict(step) for step in (RESTORE, CLOSE_FILE, CLOSE_INSPECTOR, CLOSE_FILES, CLOSE_TERM))
+    return tuple(dict(step, after=True) if after else dict(step)
+                 for step in (RESTORE, EDITOR_TAB, CLOSE_FILE, CLOSE_FILES, CLOSE_INSPECTOR, CLOSE_TERM))
 
 ROUTES = [
     ("home", "/", "首页：需要你处理 / 运行中 / 最近 三组列表"),
@@ -1015,8 +1017,8 @@ def workspace_parts():
           {"action": "scroll_mid", "selector": log}), False),
         ("chat-top", w, "对话区顶部（第一轮用户消息、思考、待办）",
          (wait, *reset, {"action": "scroll", "selector": log, "top": "start", "settle_ms": 800}, {"action": "scroll", "selector": log, "top": "start", "settle_ms": 800}), False),
-        ("files-drawer", w, "左侧文件抽屉（⌘B）", (wait, *reset, dict(OPEN_FILES), {"action": "wait", "ms": 600}, *after), False),
-        ("file-open", w, "从文件抽屉打开 src/atlas/routes/users.py，检查器「编辑器」",
+        ("editor-tree", w, "编辑器里的文件树（⌘B）", (wait, *reset, dict(OPEN_FILES), {"action": "wait", "ms": 600}, *after), False),
+        ("file-open", w, "从文件树打开 src/atlas/routes/users.py，文件树留在编辑器左边",
          (wait, *reset, dict(OPEN_FILES), {"action": "wait", "ms": 400},
           {"action": "click", "selector": "button.tn[title=\"src/atlas/routes/users.py\"]"}, {"action": "wait", "ms": 900}, *after), False),
         ("diff", w, "检查器「更改 → 差异」", (wait, *reset, dict(CHANGES), {"action": "wait", "ms": 900}, *after), False),
