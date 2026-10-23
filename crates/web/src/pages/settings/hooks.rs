@@ -55,7 +55,7 @@ pub(super) fn HookSettings() -> impl IntoView {
         );
     });
     view! {
-        <PrefGroup title="自动执行脚本" note="在会话开始、结束或出错时执行脚本。">
+        <PrefGroup note="在会话开始、结束或出错时执行脚本。">
             <PrefList
                 label="自动执行脚本"
                 selected

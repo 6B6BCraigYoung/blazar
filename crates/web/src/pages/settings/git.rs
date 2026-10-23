@@ -39,7 +39,7 @@ fn GitForm(initial: Value) -> impl IntoView {
         });
     };
     view! {
-        <PrefGroup title="Git 与 Pull Request">
+        <PrefGroup>
             <PrefRow
                 label="分支前缀"
                 detail="新建隔离工作区时，分支名以它开头。"

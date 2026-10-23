@@ -122,7 +122,8 @@
 select.settings-input, .dlg select, .card.pad select { appearance: none; -webkit-appearance: none; padding-right: var(--space-3xl); border: 0; background: var(--control-bg) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='12' viewBox='0 0 8 12'%3E%3Cpath d='M1 4.5 4 1.5l3 3M1 7.5l3 3 3-3' fill='none' stroke='%238e8e93' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") right 10px center / 8px 12px no-repeat; box-shadow: var(--shadow-control); cursor: pointer; }
 @media (max-width: 800px) { .settings-row { align-items: flex-start; flex-wrap: wrap; } .usage-kpis { grid-template-columns: repeat(2,minmax(0,1fr)); } }
 
-.settings-body { width: min(720px, 100%); margin-inline: auto; display: flex; flex-direction: column; gap: var(--space-3xl); min-width: 0; }
+.settings-page > .page-head, .settings-body { width: min(720px, 100%); margin-inline: auto; }
+.settings-body { display: flex; flex-direction: column; gap: var(--space-3xl); min-width: 0; }
 .pref-group { display: flex; flex-direction: column; min-width: 0; }
 .pref-heading { margin: 0 0 var(--space-xs); font-size: var(--font-size-card-title); font-weight: var(--font-weight-semibold); }
 .pref-note { margin: 0 0 var(--space-md); color: var(--fg-3); font-size: var(--font-size-label-readable); line-height: var(--line-height-compact); }

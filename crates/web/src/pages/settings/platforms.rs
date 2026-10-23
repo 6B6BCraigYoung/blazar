@@ -17,7 +17,7 @@ pub(super) fn PlatformSettings() -> impl IntoView {
         api::get::<Value>("/api/skills/market/providers")
     });
     view! {
-        <PrefGroup title="技能来源" note="搜索技能时查这些目录。密钥只写不读。">
+        <PrefGroup note="搜索技能时查这些目录。密钥只写不读。">
             <PrefRow label="搜索和安装技能" detail="在「智能体 → 技能」里。">
                 <a class="btn" href="/skills?tab=market">
                     "打开技能库"

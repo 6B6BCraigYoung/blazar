@@ -13,7 +13,7 @@ pub(super) fn AppearanceSettings() -> impl IntoView {
         p.update(|p| p[k] = v);
     };
     view! {
-        <PrefGroup title="外观" note="仅对这台设备生效。">
+        <PrefGroup note="仅对这台设备生效。">
             <PrefRow label="主题" for_id="settings-theme">
                 <select
                     id="settings-theme"

@@ -107,6 +107,14 @@ pub fn SettingsPage() -> impl IntoView {
     let app = use_app();
     let query = use_query_map();
     let section = move || query.with(|q| q.get("s").unwrap_or_else(|| "appearance".into()));
+    let title = Signal::derive(move || {
+        let current = section();
+        SECTIONS
+            .iter()
+            .find(|(id, _, _)| *id == current)
+            .map_or("设置", |(_, label, _)| label)
+            .to_owned()
+    });
     let navigate = use_navigate();
     let esc = window_event_listener(ev::keydown, move |e| {
         if e.key() != "Escape" || e.default_prevented() || e.is_composing() {
@@ -138,7 +146,7 @@ pub fn SettingsPage() -> impl IntoView {
     on_cleanup(move || esc.remove());
     view! {
         <div class="page settings-page">
-            <PageHead title="设置" />
+            <PageHead title />
             <div class="settings-body">
                 {move || match section().as_str() {
                     "chat" => {

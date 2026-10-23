@@ -39,7 +39,6 @@ pub(super) fn RuleSettings() -> impl IntoView {
     });
     view! {
         <PrefGroup
-            title="自动批准"
             note="匹配的操作无需逐次批准，仍会记录在对话中。"
             guard=true
         >

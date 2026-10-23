@@ -123,7 +123,6 @@ pub(super) fn ShortcutSettings() -> impl IntoView {
     };
     view! {
         <PrefGroup
-            title="快捷键"
             note="点一下快捷键，按下新的组合键；⌫ 清除，Esc 取消。不带 ⌘ / Ctrl 的组合在输入框内不生效。"
         >
             {SHORTCUTS

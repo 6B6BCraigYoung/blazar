@@ -53,7 +53,6 @@ pub(super) fn SnippetSettings() -> impl IntoView {
     });
     view! {
         <PrefGroup
-            title="片段"
             note="把验收清单、代码规范等常用内容存下来，在对话里输入 @ 选择片段。"
         >
             <PrefList
