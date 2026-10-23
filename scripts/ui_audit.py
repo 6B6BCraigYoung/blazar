@@ -730,6 +730,7 @@ class Shooter:
         self.dir.mkdir(parents=True, exist_ok=True)
         self.entries = []
         self.issues = []
+        self.broken = 0
 
     def arrive(self, route, settle):
         path = route.split("?")[0]
@@ -770,6 +771,14 @@ class Shooter:
                     log.write(f"== {name}\n{e}\n\n")
         print(f"{name}\t溢出 {len(over)}\t错误 {len(errors)}" + ("\t演练，没截图" if self.rehearse else ""))
 
+    def check(self, name, step):
+        got = db_rows(step["sql"])[0][0]
+        if got == step["want"]:
+            return
+        print(f"  ! {name}：{step['what']}应为 {step['want']}，实际 {got}", file=sys.stderr)
+        self.issues.append(f"{name}\t数据没复原\t{step['what']}应为 {step['want']}，实际 {got}")
+        self.broken += 1
+
     def page(self, no, slug, theme, route, expect, state, steps=(), scroll=True, settle=900):
         ui({"action": "errors"})
         if route:
@@ -796,7 +805,10 @@ class Shooter:
             print(f"  ! {slug}：{warning}", file=sys.stderr)
         self.shoot(no, slug, theme, route, expect, state, warning)
         for step in after:
-            try_ui(step)
+            if step["action"] == "check_db":
+                self.check(f"{no:02d}-{slug}-{theme}.png", step)
+            else:
+                try_ui(step)
         if not scroll:
             return
         info = try_ui({"action": "scroll", "selector": "main.main", "top": "end", "settle_ms": 300})
@@ -1047,11 +1059,14 @@ def stress(rounds):
 
 def undo_parts():
     item = ".pref-item"
+    restored = {"action": "check_db", "sql": "SELECT count(*) FROM snippets", "want": 2, "what": "片段数"}
     return [("settings-snippet-undo-toast", "/settings?s=snippets", "删除一个片段：行立即消失，底部出现带「撤销」的提示",
              ({"action": "wait", "selector": item, "timeout_ms": 8000}, {"action": "click", "selector": item},
               {"action": "key", "key": "Backspace", "code": "Backspace", "selector": f"{item}[aria-selected=\"true\"]"},
               {"action": "wait", "selector": ".toast.act", "timeout_ms": 4000},
-              dict({"action": "click", "text": "撤销"}, after=True)), False)]
+              dict({"action": "click", "text": "撤销"}, after=True),
+              dict(TOAST_GONE, after=True), dict({"action": "wait", "ms": 1500}, after=True),
+              dict(restored, after=True)), False)]
 
 
 def plan(round_name):
@@ -1252,6 +1267,8 @@ def shots(out, round_name, rehearse=False):
                     print(f"  ! 停后台任务 {jid} 失败：{e}", file=sys.stderr)
         sh.save(vp)
         index(Path(out))
+    if sh.broken:
+        sys.exit(f"有 {sh.broken} 处演示数据没有复原，见 index.md")
 
 
 def index(out):
