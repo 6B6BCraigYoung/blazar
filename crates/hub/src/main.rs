@@ -53,6 +53,7 @@ async fn main() -> Result<()> {
         bind: cli.bind,
         mesh_via: cli.mesh_via,
         mesh_container: cli.mesh_container,
+        mesh_discovery: true,
         engine_dir: cli.engine_dir,
     };
 

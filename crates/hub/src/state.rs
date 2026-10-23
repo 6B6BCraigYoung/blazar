@@ -161,7 +161,7 @@ impl AppState {
         let invocation = match &self.mesh_container {
             Some(c) => CliInvocation::docker(c),
 
-            None if self.mesh_via == "local" && self.mesh_ctx.layout.joined() => {
+            None if self.mesh_via == "local" && self.mesh_ctx.joined() => {
                 self.mesh_ctx.layout.invocation()
             }
             None => CliInvocation::direct(),

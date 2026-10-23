@@ -21,6 +21,7 @@ async fn fixture(
         bind: ([127, 0, 0, 1], 0).into(),
         mesh_via: "local".into(),
         mesh_container: None,
+        mesh_discovery: true,
         engine_dir: None,
     };
     let state = build_state_with_services(&cfg, Services::Isolated)
@@ -365,6 +366,7 @@ async fn api_and_websocket_require_a_session_even_without_origin() {
         bind: ([127, 0, 0, 1], 0).into(),
         mesh_via: "local".into(),
         mesh_container: None,
+        mesh_discovery: true,
         engine_dir: None,
     };
     let st = build_state_with_services(&cfg, Services::Isolated)
@@ -445,6 +447,7 @@ async fn fleet_tokens_of_a_running_session_still_work_after_a_hub_restart() {
         bind: ([127, 0, 0, 1], 0).into(),
         mesh_via: "local".into(),
         mesh_container: None,
+        mesh_discovery: true,
         engine_dir: None,
     };
     let _ = blazar_hub::bind(&cfg).await.unwrap();

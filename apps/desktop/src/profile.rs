@@ -37,6 +37,9 @@ pub fn hub_config() -> Result<HubConfig> {
         bind: ([127, 0, 0, 1], 0).into(),
         mesh_via: std::env::var("BLAZAR_MESH_VIA").unwrap_or_else(|_| "local".into()),
         mesh_container: std::env::var("BLAZAR_MESH_CONTAINER").ok(),
+        mesh_discovery: std::env::var("BLAZAR_MESH_DISCOVERY")
+            .ok()
+            .is_none_or(|v| v != "0"),
 
         engine_dir: std::env::var_os("BLAZAR_ENGINE_DIR").map(Into::into),
     })

@@ -37,6 +37,8 @@ pub struct MeshCtx {
     external_rpc: Mutex<Option<String>>,
 
     issuer: Mutex<Option<IssuerConfig>>,
+
+    discovery: bool,
 }
 
 impl MeshCtx {
@@ -50,7 +52,24 @@ impl MeshCtx {
             op: tokio::sync::Mutex::new(()),
             external_rpc: Mutex::new(None),
             issuer: Mutex::new(None),
+            discovery: true,
         }
+    }
+
+    #[must_use]
+    pub fn with_discovery(mut self, on: bool) -> Self {
+        self.discovery = on;
+        self
+    }
+
+    #[must_use]
+    pub fn discovery_enabled(&self) -> bool {
+        self.discovery
+    }
+
+    #[must_use]
+    pub fn joined(&self) -> bool {
+        self.discovery && self.layout.joined()
     }
 
     pub async fn warm(st: &Shared) {
@@ -63,6 +82,9 @@ impl MeshCtx {
 
     #[must_use]
     pub fn topology_label(&self, startup_via: &str) -> Option<String> {
+        if !self.discovery {
+            return None;
+        }
         if startup_via != "local" {
             return Some(format!("启动参数指定的 {startup_via}"));
         }
@@ -81,7 +103,7 @@ impl MeshCtx {
                     .unwrap_or_default()
             ));
         }
-        if self.layout.joined() {
+        if self.joined() {
             return Some("本机 Blazar 组网引擎".into());
         }
         self.external_rpc
@@ -103,6 +125,9 @@ impl MeshCtx {
 
     #[must_use]
     pub fn topology_source(&self) -> Option<(String, CliInvocation)> {
+        if !self.discovery {
+            return None;
+        }
         if let Some(cfg) = self
             .issuer
             .lock()
@@ -124,7 +149,7 @@ impl MeshCtx {
             };
             return Some((cfg.via, inv));
         }
-        if self.layout.joined() {
+        if self.joined() {
             return Some(("local".into(), self.layout.invocation()));
         }
         let rpc = self.external_rpc.lock().ok().and_then(|g| g.clone())?;
@@ -231,6 +256,9 @@ pub async fn topology(State(st): State<Shared>) -> Response {
 }
 
 pub(crate) async fn local_status(st: &Shared) -> LocalMeshStatus {
+    if !st.mesh_ctx.discovery_enabled() {
+        return LocalMeshStatus::offline(st.mesh_ctx.bundle.is_some());
+    }
     let mesh_ips: Vec<Ipv4Addr> = sqlx::query_scalar::<_, String>(
         "SELECT endpoint FROM nodes WHERE network = 'easytier' AND endpoint IS NOT NULL",
     )
@@ -504,7 +532,7 @@ pub async fn config_get(caller: Caller, State(st): State<Shared>) -> Response {
     if !caller.is_local() {
         return fail(StatusCode::FORBIDDEN, "组网配置含密钥，只能在本机查看");
     }
-    if !st.mesh_ctx.layout.joined() {
+    if !st.mesh_ctx.joined() {
         return fail(StatusCode::NOT_FOUND, "本机还没有加入组网");
     }
     match engine::running_config(&st.mesh_ctx.layout).await {
@@ -608,7 +636,7 @@ fn issuer_admin(st: &Shared, cfg: &IssuerConfig) -> (MeshAdmin, EasyTierMesh) {
             rpc: None,
         },
 
-        (None, "local") if !st.mesh_ctx.layout.joined() => CliInvocation::direct(),
+        (None, "local") if !st.mesh_ctx.joined() => CliInvocation::direct(),
         (None, "local") => st.mesh_ctx.layout.invocation(),
         (None, _) => CliInvocation::direct(),
     };

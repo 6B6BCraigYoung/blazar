@@ -28,6 +28,7 @@ async fn setup() -> (axum::Router, sqlx::SqlitePool, tempfile::TempDir) {
             bind: ([127, 0, 0, 1], 0).into(),
             mesh_via: "local".into(),
             mesh_container: None,
+            mesh_discovery: true,
             engine_dir: None,
         },
         Services::Isolated,

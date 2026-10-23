@@ -45,6 +45,8 @@ pub struct HubConfig {
     pub mesh_via: String,
     pub mesh_container: Option<String>,
 
+    pub mesh_discovery: bool,
+
     pub engine_dir: Option<std::path::PathBuf>,
 }
 
@@ -55,6 +57,7 @@ impl Default for HubConfig {
             bind: ([127, 0, 0, 1], 7777).into(),
             mesh_via: "local".into(),
             mesh_container: None,
+            mesh_discovery: true,
             engine_dir: None,
         }
     }
@@ -86,7 +89,8 @@ pub async fn build_state_with_services(
         .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."))
         .join("mesh-staging");
-    let mesh_ctx = mesh::MeshCtx::new(cfg.engine_dir.as_deref(), staging);
+    let mesh_ctx =
+        mesh::MeshCtx::new(cfg.engine_dir.as_deref(), staging).with_discovery(cfg.mesh_discovery);
     let st = AppState::with_services(
         db,
         cfg.mesh_via.clone(),

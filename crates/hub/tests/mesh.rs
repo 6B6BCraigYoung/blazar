@@ -77,6 +77,7 @@ impl Harness {
             bind: ([127, 0, 0, 1], 0).into(),
             mesh_via: "local".into(),
             mesh_container: None,
+            mesh_discovery: true,
             engine_dir: None,
         };
         let st = build_state_with_services(&cfg, Services::Isolated)

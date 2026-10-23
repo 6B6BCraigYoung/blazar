@@ -135,6 +135,22 @@ pub struct LocalMeshStatus {
     pub external: Option<ExternalEngine>,
 }
 
+impl LocalMeshStatus {
+    #[must_use]
+    pub fn offline(engine_bundled: bool) -> Self {
+        Self {
+            joined: false,
+            running: false,
+            node: None,
+            peer_count: 0,
+            engine_bundled,
+            engine_version: ENGINE_VERSION,
+            other_engine: None,
+            external: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct ExternalEngine {
     pub program: String,

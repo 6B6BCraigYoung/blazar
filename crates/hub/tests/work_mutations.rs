@@ -16,6 +16,7 @@ async fn fixture() -> (tempfile::TempDir, Arc<AppState>, axum::Router) {
             bind: ([127, 0, 0, 1], 0).into(),
             mesh_via: "local".into(),
             mesh_container: None,
+            mesh_discovery: true,
             engine_dir: None,
         },
         Services::Isolated,

@@ -3,6 +3,11 @@ use super::*;
 pub async fn refresh_mesh(State(st): State<Shared>) -> ApiResult<Json<serde_json::Value>> {
     let probe = st.clone();
     tokio::spawn(async move { super::probe_ssh_nodes(&probe).await });
+    if !st.mesh_ctx.discovery_enabled() {
+        return Ok(Json(
+            serde_json::json!({ "discovered": 0, "skipped": "discovery_off" }),
+        ));
+    }
     let peers = st.mesh().peers().await?;
     let out = record_peers(&st, &peers, st.mesh_is_hub_host()).await?;
     st.emit(ServerEvent::NodesChanged);
