@@ -209,7 +209,7 @@ fn Dialog() -> impl IntoView {
                 if !l.is_repo {
                     iso.set(false);
                 }
-                if iso.get_untracked() {
+                if iso.try_get_untracked() == Some(true) {
                     load_branches();
                 }
             }

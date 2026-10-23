@@ -202,7 +202,7 @@ pub fn GitView(git: Git, files: Files, draft: RwSignal<Option<String>>) -> impl 
                     }
                 }
                 "pr-refresh" => {
-                    if git.busy.get_untracked().is_some() {
+                    if git.busy.try_get_untracked().is_none_or(|b| b.is_some()) {
                         return;
                     }
                     git.busy.set(Some("pr-refresh"));

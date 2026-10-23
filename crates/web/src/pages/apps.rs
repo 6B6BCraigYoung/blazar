@@ -325,11 +325,11 @@ fn ConnectApp(
         }
     });
     let interval = StoredValue::new_local(gloo_timers::callback::Interval::new(1100, move || {
-        if !pending.get_untracked()
-            && !fetching.get_untracked()
-            && poll.get_untracked().should_poll()
+        if pending.try_get_untracked() == Some(false)
+            && fetching.try_get_untracked() == Some(false)
+            && poll.try_with_untracked(|p| p.should_poll()) == Some(true)
         {
-            tick.update(|n| *n += 1);
+            tick.try_update(|n| *n += 1);
         }
     }));
     on_cleanup(move || interval.dispose());

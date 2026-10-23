@@ -124,7 +124,7 @@ pub fn JobsPage() -> impl IntoView {
     let filter = RwSignal::new(String::new());
     let now = RwSignal::new(js_sys::Date::now());
     let ticker = StoredValue::new_local(gloo_timers::callback::Interval::new(15_000, move || {
-        now.set(js_sys::Date::now());
+        let _ = now.try_set(js_sys::Date::now());
     }));
     on_cleanup(move || ticker.dispose());
     let log_of = RwSignal::new(None::<Value>);
@@ -179,9 +179,9 @@ pub fn JobsPage() -> impl IntoView {
     };
     rows.listen(
         "tr.job-row",
-        move || shown.with_untracked(Vec::len),
+        move || shown.try_with_untracked(Vec::len).unwrap_or(0),
         move |key, i| {
-            let Some(j) = shown.with_untracked(|l| l.get(i).cloned()) else {
+            let Some(j) = shown.try_with_untracked(|l| l.get(i).cloned()).flatten() else {
                 return;
             };
             match key {

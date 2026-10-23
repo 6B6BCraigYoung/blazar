@@ -348,7 +348,9 @@ pub fn Palette() -> impl IntoView {
     let sel = RwSignal::new(0usize);
     let focus = RwSignal::new(None::<Item>);
     let keys_rev = RwSignal::new(0u32);
-    let watch_keys = crate::shortcuts::on_change(move || keys_rev.update(|n| *n += 1));
+    let watch_keys = crate::shortcuts::on_change(move || {
+        keys_rev.try_update(|n| *n += 1);
+    });
     let nav = StoredValue::new(use_navigate());
     let location = use_location();
     Effect::new(move |_| {

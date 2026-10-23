@@ -116,12 +116,15 @@ fn remove_entry(ws: String, m: Menu, files: Files) {
         {
             Ok(_) => {
                 let inside = format!("{}/", m.path);
-                let gone: Vec<String> = files.open_tabs.with_untracked(|t| {
-                    t.iter()
-                        .filter(|p| **p == m.path || p.starts_with(&inside))
-                        .cloned()
-                        .collect()
-                });
+                let gone: Vec<String> = files
+                    .open_tabs
+                    .try_with_untracked(|t| {
+                        t.iter()
+                            .filter(|p| **p == m.path || p.starts_with(&inside))
+                            .cloned()
+                            .collect()
+                    })
+                    .unwrap_or_default();
                 for p in gone {
                     files.close(p);
                 }
@@ -150,7 +153,7 @@ fn TreeMenu(
         }
     });
     let close_key = window_event_listener(leptos::ev::keydown, move |e| {
-        if e.key() == "Escape" && menu.with_untracked(Option::is_some) {
+        if e.key() == "Escape" && menu.try_with_untracked(Option::is_some) == Some(true) {
             menu.set(None);
         }
     });
@@ -163,7 +166,7 @@ fn TreeMenu(
     Effect::new(move |_| {
         if menu.with(Option::is_some) {
             request_animation_frame(move || {
-                if let Some(r) = root_el.get_untracked()
+                if let Some(r) = root_el.try_get_untracked().flatten()
                     && let Ok(Some(first)) = r.query_selector(".ctx-item:not(:disabled)")
                     && let Ok(first) = wasm_bindgen::JsCast::dyn_into::<web_sys::HtmlElement>(first)
                 {

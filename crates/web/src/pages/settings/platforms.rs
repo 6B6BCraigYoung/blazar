@@ -89,7 +89,9 @@ fn ProviderList(list: Vec<Value>, rev: RwSignal<i32>) -> impl IntoView {
                 path: "/api/skills/market/key".into(),
                 body: json!({"provider": id, "key": ""}),
             },
-            move || rev.update(|n| *n += 1),
+            move || {
+                rev.try_update(|n| *n += 1);
+            },
         );
     });
     let add = Callback::new(move |()| {

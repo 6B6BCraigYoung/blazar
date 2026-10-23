@@ -135,21 +135,22 @@ impl Rows {
             }
             let meta = e.meta_key() || e.ctrl_key();
             let key = e.key();
+            let current = self.sel.try_get_untracked().flatten();
             match key.as_str() {
                 "ArrowDown" | "ArrowUp" if !meta && !e.alt_key() => {
                     e.prevent_default();
                     let down = key == "ArrowDown";
-                    let next = match self.sel.get_untracked() {
+                    let next = match current {
                         None if down => 0,
                         None => n - 1,
                         Some(i) if down => (i + 1).min(n - 1),
                         Some(i) => i.saturating_sub(1),
                     };
-                    self.sel.set(Some(next));
+                    let _ = self.sel.try_set(Some(next));
                     focus_row(row, next);
                 }
                 "Enter" if !meta && on_row_itself(&e, row) => {
-                    if let Some(i) = self.sel.get_untracked() {
+                    if let Some(i) = current {
                         e.prevent_default();
                         act(RowKey::Open, i);
                     }
@@ -160,7 +161,7 @@ impl Rows {
                         Some("delete") => RowKey::Delete,
                         _ => return,
                     };
-                    if let Some(i) = self.sel.get_untracked().filter(|i| *i < n) {
+                    if let Some(i) = current.filter(|i| *i < n) {
                         e.prevent_default();
                         act(which, i);
                     }

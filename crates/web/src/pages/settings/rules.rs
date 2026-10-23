@@ -34,7 +34,9 @@ pub(super) fn RuleSettings() -> impl IntoView {
             format!("已删除规则「{}」", name.trim()),
             id.clone(),
             Request::delete(format!("/api/approval-rules/{}", api::enc(&id))),
-            move || rev.update(|n| *n += 1),
+            move || {
+                rev.try_update(|n| *n += 1);
+            },
         );
     });
     view! {

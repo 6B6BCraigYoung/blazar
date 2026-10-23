@@ -118,16 +118,20 @@ pub fn SkillsPage() -> impl IntoView {
     };
     list_rows.listen(
         "tr.skill-row",
-        move || shown.with_untracked(Vec::len),
+        move || shown.try_with_untracked(Vec::len).unwrap_or(0),
         move |key, i| {
-            let Some(v) = shown.with_untracked(|l| l.get(i).cloned()) else {
+            let Some(v) = shown.try_with_untracked(|l| l.get(i).cloned()).flatten() else {
                 return;
             };
             match key {
                 RowKey::Open | RowKey::Inspect => open_item(&v),
-                RowKey::Delete => remove_skill(&v, tab.get_untracked() == "mcp", move || {
-                    rev.update(|r| *r += 1)
-                }),
+                RowKey::Delete => remove_skill(
+                    &v,
+                    tab.try_get_untracked().as_deref() == Some("mcp"),
+                    move || {
+                        rev.try_update(|r| *r += 1);
+                    },
+                ),
             }
         },
     );

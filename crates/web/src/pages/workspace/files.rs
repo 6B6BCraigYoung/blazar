@@ -112,7 +112,7 @@ impl Files {
                     if self.editor.try_set_value(Some(Rc::new(m))).is_some() {
                         return;
                     }
-                    if let Some(cur) = self.current.get_untracked()
+                    if let Some(cur) = self.current.try_get_untracked().flatten()
                         && let Some((text, ro, line)) =
                             self.pending.try_update_value(|p| p.remove(&cur)).flatten()
                     {

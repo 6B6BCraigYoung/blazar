@@ -228,14 +228,17 @@ pub fn InboxPage() -> impl IntoView {
         })
     };
     let focus_row = move |i: usize| {
-        if let Some(list) = list_el.get_untracked()
+        if let Some(list) = list_el.try_get_untracked().flatten()
             && let Ok(Some(row)) = list.query_selector(&format!(".inbox-row[data-index=\"{i}\"]"))
             && let Ok(row) = row.dyn_into::<web_sys::HtmlElement>()
         {
             let _ = row.focus();
         }
     };
-    let selected = move || items.with_untracked(|it| it.get(ctx.sel.get_untracked()).cloned());
+    let selected = move || {
+        let i = ctx.sel.try_get_untracked()?;
+        items.try_with_untracked(|it| it.get(i).cloned()).flatten()
+    };
     let open = move |it: Item| {
         if !it.read {
             mark.run(("read".into(), vec![it.id.clone()]));
@@ -246,7 +249,7 @@ pub fn InboxPage() -> impl IntoView {
         if e.default_prevented() || e.is_composing() || overlay_open() {
             return;
         }
-        let n = items.with_untracked(Vec::len);
+        let n = items.try_with_untracked(Vec::len).unwrap_or(0);
         if n == 0 {
             return;
         }
@@ -256,7 +259,7 @@ pub fn InboxPage() -> impl IntoView {
         match key.as_str() {
             "ArrowDown" | "ArrowUp" if !typing && !meta => {
                 e.prevent_default();
-                let i = ctx.sel.get_untracked();
+                let i = ctx.sel.try_get_untracked().unwrap_or(0);
                 let next = if key == "ArrowDown" {
                     (i + 1).min(n - 1)
                 } else {

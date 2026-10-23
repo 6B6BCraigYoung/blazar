@@ -48,7 +48,9 @@ pub(super) fn SnippetSettings() -> impl IntoView {
             format!("已删除「{name}」"),
             id.clone(),
             Request::delete(format!("/api/snippets/{}", api::enc(&id))),
-            move || rev.update(|n| *n += 1),
+            move || {
+                rev.try_update(|n| *n += 1);
+            },
         );
     });
     view! {

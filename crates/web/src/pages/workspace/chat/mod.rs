@@ -112,7 +112,7 @@ pub fn ChatPane(
         if chat.running.get() {
             if iv.with_value(Option::is_none) {
                 iv.set_value(Some(gloo_timers::callback::Interval::new(120, move || {
-                    tick.update(|t| *t = t.wrapping_add(1))
+                    tick.try_update(|t| *t = t.wrapping_add(1));
                 })));
             }
         } else {

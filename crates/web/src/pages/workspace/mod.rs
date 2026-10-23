@@ -379,7 +379,7 @@ fn Workspace(id: String) -> impl IntoView {
             && run(action)
         {
             e.prevent_default();
-        } else if state.lay.with_untracked(|l| l.inspect) && escapable(&e) {
+        } else if state.lay.try_with_untracked(|l| l.inspect) == Some(true) && escapable(&e) {
             e.prevent_default();
             state.close();
         }
@@ -395,7 +395,7 @@ fn Workspace(id: String) -> impl IntoView {
     });
 
     let unload = window_event_listener(ev::beforeunload, move |e| {
-        if files.dirty.with_untracked(|d| !d.is_empty()) {
+        if files.dirty.try_with_untracked(|d| !d.is_empty()) == Some(true) {
             e.prevent_default();
         }
     });

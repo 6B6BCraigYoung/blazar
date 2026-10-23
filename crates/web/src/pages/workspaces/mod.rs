@@ -258,7 +258,7 @@ fn Home() -> impl IntoView {
         }
     });
     let focus_row = move |i: usize| {
-        if let Some(list) = list_el.get_untracked()
+        if let Some(list) = list_el.try_get_untracked().flatten()
             && let Ok(Some(a)) =
                 list.query_selector(&format!(".home-row[data-index=\"{i}\"] > .home-main"))
             && let Ok(a) = a.dyn_into::<web_sys::HtmlElement>()
@@ -270,22 +270,20 @@ fn Home() -> impl IntoView {
         if !list_keys_apply(&e) {
             return;
         }
-        let n = rows.with_untracked(|r| r.len());
+        let n = rows.try_with_untracked(|r| r.len()).unwrap_or(0);
         if n == 0 {
             return;
         }
         let meta = e.meta_key() || e.ctrl_key();
         let key = e.key();
-        let selected = move || {
-            ctx.sel
-                .get_untracked()
-                .and_then(|i| rows.with_untracked(|r| r.get(i).cloned()))
-        };
+        let current = ctx.sel.try_get_untracked().flatten();
+        let selected =
+            move || current.and_then(|i| rows.try_with_untracked(|r| r.get(i).cloned()).flatten());
         match key.as_str() {
             "ArrowDown" | "ArrowUp" if !meta => {
                 e.prevent_default();
                 let down = key == "ArrowDown";
-                let next = match ctx.sel.get_untracked() {
+                let next = match current {
                     None if down => 0,
                     None => n - 1,
                     Some(i) if down => (i + 1).min(n - 1),

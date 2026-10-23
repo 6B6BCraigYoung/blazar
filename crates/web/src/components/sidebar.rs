@@ -327,10 +327,10 @@ fn StatusDot() -> impl IntoView {
         let inside = e
             .target()
             .and_then(|t| t.dyn_into::<web_sys::Node>().ok())
-            .zip(root.get_untracked())
+            .zip(root.try_get_untracked().flatten())
             .is_some_and(|(t, r)| r.contains(Some(&t)));
         if !inside {
-            open.set(false);
+            let _ = open.try_set(false);
         }
     });
     on_cleanup(move || close_down.remove());

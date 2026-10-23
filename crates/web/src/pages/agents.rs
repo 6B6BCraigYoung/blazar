@@ -84,7 +84,7 @@ pub(super) fn remove_profile(agent: &Value, forever: bool, done: impl Fn() + 'st
 
 pub(super) fn guard_unsaved(dirty: RwSignal<bool>) {
     let listener = Closure::<dyn Fn(web_sys::Event)>::new(move |e: web_sys::Event| {
-        if dirty.get_untracked() {
+        if dirty.try_get_untracked().unwrap_or(false) {
             e.prevent_default();
         }
     });
@@ -94,7 +94,7 @@ pub(super) fn guard_unsaved(dirty: RwSignal<bool>) {
     );
     let listener = StoredValue::new_local(listener);
     let unload = window_event_listener(ev::beforeunload, move |e| {
-        if dirty.get_untracked() {
+        if dirty.try_get_untracked().unwrap_or(false) {
             e.prevent_default();
         }
     });
@@ -175,14 +175,16 @@ pub fn AgentsPage() -> impl IntoView {
     };
     rows.listen(
         "tr.agent-row",
-        move || shown.with_untracked(Vec::len),
+        move || shown.try_with_untracked(Vec::len).unwrap_or(0),
         move |key, i| {
-            let Some(a) = shown.with_untracked(|l| l.get(i).cloned()) else {
+            let Some(a) = shown.try_with_untracked(|l| l.get(i).cloned()).flatten() else {
                 return;
             };
             match key {
                 RowKey::Open | RowKey::Inspect => open_profile(&a),
-                RowKey::Delete => remove_profile(&a, archived(&a), move || rev.update(|r| *r += 1)),
+                RowKey::Delete => remove_profile(&a, archived(&a), move || {
+                    rev.try_update(|r| *r += 1);
+                }),
             }
         },
     );
@@ -225,7 +227,9 @@ pub fn AgentsPage() -> impl IntoView {
             vec![RowAction::delete(
                 if gone { "删除" } else { "归档" },
                 move || {
-                    remove_profile(&for_delete, gone, move || rev.update(|r| *r += 1));
+                    remove_profile(&for_delete, gone, move || {
+                        rev.try_update(|r| *r += 1);
+                    });
                 },
             )],
         ]
@@ -1528,8 +1532,12 @@ fn AgentEditor(
                     } else {
                         draft.set(v.clone());
                         original.set(v.clone());
-                        saved_args.set(args.get_untracked());
-                        saved_env.set(env.get_untracked());
+                        if let Some(current) = args.try_get_untracked() {
+                            saved_args.set(current);
+                        }
+                        if let Some(current) = env.try_get_untracked() {
+                            saved_env.set(current);
+                        }
                         dirty.set(false);
                         on_saved.run(v);
                     }

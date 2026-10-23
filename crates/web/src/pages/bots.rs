@@ -150,9 +150,9 @@ pub fn BotsPage() -> impl IntoView {
     };
     rows.listen(
         "article.bot-card",
-        move || shown.with_untracked(Vec::len),
+        move || shown.try_with_untracked(Vec::len).unwrap_or(0),
         move |key, i| {
-            let Some(b) = shown.with_untracked(|l| l.get(i).cloned()) else {
+            let Some(b) = shown.try_with_untracked(|l| l.get(i).cloned()).flatten() else {
                 return;
             };
             match key {

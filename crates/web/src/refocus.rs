@@ -5,10 +5,13 @@ pub fn on_refocus(run: impl Fn() + Clone + 'static) {
     let last = StoredValue::new_local(js_sys::Date::now());
     let fire = move || {
         let now = js_sys::Date::now();
-        if now - last.get_value() < 1500.0 {
+        let Some(previous) = last.try_get_value() else {
+            return;
+        };
+        if now - previous < 1500.0 {
             return;
         }
-        last.set_value(now);
+        let _ = last.try_set_value(now);
         run();
     };
     let on_visible = fire.clone();

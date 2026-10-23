@@ -194,9 +194,9 @@ pub fn TasksPage() -> impl IntoView {
     let shown = RwSignal::new(Vec::<Value>::new());
     rows.listen(
         "button.work-task",
-        move || shown.with_untracked(Vec::len),
+        move || shown.try_with_untracked(Vec::len).unwrap_or(0),
         move |key, i| {
-            let Some(t) = shown.with_untracked(|l| l.get(i).cloned()) else {
+            let Some(t) = shown.try_with_untracked(|l| l.get(i).cloned()).flatten() else {
                 return;
             };
             match key {
