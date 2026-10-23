@@ -342,7 +342,7 @@ pub fn WsHead(
                 title=crate::shortcuts::titled("文件", "explorer")
                 aria-pressed=move || lay().files_shown().to_string()
                 on:click=move |_| state.toggle_files()
-                inner_html=super::ICON_LEFT
+                inner_html=super::ICON_FILES
             ></button>
             <h1 class="ws-name" title=path>
                 {title}
