@@ -1011,6 +1011,13 @@ def detail_pages():
         items.append((f"node-{slugify(node)}", f"/nodes/{node}", f"机器详情：{node}", (), True))
     for (name,) in db_rows("SELECT name FROM projects WHERE id LIKE ? ORDER BY name", (PREFIX + "%",)):
         items.append((f"project-{slugify(name)}", f"/project/{name}", f"项目详情：{name}", (), True))
+    sheet = {"action": "wait", "selector": "[data-modal-root]", "timeout_ms": 4000}
+    items.append(("app-github-advanced", "/apps/github", "接入的软件详情里「高级…」打开的连接详情面板",
+                  ({"action": "wait", "selector": ".pref-more-btn", "timeout_ms": 8000},
+                   {"action": "click", "selector": ".pref-more-btn"}, sheet), False))
+    items.append(("runtime-claude-advanced", "/runtimes/claude", "运行时详情里「配置」组的「高级…」打开的高级配置面板",
+                  ({"action": "wait", "selector": ".pref-group:last-child .pref-more-btn", "timeout_ms": 8000},
+                   {"action": "click", "selector": ".pref-group:last-child .pref-more-btn"}, sheet), False))
     items.append(("tree-menu", f"/w/{WS['atlas-api']}", "文件树的右键菜单",
                   ({"action": "wait", "ms": 800}, *calm(), dict(OPEN_FILES), {"action": "wait", "ms": 400},
                    {"action": "context_menu", "selector": "button.tn[title=\"README.md\"]"}, *calm(True)), False))
