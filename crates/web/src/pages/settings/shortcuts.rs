@@ -17,6 +17,8 @@ pub const SHORTCUTS: &[(&str, &str, &str)] = &[
     ("panel", "终端", "Mod+J"),
     ("newchat", "新对话", "Mod+T"),
     ("newws", "新建工作区", "Mod+N"),
+    ("inspect", "简介", "Mod+I"),
+    ("delete", "删除", "Mod+Backspace"),
     ("diff", "更改", "Mod+Shift+D"),
     ("git", "Git", "Mod+Shift+G"),
     ("preview", "预览", "Mod+Shift+P"),
@@ -81,6 +83,8 @@ fn pressed(e: &ev::KeyboardEvent) -> Pressed {
                 | "Backquote"
                 | "Space"
                 | "Enter"
+                | "Backspace"
+                | "Delete"
         );
     if !supported {
         return Pressed::Ignore;

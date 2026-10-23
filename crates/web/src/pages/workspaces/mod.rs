@@ -283,6 +283,11 @@ fn Home() -> impl IntoView {
         }
         let meta = e.meta_key() || e.ctrl_key();
         let key = e.key();
+        let selected = move || {
+            ctx.sel
+                .get_untracked()
+                .and_then(|i| rows.with_untracked(|r| r.get(i).cloned()))
+        };
         match key.as_str() {
             "ArrowDown" | "ArrowUp" if !meta => {
                 e.prevent_default();
@@ -296,19 +301,15 @@ fn Home() -> impl IntoView {
                 ctx.sel.set(Some(next));
                 focus_row(next);
             }
-            "Enter" | "Backspace" if meta => {
-                let Some(i) = ctx.sel.get_untracked() else {
+            "Enter" | "Backspace"
+                if meta
+                    && selected()
+                        .and_then(|row| pending_of(&row))
+                        .is_some_and(|a| !is_question(&a)) =>
+            {
+                let Some(a) = selected().and_then(|row| pending_of(&row)) else {
                     return;
                 };
-                let Some(a) = rows
-                    .with_untracked(|r| r.get(i).cloned())
-                    .and_then(|row| pending_of(&row))
-                else {
-                    return;
-                };
-                if is_question(&a) {
-                    return;
-                }
                 e.prevent_default();
                 decide(
                     ctx,
@@ -316,7 +317,21 @@ fn Home() -> impl IntoView {
                     key == "Enter",
                 );
             }
-            _ => {}
+            _ => match crate::shortcuts::action(&e) {
+                Some("inspect") => {
+                    if let Some(row) = selected() {
+                        e.prevent_default();
+                        app.inspect_ws.set(Some(row.ws.id.clone()));
+                    }
+                }
+                Some("delete") => {
+                    if let Some(row) = selected() {
+                        e.prevent_default();
+                        remove_workspace(app, row.ws.id.clone());
+                    }
+                }
+                _ => {}
+            },
         }
     });
     on_cleanup(move || keys.remove());

@@ -242,7 +242,7 @@ pub fn Inspector(id: String, on_close: impl Fn() + Copy + Send + Sync + 'static)
     });
     let act = move |d: Value, a: &'static str| act.with_value(|f| f(d, a));
     view! {
-        <Modal label="工作区详情" class="dlg wide" on_close=Callback::new(move |_| close())>
+        <Modal label="工作区属性" class="dlg wide" on_close=Callback::new(move |_| close())>
             {move || match detail.get() {
                 None => view! { <LoadingState text="读取详情…" /> }.into_any(),
                 Some(Err(e)) => {

@@ -9,6 +9,8 @@ const DEFAULTS: &[(&str, &str)] = &[
     ("panel", "Mod+J"),
     ("newchat", "Mod+T"),
     ("newws", "Mod+N"),
+    ("inspect", "Mod+I"),
+    ("delete", "Mod+Backspace"),
     ("diff", "Mod+Shift+D"),
     ("git", "Mod+Shift+G"),
     ("preview", "Mod+Shift+P"),
@@ -56,6 +58,8 @@ pub fn action(e: &web_sys::KeyboardEvent) -> Option<&'static str> {
             "Backquote" => "`",
             "Space" => "Space",
             "Enter" => "Enter",
+            "Backspace" => "Backspace",
+            "Delete" => "Delete",
             c if c.starts_with('F') && c[1..].parse::<u8>().is_ok() => c,
             _ => return None,
         }
@@ -103,7 +107,12 @@ pub fn label(combo: &str) -> String {
             .filter(|(name, _)| mods.contains(name))
             .map(|(_, symbol)| *symbol)
             .collect();
-        out.push_str(if *key == "Enter" { "↩" } else { key });
+        out.push_str(match *key {
+            "Enter" => "↩",
+            "Backspace" => "⌫",
+            "Delete" => "⌦",
+            k => k,
+        });
         out
     } else {
         mods.iter()

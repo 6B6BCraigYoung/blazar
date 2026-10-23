@@ -369,6 +369,7 @@ fn Workspace(id: String) -> impl IntoView {
             "diff" => state.open_changes(Changes::Diff),
             "git" => state.open_changes(Changes::Git),
             "preview" => state.open(Tab::Preview),
+            "inspect" => props.set(true),
             _ => return false,
         }
         true
