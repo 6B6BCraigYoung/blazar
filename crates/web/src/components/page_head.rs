@@ -10,6 +10,7 @@ pub fn PageHead(
     #[prop(optional, into)] icon: Option<ViewFn>,
     #[prop(optional, into)] status: Option<ViewFn>,
     #[prop(optional, into)] nav: Option<ViewFn>,
+    #[prop(optional, into)] lead: Option<String>,
     #[prop(optional)] children: Option<Children>,
 ) -> impl IntoView {
     view! {
@@ -32,6 +33,7 @@ pub fn PageHead(
             <span class="grow"></span>
             {children.map(|children| view! { <div class="page-actions">{children()}</div> })}
         </header>
+        {lead.map(|lead| view! { <p class="page-lead">{lead}</p> })}
     }
 }
 

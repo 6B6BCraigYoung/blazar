@@ -116,8 +116,7 @@ fn AppLogo(id: &'static str) -> impl IntoView {
 pub fn AppsPage() -> impl IntoView {
     view! {
         <div class="page apps-page">
-            <PageHead title="接入的软件" />
-            <p class="muted">"连接常用软件，让智能体协助处理工作。"</p>
+            <PageHead title="接入的软件" lead="连接常用软件，让智能体协助处理工作。" />
             <section class="apps-section">
                 <h2>"办公"</h2>
                 <div class="apps-grid">

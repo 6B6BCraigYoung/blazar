@@ -35,6 +35,8 @@ button { font: inherit; color: inherit; }
 .page-icon :is(img, svg) { width: 20px; height: 20px; }
 .page-status { display: inline-flex; align-items: center; gap: var(--space-md); }
 .page-note { color: var(--fg-3); font-size: var(--font-size-label); }
+.page-lead { margin: calc(var(--space-md) - var(--space-section)) 0 calc(var(--space-2xl) - var(--space-section)); color: var(--fg-3); line-height: var(--line-height-compact); }
+.page > .page-lead + * { margin-top: 0; }
 .page-actions { display: flex; align-items: center; gap: var(--space-md); }
 
 .card { border: 0; border-radius: var(--r-group); background: var(--bg-group); box-shadow: none; overflow: hidden; }
@@ -483,7 +485,6 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 }
 
 .nodes-page .nodes-details { padding-top: var(--space-xs); border-top: 1px solid var(--line); }
-.nodes-page .nodes-intro { margin: 0; }
 .machines-toolbar { display: flex; justify-content: flex-end; }
 .machines { border-radius: var(--r-group); background: var(--bg-group); overflow: hidden; }
 .machines table { width: 100%; border-collapse: collapse; }

@@ -265,6 +265,7 @@ pub fn NodesPage() -> impl IntoView {
         >
             <PageHead
                 title="机器与组网"
+                lead="选择一台机器，创建或打开工作区。"
                 status=move || {
                     let n = nodes()
                         .iter()
@@ -301,7 +302,6 @@ pub fn NodesPage() -> impl IntoView {
                 hidden
                 on:change=on_file
             />
-            <p class="muted nodes-intro">"选择一台机器，创建或打开工作区。"</p>
             {move || {
                 (nodes().len() >= 8)
                     .then(|| {
