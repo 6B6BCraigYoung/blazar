@@ -461,6 +461,7 @@ dependencies = [
  "blazar-transport",
  "block2",
  "directories",
+ "objc2",
  "objc2-app-kit",
  "objc2-foundation",
  "objc2-web-kit",

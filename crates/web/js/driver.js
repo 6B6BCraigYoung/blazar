@@ -382,8 +382,8 @@ async function run(command) {
       for (const animation of document.getAnimations()) {
         if (Number.isFinite(animation.effect?.getComputedTiming().endTime)) animation.finish();
       }
-      const shot = await invoke('snapshot_webview', { name: command.name || null });
-      return { ok: true, path: shot.path, width: shot.width, height: shot.height };
+      const shot = await invoke('snapshot_webview', { name: command.name || null, width: innerWidth, height: innerHeight });
+      return { ok: true, path: shot.path, width: shot.width, height: shot.height, viewport: [innerWidth, innerHeight] };
     }
     default:
       throw new Error(`不认识的 action：${command.action}`);

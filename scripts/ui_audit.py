@@ -1119,7 +1119,7 @@ def index(out):
     head = ["# 界面审计截图索引", ""]
     if vp and size:
         head.append(f"视口：innerWidth×innerHeight = {vp['inner'][0]}×{vp['inner'][1]}，devicePixelRatio {vp['dpr']}，"
-                    f"截图 {size[0]}×{size[1]} 像素（含窗口顶部标题栏区域）。")
+                    f"截图 {size[0]}×{size[1]} 像素（只含页面可见区域）。")
     head.append("")
     tail = ["", "## 驱动发现的溢出和控制台错误", ""] + (issues or ["（无）"])
     (out / "index.md").write_text("\n".join(head + lines + tail) + "\n")
