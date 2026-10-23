@@ -7,6 +7,7 @@ use crate::api;
 use crate::app_state::{AppData, use_app};
 use crate::components::dialog::{self, Choice};
 use crate::components::page_head::PageHead;
+use crate::components::prefs::PrefRow;
 use crate::components::toast::toast;
 use crate::components::{
     icon,
@@ -34,6 +35,20 @@ use table::{MachineTable, listed, sorted};
 
 fn s(v: &Value, k: &str) -> String {
     v.get(k).and_then(Value::as_str).unwrap_or("").to_owned()
+}
+
+fn dash(x: String) -> String {
+    if x.is_empty() { "—".into() } else { x }
+}
+
+fn text_row(label: &'static str, value: String, mono: bool) -> impl IntoView {
+    view! {
+        <PrefRow label=label>
+            <span class="pref-text" class:mono=mono>
+                {value}
+            </span>
+        </PrefRow>
+    }
 }
 
 fn date_of(t: i64) -> String {

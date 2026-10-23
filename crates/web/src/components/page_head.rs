@@ -68,6 +68,7 @@ pub fn MoreMenu(
     label: String,
     items: Vec<MenuItem>,
     #[prop(optional, into)] disabled: Signal<bool>,
+    #[prop(optional)] text: Option<&'static str>,
 ) -> impl IntoView {
     let open = RwSignal::new(false);
     let root = NodeRef::<leptos::html::Div>::new();
@@ -95,7 +96,8 @@ pub fn MoreMenu(
         >
             <button
                 type="button"
-                class="btn ghost more-btn"
+                class="btn more-btn"
+                class:ghost=text.is_none()
                 node_ref=button
                 aria-label=label.clone()
                 title=label.clone()
@@ -104,7 +106,7 @@ pub fn MoreMenu(
                 disabled=move || disabled.get()
                 on:click=move |_| open.update(|o| *o = !*o)
             >
-                "⋯"
+                {text.unwrap_or("⋯")}
             </button>
             <Show when=move || open.get()>
                 <div

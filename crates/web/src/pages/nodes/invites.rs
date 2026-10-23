@@ -1,4 +1,6 @@
 use super::*;
+use crate::components::group::ListGroup;
+use crate::components::prefs::{PrefAdvanced, PrefGroup, PrefRow};
 
 #[component]
 pub(super) fn Issuer(m: Mesh) -> impl IntoView {
@@ -14,7 +16,7 @@ pub(super) fn Issuer(m: Mesh) -> impl IntoView {
     let note = RwSignal::new(String::new());
     let msg = RwSignal::new(String::new());
     let busy = RwSignal::new(false);
-    let generate = move |_| {
+    let generate = move || {
         if busy.get_untracked() {
             return;
         }
@@ -46,18 +48,16 @@ pub(super) fn Issuer(m: Mesh) -> impl IntoView {
         });
     };
     view! {
-        <section class="card pad">
+        <PrefGroup title="邀请同事">
             {move || match v.get() {
                 None => {
-                    view! {
-                        <LoadingState text="正在读取邀请设置…" class="muted small" />
-                    }
+                    view! { <LoadingState text="正在读取邀请设置…" class="pref-empty" /> }
                         .into_any()
                 }
                 Some(Err(e)) => {
                     view! {
-                        <h3>"邀请同事"</h3>
                         <InlineError
+                            class="pref-empty"
                             message=format!("无法读取邀请设置：{e}")
                             retry=Callback::new(move |()| m.issuer.update(|n| *n += 1))
                         />
@@ -66,23 +66,23 @@ pub(super) fn Issuer(m: Mesh) -> impl IntoView {
                 }
                 Some(Ok(v)) if v["configured"].as_bool() != Some(true) => {
                     view! {
-                        <div class="card-title">
-                            <h3>"邀请同事"</h3>
+                        <PrefRow
+                            label="状态"
+                            detail="设置签发机器后，即可生成邀请文件。加入他人的组网无需此设置。"
+                        >
                             <Status tone=Tone::Other label="待设置" />
-                            <span class="grow"></span>
-                            <button class="btn small" on:click=move |_| settings.set(true)>
+                            <button type="button" class="btn" on:click=move |_| settings.set(true)>
                                 "签发设置"
                             </button>
-                        </div>
-                        <p class="muted small">
-                            "设置签发机器后，即可生成邀请文件。加入他人的组网无需此设置。"
-                        </p>
-                        <details class="nodes-details">
-                            <summary>"如何设置"</summary>
-                            <p class="muted small">
-                                "选择持有网络密钥 network_secret 的机器（通常是枢纽），填写 SSH Host 或 local。Blazar 通过 SSH 调用 easytier-cli credential 签发和吊销邀请。加入他人的组网可使用邀请文件或 EasyTier 配置。"
+                        </PrefRow>
+                        <PrefAdvanced title="如何设置">
+                            <p>
+                                "选择持有网络密钥 network_secret 的机器（通常是枢纽），填写 SSH Host 或 local。"
                             </p>
-                        </details>
+                            <p>
+                                "Blazar 通过 SSH 调用 easytier-cli credential 签发和吊销邀请。加入他人的组网可使用邀请文件或 EasyTier 配置，不需要这项设置。"
+                            </p>
+                        </PrefAdvanced>
                     }
                         .into_any()
                 }
@@ -101,161 +101,138 @@ pub(super) fn Issuer(m: Mesh) -> impl IntoView {
                         .as_array()
                         .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect())
                         .unwrap_or_default();
-                    let head = view! {
-                        <div class="card-title">
-                            <h3>"邀请同事"</h3>
+                    let no_entry = eps.is_empty();
+                    let detail = if reach {
+                        format!("由 {where_} 签发")
+                    } else {
+                        format!(
+                            "无法连接签发机器 {where_}，请检查连接或修改签发设置：{}",
+                            s(&v, "error"),
+                        )
+                    };
+                    view! {
+                        <PrefRow label="状态" detail=detail>
                             <Status
                                 tone=if reach { Tone::Other } else { Tone::Failed }
                                 label=if reach { "可邀请" } else { "未连接" }
                             />
-                            <span class="grow"></span>
-                            <button class="btn small ghost" on:click=move |_| settings.set(true)>
+                            <button type="button" class="btn" on:click=move |_| settings.set(true)>
                                 "签发设置"
                             </button>
-                        </div>
-                    };
-                    if !reach {
-                        return view! {
-                            {head}
-                            <InlineError
-                                message=format!(
-                                    "无法连接签发机器，请检查连接或修改签发设置：{}",
-                                    s(&v, "error"),
-                                )
-                                retry=Callback::new(move |()| m.issuer.update(|n| *n += 1))
-                            />
-                            <div class="nodes-details">
-                                <div class="mono small">{where_}</div>
-                            </div>
-                        }
-                            .into_any();
-                    }
-                    let no_entry = eps.is_empty();
-                    view! {
-                        {head}
-                        <div class="muted small">
-                            "邀请文件就是个人入网凭据，请私下发送。可单独吊销，到期自动失效，不含整个网络的密钥。"
-                        </div>
-                        <details class="nodes-details">
-                            <summary>"签发详情"</summary>
-                            <div class="kv">
-                                <span class="k">"机器"</span>
-                                <span class="v mono">{where_}</span>
-                            </div>
-                            <div class="kv">
-                                <span class="k">"网络"</span>
-                                <span class="v mono">
-                                    {Some(s(&v, "network_name"))
-                                        .filter(|x| !x.is_empty())
-                                        .unwrap_or_else(|| "—".into())}
-                                </span>
-                            </div>
-                            <div class="kv">
-                                <span class="k">"网段"</span>
-                                <span class="v mono">
-                                    {Some(s(&v, "subnet"))
-                                        .filter(|x| !x.is_empty())
-                                        .unwrap_or_else(|| "—".into())}
-                                </span>
-                            </div>
-                            <div class="kv">
-                                <span class="k">"入网地址"</span>
-                                <span class="v mono">
-                                    {if no_entry {
-                                        "未设置 —— 点「签发设置」填写".to_owned()
-                                    } else {
-                                        eps.join("\n")
-                                    }}
-                                </span>
-                            </div>
-                        </details>
-                        {no_entry
+                        </PrefRow>
+                        {reach
                             .then(|| {
                                 view! {
-                                    <div class="notice-box warn">
-                                        "请先在签发设置中填写入网地址。"
-                                    </div>
+                                    <PrefRow label="同事称呼" for_id="invite-member">
+                                        <input
+                                            id="invite-member"
+                                            class="settings-input"
+                                            placeholder="张三"
+                                            disabled=move || busy.get()
+                                            prop:value=move || member.get()
+                                            on:input=move |e| member.set(event_target_value(&e))
+                                        />
+                                    </PrefRow>
+                                    <PrefRow
+                                        label="主机名"
+                                        detail="组网内唯一；称呼是英文时可留空。"
+                                        for_id="invite-host"
+                                    >
+                                        <input
+                                            id="invite-host"
+                                            class="settings-input mono"
+                                            placeholder="zhangsan-mbp"
+                                            disabled=move || busy.get()
+                                            prop:value=move || host.get()
+                                            on:input=move |e| host.set(event_target_value(&e))
+                                        />
+                                    </PrefRow>
+                                    <PrefRow label="有效期" for_id="invite-days">
+                                        <select
+                                            id="invite-days"
+                                            class="settings-input"
+                                            disabled=move || busy.get()
+                                            prop:value=move || days.get()
+                                            on:change=move |e| days.set(event_target_value(&e))
+                                        >
+                                            <option value="30" selected=move || days.get() == "30">
+                                                "30 天"
+                                            </option>
+                                            <option value="90" selected=move || days.get() == "90">
+                                                "90 天"
+                                            </option>
+                                            <option value="180" selected=move || days.get() == "180">
+                                                "180 天"
+                                            </option>
+                                            <option value="365" selected=move || days.get() == "365">
+                                                "1 年"
+                                            </option>
+                                        </select>
+                                    </PrefRow>
+                                    <PrefRow label="地址" for_id="invite-ip">
+                                        <select
+                                            id="invite-ip"
+                                            class="settings-input"
+                                            disabled=move || busy.get()
+                                            prop:value=move || ip.get()
+                                            on:change=move |e| ip.set(event_target_value(&e))
+                                        >
+                                            <option value="auto" selected=move || ip.get() == "auto">
+                                                "自动分配固定地址"
+                                            </option>
+                                            <option value="dhcp" selected=move || ip.get() == "dhcp">
+                                                "由网络动态分配"
+                                            </option>
+                                        </select>
+                                    </PrefRow>
+                                    <PrefRow label="备注" for_id="invite-note">
+                                        <input
+                                            id="invite-note"
+                                            class="settings-input"
+                                            placeholder="可选，如：算法组 · 实习"
+                                            disabled=move || busy.get()
+                                            prop:value=move || note.get()
+                                            on:input=move |e| note.set(event_target_value(&e))
+                                        />
+                                    </PrefRow>
+                                    <PrefRow
+                                        label="邀请文件"
+                                        detail="邀请文件就是个人入网凭据，请私下发送。可单独吊销，到期自动失效，不含整个网络的密钥。"
+                                    >
+                                        <button
+                                            type="button"
+                                            class="btn primary"
+                                            disabled=move || busy.get() || no_entry
+                                            on:click=move |_| generate()
+                                        >
+                                            {move || if busy.get() { "生成中…" } else { "生成邀请文件" }}
+                                        </button>
+                                    </PrefRow>
+                                    {no_entry
+                                        .then(|| {
+                                            view! {
+                                                <p class="pref-status bad">"请先在签发设置中填写入网地址。"</p>
+                                            }
+                                        })}
+                                    <p class="pref-status" role="status" aria-live="polite">
+                                        {move || msg.get()}
+                                    </p>
+                                    <PrefAdvanced title="签发详情">
+                                        {text_row("机器", where_.clone(), true)}
+                                        {text_row("网络", dash(s(&v, "network_name")), true)}
+                                        {text_row("网段", dash(s(&v, "subnet")), true)}
+                                        {text_row(
+                                            "入网地址",
+                                            if no_entry {
+                                                "未设置 —— 在「签发设置」里填写".into()
+                                            } else {
+                                                eps.join("，")
+                                            },
+                                            true,
+                                        )}
+                                    </PrefAdvanced>
                                 }
                             })}
-                        <fieldset class="nodes-form" disabled=move || busy.get()>
-                            <div class="grid3">
-                                <label class="field">
-                                    "同事称呼"
-                                    <input
-                                        placeholder="张三"
-                                        prop:value=move || member.get()
-                                        on:input=move |e| member.set(event_target_value(&e))
-                                    />
-                                </label>
-                                <label class="field">
-                                    "主机名（英文称呼可留空）"
-                                    <input
-                                        class="mono"
-                                        placeholder="组网内唯一，如 zhangsan-mbp"
-                                        prop:value=move || host.get()
-                                        on:input=move |e| host.set(event_target_value(&e))
-                                    />
-                                </label>
-                                <label class="field">
-                                    "有效期"
-                                    <select
-                                        prop:value=move || days.get()
-                                        on:change=move |e| days.set(event_target_value(&e))
-                                    >
-                                        <option value="30" selected=move || days.get() == "30">
-                                            "30 天"
-                                        </option>
-                                        <option value="90" selected=move || days.get() == "90">
-                                            "90 天"
-                                        </option>
-                                        <option value="180" selected=move || days.get() == "180">
-                                            "180 天"
-                                        </option>
-                                        <option value="365" selected=move || days.get() == "365">
-                                            "1 年"
-                                        </option>
-                                    </select>
-                                </label>
-                            </div>
-                            <div class="grid3">
-                                <label class="field">
-                                    "地址"
-                                    <select
-                                        prop:value=move || ip.get()
-                                        on:change=move |e| ip.set(event_target_value(&e))
-                                    >
-                                        <option value="auto" selected=move || ip.get() == "auto">
-                                            "自动分配固定地址"
-                                        </option>
-                                        <option value="dhcp" selected=move || ip.get() == "dhcp">
-                                            "由网络动态分配"
-                                        </option>
-                                    </select>
-                                </label>
-                                <label class="field span2">
-                                    "备注"
-                                    <input
-                                        placeholder="可选，如：算法组 · 实习"
-                                        prop:value=move || note.get()
-                                        on:input=move |e| note.set(event_target_value(&e))
-                                    />
-                                </label>
-                            </div>
-                        </fieldset>
-                        <div class="row-actions">
-                            <button
-                                class="btn primary"
-                                disabled=move || busy.get() || no_entry
-                                on:click=generate
-                            >
-                                {move || {
-                                    if busy.get() { "生成中…" } else { "生成邀请文件" }
-                                }}
-                            </button>
-                            <span class="muted small" role="status" aria-live="polite">
-                                {move || msg.get()}
-                            </span>
-                        </div>
                     }
                         .into_any()
                 }
@@ -279,7 +256,7 @@ pub(super) fn Issuer(m: Mesh) -> impl IntoView {
                         }
                     })
             }}
-        </section>
+        </PrefGroup>
     }
 }
 
@@ -481,17 +458,22 @@ pub(super) fn Invites(m: Mesh) -> impl IntoView {
         m.invites.track();
         api::get::<Value>("/api/mesh/invites")
     });
+    let count = Signal::derive(move || {
+        v.get()
+            .and_then(Result::ok)
+            .and_then(|v| v["invites"].as_array().map(Vec::len))
+            .unwrap_or(0)
+    });
     view! {
-        <section class="card pad">
+        <ListGroup title="邀请记录" count=count>
             {move || match v.get() {
                 None => {
-                    view! { <LoadingState text="正在读取邀请…" class="muted small" /> }
-                        .into_any()
+                    view! { <LoadingState text="正在读取邀请…" class="pref-empty" /> }.into_any()
                 }
                 Some(Err(e)) => {
                     view! {
-                        <h3>"邀请记录"</h3>
                         <InlineError
+                            class="pref-empty"
                             message=format!("无法读取邀请记录：{e}")
                             retry=Callback::new(move |()| m.invites.update(|n| *n += 1))
                         />
@@ -502,33 +484,26 @@ pub(super) fn Invites(m: Mesh) -> impl IntoView {
                     let list: Vec<Value> = v["invites"].as_array().cloned().unwrap_or_default();
                     let lost = list.iter().filter(|i| i["state"] == "lost").count();
                     view! {
-                        <div class="card-title">
-                            <h3>"邀请记录 "<span class="gchip">{list.len()}</span></h3>
-                        </div>
                         {(lost > 0)
                             .then(|| {
                                 view! {
-                                    <div class="notice-box bad">
+                                    <p class="pref-status bad">
                                         {format!(
                                             "{lost} 份邀请的凭据已丢失，需要重新签发（通常是签发节点重启、且没有配置 credential_file）。",
                                         )}
-                                    </div>
+                                    </p>
                                 }
                             })}
                         {(v["issuer_checked"].as_bool() != Some(true))
                             .then(|| {
-                                view! {
-                                    <div class="muted small">
-                                        "签发节点连不上，状态未核对"
-                                    </div>
-                                }
+                                view! { <p class="pref-status">"签发节点连不上，状态未核对"</p> }
                             })}
                         {if list.is_empty() {
                             view! {
                                 <EmptyState
                                     title="还没有邀请"
                                     detail="生成邀请文件后，可在这里查看状态或吊销。"
-                                    class="muted small"
+                                    class="pref-empty"
                                 />
                             }
                                 .into_any()
@@ -667,6 +642,6 @@ pub(super) fn Invites(m: Mesh) -> impl IntoView {
                         .into_any()
                 }
             }}
-        </section>
+        </ListGroup>
     }
 }

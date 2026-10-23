@@ -1,4 +1,6 @@
 use super::*;
+use crate::components::page_head::{MenuItem, MoreMenu};
+use crate::components::prefs::{PrefAdvanced, PrefGroup, PrefRow};
 
 #[component]
 pub(super) fn MeshLocal(
@@ -12,29 +14,93 @@ pub(super) fn MeshLocal(
     });
     let ext_rpc = RwSignal::new(String::new());
     let rpc_busy = RwSignal::new(false);
-    let kv = |k: &'static str, v: String, mono: bool| {
-        view! {
-            <div class="kv">
-                <span class="k">{k}</span>
-                <span class="v" class:mono=mono>
-                    {v}
-                </span>
-            </div>
+    let busy = Signal::derive(move || m.operation.get());
+    let use_invite = move || {
+        if let Some(i) = invite_in.get_untracked() {
+            i.click();
         }
     };
+    let import_toml = move || {
+        if let Some(i) = toml_in.get_untracked() {
+            i.click();
+        }
+    };
+    let refresh = move || spawn_local(refresh_mesh(m));
+    let new_config = move || m.config.set(Some((BLANK_TOML.to_owned(), None)));
+    let edit_config = move || {
+        spawn_local(async move {
+            match api::get::<Value>("/api/mesh/config").await {
+                Ok(c) => m.config.set(Some((s(&c, "toml"), None))),
+                Err(e) => toast(format!("读取配置失败：{e}")),
+            }
+        });
+    };
+    let leave = move || {
+        spawn_local(async move {
+            if m.operation.get_untracked() {
+                return;
+            }
+            if dialog::ask(
+                "退出组网",
+                "退出组网后，本机上的组网凭据会被删除，其它机器将无法再连到本机。确定？",
+                vec![Choice::plain("取消"), Choice::danger("退出")],
+            )
+            .await
+                != Some(1)
+            {
+                return;
+            }
+            if m.operation.get_untracked() {
+                return;
+            }
+            m.operation.set(true);
+            toast("等待系统授权…");
+            match api::send::<Value>("POST", "/api/mesh/leave", &json!({})).await {
+                Ok(_) => {
+                    toast("已退出组网");
+                    m.local.update(|n| *n += 1);
+                    m.invites.update(|n| *n += 1);
+                    m.app.load_state();
+                }
+                Err(e) => toast(format!("退出失败：{e}")),
+            }
+            m.operation.set(false);
+        });
+    };
+    let connect_rpc = move || {
+        if rpc_busy.get_untracked() {
+            return;
+        }
+        rpc_busy.set(true);
+        let r = ext_rpc.get_untracked();
+        spawn_local(async move {
+            match api::send::<Value>("PUT", "/api/mesh/external-rpc", &json!({ "rpc": r.trim() }))
+                .await
+            {
+                Ok(v) => {
+                    toast(if v["status"]["external"]["rpc"].is_string() {
+                        "已连上"
+                    } else {
+                        "还连不上 —— 确认 GUI 里设置的地址一致"
+                    });
+                    m.local.update(|n| *n += 1);
+                }
+                Err(e) => toast(e.to_string()),
+            }
+            rpc_busy.try_set(false);
+        });
+    };
     view! {
-        <section class="card pad">
+        <PrefGroup title="本机组网">
             {move || match local.get() {
                 None => {
-                    view! {
-                        <LoadingState text="正在读取组网状态…" class="muted small" />
-                    }
+                    view! { <LoadingState text="正在读取组网状态…" class="pref-empty" /> }
                         .into_any()
                 }
                 Some(Err(e)) => {
                     view! {
-                        <h3>"本机组网"</h3>
                         <InlineError
+                            class="pref-empty"
                             message=format!("无法读取组网状态：{e}")
                             retry=Callback::new(move |()| m.local.update(|n| *n += 1))
                         />
@@ -43,400 +109,184 @@ pub(super) fn MeshLocal(
                 }
                 Some(Ok(v)) => {
                     let st = v["status"].clone();
-                    let n = st["node"].clone();
-                    let other = (st["joined"].as_bool() == Some(true))
-                        .then(|| {
-                            st["other_engine"]
-                                .as_str()
+                    if st["joined"].as_bool() == Some(true) {
+                        let n = st["node"].clone();
+                        let running = st["running"].as_bool() == Some(true);
+                        let other = st["other_engine"].as_str().map(str::to_owned);
+                        let net = dash(s(&n, "network_name"));
+                        let addr = dash(s(&n, "virtual_ipv4"));
+                        let addr_row = addr.clone();
+                        let host = dash(s(&n, "hostname"));
+                        let nat = dash(s(&n, "nat_type"));
+                        let peers = st["peer_count"].as_u64().unwrap_or(0).to_string();
+                        let engine = format!(
+                            "EasyTier {}",
+                            Some(s(&n, "version"))
+                                .filter(|x| !x.is_empty())
+                                .unwrap_or_else(|| s(&st, "engine_version")),
+                        );
+                        let detail = if running {
+                            format!("网络 {net}")
+                        } else {
+                            "组网服务已停止。请重新打开邀请文件加入；排查日志位于系统组网目录的 logs/。"
+                                .to_owned()
+                        };
+                        let menu = vec![
+                            MenuItem::new("刷新机器", refresh),
+                            MenuItem::new("编辑 EasyTier 配置", edit_config),
+                            MenuItem::new("使用邀请文件", use_invite),
+                            MenuItem::new("导入 EasyTier 配置", import_toml),
+                            MenuItem::danger("退出组网", leave),
+                        ];
+                        return view! {
+                            <PrefRow label="状态" detail=detail>
+                                {if running {
+                                    view! { <Status tone=Tone::Other label="已连接" /> }.into_any()
+                                } else {
+                                    view! { <Status tone=Tone::Failed label="未连接" /> }.into_any()
+                                }}
+                                <span class="pref-text mono">{addr_row}</span>
+                                <MoreMenu label="更多…".to_owned() text="更多…" items=menu disabled=busy />
+                            </PrefRow>
+                            {other
                                 .map(|o| {
                                     view! {
-                                        <div class="notice-box warn">
-                                            {format!(
+                                        <PrefRow
+                                            label="另一个 EasyTier"
+                                            detail=format!(
                                                 "本机还在运行另一个 EasyTier（{o}）。两个实例连同一个网络会互相抢路由，建议退出它。",
-                                            )}
-                                        </div>
+                                            )
+                                        />
                                     }
-                                })
-                        })
-                        .flatten();
-                    if st["joined"].as_bool() != Some(true) && st["external"].is_object() {
+                                })}
+                            <PrefAdvanced title="组网详情">
+                                {text_row("可见机器", peers.clone(), false)}
+                                {text_row("网络", net.clone(), true)}
+                                {text_row("主机名", host.clone(), true)}
+                                {text_row("虚拟地址", addr.clone(), true)}
+                                {text_row("NAT", nat.clone(), false)}
+                                {text_row("引擎", engine.clone(), true)}
+                            </PrefAdvanced>
+                        }
+                            .into_any();
+                    }
+                    if st["external"].is_object() {
                         let x = st["external"].clone();
                         let xn = x["node"].clone();
                         let label = s(&x, "label");
+                        let rpc = s(&x, "rpc");
+                        let addr = Some(s(&x, "virtual_ipv4"))
+                            .filter(|a| !a.is_empty())
+                            .unwrap_or_else(|| "未能识别".into());
+                        let net = dash(s(&xn, "network_name"));
+                        let host = dash(s(&xn, "hostname"));
+                        let nat = dash(s(&xn, "nat_type"));
+                        let peers = if xn.is_object() {
+                            x["peer_count"].as_u64().unwrap_or(0).to_string()
+                        } else {
+                            "—".into()
+                        };
+                        let menu = vec![
+                            MenuItem::new("刷新机器", refresh),
+                            MenuItem::new("使用邀请文件", use_invite),
+                            MenuItem::new("导入 EasyTier 配置", import_toml),
+                        ];
                         return view! {
-                            <div class="card-title">
-                                <h3>"本机组网"</h3>
+                            <PrefRow
+                                label="状态"
+                                detail=format!("连接由 {label} 提供，Blazar 复用这个连接，无需重新加入。")
+                            >
                                 <Status tone=Tone::Other label="已连接" />
-                            </div>
-                            <p class="muted small">
-                                "已使用现有组网连接，无需重新加入。"
-                            </p>
-                            <div class="nodes-details">
-                                <p class="muted small">
-                                    {format!(
-                                        "连接由 {label} 提供。Blazar 复用这个连接，避免两个 EasyTier 实例争用同一网段的路由。",
-                                    )}
-                                </p>
-                                {(!s(&xn, "network_name").is_empty())
-                                    .then(|| kv("网络", s(&xn, "network_name"), true))}
-                                {kv(
-                                    "虚拟地址",
-                                    Some(s(&x, "virtual_ipv4"))
-                                        .filter(|a| !a.is_empty())
-                                        .unwrap_or_else(|| "未能识别".into()),
-                                    true,
-                                )}
-                                {(!s(&xn, "hostname").is_empty())
-                                    .then(|| kv("主机名", s(&xn, "hostname"), true))}
-                                {xn
-                                    .is_object()
-                                    .then(|| kv(
-                                        "可见节点",
-                                        x["peer_count"].as_u64().unwrap_or(0).to_string(),
-                                        false,
-                                    ))}
-                                {xn
-                                    .is_object()
-                                    .then(|| kv(
-                                        "NAT",
-                                        Some(s(&xn, "nat_type"))
-                                            .filter(|a| !a.is_empty())
-                                            .unwrap_or_else(|| "—".into()),
-                                        false,
-                                    ))}
-                                {(!s(&x, "rpc").is_empty()).then(|| kv("RPC", s(&x, "rpc"), true))}
-                                {s(&x, "rpc")
+                                <span class="pref-text mono">{addr}</span>
+                                <MoreMenu label="更多…".to_owned() text="更多…" items=menu disabled=busy />
+                            </PrefRow>
+                            <PrefAdvanced title="组网详情">
+                                {text_row("网络", net.clone(), true)}
+                                {text_row("主机名", host.clone(), true)}
+                                {text_row("可见节点", peers.clone(), false)}
+                                {text_row("NAT", nat.clone(), false)}
+                                {text_row("RPC", dash(rpc.clone()), true)}
+                                {rpc
                                     .is_empty()
                                     .then(|| {
                                         view! {
-                                            <div class="notice-box">
-                                                {format!(
+                                            <PrefRow
+                                                label="RPC 门户"
+                                                detail=format!(
                                                     "在 {label} 设置里把「RPC 门户」设为 127.0.0.1:15888，可看到本机 NAT 与可见节点数。",
-                                                )} <div class="row-actions">
-                                                    <input
-                                                        class="mono small-in"
-                                                        aria-label="EasyTier RPC 地址"
-                                                        placeholder="127.0.0.1:15888"
-                                                        disabled=move || rpc_busy.get()
-                                                        prop:value=move || ext_rpc.get()
-                                                        on:input=move |e| ext_rpc.set(event_target_value(&e))
-                                                    />
-                                                    <button
-                                                        class="btn small"
-                                                        disabled=move || rpc_busy.get()
-                                                        on:click=move |_| {
-                                                            if rpc_busy.get_untracked() {
-                                                                return;
-                                                            }
-                                                            rpc_busy.set(true);
-                                                            let r = ext_rpc.get_untracked();
-                                                            spawn_local(async move {
-                                                                match api::send::<
-                                                                    Value,
-                                                                >(
-                                                                        "PUT",
-                                                                        "/api/mesh/external-rpc",
-                                                                        &json!({ "rpc": r.trim() }),
-                                                                    )
-                                                                    .await
-                                                                {
-                                                                    Ok(v) => {
-                                                                        toast(
-                                                                            if v["status"]["external"]["rpc"].is_string() {
-                                                                                "已连上"
-                                                                            } else {
-                                                                                "还连不上 —— 确认 GUI 里设置的地址一致"
-                                                                            },
-                                                                        );
-                                                                        m.local.update(|n| *n += 1);
-                                                                    }
-                                                                    Err(e) => toast(e.to_string()),
-                                                                }
-                                                                rpc_busy.try_set(false);
-                                                            });
-                                                        }
-                                                    >
-                                                        "连接"
-                                                    </button>
-                                                </div>
-                                            </div>
+                                                )
+                                                for_id="mesh-rpc"
+                                            >
+                                                <input
+                                                    id="mesh-rpc"
+                                                    class="settings-input mono"
+                                                    placeholder="127.0.0.1:15888"
+                                                    disabled=move || rpc_busy.get()
+                                                    prop:value=move || ext_rpc.get()
+                                                    on:input=move |e| ext_rpc.set(event_target_value(&e))
+                                                />
+                                                <button
+                                                    type="button"
+                                                    class="btn"
+                                                    disabled=move || rpc_busy.get()
+                                                    on:click=move |_| connect_rpc()
+                                                >
+                                                    "连接"
+                                                </button>
+                                            </PrefRow>
                                         }
                                     })}
-                            </div>
-                            <div class="row-actions">
-                                <button
-                                    class="btn small"
-                                    disabled=move || m.refreshing.get()
-                                    on:click=move |_| spawn_local(async move {
-                                        refresh_mesh(m).await;
-                                    })
-                                >
-                                    "刷新机器"
-                                </button>
-                                <button
-                                    class="btn small"
-                                    disabled=move || m.operation.get()
-                                    on:click=move |_| {
-                                        if let Some(i) = invite_in.get_untracked() {
-                                            i.click()
-                                        }
-                                    }
-                                >
-                                    "使用邀请文件"
-                                </button>
-                                <button
-                                    class="btn small"
-                                    disabled=move || m.operation.get()
-                                    on:click=move |_| {
-                                        if let Some(i) = toml_in.get_untracked() {
-                                            i.click()
-                                        }
-                                    }
-                                >
-                                    "导入 EasyTier 配置"
-                                </button>
-                            </div>
+                            </PrefAdvanced>
                         }
                             .into_any();
                     }
-                    if st["joined"].as_bool() != Some(true) {
-                        return view! {
-                            <div class="card-title">
-                                <h3>"本机组网"</h3>
-                                <Status tone=Tone::Other label="未加入" />
-                            </div>
-                            {(st["engine_bundled"].as_bool() != Some(true))
-                                .then(|| {
-                                    view! {
-                                        <div class="notice-box bad">
-                                            "这个安装包没有带组网引擎，请安装完整版桌面端。"
-                                        </div>
-                                    }
-                                })}
-                            {other}
-                            <div class="joinways">
-                                <button
-                                    class="joinway"
-                                    on:click=move |_| {
-                                        if let Some(i) = invite_in.get_untracked() {
-                                            i.click()
-                                        }
-                                    }
-                                >
-                                    <b>"用邀请文件加入"</b>
-                                    <span>"选择管理员发来的 .blazar 文件。"</span>
-                                </button>
-                                <button
-                                    class="joinway"
-                                    on:click=move |_| {
-                                        if let Some(i) = toml_in.get_untracked() {
-                                            i.click()
-                                        }
-                                    }
-                                >
-                                    <b>"导入 EasyTier 配置"</b>
-                                    <span>
-                                        "沿用 config.toml 中的密钥、代理、端口转发和 ACL。"
-                                    </span>
-                                </button>
-                            </div>
-                            <div class="row-actions">
-                                <button
-                                    class="linkbtn"
-                                    on:click=move |_| {
-                                        m.config.set(Some((BLANK_TOML.to_owned(), None)))
-                                    }
-                                >
-                                    "新建 EasyTier 配置"
-                                </button>
-                                <span class="muted small">
-                                    "也可将 .blazar 或 .toml 文件拖到此处。"
-                                </span>
-                            </div>
-                        }
-                            .into_any();
-                    }
-                    let running = st["running"].as_bool() == Some(true);
+                    let bundled = st["engine_bundled"].as_bool() == Some(true);
+                    let version = s(&st, "engine_version");
+                    let menu = vec![
+                        MenuItem::new("使用邀请文件", use_invite),
+                        MenuItem::new("导入 EasyTier 配置", import_toml),
+                        MenuItem::new("新建 EasyTier 配置", new_config),
+                        MenuItem::new("刷新机器", refresh),
+                    ];
                     view! {
-                        <div class="card-title">
-                            <h3>"本机组网"</h3>
-                            {if running {
+                        <PrefRow
+                            label="状态"
+                            detail="用邀请文件或 EasyTier 配置加入，也可把 .blazar 或 .toml 文件拖到此处。"
+                        >
+                            <Status tone=Tone::Other label="未加入" />
+                            <MoreMenu label="更多…".to_owned() text="更多…" items=menu disabled=busy />
+                        </PrefRow>
+                        {(!bundled)
+                            .then(|| {
                                 view! {
-                                    <Status tone=Tone::Other label="已连接" />
+                                    <PrefRow
+                                        label="组网引擎"
+                                        detail="这个安装包没有带组网引擎，请安装完整版桌面端。"
+                                    >
+                                        <span class="pref-text bad">"缺失"</span>
+                                    </PrefRow>
                                 }
-                                    .into_any()
-                            } else {
-                                view! {
-                                    <Status tone=Tone::Failed label="未连接" />
-                                }
-                                    .into_any()
-                            }}
-                        </div>
-                        <div class="nodes-details">
-                            {kv(
-                                "可见机器",
-                                st["peer_count"].as_u64().unwrap_or(0).to_string(),
-                                false,
-                            )}
-                            {kv(
-                                "网络",
-                                Some(s(&n, "network_name"))
-                                    .filter(|x| !x.is_empty())
-                                    .unwrap_or_else(|| "—".into()),
-                                true,
-                            )}
-                            {kv(
-                                "主机名",
-                                Some(s(&n, "hostname"))
-                                    .filter(|x| !x.is_empty())
-                                    .unwrap_or_else(|| "—".into()),
-                                true,
-                            )}
-                            {kv(
-                                "虚拟地址",
-                                Some(s(&n, "virtual_ipv4"))
-                                    .filter(|x| !x.is_empty())
-                                    .unwrap_or_else(|| "—".into()),
-                                true,
-                            )}
-                            {kv(
-                                "NAT",
-                                Some(s(&n, "nat_type"))
-                                    .filter(|x| !x.is_empty())
-                                    .unwrap_or_else(|| "—".into()),
-                                false,
-                            )}
-                            {kv(
+                            })}
+                        <PrefAdvanced title="组网详情">
+                            {text_row(
                                 "引擎",
                                 format!(
-                                    "EasyTier {}",
-                                    Some(s(&n, "version"))
-                                        .filter(|x| !x.is_empty())
-                                        .unwrap_or_else(|| s(&st, "engine_version")),
+                                    "EasyTier {version}{}",
+                                    if bundled { "（随安装包提供）" } else { "（未提供）" },
                                 ),
                                 true,
                             )}
-                        </div>
-                        {other}
-                        {(!running)
-                            .then(|| {
-                                view! {
-                                    <div class="notice-box warn">
-                                        "组网服务已停止。请重新打开邀请文件加入；排查日志位于系统组网目录的 logs/。"
-                                    </div>
-                                }
-                            })}
-                        <div class="row-actions">
-                            <button
-                                class="btn small"
-                                disabled=move || m.refreshing.get()
-                                on:click=move |_| spawn_local(refresh_mesh(m))
-                            >
-                                "刷新机器"
-                            </button>
-                            <button
-                                class="btn small"
-                                disabled=move || m.operation.get()
-                                on:click=move |_| spawn_local(async move {
-                                    match api::get::<Value>("/api/mesh/config").await {
-                                        Ok(c) => m.config.set(Some((s(&c, "toml"), None))),
-                                        Err(e) => toast(format!("读取配置失败：{e}")),
-                                    }
-                                })
-                            >
-                                "编辑 EasyTier 配置"
-                            </button>
-                            <button
-                                class="btn small ghost"
-                                disabled=move || m.operation.get()
-                                on:click=move |_| {
-                                    if let Some(i) = toml_in.get_untracked() {
-                                        i.click()
-                                    }
-                                }
-                            >
-                                "导入其他配置"
-                            </button>
-                            <button
-                                class="btn small ghost"
-                                disabled=move || m.operation.get()
-                                on:click=move |_| {
-                                    if let Some(i) = invite_in.get_untracked() {
-                                        i.click()
-                                    }
-                                }
-                            >
-                                "使用邀请文件"
-                            </button>
-                            <span class="grow"></span>
-                            <button
-                                class="btn small danger"
-                                disabled=move || m.operation.get()
-                                on:click=move |_| spawn_local(async move {
-                                    if m.operation.get_untracked() {
-                                        return;
-                                    }
-                                    if dialog::ask(
-                                            "退出组网",
-                                            "退出组网后，本机上的组网凭据会被删除，其它机器将无法再连到本机。确定？",
-                                            vec![Choice::plain("取消"), Choice::danger("退出")],
-                                        )
-                                        .await != Some(1)
-                                    {
-                                        return;
-                                    }
-                                    if m.operation.get_untracked() {
-                                        return;
-                                    }
-                                    m.operation.set(true);
-                                    toast("等待系统授权…");
-                                    match api::send::<Value>("POST", "/api/mesh/leave", &json!({}))
-                                        .await
-                                    {
-                                        Ok(_) => {
-                                            toast("已退出组网");
-                                            m.local.update(|n| *n += 1);
-                                            m.invites.update(|n| *n += 1);
-                                            m.app.load_state();
-                                        }
-                                        Err(e) => toast(format!("退出失败：{e}")),
-                                    }
-                                    m.operation.set(false);
-                                })
-                            >
-                                "退出组网"
-                            </button>
-                        </div>
+                            <PrefRow label="EasyTier 配置" detail="从空白模板开始写一份配置，预览后应用。">
+                                <button type="button" class="btn" on:click=move |_| new_config()>
+                                    "新建配置"
+                                </button>
+                            </PrefRow>
+                        </PrefAdvanced>
                     }
                         .into_any()
                 }
-            }} <Show when=move || !matches!(local.get(), Some(Ok(_)))>
-                <div class="row-actions">
-                    <button
-                        class="btn small"
-                        disabled=move || m.operation.get()
-                        on:click=move |_| {
-                            if let Some(i) = invite_in.get_untracked() {
-                                i.click()
-                            }
-                        }
-                    >
-                        "用邀请文件加入"
-                    </button>
-                    <button
-                        class="btn small"
-                        disabled=move || m.operation.get()
-                        on:click=move |_| {
-                            if let Some(i) = toml_in.get_untracked() {
-                                i.click()
-                            }
-                        }
-                    >
-                        "导入 EasyTier 配置"
-                    </button>
-                </div>
-            </Show>
-        </section>
+            }}
+        </PrefGroup>
     }
 }
 
