@@ -7,12 +7,18 @@
 :root {
 
   --bg-canvas: #1e1e20;
+  --bg-page: #1e1e20;
+  --bg-group: rgba(255,255,255,.05);
   --bg-sidebar: #262628;
   --bg-panel: #2a2a2d;
   --bg-raised: #333336;
   --bg-hover: rgba(255,255,255,.07);
   --bg-code: #19191b;
   --bg-selected: rgba(10,132,255,.16);
+  --chart-bar: #66666c;
+  --chart-bar-selected: #a0a0a6;
+  --chart-bar-failed: #ff453a;
+  --chart-line: #0a84ff;
 
   --fg: #f2f2f7;
   --fg-2: #c7c7cc;
@@ -52,6 +58,7 @@
   --font-mono: "JetBrains Mono", Menlo, Monaco, monospace;
   --r-sm: 5px;
   --r-md: 8px;
+  --r-group: 10px;
   --r-lg: 12px;
 
   --font-size-dirty-indicator: 9px;
@@ -247,12 +254,18 @@
 
 :root[data-theme="light"] {
   --bg-canvas: #ffffff;
+  --bg-page: #f5f5f7;
+  --bg-group: #ffffff;
   --bg-sidebar: #f0f0f2;
   --bg-panel: #ffffff;
   --bg-raised: #f5f5f7;
   --bg-hover: rgba(0,0,0,.05);
   --bg-code: #f6f6f8;
   --bg-selected: rgba(0,122,255,.12);
+  --chart-bar: #c7c7cc;
+  --chart-bar-selected: #8e8e93;
+  --chart-bar-failed: #ff3b30;
+  --chart-line: #007aff;
   --fg: #1d1d1f;
   --fg-2: #3a3a3c;
   --fg-3: #6e6e73;
@@ -334,12 +347,18 @@
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]):not([data-theme="light"]) {
     --bg-canvas: #ffffff;
+    --bg-page: #f5f5f7;
+    --bg-group: #ffffff;
     --bg-sidebar: #f0f0f2;
     --bg-panel: #ffffff;
     --bg-raised: #f5f5f7;
     --bg-hover: rgba(0,0,0,.05);
     --bg-code: #f6f6f8;
     --bg-selected: rgba(0,122,255,.12);
+    --chart-bar: #c7c7cc;
+    --chart-bar-selected: #8e8e93;
+    --chart-bar-failed: #ff3b30;
+    --chart-line: #007aff;
     --fg: #1d1d1f;
     --fg-2: #3a3a3c;
     --fg-3: #6e6e73;

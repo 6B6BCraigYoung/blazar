@@ -21,7 +21,7 @@ button { font: inherit; color: inherit; }
 .side .foot { margin-top: auto; padding: var(--space-md); font-size: var(--font-size-caption); color: var(--fg-4); display: flex; flex-direction: column; gap: var(--space-sm); }
 .side .foot a { color: var(--fg-3); }
 .side .foot a:hover { color: var(--fg); }
-.main { flex: 1 1 auto; min-width: 0; overflow-y: auto; overscroll-behavior: contain; }
+.main { flex: 1 1 auto; min-width: 0; overflow-y: auto; overscroll-behavior: contain; background: var(--bg-page); }
 .main > .page, .cc-flow, .df-flow, .tree-flow, .mdview > .md-body, .work-flow, .difftree-flow, .skill-preview > .md-body, .pal-flow, .sim-log-flow, .fl-track { will-change: opacity; }
 
 .page { width: 100%; max-width: calc(var(--page-max) + var(--page-gutter) * 2); margin-inline: auto; padding: var(--page-top) var(--page-gutter) var(--space-4xl); display: flex; flex-direction: column; gap: var(--space-section); }
@@ -37,7 +37,7 @@ button { font: inherit; color: inherit; }
 .page-note { color: var(--fg-3); font-size: var(--font-size-label); }
 .page-actions { display: flex; align-items: center; gap: var(--space-md); }
 
-.card { border: 0; border-radius: var(--r-lg); background: var(--bg-panel); box-shadow: var(--shadow-card); overflow: hidden; }
+.card { border: 0; border-radius: var(--r-group); background: var(--bg-group); box-shadow: none; overflow: hidden; }
 .card:has(.menu) { overflow: visible; }
 .card-head { display: flex; align-items: center; gap: var(--space-lg); padding: var(--space-card) var(--space-section); border-bottom: 1px solid var(--line); }
 .card-head b { font-weight: var(--font-weight-semibold); font-size: var(--font-size-card-title); }
@@ -63,7 +63,7 @@ button { font: inherit; color: inherit; }
 .muted { color: var(--fg-3); }
 
 .ws-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 288px), 1fr)); gap: var(--space-xl); }
-.ws-card { display: flex; flex-direction: column; gap: var(--space-sm); aspect-ratio: calc(var(--phi) * var(--phi)); min-height: 0; padding: var(--space-xl); border: 0; border-radius: var(--r-lg); background: var(--bg-panel); box-shadow: var(--shadow-card); color: var(--fg); }
+.ws-card { display: flex; flex-direction: column; gap: var(--space-sm); aspect-ratio: calc(var(--phi) * var(--phi)); min-height: 0; padding: var(--space-xl); border: 0; border-radius: var(--r-group); background: var(--bg-group); box-shadow: none; color: var(--fg); }
 .ws-card .top { display: flex; align-items: center; gap: var(--space-md); }
 .ws-card .top b { font-weight: var(--font-weight-semibold); }
 .ws-card .top .node { margin-left: auto; font-size: var(--font-size-caption); color: var(--fg-3); }
@@ -75,7 +75,7 @@ button { font: inherit; color: inherit; }
 .rt-mark { width: 22px; height: 22px; border-radius: var(--r-md); background: var(--bg-hover); color: var(--runtime-neutral-fg); display: grid; place-items: center; font-weight: var(--font-weight-semibold); font-size: var(--font-size-label); }
 .rt-mark[data-rt="claude"] { background: var(--runtime-claude-bg); color: var(--runtime-claude-fg); }
 
-.main:has(.ws) { overflow: hidden; }
+.main:has(.ws) { overflow: hidden; background: var(--bg-canvas); }
 .ws { position: relative; height: 100%; display: flex; flex-direction: column; min-width: 0; }
 .ws-gone { position: absolute; inset: 0; z-index: var(--layer-modal); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-lg); background: var(--bg-canvas); text-align: center; }
 .ws-gone h2 { margin: 0; font-size: var(--font-size-section-title); font-weight: var(--font-weight-semibold); }

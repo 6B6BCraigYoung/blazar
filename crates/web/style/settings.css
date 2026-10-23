@@ -126,10 +126,15 @@ select.settings-input, .dlg select, .card.pad select { appearance: none; -webkit
 .settings-body { width: min(720px, 100%); margin-inline: auto; display: flex; flex-direction: column; gap: var(--space-3xl); min-width: 0; }
 .pref-group { display: flex; flex-direction: column; min-width: 0; }
 .pref-heading { margin: 0 0 var(--space-xs); font-size: var(--font-size-card-title); font-weight: var(--font-weight-semibold); }
-.pref-note { margin: 0 0 var(--space-sm); color: var(--fg-3); font-size: var(--font-size-label-readable); line-height: var(--line-height-compact); }
-.pref-rows { display: flex; flex-direction: column; }
+.pref-note { margin: 0 0 var(--space-md); color: var(--fg-3); font-size: var(--font-size-label-readable); line-height: var(--line-height-compact); }
+.pref-rows { display: flex; flex-direction: column; padding-left: var(--space-xl); border-radius: var(--r-group); background: var(--bg-group); }
 .pref-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-xl); min-height: 44px; padding: var(--space-md) 0; border-bottom: 1px solid var(--line); }
 .pref-row:last-child { border-bottom: 0; }
+.pref-rows > .pref-row { padding-right: var(--space-xl); }
+.pref-rows > .pref-list { margin: 0 0 0 calc(-1 * var(--space-xl)); }
+.pref-rows > .pref-list:first-child { border-top-left-radius: var(--r-group); border-top-right-radius: var(--r-group); }
+.pref-rows > .pref-list:last-child { border-bottom-left-radius: var(--r-group); border-bottom-right-radius: var(--r-group); }
+.pref-rows > .pref-list:not(:last-child) { border-bottom: 1px solid var(--line); }
 .pref-row[data-off] { opacity: .45; pointer-events: none; }
 .pref-label { display: flex; flex-direction: column; gap: var(--space-2xs); min-width: 0; flex: 1 1 auto; }
 .pref-row-title { color: var(--fg); }
@@ -147,13 +152,16 @@ select.settings-input, .dlg select, .card.pad select { appearance: none; -webkit
 .pref-hint.bad { color: var(--err-fg); }
 .pref-status { min-height: 20px; margin: 0; padding: var(--space-sm) 0 0; color: var(--fg-3); font-size: var(--font-size-caption-readable); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .pref-status.bad { color: var(--err-fg); }
-.pref-more { justify-content: flex-end; min-height: 32px; padding: var(--space-xs) 0 0; }
+.pref-rows > .pref-status { padding: var(--space-lg) var(--space-xl) var(--space-lg) 0; }
+.pref-rows > .pref-log { margin: var(--space-md) var(--space-xl) var(--space-lg) 0; }
+.pref-rows > .ui-state { padding: var(--space-lg) var(--space-xl) var(--space-lg) 0; }
+.pref-more { justify-content: flex-end; min-height: 36px; padding: var(--space-xs) 0; }
 .pref-more-btn { all: unset; cursor: pointer; padding: var(--space-xs) var(--space-md); border-radius: var(--r-sm); color: var(--accent); font-size: var(--font-size-label-readable); }
 .pref-more-btn:hover { background: var(--bg-hover); }
-.pref-list { display: flex; flex-direction: column; margin-top: var(--space-sm); border: 1px solid var(--border); border-radius: var(--r-md); background: var(--bg-canvas); overflow: hidden; }
+.pref-list { display: flex; flex-direction: column; border: 0; border-radius: 0; background: transparent; overflow: hidden; }
 .pref-items { display: flex; flex-direction: column; max-height: 360px; overflow-y: auto; overscroll-behavior: contain; outline: none; }
 .pref-items:focus-visible { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 50%, transparent); }
-.pref-item { display: flex; align-items: center; gap: var(--space-lg); min-height: 38px; padding: var(--space-sm) var(--space-control); border-bottom: 1px solid var(--line); cursor: default; outline: none; }
+.pref-item { display: flex; align-items: center; gap: var(--space-lg); min-height: 38px; padding: var(--space-sm) var(--space-xl); border-bottom: 1px solid var(--line); cursor: default; outline: none; }
 .pref-item:last-child { border-bottom: 0; }
 .pref-item[aria-selected="true"] { background: var(--bg-selected); }
 .pref-items:focus-within .pref-item[aria-selected="true"] { background: var(--accent); color: var(--on-accent); }
@@ -164,7 +172,7 @@ code.pref-item-title { font: var(--font-size-label-readable) var(--font-mono); c
 .pref-item-detail { color: var(--fg-3); font-size: var(--font-size-label); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pref-item-trailing { display: flex; align-items: center; gap: var(--space-lg); flex: 0 0 auto; color: var(--fg-3); font-size: var(--font-size-label); }
 .pref-empty { padding: var(--space-2xl) var(--space-lg); text-align: center; color: var(--fg-3); font-size: var(--font-size-label-readable); }
-.pref-bar { display: flex; align-items: center; gap: var(--space-2xs); padding: var(--space-xs); border-top: 1px solid var(--line); background: var(--bg-raised); }
+.pref-bar { display: flex; align-items: center; gap: var(--space-2xs); padding: var(--space-xs) var(--space-md); border-top: 1px solid var(--line); background: var(--bg-raised); }
 .pref-bar-btn { all: unset; box-sizing: border-box; display: grid; place-items: center; width: 26px; height: 20px; border-radius: var(--r-sm); color: var(--fg-2); font-size: var(--font-size-section-title); line-height: 1; cursor: pointer; }
 .pref-bar-btn:hover:not(:disabled) { background: var(--bg-hover); color: var(--fg); }
 .pref-bar-btn:disabled { color: var(--fg-disabled); cursor: default; }
@@ -181,7 +189,7 @@ code.pref-item-title { font: var(--font-size-label-readable) var(--font-mono); c
   .pref-control { flex: 1 1 100%; justify-content: flex-start; }
 }
 .acc-list:has(.menu) { overflow: visible; }
-.detail-body .acc-list .acc-row { grid-template-columns: minmax(7rem, 1fr) 4.5rem minmax(8rem, 1.4fr) auto; gap: var(--space-md); padding: var(--space-md) var(--space-lg); }
+.detail-body .acc-list .acc-row { grid-template-columns: minmax(7rem, 1fr) 4.5rem minmax(8rem, 1.4fr) auto; gap: var(--space-md); padding: var(--space-md) var(--space-xl); }
 .detail-body .acc-list .acc-row .last { display: none; }
 .detail-body .acc-list .qbar { grid-template-columns: 4.5rem minmax(2rem, 1fr) 2.5rem 5rem; }
 .detail-body .acc-list .quota { padding-right: 0; }
