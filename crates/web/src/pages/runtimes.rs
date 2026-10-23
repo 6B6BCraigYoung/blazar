@@ -177,7 +177,7 @@ pub fn RuntimesPage() -> impl IntoView {
 }
 
 #[derive(Clone, PartialEq)]
-enum Form {
+pub enum Form {
     Add,
     Token(Account),
     Plan(Account),
@@ -187,22 +187,29 @@ enum Form {
 pub fn AccountsSection(
     provider: String,
     accounts: LocalResource<Result<Accounts, api::ApiError>>,
+    #[prop(optional)] form: Option<RwSignal<Option<Form>>>,
+    #[prop(default = true)] head: bool,
 ) -> impl IntoView {
-    let form = RwSignal::new(None::<Form>);
+    let form = form.unwrap_or_else(|| RwSignal::new(None));
     let menu = RwSignal::new(None::<String>);
     let p2 = provider.clone();
     view! {
-        <div class="acc-row head">
-            <span>"账号"</span>
-            <span>"状态"</span>
-            <span>"额度"</span>
-            <span>"最近使用"</span>
-            <span class="runtime-row-action">
-                <button class="btn small" on:click=move |_| form.set(Some(Form::Add))>
-                    "添加账号"
-                </button>
-            </span>
-        </div>
+        {head
+            .then(|| {
+                view! {
+                    <div class="acc-row head">
+                        <span>"账号"</span>
+                        <span>"状态"</span>
+                        <span>"额度"</span>
+                        <span>"最近使用"</span>
+                        <span class="runtime-row-action">
+                            <button class="btn small" on:click=move |_| form.set(Some(Form::Add))>
+                                "添加账号"
+                            </button>
+                        </span>
+                    </div>
+                }
+            })}
         {move || {
             let a = match accounts.get() {
                 None => return view! { <LoadingState text="正在加载账号…" /> }.into_any(),

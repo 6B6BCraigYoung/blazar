@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 
 use serde::Deserialize;
 
@@ -17,7 +17,7 @@ pub struct AgentConfig {
     pub enabled: bool,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct ConfigDraft {
     pub path: String,
     pub model: String,
@@ -27,18 +27,8 @@ pub struct ConfigDraft {
     pub env: String,
 }
 
-#[derive(Clone, Copy)]
-pub enum DraftField {
-    Path,
-    Model,
-    Concurrency,
-    Permission,
-    Args,
-    Env,
-}
-
 impl ConfigDraft {
-    fn for_node(configs: &[AgentConfig], node: &str) -> Self {
+    pub fn for_node(configs: &[AgentConfig], node: &str) -> Self {
         let config = configs
             .iter()
             .find(|c| c.node.as_deref().unwrap_or_default() == node);
@@ -63,39 +53,26 @@ impl ConfigDraft {
                 .unwrap_or_default(),
         }
     }
-
-    pub fn set(&mut self, field: DraftField, value: String) {
-        *match field {
-            DraftField::Path => &mut self.path,
-            DraftField::Model => &mut self.model,
-            DraftField::Concurrency => &mut self.concurrency,
-            DraftField::Permission => &mut self.permission,
-            DraftField::Args => &mut self.args,
-            DraftField::Env => &mut self.env,
-        } = value;
-    }
 }
 
-#[derive(Default)]
-pub struct ConfigDrafts {
-    drafts: HashMap<(String, String), ConfigDraft>,
+pub fn parse_env(text: &str) -> BTreeMap<String, String> {
+    text.lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .filter_map(|l| {
+            l.split_once('=')
+                .map(|(k, v)| (k.trim().to_owned(), v.trim().to_owned()))
+        })
+        .filter(|(k, _)| !k.is_empty())
+        .collect()
 }
 
-impl ConfigDrafts {
-    pub fn get(&self, configs: &[AgentConfig], node: &str, section: &str) -> ConfigDraft {
-        self.drafts
-            .get(&(node.to_owned(), section.to_owned()))
-            .cloned()
-            .unwrap_or_else(|| ConfigDraft::for_node(configs, node))
-    }
-
-    pub fn remember(&mut self, node: String, section: String, draft: ConfigDraft) {
-        self.drafts.insert((node, section), draft);
-    }
-
-    pub fn saved(&mut self, node: &str, section: &str) {
-        self.drafts.remove(&(node.to_owned(), section.to_owned()));
-    }
+pub fn parse_args(text: &str) -> Vec<String> {
+    text.lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .map(str::to_owned)
+        .collect()
 }
 
 #[cfg(test)]
@@ -126,63 +103,38 @@ mod tests {
 
     #[test]
     fn runtime_forms_hydrate_the_selected_machine_without_clearing_other_fields() {
-        let drafts = ConfigDrafts::default();
-        let remote = drafts.get(&configs(), "gpu-1", "general");
+        let remote = ConfigDraft::for_node(&configs(), "gpu-1");
         assert_eq!(remote.path, "/opt/bin/codex");
         assert_eq!(remote.model, "model-remote");
         assert_eq!(remote.permission, "full-auto");
         assert_eq!(remote.concurrency, "4");
         assert_eq!(remote.args, "--remote-flag");
         assert_eq!(remote.env, "DEMO_MODE=remote");
-        let global = drafts.get(&configs(), "", "args");
+        let global = ConfigDraft::for_node(&configs(), "");
         assert_eq!(global.model, "model-default");
         assert_eq!(global.args, "--global-flag");
         assert_eq!(global.env, "DEMO_MODE=global");
     }
 
     #[test]
-    fn runtime_drafts_survive_machine_and_section_switches() {
-        let mut drafts = ConfigDrafts::default();
-        let mut remote = drafts.get(&configs(), "gpu-1", "general");
-        remote.set(DraftField::Model, "edited-model".into());
-        drafts.remember("gpu-1".into(), "general".into(), remote);
-        assert_eq!(drafts.get(&configs(), "", "general").model, "model-default");
-        assert_eq!(drafts.get(&configs(), "gpu-1", "env").model, "model-remote");
-        assert_eq!(
-            drafts.get(&configs(), "gpu-1", "general").model,
-            "edited-model"
-        );
-        drafts.saved("gpu-1", "env");
-        assert_eq!(
-            drafts.get(&configs(), "gpu-1", "general").model,
-            "edited-model"
-        );
-        drafts.saved("gpu-1", "general");
-        assert_eq!(
-            drafts.get(&configs(), "gpu-1", "general").model,
-            "model-remote"
-        );
-    }
-
-    #[test]
     fn a_new_machine_does_not_inherit_the_first_config() {
-        let mut draft = ConfigDrafts::default().get(&configs(), "hub-host", "env");
+        let draft = ConfigDraft::for_node(&configs(), "hub-host");
         assert!(draft.path.is_empty());
         assert!(draft.env.is_empty());
         assert!(draft.args.is_empty());
-        for field in [
-            DraftField::Path,
-            DraftField::Concurrency,
-            DraftField::Permission,
-            DraftField::Args,
-            DraftField::Env,
-        ] {
-            draft.set(field, "value".into());
-        }
-        assert_eq!(draft.path, "value");
-        assert_eq!(draft.concurrency, "value");
-        assert_eq!(draft.permission, "value");
-        assert_eq!(draft.args, "value");
-        assert_eq!(draft.env, "value");
+        assert_eq!(draft.concurrency, "2");
+    }
+
+    #[test]
+    fn env_and_args_come_one_per_line() {
+        let env = parse_env(" HTTPS_PROXY = http://127.0.0.1:9527 \n# note\n\nBAD\n=x\n");
+        assert_eq!(
+            env,
+            BTreeMap::from([("HTTPS_PROXY".to_owned(), "http://127.0.0.1:9527".to_owned())])
+        );
+        assert_eq!(
+            parse_args(" --verbose \n\n--model x\n"),
+            vec!["--verbose", "--model x"]
+        );
     }
 }

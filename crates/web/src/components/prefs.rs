@@ -82,9 +82,14 @@ pub fn Sheet(
 }
 
 #[component]
-pub fn PrefAdvanced(#[prop(into)] title: String, children: ChildrenFn) -> impl IntoView {
+pub fn PrefAdvanced(
+    #[prop(into)] title: String,
+    #[prop(default = false)] wide: bool,
+    children: ChildrenFn,
+) -> impl IntoView {
     let open = RwSignal::new(false);
     let title = StoredValue::new(title);
+    let class = if wide { "dlg sheet wide" } else { "dlg sheet" };
     view! {
         <div class="pref-row pref-more">
             <button
@@ -103,6 +108,7 @@ pub fn PrefAdvanced(#[prop(into)] title: String, children: ChildrenFn) -> impl I
                 view! {
                     <Sheet
                         title=title.get_value()
+                        class=class
                         on_close=Callback::new(move |()| open.set(false))
                         foot=move || {
                             view! {
