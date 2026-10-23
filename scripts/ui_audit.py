@@ -943,6 +943,10 @@ def plan(round_name):
     items.append(("palette", "/", "命令面板（⌘K）", ({"action": "click", "text": "搜索… ⌘K"},), False))
     items.append(("status-popover", "/", "侧栏「设置」旁状态圆点的弹层（连接、机器、提醒）",
                   ({"action": "click", "selector": "button.side-dot"}, {"action": "wait", "ms": 300}), False))
+    items.append(("nodes-advanced", "/nodes", "机器页表格下方「设置…」或「高级…」打开的机器发现面板",
+                  ({"action": "wait", "selector": ".machines-foot .linkbtn", "timeout_ms": 8000},
+                   {"action": "click", "selector": ".machines-foot .linkbtn"},
+                   {"action": "wait", "selector": "[data-modal-root]", "timeout_ms": 4000}), False))
     ws_rows = db_rows("SELECT id, name FROM workspaces ORDER BY created_at")
     if not ws_rows:
         TITLES["/"] = "开始"
@@ -1018,6 +1022,13 @@ def detail_pages():
     items.append(("runtime-claude-advanced", "/runtimes/claude", "运行时详情里「配置」组的「高级…」打开的高级配置面板",
                   ({"action": "wait", "selector": ".pref-group:last-child .pref-more-btn", "timeout_ms": 8000},
                    {"action": "click", "selector": ".pref-group:last-child .pref-more-btn"}, sheet), False))
+    confirm_btn = ".nodes-page .page-actions .btn[aria-haspopup=\"dialog\"]"
+    items.append(("nodes-confirm", "/nodes", "机器页页头「确认 N 台…」打开的批量确认面板（勾选机器、选开发机或个人电脑）",
+                  ({"action": "wait", "selector": confirm_btn, "timeout_ms": 8000},
+                   {"action": "click", "selector": confirm_btn}, sheet), False))
+    items.append(("nodes-row-menu", "/nodes", "机器行的右键菜单（打开、新建工作区、设为开发机或个人电脑）",
+                  ({"action": "wait", "selector": ".node-row[data-index=\"1\"]", "timeout_ms": 8000},
+                   {"action": "context_menu", "selector": ".node-row[data-index=\"1\"]"}), False))
     items.append(("tree-menu", f"/w/{WS['atlas-api']}", "文件树的右键菜单",
                   ({"action": "wait", "ms": 800}, *calm(), dict(OPEN_FILES), {"action": "wait", "ms": 400},
                    {"action": "context_menu", "selector": "button.tn[title=\"README.md\"]"}, *calm(True)), False))
