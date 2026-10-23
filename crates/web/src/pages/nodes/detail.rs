@@ -1,4 +1,5 @@
 use super::*;
+use crate::components::prefs::{PrefAdvanced, PrefGroup, PrefRow};
 
 #[component]
 pub fn NodeDetailPage() -> impl IntoView {
@@ -17,6 +18,29 @@ pub fn NodeDetailPage() -> impl IntoView {
     move || {
         let name = name();
         view! { <NodeDetail name /> }
+    }
+}
+
+fn kb(n: f64) -> String {
+    if n > 1_048_576.0 {
+        format!("{:.1} GB", n / 1_048_576.0)
+    } else if n > 1024.0 {
+        format!("{:.0} MB", n / 1024.0)
+    } else {
+        format!("{n} KB")
+    }
+}
+
+fn orphan_state(l: &Value) -> String {
+    let dirty = l["dirty"].as_u64().unwrap_or(0);
+    if dirty > 0 {
+        format!("{dirty} 处未提交")
+    } else if l["broken"].as_bool() == Some(true) {
+        "目录已损坏".into()
+    } else if !l["worktree"].is_string() {
+        "只剩私有目录".into()
+    } else {
+        "干净".into()
     }
 }
 
@@ -115,14 +139,96 @@ fn NodeDetail(name: String) -> impl IntoView {
             listing_left.try_set(false);
         });
     };
-    let kb = |n: f64| {
-        if n > 1_048_576.0 {
-            format!("{:.1} GB", n / 1_048_576.0)
-        } else if n > 1024.0 {
-            format!("{:.0} MB", n / 1024.0)
-        } else {
-            format!("{n} KB")
+    let sweep = move || {
+        if sweeping.get_untracked() {
+            return;
         }
+        let leaves: Vec<String> = checked.get_untracked().into_iter().collect();
+        if leaves.is_empty() {
+            toast("请先选择目录");
+            return;
+        }
+        let f = force.get_untracked();
+        let n = nm.get_value();
+        spawn_local(async move {
+            let warning = if f {
+                "所选目录及其中未提交的改动会永久删除，无法撤销。"
+            } else {
+                "所选残留目录会永久删除；有未提交改动的目录将被跳过。"
+            };
+            if dialog::ask(
+                "删除残留目录",
+                warning,
+                vec![Choice::plain("取消"), Choice::danger("删除目录")],
+            )
+            .await
+                != Some(1)
+            {
+                return;
+            }
+            if sweeping.try_get_untracked().unwrap_or(true) {
+                return;
+            }
+            sweeping.set(true);
+            match api::send::<Value>(
+                "POST",
+                &format!("/api/nodes/{}/sweep", api::enc(&n)),
+                &json!({ "leaves": leaves, "force": f }),
+            )
+            .await
+            {
+                Ok(s2) => {
+                    let removed = s2["removed"].as_array().map_or(0, Vec::len);
+                    let skipped: Vec<String> = s2["skipped"]
+                        .as_array()
+                        .map(|a| {
+                            a.iter()
+                                .map(|x| {
+                                    format!(
+                                        "{}（{}）",
+                                        x[0].as_str().unwrap_or(""),
+                                        x[1].as_str().unwrap_or(""),
+                                    )
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    toast(if skipped.is_empty() {
+                        format!("清掉 {removed} 份")
+                    } else {
+                        format!(
+                            "清掉 {removed} 份；跳过 {} 份：{}",
+                            skipped.len(),
+                            skipped.join("；"),
+                        )
+                    });
+                    leftovers();
+                }
+                Err(e) => toast(format!("清扫失败：{e}")),
+            }
+            sweeping.try_set(false);
+        });
+    };
+    let update = move |id: String, busy: RwSignal<bool>, verb: &'static str| {
+        if busy.get_untracked() {
+            return;
+        }
+        busy.set(true);
+        let n = nm.get_value();
+        spawn_local(async move {
+            match api::send::<Value>(
+                "POST",
+                &format!("/api/nodes/{}/update/{id}", api::enc(&n)),
+                &json!({}),
+            )
+            .await
+            {
+                Ok(r) => toast(s(&r, "message")),
+                Err(e) => toast(format!("{verb}失败：{e}")),
+            }
+            busy.try_set(false);
+            scan();
+        });
     };
     let online = move || node.with(|n| n.as_ref().is_some_and(|n| n.status == "online"));
     let ws_here = move || {
@@ -131,12 +237,14 @@ fn NodeDetail(name: String) -> impl IntoView {
             .filter(|w| w.node == nm.get_value())
             .collect::<Vec<_>>()
     };
+    let title = crate::fmt::machine(&name);
 
     view! {
-        <div class="page nodes-page">
+        <div class="page nodes-page detail-page">
             <PageHead
                 parent=("机器与组网", "/nodes")
-                title=crate::fmt::machine(&name)
+                icon=|| view! { <span class="ic" inner_html=icon::svg(icon::NODES)></span> }
+                title=title
                 status=move || {
                     let on = node.get().is_some_and(|n| n.status == "online");
                     let seen = node
@@ -151,7 +259,9 @@ fn NodeDetail(name: String) -> impl IntoView {
                 }
             >
                 <button
+                    type="button"
                     class="btn primary"
+                    aria-haspopup="dialog"
                     disabled=move || !online()
                     title=move || (!online()).then_some("机器离线，恢复在线后才能新建工作区")
                     on:click=move |_| {
@@ -161,709 +271,443 @@ fn NodeDetail(name: String) -> impl IntoView {
                 >
                     "新建工作区"
                 </button>
+                <button
+                    type="button"
+                    class="btn"
+                    disabled=move || probing.get() || !online()
+                    title=move || (!online()).then_some("机器离线，恢复在线后才能检查")
+                    on:click=move |_| probe()
+                >
+                    {move || if probing.get() { "检查中…" } else { "检查机器" }}
+                </button>
             </PageHead>
-            <section class="card pad">
-                <h3>"工作区"</h3>
-                {move || {
-                    let list = ws_here();
-                    if list.is_empty() {
-                        return view! {
-                            <Blank
-                                icon=icon::FOLDER
-                                title=empty::never("工作区")
-                                detail="在这台机器上选一个代码目录，智能体就能在这里干活。"
-                                inset=true
-                            />
-                        }
-                            .into_any();
-                    }
-                    view! {
-                        <div class="nodes-table">
-                            <table class="tb">
-                                <tbody>
-                                    {list
-                                        .into_iter()
-                                        .map(|w| {
-                                            view! {
-                                                <tr>
-                                                    <td>
-                                                        <a href=format!(
-                                                            "/w/{}",
-                                                            w.id,
-                                                        )>{crate::fmt::ws_title(&w.name, &w.node)}</a>
-                                                        {w
-                                                            .parent
-                                                            .as_deref()
-                                                            .and_then(|p| app.workspace(p))
-                                                            .map(|p| {
-                                                                view! {
-                                                                    <span class="muted small">
-                                                                        {format!(
-                                                                            " · 属于「{}」",
-                                                                            crate::fmt::ws_title(&p.name, &p.node),
-                                                                        )}
-                                                                    </span>
-                                                                }
-                                                            })}
-                                                    </td>
-                                                    <td>
-                                                        <details class="nodes-details">
-                                                            <summary>"目录"</summary>
-                                                            <div class="mono small">{w.path.clone()}</div>
-                                                        </details>
-                                                    </td>
-                                                    <td style="text-align:right">
-                                                        <StateOf state=w.activity.clone() />
-                                                    </td>
-                                                </tr>
-                                            }
-                                        })
-                                        .collect_view()}
-                                </tbody>
-                            </table>
-                        </div>
-                    }
-                        .into_any()
-                }}
-            </section>
-            <section class="card pad">
-                <div class="card-title">
-                    <h3>"机器状态"</h3>
-                    <span class="grow"></span>
-                    <button
-                        class="btn small"
-                        disabled=move || probing.get() || !online()
-                        title=move || (!online()).then_some("机器离线，恢复在线后才能检查")
-                        on:click=move |_| probe()
-                    >
-                        {move || if probing.get() { "检查中…" } else { "检查机器" }}
-                    </button>
-                </div>
-                {move || match hw.get() {
-                    None if probing.get() => {
-                        view! { <LoadingState text="正在检查机器…" class="muted small" /> }
-                            .into_any()
-                    }
-                    None => {
-                        view! {
-                            <EmptyState
-                                title="尚未检查"
-                                detail="检查硬件资源和 AI 服务连接。"
-                                class="muted small"
-                            />
-                        }
-                            .into_any()
-                    }
-                    Some(Err(e)) => {
-                        view! {
-                            <InlineError
-                                message=format!("检查失败：{e}")
-                                retry=Callback::new(move |()| probe())
-                            />
-                        }
-                            .into_any()
-                    }
-                    Some(Ok(c)) => {
-                        let gpus: Vec<String> = c["gpus"]
-                            .as_array()
-                            .map(|a| {
-                                a.iter().filter_map(Value::as_str).map(str::to_owned).collect()
-                            })
-                            .unwrap_or_default();
-                        let mut uniq = gpus.clone();
-                        uniq.sort();
-                        uniq.dedup();
-                        let eg: Vec<(String, i64)> = c["egress"]
-                            .as_object()
-                            .map(|o| {
-                                o.iter()
-                                    .map(|(k, v)| (k.clone(), v.as_i64().unwrap_or(0)))
-                                    .collect()
-                            })
-                            .unwrap_or_default();
-                        view! {
-                            <div class="kpis">
-                                <div>
-                                    <span>"CPU"</span>
-                                    <b>{c["cpus"].to_string()}</b>
-                                </div>
-                                <div>
-                                    <span>"内存"</span>
-                                    <b>{format!("{}G", c["mem_gb"])}</b>
-                                </div>
-                                <div>
-                                    <span>"可用磁盘"</span>
-                                    <b>{format!("{}G", c["disk_free_gb"])}</b>
-                                </div>
-                                <div>
-                                    <span>"GPU"</span>
-                                    <b>{gpus.len()}</b>
-                                </div>
-                            </div>
-                            <details class="nodes-details">
-                                <summary>"硬件与连接详情"</summary>
-                                <div class="kv">
-                                    <span class="k">"系统"</span>
-                                    <span class="v mono">
-                                        {format!("{} {}", s(&c, "os"), s(&c, "arch"))}
-                                    </span>
-                                </div>
-                                <div class="kv">
-                                    <span class="k">"负载"</span>
-                                    <span class="v mono">{c["load1"].to_string()}</span>
-                                </div>
-                                {(!uniq.is_empty())
-                                    .then(|| {
-                                        view! { <div class="muted small">{uniq.join(" / ")}</div> }
-                                    })}
-                                <div class="row-actions">
-                                    {eg
-                                        .into_iter()
-                                        .map(|(k, v)| {
-                                            let ok = (200..300).contains(&v) || v == 401;
-                                            view! {
-                                                <span class=if ok {
-                                                    "gchip ok"
-                                                } else {
-                                                    "gchip bad"
-                                                }>{format!("{k} {v}")}</span>
-                                            }
-                                        })
-                                        .collect_view()}
-                                </div>
-                            </details>
-                            {(c["has_ai_egress"].as_bool() != Some(true))
-                                .then(|| {
-                                    view! {
-                                        <div class="warn-tx small">
-                                            "无法连接 AI 服务，请在「运行时 → 环境变量」中配置代理。"
-                                        </div>
-                                    }
-                                })}
-                        }
-                            .into_any()
-                    }
-                }}
-            </section>
-            <section class="card pad">
-                <div class="card-title">
-                    <h3>"运行时"</h3>
-                    <span class="grow"></span>
-                    <button
-                        class="btn small"
-                        disabled=move || scanning.get() || !online()
-                        title=move || (!online()).then_some("机器离线，恢复在线后才能检查")
-                        on:click=move |_| scan()
-                    >
-                        {move || if scanning.get() { "读取中…" } else { "检查运行时" }}
-                    </button>
-                </div>
-                {move || match agents.get() {
-                    None if scanning.get() => {
-                        view! {
-                            <LoadingState text="正在读取运行时…" class="muted small" />
-                        }
-                            .into_any()
-                    }
-                    None => {
-                        view! {
-                            <EmptyState
-                                title="尚未检查"
-                                detail="读取已安装的运行时及登录状态。"
-                                class="muted small"
-                            />
-                        }
-                            .into_any()
-                    }
-                    Some(Err(e)) => {
-                        view! {
-                            <InlineError
-                                message=format!("无法读取运行时：{e}")
-                                retry=Callback::new(move |()| scan())
-                            />
-                        }
-                            .into_any()
-                    }
-                    Some(Ok((found, vers))) => {
-                        let n = nm.get_value();
-                        let missing: Vec<Value> = found
-                            .iter()
-                            .filter(|a| {
-                                n != "local" && !a["path"].is_string()
-                                    && matches!(s(a, "id").as_str(), "claude" | "codex")
-                            })
-                            .cloned()
-                            .collect();
-                        let inst: Vec<Value> = found
-                            .into_iter()
-                            .filter(|a| a["path"].is_string())
-                            .collect();
-                        if inst.is_empty() && missing.is_empty() {
+            <div class="detail-body">
+                <PrefGroup title="工作区">
+                    {move || {
+                        let list = ws_here();
+                        if list.is_empty() {
                             return view! {
-                                <EmptyState
-                                    title="未发现运行时"
-                                    detail="在这台机器安装 Claude Code 或 Codex 后，重新检查。"
-                                    class="muted small"
+                                <PrefRow
+                                    label="还没有工作区"
+                                    detail="在这台机器上选一个代码目录，智能体就能在这里干活。"
                                 />
                             }
                                 .into_any();
                         }
-                        view! {
-                            <div class="nodes-table">
-                                <table class="tb">
-                                    <thead>
-                                        <tr>
-                                            <th>"运行时"</th>
-                                            <th>"版本与路径"</th>
-                                            <th>"登录状态"</th>
-                                            <th>"操作"</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {inst
-                                            .into_iter()
-                                            .map(|a| {
-                                                let id = s(&a, "id");
-                                                let v = vers[&id].clone();
-                                                let behind = v["behind"].as_bool() == Some(true);
-                                                let local_v = s(&v, "local");
-                                                let busy = RwSignal::new(false);
-                                                let (id2, n2, n3) = (id.clone(), n.clone(), n.clone());
-                                                let authed = a["authed"].as_bool();
-                                                view! {
-                                                    <tr>
-                                                        <td>{s(&a, "label")}</td>
-                                                        <td>
-                                                            <details class="nodes-details">
-                                                                <summary>"查看详情"</summary>
-                                                                <div class="kv">
-                                                                    <span class="k">"版本"</span>
-                                                                    <span class="v mono">
-                                                                        {Some(s(&a, "version"))
-                                                                            .filter(|x| !x.is_empty())
-                                                                            .unwrap_or_else(|| "—".into())}
-                                                                    </span>
-                                                                </div>
-                                                                <div class="kv">
-                                                                    <span class="k">"路径"</span>
-                                                                    <span class="v mono">{s(&a, "path")}</span>
-                                                                </div>
-                                                                <div class="kv">
-                                                                    <span class="k">"本机版本"</span>
-                                                                    <span class="v mono">
-                                                                        {if local_v.is_empty() {
-                                                                            "—".to_owned()
-                                                                        } else {
-                                                                            local_v.clone()
-                                                                        }}
-                                                                    </span>
-                                                                </div>
-                                                                <div class="muted small">{s(&a, "auth_hint")}</div>
-                                                            </details>
-                                                            {behind
-                                                                .then(|| {
-                                                                    view! {
-                                                                        " "
-                                                                        <span
-                                                                            class="gchip warn"
-                                                                            title=format!("本机是 {local_v}")
-                                                                        >
-                                                                            "可更新"
-                                                                        </span>
-                                                                        " "
-                                                                        <button
-                                                                            class="btn small"
-                                                                            style="min-width:72px"
-                                                                            disabled=move || busy.get()
-                                                                            on:click=move |_| {
-                                                                                if busy.get_untracked() {
-                                                                                    return;
-                                                                                }
-                                                                                busy.set(true);
-                                                                                let (id, n) = (id2.clone(), n2.clone());
-                                                                                spawn_local(async move {
-                                                                                    match api::send::<
-                                                                                        Value,
-                                                                                    >(
-                                                                                            "POST",
-                                                                                            &format!("/api/nodes/{}/update/{id}", api::enc(&n)),
-                                                                                            &json!({}),
-                                                                                        )
-                                                                                        .await
-                                                                                    {
-                                                                                        Ok(r) => toast(s(&r, "message")),
-                                                                                        Err(e) => toast(format!("更新失败：{e}")),
-                                                                                    }
-                                                                                    busy.try_set(false);
-                                                                                    scan();
-                                                                                });
-                                                                            }
-                                                                        >
-                                                                            {move || {
-                                                                                if busy.get() {
-                                                                                    "更新中…".to_owned()
-                                                                                } else {
-                                                                                    "更新".to_owned()
-                                                                                }
-                                                                            }}
-                                                                        </button>
-                                                                    }
-                                                                })}
-                                                        </td>
-                                                        <td>
-                                                            {match authed {
-                                                                Some(true) => {
-                                                                    view! {
-                                                                        <Status tone=Tone::Other label="已登录" />
-                                                                    }
-                                                                        .into_any()
-                                                                }
-                                                                Some(false) => {
-                                                                    view! {
-                                                                        <Status tone=Tone::Other label="未登录" />
-                                                                    }
-                                                                        .into_any()
-                                                                }
-                                                                None => {
-                                                                    view! {
-                                                                        <Status tone=Tone::Attention label="待核对" />
-                                                                    }
-                                                                        .into_any()
-                                                                }
-                                                            }}
-                                                        </td>
-                                                        <td style="text-align:right">
-                                                            {(id == "codex" && n3 != "local")
-                                                                .then(|| {
-                                                                    view! {
-                                                                        <button
-                                                                            class="btn small ghost"
-                                                                            on:click=move |_| crate::pages::runtimes::node_login(
-                                                                                n3.clone(),
-                                                                                Callback::new(move |_| scan()),
-                                                                            )
-                                                                        >
-                                                                            {if authed == Some(true) {
-                                                                                "重新登录"
-                                                                            } else {
-                                                                                "登录"
-                                                                            }}
-                                                                        </button>
-                                                                    }
-                                                                })}
-                                                        </td>
-                                                    </tr>
-                                                }
-                                            })
-                                            .collect_view()}
-                                        {missing
-                                            .into_iter()
-                                            .map(|a| {
-                                                let id = s(&a, "id");
-                                                let n = nm.get_value();
-                                                let busy = RwSignal::new(false);
-                                                view! {
-                                                    <tr>
-                                                        <td>{s(&a, "label")}</td>
-                                                        <td class="muted">"未安装"</td>
-                                                        <td></td>
-                                                        <td style="text-align:right">
-                                                            <button
-                                                                class="btn small"
-                                                                style="min-width:72px"
-                                                                title="把官方发布的版本装进这台机器的 ~/.blazar，和本机版本一致"
-                                                                disabled=move || busy.get()
-                                                                on:click=move |_| {
-                                                                    if busy.get_untracked() {
-                                                                        return;
-                                                                    }
-                                                                    busy.set(true);
-                                                                    let (id, n) = (id.clone(), n.clone());
-                                                                    spawn_local(async move {
-                                                                        match api::send::<
-                                                                            Value,
-                                                                        >(
-                                                                                "POST",
-                                                                                &format!("/api/nodes/{}/update/{id}", api::enc(&n)),
-                                                                                &json!({}),
-                                                                            )
-                                                                            .await
-                                                                        {
-                                                                            Ok(r) => toast(s(&r, "message")),
-                                                                            Err(e) => toast(format!("安装失败：{e}")),
-                                                                        }
-                                                                        busy.try_set(false);
-                                                                        scan();
-                                                                    });
-                                                                }
-                                                            >
-                                                                {move || if busy.get() { "安装中…" } else { "安装" }}
-                                                            </button>
-                                                        </td>
-                                                    </tr>
-                                                }
-                                            })
-                                            .collect_view()}
-                                    </tbody>
-                                </table>
-                            </div>
-                        }
+                        list.into_iter()
+                            .map(|w| {
+                                let parent = w
+                                    .parent
+                                    .as_deref()
+                                    .and_then(|p| app.workspace(p))
+                                    .map(|p| {
+                                        format!("属于「{}」 · ", crate::fmt::ws_title(&p.name, &p.node))
+                                    })
+                                    .unwrap_or_default();
+                                view! {
+                                    <PrefRow
+                                        label=crate::fmt::ws_title(&w.name, &w.node)
+                                        detail=format!("{parent}{}", w.path)
+                                    >
+                                        <StateOf state=w.activity.clone() />
+                                        <a class="btn" href=format!("/w/{}", w.id)>
+                                            "打开"
+                                        </a>
+                                    </PrefRow>
+                                }
+                            })
+                            .collect_view()
                             .into_any()
-                    }
-                }}
-            </section>
-            <details class="card pad nodes-maintenance">
-                <summary>"清理残留目录"</summary>
-                <p class="muted small">
-                    "查找已不属于工作区的目录，确认后删除。"
-                </p>
-                <div class="card-title">
-                    <h3>"残留目录"</h3>
-                    <span class="grow"></span>
-                    <button
-                        class="btn small"
-                        disabled=move || listing_left.get() || sweeping.get()
-                        on:click=move |_| leftovers()
-                    >
-                        {move || if listing_left.get() { "查找中…" } else { "查找残留" }}
-                    </button>
-                </div>
-                {move || match left.get() {
-                    None if listing_left.get() => {
-                        view! {
-                            <LoadingState text="正在查找残留目录…" class="muted small" />
+                    }}
+                </PrefGroup>
+                <PrefGroup title="机器状态" note="硬件资源和 AI 服务连接，点上方「检查机器」刷新。">
+                    {move || match hw.get() {
+                        None if probing.get() => {
+                            view! { <p class="pref-status">"正在检查机器…"</p> }.into_any()
                         }
-                            .into_any()
-                    }
-                    None => {
-                        view! {
-                            <EmptyState
-                                title="尚未检查"
-                                detail="查找磁盘上未被 Blazar 记录的 worktree 和私有目录。"
-                                class="muted small"
-                            />
-                        }
-                            .into_any()
-                    }
-                    Some(Err(e)) => {
-                        view! {
-                            <InlineError
-                                message=format!("查找失败：{e}")
-                                retry=Callback::new(move |()| leftovers())
-                            />
-                        }
-                            .into_any()
-                    }
-                    Some(Ok(r)) => {
-                        let orphans: Vec<Value> = r["orphans"]
-                            .as_array()
-                            .cloned()
-                            .unwrap_or_default();
-                        if orphans.is_empty() {
-                            return view! {
-                                <div class="muted small">
-                                    {format!(
-                                        "没有残留，已核对 {} 个目录。",
-                                        r["owned_count"].as_u64().unwrap_or(0),
-                                    )}
-                                </div>
+                        None => {
+                            view! {
+                                <PrefRow
+                                    label="尚未检查"
+                                    detail="点上方「检查机器」读取 CPU、内存、磁盘、GPU 和 AI 服务连接。"
+                                />
                             }
-                                .into_any();
+                                .into_any()
                         }
-                        view! {
-                            <div class="muted small">
-                                {format!(
-                                    "{} 个目录，共 {}。默认保留未提交的改动。",
-                                    orphans.len(),
-                                    kb(r["orphan_kb"].as_f64().unwrap_or(0.0)),
-                                )}
-                            </div>
-                            <div class="nodes-table">
-                                <table class="tb">
-                                    <thead>
-                                        <tr>
-                                            <th></th>
-                                            <th>"名字"</th>
-                                            <th>"分支"</th>
-                                            <th>"大小"</th>
-                                            <th>"闲置"</th>
-                                            <th>"状态"</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {orphans
-                                            .into_iter()
-                                            .map(|l| {
-                                                let leaf = s(&l, "leaf");
-                                                let l2 = leaf.clone();
-                                                let dirty = l["dirty"].as_u64().unwrap_or(0);
+                        Some(Err(e)) => {
+                            view! {
+                                <InlineError
+                                    message=format!("检查失败：{e}")
+                                    retry=Callback::new(move |()| probe())
+                                />
+                            }
+                                .into_any()
+                        }
+                        Some(Ok(c)) => {
+                            let gpus: Vec<String> = c["gpus"]
+                                .as_array()
+                                .map(|a| {
+                                    a.iter().filter_map(Value::as_str).map(str::to_owned).collect()
+                                })
+                                .unwrap_or_default();
+                            let mut uniq = gpus.clone();
+                            uniq.sort();
+                            uniq.dedup();
+                            let eg: Vec<(String, i64)> = c["egress"]
+                                .as_object()
+                                .map(|o| {
+                                    o.iter()
+                                        .map(|(k, v)| (k.clone(), v.as_i64().unwrap_or(0)))
+                                        .collect()
+                                })
+                                .unwrap_or_default();
+                            let egress_ok = c["has_ai_egress"].as_bool() == Some(true);
+                            let gpu_text = if gpus.is_empty() {
+                                "无".to_owned()
+                            } else {
+                                format!("{} 块 · {}", gpus.len(), uniq.join(" / "))
+                            };
+                            let system = format!("{} {}", s(&c, "os"), s(&c, "arch"));
+                            let load = c["load1"].to_string();
+                            let cpu = format!("{} 核", c["cpus"]);
+                            let mem = format!("{} GB", c["mem_gb"]);
+                            let disk = format!("{} GB", c["disk_free_gb"]);
+                            view! {
+                                <PrefRow label="CPU">
+                                    <span class="pref-text">{cpu}</span>
+                                </PrefRow>
+                                <PrefRow label="内存">
+                                    <span class="pref-text">{mem}</span>
+                                </PrefRow>
+                                <PrefRow label="可用磁盘">
+                                    <span class="pref-text">{disk}</span>
+                                </PrefRow>
+                                <PrefRow label="GPU">
+                                    <span class="pref-text">{gpu_text}</span>
+                                </PrefRow>
+                                <PrefRow label="AI 服务">
+                                    <span class="pref-text" class:bad=!egress_ok>
+                                        {if egress_ok {
+                                            "能连上"
+                                        } else {
+                                            "连不上，请在运行时的「高级配置」里配置代理。"
+                                        }}
+                                    </span>
+                                </PrefRow>
+                                <PrefAdvanced title="硬件与连接详情">
+                                    {
+                                        let system = system.clone();
+                                        view! {
+                                            <PrefRow label="系统">
+                                                <code>{system}</code>
+                                            </PrefRow>
+                                        }
+                                    }
+                                    {
+                                        let load = load.clone();
+                                        view! {
+                                            <PrefRow label="负载">
+                                                <code>{load}</code>
+                                            </PrefRow>
+                                        }
+                                    }
+                                    {
+                                        let eg = eg.clone();
+                                        eg.into_iter()
+                                            .map(|(k, v)| {
+                                                let ok = (200..300).contains(&v) || v == 401;
                                                 view! {
-                                                    <tr>
-                                                        <td>
-                                                            <input
-                                                                type="checkbox"
-                                                                aria-label=format!("选择目录 {leaf}")
-                                                                disabled=move || sweeping.get()
-                                                                prop:checked=move || checked.with(|c| c.contains(&l2))
-                                                                on:change={
-                                                                    let leaf = leaf.clone();
-                                                                    move |_| {
-                                                                        checked
-                                                                            .update(|c| {
-                                                                                if !c.remove(&leaf) {
-                                                                                    c.insert(leaf.clone());
-                                                                                }
-                                                                            })
-                                                                    }
-                                                                }
-                                                            />
-                                                        </td>
-                                                        <td class="mono" title=s(&l, "worktree")>
-                                                            {leaf.clone()}
-                                                        </td>
-                                                        <td class="mono">
-                                                            {Some(s(&l, "branch"))
-                                                                .filter(|x| !x.is_empty())
-                                                                .unwrap_or_else(|| "—".into())}
-                                                        </td>
-                                                        <td class="mono">
-                                                            {kb(l["size_kb"].as_f64().unwrap_or(0.0))}
-                                                        </td>
-                                                        <td class="mono">
-                                                            {format!("{} 天", l["idle_days"].as_i64().unwrap_or(0))}
-                                                        </td>
-                                                        <td>
-                                                            {if dirty > 0 {
-                                                                view! {
-                                                                    <span class="gchip warn">
-                                                                        {format!("{dirty} 处未提交")}
-                                                                    </span>
-                                                                }
-                                                                    .into_any()
-                                                            } else if l["broken"].as_bool() == Some(true) {
-                                                                view! { <span class="gchip">"目录已损坏"</span> }
-                                                                    .into_any()
-                                                            } else if !l["worktree"].is_string() {
-                                                                view! { <span class="gchip">"只剩私有目录"</span> }
-                                                                    .into_any()
-                                                            } else {
-                                                                view! { <span class="gchip">"干净"</span> }.into_any()
-                                                            }}
-                                                        </td>
-                                                    </tr>
+                                                    <PrefRow label=k>
+                                                        <span class=if ok {
+                                                            "gchip ok"
+                                                        } else {
+                                                            "gchip bad"
+                                                        }>{format!("HTTP {v}")}</span>
+                                                    </PrefRow>
                                                 }
                                             })
-                                            .collect_view()}
-                                    </tbody>
-                                </table>
-                            </div>
-                            <div class="row-actions">
-                                <button
-                                    class="btn small danger"
-                                    disabled=move || sweeping.get()
-                                    on:click=move |_| {
-                                        if sweeping.get_untracked() {
-                                            return;
-                                        }
-                                        let leaves: Vec<String> = checked
-                                            .get_untracked()
-                                            .into_iter()
-                                            .collect();
-                                        if leaves.is_empty() {
-                                            toast("请先选择目录");
-                                            return;
-                                        }
-                                        let f = force.get_untracked();
-                                        let n = nm.get_value();
-                                        spawn_local(async move {
-                                            let warning = if f {
-                                                "所选目录及其中未提交的改动会永久删除，无法撤销。"
-                                            } else {
-                                                "所选残留目录会永久删除；有未提交改动的目录将被跳过。"
-                                            };
-                                            if dialog::ask(
-                                                    "删除残留目录",
-                                                    warning,
-                                                    vec![
-                                                        Choice::plain("取消"),
-                                                        Choice::danger("删除目录"),
-                                                    ],
-                                                )
-                                                .await != Some(1)
-                                            {
-                                                return;
-                                            }
-                                            if sweeping.try_get_untracked().unwrap_or(true) {
-                                                return;
-                                            }
-                                            sweeping.set(true);
-                                            match api::send::<
-                                                Value,
-                                            >(
-                                                    "POST",
-                                                    &format!("/api/nodes/{}/sweep", api::enc(&n)),
-                                                    &json!({ "leaves": leaves, "force": f }),
-                                                )
-                                                .await
-                                            {
-                                                Ok(s2) => {
-                                                    let removed = s2["removed"].as_array().map_or(0, Vec::len);
-                                                    let skipped: Vec<String> = s2["skipped"]
-                                                        .as_array()
-                                                        .map(|a| {
-                                                            a.iter()
-                                                                .map(|x| {
-                                                                    format!(
-                                                                        "{}（{}）",
-                                                                        x[0].as_str().unwrap_or(""),
-                                                                        x[1].as_str().unwrap_or(""),
-                                                                    )
-                                                                })
-                                                                .collect()
-                                                        })
-                                                        .unwrap_or_default();
-                                                    toast(
-                                                        if skipped.is_empty() {
-                                                            format!("清掉 {removed} 份")
-                                                        } else {
-                                                            format!(
-                                                                "清掉 {removed} 份；跳过 {} 份：{}",
-                                                                skipped.len(),
-                                                                skipped.join("；"),
-                                                            )
-                                                        },
-                                                    );
-                                                    leftovers();
-                                                }
-                                                Err(e) => toast(format!("清扫失败：{e}")),
-                                            }
-                                            sweeping.try_set(false);
-                                        });
+                                            .collect_view()
                                     }
-                                >
-                                    {move || {
-                                        if sweeping.get() {
-                                            "删除中…"
-                                        } else {
-                                            "删除所选目录"
-                                        }
-                                    }}
-                                </button>
-                                <label class="chk">
-                                    <input
-                                        type="checkbox"
-                                        disabled=move || sweeping.get()
-                                        prop:checked=move || force.get()
-                                        on:change=move |_| force.update(|f| *f = !*f)
-                                    />
-                                    "同时删除未提交的改动"
-                                </label>
-                            </div>
+                                </PrefAdvanced>
+                            }
+                                .into_any()
                         }
-                            .into_any()
-                    }
-                }}
-            </details>
+                    }}
+                </PrefGroup>
+                <PrefGroup title="运行时" note="这台机器上装了哪些运行时，以及登录状态。">
+                    {move || match agents.get() {
+                        None if scanning.get() => {
+                            view! { <p class="pref-status">"正在读取运行时…"</p> }.into_any()
+                        }
+                        None => {
+                            view! {
+                                <PrefRow label="尚未检查" detail="读取已安装的运行时及登录状态。">
+                                    <button
+                                        type="button"
+                                        class="btn"
+                                        disabled=move || !online()
+                                        title=move || (!online()).then_some("机器离线，恢复在线后才能检查")
+                                        on:click=move |_| scan()
+                                    >
+                                        "检查运行时"
+                                    </button>
+                                </PrefRow>
+                            }
+                                .into_any()
+                        }
+                        Some(Err(e)) => {
+                            view! {
+                                <InlineError
+                                    message=format!("无法读取运行时：{e}")
+                                    retry=Callback::new(move |()| scan())
+                                />
+                            }
+                                .into_any()
+                        }
+                        Some(Ok((found, vers))) => {
+                            let n = nm.get_value();
+                            let missing: Vec<Value> = found
+                                .iter()
+                                .filter(|a| {
+                                    n != "local" && !a["path"].is_string()
+                                        && matches!(s(a, "id").as_str(), "claude" | "codex")
+                                })
+                                .cloned()
+                                .collect();
+                            let inst: Vec<Value> = found
+                                .into_iter()
+                                .filter(|a| a["path"].is_string())
+                                .collect();
+                            let rescan = view! {
+                                <PrefRow label="重新读取" detail="安装或登录后，重新检查一次。">
+                                    <button
+                                        type="button"
+                                        class="btn"
+                                        disabled=move || scanning.get() || !online()
+                                        on:click=move |_| scan()
+                                    >
+                                        "检查运行时"
+                                    </button>
+                                </PrefRow>
+                            };
+                            if inst.is_empty() && missing.is_empty() {
+                                return view! {
+                                    <PrefRow
+                                        label="未发现运行时"
+                                        detail="在这台机器安装 Claude Code 或 Codex 后，重新检查。"
+                                    />
+                                    {rescan}
+                                }
+                                    .into_any();
+                            }
+                            view! {
+                                {inst
+                                    .into_iter()
+                                    .map(|a| {
+                                        let id = s(&a, "id");
+                                        let v = vers[&id].clone();
+                                        let behind = v["behind"].as_bool() == Some(true);
+                                        let local_v = s(&v, "local");
+                                        let busy = RwSignal::new(false);
+                                        let (id2, n3) = (id.clone(), n.clone());
+                                        let authed = a["authed"].as_bool();
+                                        let detail = [
+                                            Some(s(&a, "version")).filter(|x| !x.is_empty()),
+                                            Some(s(&a, "path")),
+                                            Some(s(&a, "auth_hint")).filter(|x| !x.is_empty()),
+                                            behind.then(|| format!("本机是 {local_v}")),
+                                        ]
+                                            .into_iter()
+                                            .flatten()
+                                            .collect::<Vec<_>>()
+                                            .join(" · ");
+                                        view! {
+                                            <PrefRow label=s(&a, "label") detail=detail>
+                                                {match authed {
+                                                    Some(true) => {
+                                                        view! { <Status tone=Tone::Other label="已登录" /> }
+                                                            .into_any()
+                                                    }
+                                                    Some(false) => {
+                                                        view! { <Status tone=Tone::Attention label="未登录" /> }
+                                                            .into_any()
+                                                    }
+                                                    None => {
+                                                        view! { <Status tone=Tone::Attention label="待核对" /> }
+                                                            .into_any()
+                                                    }
+                                                }}
+                                                {behind
+                                                    .then(|| {
+                                                        view! {
+                                                            <button
+                                                                type="button"
+                                                                class="btn"
+                                                                disabled=move || busy.get()
+                                                                on:click=move |_| update(id2.clone(), busy, "更新")
+                                                            >
+                                                                {move || if busy.get() { "更新中…" } else { "更新" }}
+                                                            </button>
+                                                        }
+                                                    })}
+                                                {(id == "codex" && n3 != "local")
+                                                    .then(|| {
+                                                        view! {
+                                                            <button
+                                                                type="button"
+                                                                class="btn"
+                                                                on:click=move |_| crate::pages::runtimes::node_login(
+                                                                    n3.clone(),
+                                                                    Callback::new(move |_| scan()),
+                                                                )
+                                                            >
+                                                                {if authed == Some(true) { "重新登录" } else { "登录" }}
+                                                            </button>
+                                                        }
+                                                    })}
+                                            </PrefRow>
+                                        }
+                                    })
+                                    .collect_view()}
+                                {missing
+                                    .into_iter()
+                                    .map(|a| {
+                                        let id = s(&a, "id");
+                                        let busy = RwSignal::new(false);
+                                        view! {
+                                            <PrefRow
+                                                label=s(&a, "label")
+                                                detail="未安装。把官方发布的版本装进这台机器的 ~/.blazar，和本机版本一致。"
+                                            >
+                                                <button
+                                                    type="button"
+                                                    class="btn"
+                                                    disabled=move || busy.get()
+                                                    on:click=move |_| update(id.clone(), busy, "安装")
+                                                >
+                                                    {move || if busy.get() { "安装中…" } else { "安装" }}
+                                                </button>
+                                            </PrefRow>
+                                        }
+                                    })
+                                    .collect_view()}
+                                {rescan}
+                            }
+                                .into_any()
+                        }
+                    }}
+                </PrefGroup>
+                <PrefGroup title="维护" note="查找已不属于工作区的目录，确认后删除。">
+                    <PrefRow label="残留目录" detail="磁盘上未被 Blazar 记录的 worktree 和私有目录。">
+                        <button
+                            type="button"
+                            class="btn"
+                            disabled=move || listing_left.get() || sweeping.get()
+                            on:click=move |_| leftovers()
+                        >
+                            {move || if listing_left.get() { "查找中…" } else { "查找残留" }}
+                        </button>
+                    </PrefRow>
+                    {move || match left.get() {
+                        None if listing_left.get() => {
+                            view! { <p class="pref-status">"正在查找残留目录…"</p> }.into_any()
+                        }
+                        None => ().into_any(),
+                        Some(Err(e)) => {
+                            view! {
+                                <InlineError
+                                    message=format!("查找失败：{e}")
+                                    retry=Callback::new(move |()| leftovers())
+                                />
+                            }
+                                .into_any()
+                        }
+                        Some(Ok(r)) => {
+                            let orphans: Vec<Value> = r["orphans"]
+                                .as_array()
+                                .cloned()
+                                .unwrap_or_default();
+                            if orphans.is_empty() {
+                                return view! {
+                                    <p class="pref-status">
+                                        {format!(
+                                            "没有残留，已核对 {} 个目录。",
+                                            r["owned_count"].as_u64().unwrap_or(0),
+                                        )}
+                                    </p>
+                                }
+                                    .into_any();
+                            }
+                            let summary = format!(
+                                "{} 个目录，共 {}。默认保留未提交的改动。",
+                                orphans.len(),
+                                kb(r["orphan_kb"].as_f64().unwrap_or(0.0)),
+                            );
+                            view! {
+                                <p class="pref-status">{summary}</p>
+                                {orphans
+                                    .into_iter()
+                                    .map(|l| {
+                                        let leaf = s(&l, "leaf");
+                                        let (l2, l3) = (leaf.clone(), leaf.clone());
+                                        let detail = [
+                                            Some(s(&l, "branch")).filter(|x| !x.is_empty()),
+                                            Some(kb(l["size_kb"].as_f64().unwrap_or(0.0))),
+                                            Some(format!("闲置 {} 天", l["idle_days"].as_i64().unwrap_or(0))),
+                                            Some(orphan_state(&l)),
+                                        ]
+                                            .into_iter()
+                                            .flatten()
+                                            .collect::<Vec<_>>()
+                                            .join(" · ");
+                                        view! {
+                                            <PrefRow label=leaf.clone() detail=detail>
+                                                <input
+                                                    type="checkbox"
+                                                    aria-label=format!("选择目录 {leaf}")
+                                                    disabled=move || sweeping.get()
+                                                    prop:checked=move || checked.with(|c| c.contains(&l2))
+                                                    on:change=move |_| {
+                                                        checked
+                                                            .update(|c| {
+                                                                if !c.remove(&l3) {
+                                                                    c.insert(l3.clone());
+                                                                }
+                                                            })
+                                                    }
+                                                />
+                                            </PrefRow>
+                                        }
+                                    })
+                                    .collect_view()}
+                                <PrefRow
+                                    label="删除所选目录"
+                                    detail="永久删除，无法撤销；有未提交改动的目录默认跳过。"
+                                >
+                                    <label class="chk">
+                                        <input
+                                            type="checkbox"
+                                            disabled=move || sweeping.get()
+                                            prop:checked=move || force.get()
+                                            on:change=move |_| force.update(|f| *f = !*f)
+                                        />
+                                        "同时删除未提交的改动"
+                                    </label>
+                                    <button
+                                        type="button"
+                                        class="btn danger"
+                                        disabled=move || sweeping.get()
+                                        on:click=move |_| sweep()
+                                    >
+                                        {move || if sweeping.get() { "删除中…" } else { "删除所选目录" }}
+                                    </button>
+                                </PrefRow>
+                            }
+                                .into_any()
+                        }
+                    }}
+                </PrefGroup>
+            </div>
         </div>
     }
 }
