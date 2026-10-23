@@ -733,7 +733,7 @@ class Shooter:
 
     def arrive(self, route, settle):
         path = route.split("?")[0]
-        want = TITLES.get(path)
+        want = section_title(route) if path == "/settings" else TITLES.get(path)
         for attempt in range(3):
             url = ui({"action": "init"}).get("url")
             head = (ui({"action": "snapshot"}).get("headings") or [""])[0] if want else None
@@ -744,7 +744,7 @@ class Shooter:
         return f"想要 {route}（{want or '不查标题'}），实际停在 {url}（{head or '无标题'}）"
 
     def shoot(self, no, slug, theme, route, expect, state, warning=None):
-        if ui(TOAST_GONE).get("found"):
+        if "toast" not in slug and ui(TOAST_GONE).get("found"):
             print(f"  ! {slug}：提示一直没有消失", file=sys.stderr)
         layout = ui({"action": "layout"})
         errors = ui({"action": "errors"}).get("errors", [])
@@ -835,7 +835,15 @@ def theme(value):
 
 TITLES = {"/": "工作区", "/inbox": "收件箱", "/tasks": "任务", "/autopilots": "任务",
           "/jobs": "任务", "/bots": "bot", "/agents": "智能体", "/agents/new": "新建角色档案", "/skills": "智能体",
-          "/apps": "接入的软件", "/runtimes": "智能体", "/nodes": "机器与组网", "/usage": "智能体", "/settings": "设置"}
+          "/apps": "接入的软件", "/runtimes": "智能体", "/nodes": "机器与组网", "/usage": "智能体"}
+
+
+def section_title(route):
+    query = route.split("?", 1)[1] if "?" in route else ""
+    section = dict(part.split("=", 1) for part in query.split("&") if "=" in part).get("s", "appearance")
+    return dict(SETTINGS).get(section, "设置")
+
+
 TOAST_GONE = {"action": "wait", "selector": ".toasts .toast", "gone": True, "timeout_ms": 6000}
 ESC = {"action": "key", "key": "Escape", "optional": True}
 OVERLAYS = (("弹窗", "[data-modal-mask]"), ("右键菜单", ".ctx-menu"), ("状态弹层", ".side-pop"), ("被弹窗挡住的区域", "[inert]"))
@@ -942,6 +950,54 @@ def settings_parts(round_name):
     return items
 
 
+PALETTE_INPUT = ".palette .pal-search input"
+PALETTE_OPEN = ({"action": "key", "key": "k", "code": "KeyK", "meta": True, "selector": "body"},
+                {"action": "wait", "selector": ".palette", "timeout_ms": 4000}, {"action": "wait", "ms": 200})
+
+
+def ws_rows_exist():
+    return bool(db_rows("SELECT id FROM workspaces LIMIT 1"))
+
+
+def palette_parts(with_workspace):
+    items = [
+        ("palette", "/", "命令面板（⌘K）空输入：「最近」和「建议」两组", PALETTE_OPEN, False),
+        ("palette-query", "/", "命令面板输入「设」：按工作区 / 页面 / 命令 / 机器分组，「设置」排在页面里",
+         (*PALETTE_OPEN, {"action": "type", "selector": PALETTE_INPUT, "value": "设"}, {"action": "wait", "ms": 200}), False),
+    ]
+    if with_workspace:
+        items.append(("palette-actions", "/", "命令面板选中一个工作区后按 ⌘K 换成它的二级动作",
+                      (*PALETTE_OPEN, {"action": "type", "selector": PALETTE_INPUT, "value": "a"},
+                       {"action": "wait", "ms": 200},
+                       {"action": "key", "key": "k", "code": "KeyK", "meta": True, "selector": PALETTE_INPUT},
+                       {"action": "wait", "ms": 200}), False))
+    return items
+
+
+def row_menu_parts():
+    rows = [
+        ("tasks", "/tasks", "button.work-task", "任务行的右键菜单（打开 ↩、简介 ⌘I、开始、删除 ⌘⌫）"),
+        ("autopilots", "/autopilots", "button.work-ap-row", "自动化行的右键菜单（打开、简介、立即运行、暂停、删除）"),
+        ("jobs", "/jobs", "tr.job-row", "后台任务行的右键菜单（打开、复制命令、结束）"),
+        ("bots", "/bots", "article.bot-card", "bot 行的右键菜单（打开、暂停、归档）"),
+        ("agents", "/agents", "tr.agent-row", "角色档案行的右键菜单（打开、复制、归档）"),
+        ("skills", "/skills", "tr.skill-row", "技能行的右键菜单（打开、更新、删除）"),
+    ]
+    return [(f"{slug}-row-menu", route, expect,
+             ({"action": "wait", "selector": f"{row}[data-index=\"0\"]", "timeout_ms": 8000},
+              {"action": "context_menu", "selector": f"{row}[data-index=\"0\"]"}), False)
+            for slug, route, row, expect in rows]
+
+
+def undo_parts():
+    item = ".pref-item"
+    return [("settings-snippet-undo-toast", "/settings?s=snippets", "删除一个片段：行立即消失，底部出现带「撤销」的提示",
+             ({"action": "wait", "selector": item, "timeout_ms": 8000}, {"action": "click", "selector": item},
+              {"action": "key", "key": "Backspace", "code": "Backspace", "selector": f"{item}[aria-selected=\"true\"]"},
+              {"action": "wait", "selector": ".toast.act", "timeout_ms": 4000},
+              dict({"action": "click", "text": "撤销"}, after=True)), False)]
+
+
 def plan(round_name):
     state = "空状态（dev profile 现有数据）" if round_name == "empty" else "演示数据"
     items = [(slug, route, expect, (), True) for slug, route, expect in ROUTES]
@@ -951,7 +1007,7 @@ def plan(round_name):
     for group, route, tabs in TABS:
         for key, label, href in tabs:
             items.append((f"tab-{group}-{key}", route, f"页头标签「{label}」（从 {route} 点过去）", (tab_step(href),), False))
-    items.append(("palette", "/", "命令面板（⌘K）", ({"action": "click", "text": "搜索… ⌘K"},), False))
+    items += palette_parts(ws_rows_exist())
     items.append(("status-popover", "/", "侧栏「设置」旁状态圆点的弹层（连接、机器、提醒）",
                   ({"action": "click", "selector": "button.side-dot"}, {"action": "wait", "ms": 300}), False))
     items.append(("nodes-advanced", "/nodes", "机器页表格下方「设置…」或「高级…」打开的机器发现面板",
@@ -988,12 +1044,12 @@ def plan(round_name):
     items.append(("home-selected", "/", "首页用 ↓ 选中第一行",
                   ({"action": "wait", "selector": first_row, "timeout_ms": 8000},
                    {"action": "key", "key": "ArrowDown", "code": "ArrowDown", "selector": ".home-page"}), False))
-    items.append(("home-row-menu", "/", "首页行的右键菜单（打开、详情、改名、移除）",
+    items.append(("home-row-menu", "/", "首页行的右键菜单（打开 ↩、简介 ⌘I、改名、移除 ⌘⌫）",
                   ({"action": "wait", "selector": first_row, "timeout_ms": 8000},
                    {"action": "context_menu", "selector": first_row}), False))
-    items.append(("workspace-detail", "/", "右键菜单「详情」打开的详情弹层",
+    items.append(("workspace-detail", "/", "右键菜单「简介」打开的属性弹层",
                   ({"action": "wait", "selector": first_row, "timeout_ms": 8000},
-                   {"action": "context_menu", "selector": first_row}, {"action": "click", "text": "详情"},
+                   {"action": "context_menu", "selector": first_row}, {"action": "click", "text": "简介", "partial": True},
                    {"action": "wait", "ms": 600}), False))
     items.append(("inbox-selected", "/inbox", "收件箱用 ↓ 走到第二条（键盘逐条处理）",
                   ({"action": "wait", "selector": ".inbox-row", "timeout_ms": 8000},
@@ -1008,6 +1064,8 @@ def plan(round_name):
     if round_name == "data":
         items += detail_pages()
         items += workspace_parts()
+        items += row_menu_parts()
+        items += undo_parts()
     return state, items
 
 
