@@ -197,7 +197,7 @@ code.pref-item-title { font: var(--font-size-label-readable) var(--font-mono); c
   .pref-control { flex: 1 1 100%; justify-content: flex-start; }
 }
 .acc-list:has(.menu) { overflow: visible; }
-.detail-body .acc-list .acc-row { grid-template-columns: minmax(7rem, 1fr) 4.5rem minmax(8rem, 1.4fr) auto; gap: var(--space-md); padding: var(--space-md) var(--space-xl); }
+.detail-body .acc-list .acc-row { grid-template-columns: 1.25rem minmax(7rem, 1fr) 4.5rem minmax(8rem, 1.4fr) auto; gap: var(--space-md); padding: var(--space-md) var(--space-xl); }
 .detail-body .acc-list .acc-row .last { display: none; }
 .detail-body .acc-list .qbar { grid-template-columns: 4.5rem minmax(2rem, 1fr) 2.5rem 5rem; }
 .detail-body .acc-list .quota { padding-right: 0; }
