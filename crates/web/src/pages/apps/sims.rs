@@ -13,7 +13,7 @@ use crate::components::dialog::{Choice, ask};
 use crate::components::modal::Modal;
 use crate::components::page_head::PageHead;
 use crate::components::prefs::{PrefGroup, PrefRow};
-use crate::components::status::InlineError;
+use crate::components::status::{Checking, InlineError};
 use crate::components::toast::toast;
 use crate::fmt;
 use crate::realtime::use_bus;
@@ -115,10 +115,17 @@ pub fn SimApp(id: &'static str, name: &'static str) -> impl IntoView {
     let app = use_app();
     let bus = use_bus();
     let rev = RwSignal::new(0u32);
+    let checking = RwSignal::new(false);
+    crate::refocus::on_refocus(move || rev.update(|n| *n += 1));
     let launches = LocalResource::new(move || {
         bus.nodes.track();
         rev.track();
-        async move { api::get::<Value>("/api/sims").await }
+        checking.set(true);
+        async move {
+            let r = api::get::<Value>("/api/sims").await;
+            checking.try_set(false);
+            r
+        }
     });
     let ws_sel = RwSignal::new(String::new());
     let scan = RwSignal::new(None::<Result<Value, String>>);
@@ -455,6 +462,7 @@ pub fn SimApp(id: &'static str, name: &'static str) -> impl IntoView {
                             view! { <AppStatus label="未启动" tone="neutral" /> }.into_any()
                         }
                     }}
+                    <Checking busy=checking />
                 }
             }
         >
@@ -465,9 +473,6 @@ pub fn SimApp(id: &'static str, name: &'static str) -> impl IntoView {
                 on:click=move |_| launch()
             >
                 {move || if busy.get() { "处理中…" } else { "启动" }}
-            </button>
-            <button type="button" class="btn" on:click=move |_| rev.update(|n| *n += 1)>
-                "刷新"
             </button>
         </PageHead>
         {move || {
@@ -1039,7 +1044,7 @@ pub fn SimApp(id: &'static str, name: &'static str) -> impl IntoView {
                             ></textarea>
                             <div class="dlg-foot">
                                 <span class="muted small grow">
-                                    "跑完后回到这里点「刷新」。"
+                                    "跑完后回到这里会自动重新检测。"
                                 </span>
                                 <button
                                     type="button"

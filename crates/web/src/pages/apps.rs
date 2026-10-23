@@ -7,7 +7,7 @@ use crate::components::page_head::PageHead;
 use crate::components::prefs::{PrefAdvanced, PrefGroup, PrefRow, Switch};
 use crate::components::{
     dialog::{Choice, ask},
-    status::{EmptyState, InlineError, LoadingState, Status, Tone},
+    status::{Checking, EmptyState, InlineError, LoadingState, Status, Tone},
     toast::toast,
 };
 use crate::{api, app_state::use_app};
@@ -230,9 +230,16 @@ pub fn AppDetailPage() -> impl IntoView {
 #[component]
 fn AppDetail(id: &'static str, name: &'static str) -> impl IntoView {
     let rev = RwSignal::new(0u32);
+    let checking = RwSignal::new(false);
+    crate::refocus::on_refocus(move || rev.update(|n| *n += 1));
     let data = LocalResource::new(move || {
         rev.get();
-        async move { api::get::<Value>(&format!("/api/office/{id}")).await }
+        checking.set(true);
+        async move {
+            let r = api::get::<Value>(&format!("/api/office/{id}")).await;
+            checking.try_set(false);
+            r
+        }
     });
     let last = RwSignal::new(None::<Value>);
     Effect::new(move |_| {
@@ -241,13 +248,14 @@ fn AppDetail(id: &'static str, name: &'static str) -> impl IntoView {
         }
     });
     let loading = Signal::derive(move || data.get().is_none());
+    let checking = Signal::derive(move || checking.get());
     view! {
         {move || match (last.get(), data.get()) {
             (Some(v), _) => {
                 if id == "obsidian" {
-                    view! { <Obsidian initial=v rev loading /> }.into_any()
+                    view! { <Obsidian initial=v rev checking /> }.into_any()
                 } else {
-                    view! { <ConnectApp id name initial=v rev loading /> }.into_any()
+                    view! { <ConnectApp id name initial=v rev loading checking /> }.into_any()
                 }
             }
             (None, Some(Err(e))) => {
@@ -301,6 +309,7 @@ fn ConnectApp(
     initial: Value,
     rev: RwSignal<u32>,
     loading: Signal<bool>,
+    checking: Signal<bool>,
 ) -> impl IntoView {
     let tick = RwSignal::new(0u32);
     let pending = RwSignal::new(false);
@@ -521,17 +530,14 @@ fn ConnectApp(
             parent=("接入的软件", "/apps")
             icon=move || view! { <AppLogo id /> }
             title=name
-            status=move || view! { <AppStatus label=status_label.clone() tone=status_tone /> }
+            status=move || {
+                view! {
+                    <AppStatus label=status_label.clone() tone=status_tone />
+                    <Checking busy=checking />
+                }
+            }
         >
             {primary}
-            <button
-                type="button"
-                class="btn"
-                disabled=busy
-                on:click=move |_| rev.update(|n| *n += 1)
-            >
-                "刷新"
-            </button>
         </PageHead>
         <div class="detail-body">
             <PrefGroup title="连接">
@@ -1228,7 +1234,7 @@ fn LarkCalls() -> impl IntoView {
 }
 
 #[component]
-fn Obsidian(initial: Value, rev: RwSignal<u32>, loading: Signal<bool>) -> impl IntoView {
+fn Obsidian(initial: Value, rev: RwSignal<u32>, checking: Signal<bool>) -> impl IntoView {
     let navigate = StoredValue::new_local(use_navigate());
     let app = use_app();
     let busy = RwSignal::new(false);
@@ -1318,7 +1324,12 @@ fn Obsidian(initial: Value, rev: RwSignal<u32>, loading: Signal<bool>) -> impl I
             parent=("接入的软件", "/apps")
             icon=|| view! { <AppLogo id="obsidian" /> }
             title="Obsidian"
-            status=move || view! { <AppStatus label=status_label.clone() tone=status_tone /> }
+            status=move || {
+                view! {
+                    <AppStatus label=status_label.clone() tone=status_tone />
+                    <Checking busy=checking />
+                }
+            }
         >
             {(!installed)
                 .then(|| {
@@ -1333,20 +1344,12 @@ fn Obsidian(initial: Value, rev: RwSignal<u32>, loading: Signal<bool>) -> impl I
                         </a>
                     }
                 })}
-            <button
-                type="button"
-                class="btn"
-                disabled=move || busy.get() || loading.get()
-                on:click=move |_| rev.update(|n| *n += 1)
-            >
-                "刷新"
-            </button>
         </PageHead>
         <div class="detail-body">
             <PrefGroup title="笔记库" note="列表来自 Obsidian 记录的本机 Markdown 文件夹，无需插件或登录。">
                 {if !installed {
                     view! {
-                        <PrefRow label="Obsidian" detail="装好并打开一个库后，刷新本页。">
+                        <PrefRow label="Obsidian" detail="装好并打开一个库后，回到这里会自动重新检测。">
                             <span class="pref-text">"未安装"</span>
                         </PrefRow>
                     }
@@ -1355,7 +1358,7 @@ fn Obsidian(initial: Value, rev: RwSignal<u32>, loading: Signal<bool>) -> impl I
                     view! {
                         <PrefRow
                             label="还没有笔记库"
-                            detail="先在 Obsidian 新建或打开一个库，再刷新本页。"
+                            detail="先在 Obsidian 新建或打开一个库，回到这里会自动重新检测。"
                         />
                     }
                         .into_any()

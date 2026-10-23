@@ -7,7 +7,7 @@ use crate::api::{self, Accounts, Runtimes};
 use crate::components::dialog::{self, Choice};
 use crate::components::page_head::PageHead;
 use crate::components::prefs::{PrefAdvanced, PrefGroup, PrefRow};
-use crate::components::status::{InlineError, Status};
+use crate::components::status::{Checking, InlineError, Status};
 use crate::components::toast::{flash, toast};
 use crate::realtime::use_bus;
 use crate::rt_logo;
@@ -34,6 +34,8 @@ pub(super) fn RuntimeDetail(id: String) -> impl IntoView {
     let app = crate::app_state::use_app();
     let multi = WITH_ACCOUNTS.iter().any(|x| x.0 == id);
     let rev = RwSignal::new(0u32);
+    let checking = RwSignal::new(false);
+    crate::refocus::on_refocus(move || rev.update(|n| *n += 1));
     let id_s = StoredValue::new(id.clone());
     let spec = LocalResource::new(move || {
         rev.track();
@@ -46,11 +48,14 @@ pub(super) fn RuntimeDetail(id: String) -> impl IntoView {
     });
     let runtime = LocalResource::new(move || {
         rev.track();
+        checking.set(true);
         let id = id_s.get_value();
         async move {
-            api::get::<Runtimes>("/api/runtimes")
+            let r = api::get::<Runtimes>("/api/runtimes")
                 .await
-                .map(|r| r.runtimes.into_iter().find(|x| x.id == id))
+                .map(|r| r.runtimes.into_iter().find(|x| x.id == id));
+            checking.try_set(false);
+            r
         }
     });
     let configs = LocalResource::new(move || {
@@ -201,6 +206,7 @@ pub(super) fn RuntimeDetail(id: String) -> impl IntoView {
                                 view! { <Status tone label=text title=a.map(|a| a.label) /> }
                             })
                         }}
+                        <Checking busy=checking />
                     }
                 }
             >
@@ -217,14 +223,6 @@ pub(super) fn RuntimeDetail(id: String) -> impl IntoView {
                             </button>
                         }
                     })}
-                <button
-                    type="button"
-                    class="btn"
-                    disabled=move || saving.get()
-                    on:click=move |_| rev.update(|n| *n += 1)
-                >
-                    "刷新"
-                </button>
             </PageHead>
             {move || {
                 spec.get()

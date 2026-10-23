@@ -73,6 +73,15 @@ pub fn Status(
 }
 
 #[component]
+pub fn Checking(#[prop(into)] busy: Signal<bool>) -> impl IntoView {
+    view! {
+        <span class="page-checking" data-on=move || busy.get().to_string() aria-live="polite">
+            "检查中…"
+        </span>
+    }
+}
+
+#[component]
 pub fn StateOf(
     #[prop(into)] state: Signal<String>,
     #[prop(into, default = None)] title: Option<String>,

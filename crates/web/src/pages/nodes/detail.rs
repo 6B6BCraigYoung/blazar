@@ -231,6 +231,18 @@ fn NodeDetail(name: String) -> impl IntoView {
         });
     };
     let online = move || node.with(|n| n.as_ref().is_some_and(|n| n.status == "online"));
+    let probed = RwSignal::new(false);
+    Effect::new(move |_| {
+        if online() && !probed.get_untracked() {
+            probed.set(true);
+            probe();
+        }
+    });
+    crate::refocus::on_refocus(move || {
+        if online() {
+            probe();
+        }
+    });
     let ws_here = move || {
         app.workspaces()
             .into_iter()
@@ -255,6 +267,7 @@ fn NodeDetail(name: String) -> impl IntoView {
                     view! {
                         <StateOf state=if on { "online" } else { "offline" } />
                         {seen.map(|t| view! { <span class="page-note">{t}</span> })}
+                        <Checking busy=probing />
                     }
                 }
             >
@@ -270,15 +283,6 @@ fn NodeDetail(name: String) -> impl IntoView {
                     }
                 >
                     "新建工作区"
-                </button>
-                <button
-                    type="button"
-                    class="btn"
-                    disabled=move || probing.get() || !online()
-                    title=move || (!online()).then_some("机器离线，恢复在线后才能检查")
-                    on:click=move |_| probe()
-                >
-                    {move || if probing.get() { "检查中…" } else { "检查机器" }}
                 </button>
             </PageHead>
             <div class="detail-body">
@@ -320,7 +324,7 @@ fn NodeDetail(name: String) -> impl IntoView {
                             .into_any()
                     }}
                 </PrefGroup>
-                <PrefGroup title="机器状态" note="硬件资源和 AI 服务连接，点上方「检查机器」刷新。">
+                <PrefGroup title="机器状态" note="硬件资源和 AI 服务连接，进入页面和回到窗口时自动检查。">
                     {move || match hw.get() {
                         None if probing.get() => {
                             view! { <p class="pref-status">"正在检查机器…"</p> }.into_any()
@@ -329,7 +333,7 @@ fn NodeDetail(name: String) -> impl IntoView {
                             view! {
                                 <PrefRow
                                     label="尚未检查"
-                                    detail="点上方「检查机器」读取 CPU、内存、磁盘、GPU 和 AI 服务连接。"
+                                    detail="机器在线后自动读取 CPU、内存、磁盘、GPU 和 AI 服务连接。"
                                 />
                             }
                                 .into_any()

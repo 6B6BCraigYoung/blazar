@@ -11,7 +11,7 @@ use crate::components::toast::toast;
 use crate::components::{
     icon,
     modal::Modal,
-    status::{EmptyState, InlineError, LoadingState, StateOf, Status, Tone},
+    status::{Checking, EmptyState, InlineError, LoadingState, StateOf, Status, Tone},
 };
 use crate::files_js;
 use wasm_bindgen::closure::Closure;

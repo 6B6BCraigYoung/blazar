@@ -22,6 +22,8 @@
 .btn.danger:hover:not(:disabled) { background: var(--danger-control-hover); color: var(--err-fg); }
 .dlg-foot .btn.danger { color: var(--err-fg); }
 .status { display: inline-flex; align-items: center; gap: var(--space-sm); font-size: var(--font-size-label); font-weight: var(--font-weight-regular); color: var(--status-fg); white-space: nowrap; }
+.page-checking { display: inline-block; min-width: 4em; font-size: var(--font-size-label); color: var(--fg-4); white-space: nowrap; visibility: hidden; }
+.page-checking[data-on="true"] { visibility: visible; }
 .status::before { content: ""; width: 6px; height: 6px; border-radius: 50%; flex: 0 0 auto; background: var(--tone, var(--status-other)); }
 [data-tone="run"] { --tone: var(--status-run); }
 [data-tone="attention"] { --tone: var(--status-attention); }

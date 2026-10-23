@@ -40,6 +40,8 @@ mod pages;
 #[cfg(target_arch = "wasm32")]
 mod realtime;
 #[cfg(target_arch = "wasm32")]
+mod refocus;
+#[cfg(target_arch = "wasm32")]
 mod rt_logo;
 #[cfg(any(target_arch = "wasm32", test))]
 mod runtime_config;
