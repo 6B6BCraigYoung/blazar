@@ -1,9 +1,10 @@
 use leptos::prelude::*;
 
 use crate::api::{self, Accounts, Runtime};
+use crate::components::status::Status;
 use crate::rt_logo;
 
-use super::{AccountsSection, WITH_ACCOUNTS};
+use super::{AccountsSection, WITH_ACCOUNTS, active_account, runtime_status};
 
 #[component]
 pub(super) fn RuntimeCard(
@@ -12,14 +13,14 @@ pub(super) fn RuntimeCard(
 ) -> impl IntoView {
     let id = rt.id.clone();
     let multi = WITH_ACCOUNTS.iter().any(|x| x.0 == id);
-    let acc = move || accounts.get().and_then(Result::ok);
     let pid = id.clone();
     let active = move || {
-        let a = acc()?;
-        let on = active_id(&a, &pid)?;
-        a.accounts.into_iter().find(|x| x.id == on)
+        accounts
+            .get()
+            .and_then(Result::ok)
+            .and_then(|a| active_account(&a, &pid))
     };
-    let authed = rt.authed;
+    let rt_s = StoredValue::new(rt.clone());
     let title = [
         rt.version.clone().map(|v| format!("v{v}")),
         rt.path.clone(),
@@ -41,47 +42,9 @@ pub(super) fn RuntimeCard(
                 <span inner_html=rt_logo::mark(&id)></span>
                 <b title=title>{rt.label.clone()}</b>
                 {move || {
-                    if multi {
-                        match active() {
-                            Some(a) => {
-                                let usable = a.usable();
-                                view! {
-                                    <span
-                                        class="status"
-                                        data-tone=if usable { "other" } else { "attention" }
-                                        title=a.label
-                                    >
-                                        {if usable { "可用" } else { "需登录" }}
-                                    </span>
-                                }
-                                    .into_any()
-                            }
-                            None => {
-                                view! { <span class="status" data-tone="other">"未选择"</span> }.into_any()
-                            }
-                        }
-                    } else {
-                        match authed {
-                            Some(true) => {
-                                view! { <span class="status" data-tone="other">"已登录"</span> }.into_any()
-                            }
-                            Some(false) => {
-                                view! { <span class="status" data-tone="attention">"未登录"</span> }.into_any()
-                            }
-                            None => {
-                                view! {
-                                    <span
-                                        class="status"
-                                        data-tone="attention"
-                                        title="暂未获取登录状态，可重新扫描"
-                                    >
-                                        "待检查"
-                                    </span>
-                                }
-                                    .into_any()
-                            }
-                        }
-                    }
+                    let a = active();
+                    let (text, tone) = rt_s.with_value(|rt| runtime_status(rt, a.as_ref()));
+                    view! { <Status tone label=text title=a.map(|a| a.label) /> }
                 }}
                 <span class="grow"></span>
                 <a class="btn ghost" href=format!("/runtimes/{id}")>
@@ -91,8 +54,4 @@ pub(super) fn RuntimeCard(
             {multi.then(|| view! { <AccountsSection provider=id.clone() accounts /> })}
         </section>
     }
-}
-
-fn active_id(a: &Accounts, p: &str) -> Option<String> {
-    a.active(p)
 }

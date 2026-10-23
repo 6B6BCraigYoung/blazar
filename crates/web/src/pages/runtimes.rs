@@ -5,7 +5,7 @@ use serde_json::{Value, json};
 
 use crate::api::{self, Account, Accounts, Runtime, Runtimes};
 use crate::components::page_head::PageHead;
-use crate::components::status::{EmptyState, InlineError, LoadingState};
+use crate::components::status::{EmptyState, InlineError, LoadingState, Tone};
 use crate::components::term_dialog::{self, TermLogin};
 use crate::components::toast::toast;
 use crate::realtime::use_bus;
@@ -25,6 +25,40 @@ use global_sync::GlobalSync;
 use overview::RuntimeCard;
 
 pub const WITH_ACCOUNTS: [(&str, &str); 2] = [("claude", "Claude Code"), ("codex", "Codex")];
+
+pub fn account_status(a: &Account) -> (&'static str, Tone) {
+    if a.disabled {
+        ("已停用", Tone::Other)
+    } else if a.status == "ok" {
+        ("已登录", Tone::Other)
+    } else if a.status == "logged_out" {
+        ("未登录", Tone::Attention)
+    } else {
+        ("待检查", Tone::Other)
+    }
+}
+
+pub fn runtime_status(rt: &Runtime, active: Option<&Account>) -> (&'static str, Tone) {
+    if !rt.installed {
+        return ("未安装", Tone::Attention);
+    }
+    if WITH_ACCOUNTS.iter().any(|x| x.0 == rt.id) {
+        return match active {
+            Some(a) => account_status(a),
+            None => ("未选择账号", Tone::Attention),
+        };
+    }
+    match rt.authed {
+        Some(true) => ("已登录", Tone::Other),
+        Some(false) => ("未登录", Tone::Attention),
+        None => ("待检查", Tone::Other),
+    }
+}
+
+pub fn active_account(a: &Accounts, provider: &str) -> Option<Account> {
+    let on = a.active(provider)?;
+    a.accounts.iter().find(|x| x.id == on).cloned()
+}
 
 #[component]
 pub fn RuntimesPage() -> impl IntoView {

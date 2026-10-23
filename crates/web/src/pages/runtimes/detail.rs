@@ -3,18 +3,18 @@ use leptos::task::spawn_local;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::api::{self, Accounts, Runtime, Runtimes};
+use crate::api::{self, Accounts, Runtimes};
 use crate::components::dialog::{self, Choice};
 use crate::components::page_head::PageHead;
 use crate::components::prefs::{PrefAdvanced, PrefGroup, PrefRow};
-use crate::components::status::{InlineError, Status, Tone};
+use crate::components::status::{InlineError, Status};
 use crate::components::toast::{flash, toast};
 use crate::realtime::use_bus;
 use crate::rt_logo;
 use crate::runtime_config::{AgentConfig, ConfigDraft, parse_args, parse_env};
 
 use super::accounts::provider_label;
-use super::{AccountsSection, Form, WITH_ACCOUNTS};
+use super::{AccountsSection, Form, WITH_ACCOUNTS, active_account, runtime_status};
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 struct AgentSpec {
@@ -26,17 +26,6 @@ struct AgentSpec {
     structured: bool,
     #[serde(default)]
     resume: bool,
-}
-
-fn status_of(rt: &Runtime) -> (&'static str, Tone) {
-    if !rt.installed {
-        return ("未安装", Tone::Attention);
-    }
-    match rt.authed {
-        Some(true) => ("已登录", Tone::Other),
-        Some(false) => ("未登录", Tone::Attention),
-        None => ("已安装", Tone::Other),
-    }
 }
 
 #[component]
@@ -204,8 +193,12 @@ pub(super) fn RuntimeDetail(id: String) -> impl IntoView {
                     view! {
                         {move || {
                             rt().map(|r| {
-                                let (text, tone) = status_of(&r);
-                                view! { <Status tone label=text /> }
+                                let a = accounts
+                                    .get()
+                                    .and_then(Result::ok)
+                                    .and_then(|a| active_account(&a, &id_s.get_value()));
+                                let (text, tone) = runtime_status(&r, a.as_ref());
+                                view! { <Status tone label=text title=a.map(|a| a.label) /> }
                             })
                         }}
                     }

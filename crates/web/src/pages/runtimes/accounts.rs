@@ -9,7 +9,7 @@ use crate::components::menu::menu_keydown;
 use crate::components::toast::toast;
 use crate::fmt;
 
-use super::{Form, WITH_ACCOUNTS, login, patch};
+use super::{Form, WITH_ACCOUNTS, account_status, login, patch};
 
 pub(super) fn provider_label(p: &str) -> &str {
     WITH_ACCOUNTS.iter().find(|x| x.0 == p).map_or(p, |x| x.1)
@@ -51,26 +51,16 @@ fn model_label(m: &str) -> String {
 }
 
 fn status(a: &Account) -> impl IntoView + use<> {
-    let tok = a.kind == "token";
-    let (cls, text, title) = if a.disabled {
-        ("other", "已停用", "")
-    } else if a.status == "ok" {
-        (
-            "other",
-            if tok { "已配置" } else { "已登录" },
-            if tok {
-                "首次运行时验证凭据；失效后会提示重新配置"
-            } else {
-                ""
-            },
-        )
-    } else if a.status == "logged_out" {
-        ("attention", if tok { "需更新" } else { "未登录" }, "")
+    let (text, tone) = account_status(a);
+    let title = if a.kind == "token" && a.status == "ok" {
+        "首次运行时验证凭据；失效后会提示重新配置"
+    } else if text == "待检查" {
+        "暂未获取登录状态"
     } else {
-        ("attention", "待检查", "暂未获取登录状态")
+        ""
     };
     view! {
-        <span class="status" data-tone=cls title=title>
+        <span class="status" data-tone=tone.key() title=title>
             {text}
         </span>
     }
