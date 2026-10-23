@@ -771,6 +771,10 @@ class Shooter:
         if route:
             nav = ui({"action": "navigate", "path": route, "settle_ms": settle})
             if not nav.get("ok"):
+                print(f"  ! 没跳到 {route}：{nav}，等页面就绪后再试一次", file=sys.stderr)
+                ready()
+                nav = ui({"action": "navigate", "path": route, "settle_ms": settle + 600})
+            if not nav.get("ok"):
                 print(f"  ! 没跳到 {route}：{nav}", file=sys.stderr)
         warning = self.arrive(route, settle) if route else None
         after = [st for st in steps if st.get("after")]
@@ -803,6 +807,13 @@ class Shooter:
     def save(self, viewport):
         (self.dir / "manifest.json").write_text(json.dumps({"viewport": viewport, "entries": self.entries, "issues": self.issues},
                                                            ensure_ascii=False, indent=1))
+
+
+def ready():
+    for selector in ("nav.side a.nav", "main.main .page, main.main .ws"):
+        if not ui({"action": "wait", "selector": selector, "timeout_ms": 15000}).get("found"):
+            sys.exit(f"页面没有就绪：等不到 {selector}")
+    ui({"action": "wait", "ms": 300})
 
 
 def viewport():
@@ -1069,6 +1080,7 @@ def workspace_parts():
 def shots(out, round_name, rehearse=False):
     sh = Shooter(out, round_name, rehearse)
     ui({"action": "init"})
+    ready()
     vp = viewport()
     if vp["dpr"] != "2":
         if not rehearse:
