@@ -180,7 +180,7 @@ code.pref-item-title { font: var(--font-size-label-readable) var(--font-mono); c
 .pref-item-detail { color: var(--fg-3); font-size: var(--font-size-label); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pref-item-trailing { display: flex; align-items: center; gap: var(--space-lg); flex: 0 0 auto; color: var(--fg-3); font-size: var(--font-size-label); }
 .pref-empty { padding: var(--space-2xl) var(--space-lg); text-align: center; color: var(--fg-3); font-size: var(--font-size-label-readable); }
-.pref-bar { display: flex; align-items: center; gap: var(--space-2xs); padding: var(--space-xs) var(--space-md); border-top: 1px solid var(--line); background: var(--bg-raised); }
+.pref-bar { display: flex; align-items: center; gap: var(--space-2xs); padding: var(--space-xs) var(--space-md); border-top: 1px solid var(--line); background: color-mix(in srgb, var(--fg) 2%, transparent); }
 .pref-bar-btn { all: unset; box-sizing: border-box; display: grid; place-items: center; width: 26px; height: 20px; border-radius: var(--r-sm); color: var(--fg-2); font-size: var(--font-size-section-title); line-height: 1; cursor: pointer; }
 .pref-bar-btn:hover:not(:disabled) { background: var(--bg-hover); color: var(--fg); }
 .pref-bar-btn:disabled { color: var(--fg-disabled); cursor: default; }
