@@ -15,7 +15,8 @@ use crate::components::empty::{self, Blank};
 use crate::components::icon;
 use crate::components::menu::menu_keydown;
 use crate::components::page_head::PageHead;
-use crate::components::status::{InlineError, LoadingState, Status, Tone};
+use crate::components::prefs::{PrefGroup, PrefRow};
+use crate::components::status::{InlineError, LoadingState, StateOf, Status, Tone};
 use crate::fmt;
 use crate::home_rows::{self, Group, Row, StepText};
 
@@ -40,7 +41,7 @@ pub fn diff_badge(w: &blazar_core_types::api::WorkspaceView) -> AnyView {
 
 #[component]
 pub fn WorkspacesPage() -> impl IntoView {
-    view! { <Home project=Signal::derive(|| None) /> }
+    view! { <Home /> }
 }
 
 #[component]
@@ -57,7 +58,125 @@ pub fn ProjectPage() -> impl IntoView {
             })
             .filter(|n| !n.is_empty())
     });
-    view! { <Home project /> }
+    view! { <ProjectDetail project /> }
+}
+
+#[component]
+fn ProjectDetail(project: Signal<Option<String>>) -> impl IntoView {
+    let app = use_app();
+    let title = Signal::derive(move || project.get().unwrap_or_else(|| "项目".to_owned()));
+    let members = Memo::new(move |_| {
+        let p = project.get();
+        let mut list = app
+            .top_workspaces()
+            .into_iter()
+            .filter(|w| {
+                p.as_deref()
+                    .is_some_and(|p| w.project.as_deref() == Some(p))
+            })
+            .collect::<Vec<_>>();
+        list.sort_by(|a, b| b.last_active_at.cmp(&a.last_active_at));
+        list
+    });
+    let machines = Memo::new(move |_| {
+        let mut m = members
+            .get()
+            .into_iter()
+            .map(|w| fmt::machine(&w.node))
+            .collect::<Vec<_>>();
+        m.sort();
+        m.dedup();
+        m
+    });
+    view! {
+        <div class="page project-page detail-page">
+            <PageHead
+                parent=("工作区", "/")
+                icon=|| view! { <span class="ic" inner_html=icon::svg(icon::FOLDER)></span> }
+                title
+                status=move || {
+                    view! {
+                        {move || {
+                            view! {
+                                <Status
+                                    tone=Tone::Other
+                                    label=format!("{} 个工作区", members.get().len())
+                                />
+                            }
+                        }}
+                    }
+                }
+            >
+                <button
+                    type="button"
+                    class="btn primary"
+                    aria-haspopup="dialog"
+                    on:click=move |_| app.new_ws.set(true)
+                >
+                    "新建"
+                    {new_keys()}
+                </button>
+            </PageHead>
+            {move || {
+                app.state_error
+                    .get()
+                    .map(|message| {
+                        view! {
+                            <InlineError message retry=Callback::new(move |_| app.load_state()) />
+                        }
+                    })
+            }}
+            <div class="detail-body">
+                <PrefGroup title="工作区">
+                    {move || {
+                        if app.state.with(Option::is_none) {
+                            return view! { <LoadingState text="加载工作区…" /> }.into_any();
+                        }
+                        let list = members.get();
+                        if list.is_empty() {
+                            return view! {
+                                <PrefRow
+                                    label="还没有工作区"
+                                    detail="新建工作区时填上这个项目名，就会归到这里。"
+                                />
+                            }
+                                .into_any();
+                        }
+                        list.into_iter()
+                            .map(|w| {
+                                let activity = app.shown_activity(&w);
+                                view! {
+                                    <PrefRow
+                                        label=fmt::ws_title(&w.name, &w.node)
+                                        detail=format!("{}:{}", fmt::machine(&w.node), w.path)
+                                    >
+                                        <StateOf state=activity />
+                                        <a class="btn" href=format!("/w/{}", w.id)>
+                                            "打开"
+                                        </a>
+                                    </PrefRow>
+                                }
+                            })
+                            .collect_view()
+                            .into_any()
+                    }}
+                </PrefGroup>
+                <PrefGroup title="项目" note="同名项目的工作区归为一组，在侧栏里可以直接跳到。">
+                    <PrefRow label="名称">
+                        <span class="pref-text">{move || title.get()}</span>
+                    </PrefRow>
+                    <PrefRow label="机器">
+                        <span class="pref-text">
+                            {move || {
+                                let m = machines.get();
+                                if m.is_empty() { "—".to_owned() } else { m.join("、") }
+                            }}
+                        </span>
+                    </PrefRow>
+                </PrefGroup>
+            </div>
+        </div>
+    }
 }
 
 #[derive(Clone, PartialEq)]
@@ -94,7 +213,7 @@ fn new_keys() -> Option<AnyView> {
 }
 
 #[component]
-fn Home(project: Signal<Option<String>>) -> impl IntoView {
+fn Home() -> impl IntoView {
     let app = use_app();
     let ctx = Ctx {
         sel: RwSignal::new(None),
@@ -104,14 +223,8 @@ fn Home(project: Signal<Option<String>>) -> impl IntoView {
     };
     let list_el = NodeRef::<html::Div>::new();
     let rows = Memo::new(move |_| {
-        let p = project.get();
         let all = app.workspaces();
-        let top = app
-            .top_workspaces()
-            .into_iter()
-            .filter(|w| p.as_deref().is_none_or(|p| w.project.as_deref() == Some(p)))
-            .collect();
-        home_rows::group_rows(top, &all, |w| app.shown_activity(w))
+        home_rows::group_rows(app.top_workspaces(), &all, |w| app.shown_activity(w))
     });
     let approvals = LocalResource::new(move || {
         ctx.appr_rev.track();
@@ -144,7 +257,7 @@ fn Home(project: Signal<Option<String>>) -> impl IntoView {
     let mode = Memo::new(move |_| {
         if app.state.with(Option::is_none) {
             "loading"
-        } else if project.get().is_none() && app.top_workspaces().is_empty() {
+        } else if app.top_workspaces().is_empty() {
             "start"
         } else {
             "list"
@@ -206,7 +319,6 @@ fn Home(project: Signal<Option<String>>) -> impl IntoView {
         }
     });
     on_cleanup(move || keys.remove());
-    let title = Signal::derive(move || project.get().unwrap_or_else(|| "工作区".to_owned()));
     let groups = move || {
         let r = rows.get();
         if r.is_empty() {
@@ -214,7 +326,7 @@ fn Home(project: Signal<Option<String>>) -> impl IntoView {
                 <Blank
                     icon=icon::FOLDER
                     title=empty::never("工作区")
-                    detail="这个项目里还没有工作区。"
+                    detail="新建一个工作区，智能体就能开始干活。"
                 />
             }
             .into_any();
@@ -254,17 +366,7 @@ fn Home(project: Signal<Option<String>>) -> impl IntoView {
     view! {
         <div class="page home-page" class:home-start=move || mode.get() == "start">
             <Show when=move || mode.get() != "start">
-                <PageHead
-                    title
-                    status=move || {
-                        project
-                            .get()
-                            .map(|_| {
-                                let n = rows.with(Vec::len);
-                                view! { <Status tone=Tone::Other label=format!("{n} 个工作区") /> }
-                            })
-                    }
-                >
+                <PageHead title="工作区">
                     <button
                         type="button"
                         class="btn primary"

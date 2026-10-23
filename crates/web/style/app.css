@@ -632,7 +632,7 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 .home-act a.btn { color: var(--fg); }
 .home-menu { min-width: 180px; }
 .home-page .page-actions .btn { display: inline-flex; align-items: center; gap: var(--space-sm); }
-.home-page .page-actions .btn kbd { font: var(--font-size-caption) var(--font-sans); color: var(--on-accent-muted); }
+.home-page .page-actions .btn kbd, .detail-page .page-actions .btn kbd { font: var(--font-size-caption) var(--font-sans); color: var(--on-accent-muted); }
 .ctx-item kbd { float: right; margin-left: var(--space-xl); font: var(--font-size-caption) var(--font-sans); color: var(--fg-4); }
 .ctx-item:not(:disabled):is(:hover, :focus-visible) kbd { color: var(--on-accent-muted); }
 .ctx-item.danger { color: var(--err-fg); }
