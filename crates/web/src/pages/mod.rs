@@ -11,7 +11,7 @@ mod skills;
 mod tasks;
 mod transfer;
 mod usage;
-mod work_shared;
+pub(crate) mod work_shared;
 mod workspace;
 pub mod workspaces;
 

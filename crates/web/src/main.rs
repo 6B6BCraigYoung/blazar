@@ -37,6 +37,8 @@ mod md;
 mod monaco;
 #[cfg(target_arch = "wasm32")]
 mod pages;
+#[cfg(any(target_arch = "wasm32", test))]
+mod palette_match;
 #[cfg(target_arch = "wasm32")]
 mod realtime;
 #[cfg(target_arch = "wasm32")]

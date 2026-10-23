@@ -1,84 +1,419 @@
 use leptos::ev;
+use leptos::html;
 use leptos::prelude::*;
-use leptos_router::hooks::use_navigate;
+use leptos::task::spawn_local;
+use leptos_router::hooks::{use_location, use_navigate};
+use serde_json::{Value, json};
+use wasm_bindgen::JsCast;
 
 use crate::app_state::use_app;
+use crate::components::icon;
+use crate::components::toast::toast;
+use crate::palette_match::score;
+use crate::{api, fmt, storage};
 
 use super::modal::Modal;
 use super::status::EmptyState;
 
+const RECENT_KEY: &str = "blazar.palette.recent";
+const RECENT_MAX: usize = 5;
+
+const PAGES: &[(&str, &str, &str, &str, Option<&str>)] = &[
+    (
+        "收件箱",
+        "/inbox",
+        icon::INBOX,
+        "inbox sjx shoujianxiang 通知",
+        Some("inbox"),
+    ),
+    (
+        "工作区",
+        "/",
+        icon::FOLDER,
+        "workspaces home gzq gongzuoqu 首页 全部",
+        Some("workspaces"),
+    ),
+    ("bot", "/bots", icon::BOT, "bots 机器人", None),
+    (
+        "任务",
+        "/tasks",
+        icon::TASKS,
+        "tasks rw renwu 看板",
+        Some("tasks"),
+    ),
+    (
+        "自动化",
+        "/autopilots",
+        icon::CLOCK,
+        "autopilots zdh zidonghua 定时 webhook",
+        None,
+    ),
+    (
+        "后台任务",
+        "/jobs",
+        icon::TERMINAL,
+        "jobs htrw houtairenwu 进程 训练",
+        None,
+    ),
+    (
+        "角色档案",
+        "/agents",
+        icon::AGENT,
+        "agents jsda juesedangan 智能体",
+        None,
+    ),
+    (
+        "技能",
+        "/skills",
+        icon::SPARK,
+        "skills jn jineng mcp 技能库",
+        None,
+    ),
+    (
+        "运行时",
+        "/runtimes",
+        icon::ACTIVITY,
+        "runtimes yxs yunxingshi 账号 claude codex",
+        None,
+    ),
+    (
+        "用量",
+        "/usage",
+        icon::CHART,
+        "usage yl yongliang 费用 token",
+        None,
+    ),
+    (
+        "接入的软件",
+        "/apps",
+        icon::APPS,
+        "apps jrdrj ruanjian 飞书 lark github obsidian 仿真",
+        None,
+    ),
+    (
+        "机器与组网",
+        "/nodes",
+        icon::NODES,
+        "nodes mesh jq jiqi zuwang 节点 ssh",
+        None,
+    ),
+    (
+        "设置",
+        "/settings",
+        icon::GEAR,
+        "settings sz shezhi 偏好 快捷键 外观",
+        Some("settings"),
+    ),
+];
+
+const COMMANDS: &[(&str, &str, &str, &str, Option<&str>)] = &[
+    (
+        "新建工作区",
+        "newws",
+        icon::FOLDER,
+        "new workspace xjgzq xinjian 创建",
+        Some("newws"),
+    ),
+    (
+        "新对话",
+        "newchat",
+        icon::CHAT,
+        "new chat xdh xinduihua 对话",
+        Some("newchat"),
+    ),
+    (
+        "收起 / 展开侧栏",
+        "side",
+        icon::WINDOW,
+        "sidebar toggle cl zhankai shouqi 侧边栏",
+        Some("side"),
+    ),
+    (
+        "提醒方式…",
+        "alerts",
+        icon::BELL,
+        "alerts notify tx tixing 通知 提示音",
+        None,
+    ),
+];
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Group {
+    Recent,
+    Suggested,
+    Workspace,
+    Page,
+    Command,
+    Node,
+}
+
+impl Group {
+    fn title(self) -> &'static str {
+        match self {
+            Self::Recent => "最近",
+            Self::Suggested => "建议",
+            Self::Workspace => "工作区",
+            Self::Page => "页面",
+            Self::Command => "命令",
+            Self::Node => "机器",
+        }
+    }
+}
+
+#[derive(Clone, PartialEq, Eq)]
+enum Act {
+    Go(String),
+    Cmd(&'static str),
+    Ws(String),
+    Node(String),
+}
+
 #[derive(Clone)]
-struct Hit {
+struct Item {
+    group: Group,
+    icon: &'static str,
     title: String,
-    kind: String,
-    href: String,
+    sub: String,
     keys: String,
+    key: Option<&'static str>,
+    act: Act,
+}
+
+impl Item {
+    fn page(group: Group, p: &(&str, &str, &'static str, &str, Option<&'static str>)) -> Self {
+        Self {
+            group,
+            icon: p.2,
+            title: p.0.to_owned(),
+            sub: String::new(),
+            keys: p.3.to_owned(),
+            key: p.4,
+            act: Act::Go(p.1.to_owned()),
+        }
+    }
+
+    fn command(
+        group: Group,
+        c: &(&str, &'static str, &'static str, &str, Option<&'static str>),
+    ) -> Self {
+        Self {
+            group,
+            icon: c.2,
+            title: c.0.to_owned(),
+            sub: String::new(),
+            keys: c.3.to_owned(),
+            key: c.4,
+            act: Act::Cmd(c.1),
+        }
+    }
+
+    fn workspace(group: Group, w: &blazar_core_types::api::WorkspaceView) -> Self {
+        Self {
+            group,
+            icon: icon::FOLDER,
+            title: fmt::ws_title(&w.name, &w.node),
+            sub: if w.node == "local" {
+                w.path.clone()
+            } else {
+                format!("{}:{}", fmt::machine(&w.node), w.path)
+            },
+            keys: format!(
+                "{} {} {}",
+                w.name,
+                w.node,
+                w.project.clone().unwrap_or_default()
+            ),
+            key: None,
+            act: Act::Ws(w.id.clone()),
+        }
+    }
+
+    fn node(n: &blazar_core_types::api::NodeView) -> Self {
+        let status = if n.status == "online" {
+            "在线"
+        } else {
+            "离线"
+        };
+        Self {
+            group: Group::Node,
+            icon: icon::NODES,
+            title: fmt::machine(&n.name),
+            sub: match n.ipv4.as_deref().filter(|v| !v.is_empty()) {
+                Some(ip) => format!("{status} · {ip}"),
+                None => status.to_owned(),
+            },
+            keys: format!("{} machine node", n.name),
+            key: None,
+            act: Act::Node(n.name.clone()),
+        }
+    }
+
+    fn right(&self) -> Option<String> {
+        self.key
+            .map(|k| crate::shortcuts::label(&crate::shortcuts::current(k)))
+            .filter(|k| !k.is_empty())
+    }
+}
+
+#[derive(Clone)]
+struct Action {
+    label: &'static str,
+    hint: Option<String>,
+    danger: bool,
+    run: Callback<()>,
+}
+
+impl Action {
+    fn new(label: &'static str, run: impl Fn() + Send + Sync + 'static) -> Self {
+        Self {
+            label,
+            hint: None,
+            danger: false,
+            run: Callback::new(move |()| run()),
+        }
+    }
+
+    fn hint(mut self, text: String) -> Self {
+        self.hint = (!text.is_empty()).then_some(text);
+        self
+    }
+
+    fn danger(mut self) -> Self {
+        self.danger = true;
+        self
+    }
+}
+
+fn recent() -> Vec<String> {
+    storage::load::<Vec<String>>(RECENT_KEY).unwrap_or_default()
+}
+
+fn remember(href: &str) {
+    let mut list = recent();
+    list.retain(|h| h != href);
+    list.insert(0, href.to_owned());
+    list.truncate(RECENT_MAX);
+    storage::save(RECENT_KEY, &list);
+}
+
+fn caret_at(e: &ev::KeyboardEvent, end: bool) -> bool {
+    let Some(input) = e
+        .target()
+        .and_then(|t| t.dyn_into::<web_sys::HtmlInputElement>().ok())
+    else {
+        return false;
+    };
+    let len = input.value().encode_utf16().count() as u32;
+    let start = input.selection_start().ok().flatten().unwrap_or(0);
+    let stop = input.selection_end().ok().flatten().unwrap_or(0);
+    if end {
+        start == len && stop == len
+    } else {
+        start == 0 && stop == 0
+    }
+}
+
+fn reveal_selected() {
+    request_animation_frame(|| {
+        if let Some(el) = document()
+            .query_selector(".palrow[data-sel=\"true\"]")
+            .ok()
+            .flatten()
+        {
+            let opts = web_sys::ScrollIntoViewOptions::new();
+            opts.set_block(web_sys::ScrollLogicalPosition::Nearest);
+            el.scroll_into_view_with_scroll_into_view_options(&opts);
+        }
+    });
+}
+
+async fn probe(name: String) {
+    match api::send::<Value>(
+        "POST",
+        &format!("/api/nodes/{}/probe", api::enc(&name)),
+        &json!({}),
+    )
+    .await
+    {
+        Ok(_) => toast(format!("已检查 {}", fmt::machine(&name))),
+        Err(e) => toast(format!("检查失败：{e}")),
+    }
 }
 
 #[component]
 pub fn Palette() -> impl IntoView {
     let app = use_app();
     let q = RwSignal::new(String::new());
+    let aq = RwSignal::new(String::new());
     let sel = RwSignal::new(0usize);
-    let navigate = use_navigate();
+    let focus = RwSignal::new(None::<Item>);
+    let keys_rev = RwSignal::new(0u32);
+    let watch_keys = crate::shortcuts::on_change(move || keys_rev.update(|n| *n += 1));
+    let nav = StoredValue::new(use_navigate());
+    let location = use_location();
+    Effect::new(move |_| {
+        let path = location.pathname.get();
+        if path.starts_with("/w/") || (path != "/" && PAGES.iter().any(|p| p.1 == path)) {
+            remember(&path);
+        }
+    });
 
-    let global_navigate = navigate.clone();
     let go = move |path: &str| {
         let path = path.to_owned();
-        let navigate = global_navigate.clone();
-        leptos::task::spawn_local(async move {
+        spawn_local(async move {
             if crate::files_js::confirm_leave().await {
-                navigate(&path, Default::default());
+                nav.with_value(|n| n(&path, Default::default()));
             }
         });
     };
-    let go_action = go.clone();
-    let run = move |action: &str| match action {
-        "palette" => {
-            app.palette.update(|p| *p = !*p);
-            true
+    let new_chat = move || {
+        if app.current_ws.get_untracked().is_some() {
+            let init = web_sys::CustomEventInit::new();
+            init.set_detail(&"act:newchat".into());
+            if let Ok(event) = web_sys::CustomEvent::new_with_event_init_dict("blazar-menu", &init)
+            {
+                let _ = window().dispatch_event(&event);
+            }
+            return;
         }
-        "side" => {
-            app.side_collapsed.update(|p| *p = !*p);
-            true
+        let target = recent()
+            .into_iter()
+            .find(|h| h.starts_with("/w/"))
+            .or_else(|| app.top_workspaces().first().map(|w| format!("/w/{}", w.id)));
+        match target {
+            Some(href) => go(&format!("{href}?new=1")),
+            None => app.new_ws.set(true),
         }
-        "workspaces" => {
-            go_action("/");
-            true
-        }
-        "newws" => {
-            app.new_ws.set(true);
-            true
-        }
-        "inbox" => {
-            go_action("/inbox");
-            true
-        }
-        "tasks" => {
-            go_action("/tasks");
-            true
-        }
-        "settings" => {
-            go_action("/settings");
-            true
-        }
-        _ => false,
     };
-    let run_key = run.clone();
+    let run_cmd = move |action: &str| -> bool {
+        match action {
+            "palette" => app.palette.update(|p| *p = !*p),
+            "side" => app.side_collapsed.update(|p| *p = !*p),
+            "workspaces" => go("/"),
+            "newws" => app.new_ws.set(true),
+            "inbox" => go("/inbox"),
+            "tasks" => go("/tasks"),
+            "settings" => go("/settings"),
+            "alerts" => app.alerts_open.set(true),
+            "newchat" if app.current_ws.get_untracked().is_none() => new_chat(),
+            _ => return false,
+        }
+        true
+    };
     let keys = window_event_listener(ev::keydown, move |e| {
         if let Some(action) = crate::shortcuts::action(&e)
-            && run_key(action)
+            && run_cmd(action)
         {
             e.prevent_default();
         }
     });
     let menu = crate::shortcuts::on_menu(move |id| {
         if let Some(action) = id.strip_prefix("act:") {
-            run(action);
+            run_cmd(action);
         } else if let Some(path) = id.strip_prefix("go:") {
             go(path);
         } else if let Some(message) = id.strip_prefix("toast:") {
-            crate::components::toast::toast(message);
+            toast(message);
         } else if id == "new-workspace" {
             app.new_ws.set(true);
         }
@@ -86,193 +421,405 @@ pub fn Palette() -> impl IntoView {
     on_cleanup(move || {
         keys.remove();
         menu.remove();
+        watch_keys.remove();
     });
     Effect::new(move |_| {
         if app.palette.get() {
             q.set(String::new());
+            aq.set(String::new());
             sel.set(0);
+            focus.set(None);
         }
     });
 
-    let hits = move || {
-        let mut all: Vec<Hit> = Vec::new();
-        if let Some(id) = app.selected_ws.get()
-            && let Some(w) = app.workspace(&id)
-        {
-            let t = crate::fmt::ws_title(&w.name, &w.node);
-            all.extend(
-                [
-                    (format!("打开「{t}」"), format!("/w/{id}")),
-                    (format!("「{t}」的详情"), format!("cmd:inspect:{id}")),
-                    (format!("改名「{t}」…"), format!("cmd:rename:{id}")),
-                    (format!("移除「{t}」…"), format!("cmd:remove:{id}")),
-                ]
+    let sections = move || -> Vec<(Group, Vec<Item>)> {
+        keys_rev.track();
+        let query = q.get();
+        let state = app.state.get();
+        if query.trim().is_empty() {
+            let mut recent_items = Vec::new();
+            for href in recent() {
+                if let Some(id) = href.strip_prefix("/w/") {
+                    if let Some(w) = app.workspace(id) {
+                        recent_items.push(Item::workspace(Group::Recent, &w));
+                    }
+                } else if let Some(p) = PAGES.iter().find(|p| p.1 == href) {
+                    recent_items.push(Item::page(Group::Recent, p));
+                }
+            }
+            let suggested = vec![
+                Item::command(Group::Suggested, &COMMANDS[0]),
+                Item::command(Group::Suggested, &COMMANDS[1]),
+                Item::page(Group::Suggested, &PAGES[0]),
+                Item::page(Group::Suggested, &PAGES[PAGES.len() - 1]),
+            ];
+            return vec![(Group::Recent, recent_items), (Group::Suggested, suggested)]
                 .into_iter()
-                .map(|(title, href)| Hit {
-                    title,
-                    kind: "选中的工作区".into(),
-                    href,
-                    keys: "workspace".into(),
-                }),
-            );
+                .filter(|(_, items)| !items.is_empty())
+                .collect();
         }
-        all.extend(
-            [
-                ("工作区", "导航", "/", "全部工作区 workspaces"),
-                ("bot", "导航", "/bots", "全部 bot bots 机器人"),
-                ("运行时", "导航", "/runtimes", "runtimes 账号 智能体"),
-                ("收件箱", "导航", "/inbox", "inbox 通知"),
-                ("任务", "导航", "/tasks", "tasks"),
-                ("自动化", "导航", "/autopilots", "autopilots 定时 任务"),
-                ("后台任务", "导航", "/jobs", "jobs 后台 训练 进程"),
-                ("技能", "导航", "/skills", "skills mcp 智能体"),
-                (
-                    "接入的软件",
-                    "导航",
-                    "/apps",
-                    "apps 飞书 github obsidian 仿真",
-                ),
-                ("角色档案", "导航", "/agents", "智能体 agents"),
-                ("机器与组网", "导航", "/nodes", "节点 nodes mesh"),
-                ("用量", "导航", "/usage", "usage 费用 智能体"),
-                ("设置", "导航", "/settings", "settings 快捷键"),
-                ("新建工作区", "命令", "cmd:new", "new workspace"),
-            ]
-            .into_iter()
-            .map(|(t, k, h, keys)| Hit {
-                title: t.into(),
-                kind: k.into(),
-                href: h.into(),
-                keys: keys.into(),
-            }),
-        );
-        if let Some(s) = app.state.get() {
-            all.extend(
+        let rank = |items: Vec<Item>| -> Vec<Item> {
+            let mut scored: Vec<(u32, Item)> = items
+                .into_iter()
+                .filter_map(|it| score(&query, &it.title, &it.keys).map(|s| (s, it)))
+                .collect();
+            scored.sort_by(|a, b| b.0.cmp(&a.0));
+            scored.into_iter().map(|(_, it)| it).take(8).collect()
+        };
+        let workspaces = state
+            .as_ref()
+            .map(|s| {
                 s.workspaces
                     .iter()
                     .filter(|w| crate::app_state::is_top(w, &s.workspaces))
-                    .map(|w| Hit {
-                        title: crate::fmt::ws_title(&w.name, &w.node),
-                        kind: format!("工作区 · {}", crate::fmt::machine(&w.node)),
-                        href: format!("/w/{}", w.id),
-                        keys: w.node.clone(),
-                    }),
-            );
-            all.extend(s.nodes.iter().map(|n| Hit {
-                title: n.name.clone(),
-                kind: "机器".into(),
-                href: format!("/nodes/{}", js_sys::encode_uri_component(&n.name)),
-                keys: String::new(),
-            }));
-        }
-        let k = q.get().to_lowercase();
-        all.into_iter()
-            .filter(|h| {
-                k.is_empty()
-                    || format!("{} {} {}", h.title, h.kind, h.keys)
-                        .to_lowercase()
-                        .contains(&k)
+                    .map(|w| Item::workspace(Group::Workspace, w))
+                    .collect()
             })
-            .take(40)
-            .collect::<Vec<_>>()
+            .unwrap_or_default();
+        let nodes = state
+            .as_ref()
+            .map(|s| s.nodes.iter().map(Item::node).collect())
+            .unwrap_or_default();
+        vec![
+            (Group::Workspace, rank(workspaces)),
+            (
+                Group::Page,
+                rank(PAGES.iter().map(|p| Item::page(Group::Page, p)).collect()),
+            ),
+            (
+                Group::Command,
+                rank(
+                    COMMANDS
+                        .iter()
+                        .map(|c| Item::command(Group::Command, c))
+                        .collect(),
+                ),
+            ),
+            (Group::Node, rank(nodes)),
+        ]
+        .into_iter()
+        .filter(|(_, items)| !items.is_empty())
+        .collect()
     };
-    let go = StoredValue::new_local(move |h: &Hit| {
-        if h.href == "cmd:new" {
-            app.palette.set(false);
-            app.new_ws.set(true);
-            return;
-        }
-        if let Some(rest) = h.href.strip_prefix("cmd:")
-            && let Some((what, id)) = rest.split_once(':')
-        {
-            app.palette.set(false);
-            let id = id.to_owned();
-            match what {
-                "inspect" => app.inspect_ws.set(Some(id)),
-                "rename" => crate::pages::workspaces::rename_workspace(app, id),
-                "remove" => crate::pages::workspaces::remove_workspace(app, id),
-                _ => {}
+    let flat = move || -> Vec<Item> {
+        sections()
+            .into_iter()
+            .flat_map(|(_, items)| items)
+            .collect()
+    };
+
+    let actions_of = move |item: &Item| -> Vec<Action> {
+        match &item.act {
+            Act::Ws(id) => {
+                let w = app.workspace(id);
+                let path = w.as_ref().map(|w| w.path.clone()).unwrap_or_default();
+                let local = w.as_ref().is_some_and(|w| w.node == "local");
+                let (href, i1, i2, i3) = (format!("/w/{id}"), id.clone(), id.clone(), id.clone());
+                let (p1, p2) = (path.clone(), path);
+                let mut list = vec![
+                    Action::new("打开", move || go(&href)).hint(crate::shortcuts::label("Enter")),
+                    Action::new("简介", move || app.inspect_ws.set(Some(i1.clone()))).hint(
+                        crate::shortcuts::label(&crate::shortcuts::current("inspect")),
+                    ),
+                    Action::new("改名…", move || {
+                        crate::pages::workspaces::rename_workspace(app, i2.clone())
+                    }),
+                    Action::new("复制路径", move || {
+                        spawn_local(crate::pages::work_shared::copy(p1.clone()))
+                    }),
+                ];
+                if local && crate::desktop::available() {
+                    list.push(Action::new("在访达中显示", move || {
+                        let path = p2.clone();
+                        spawn_local(async move {
+                            if let Err(e) =
+                                crate::desktop::invoke("reveal_path", &json!({ "path": path }))
+                                    .await
+                            {
+                                toast(format!("没能在访达中显示：{e}"));
+                            }
+                        });
+                    }));
+                }
+                list.push(
+                    Action::new("移除…", move || {
+                        crate::pages::workspaces::remove_workspace(app, i3.clone())
+                    })
+                    .hint(crate::shortcuts::label(&crate::shortcuts::current(
+                        "delete",
+                    )))
+                    .danger(),
+                );
+                list
             }
-            return;
+            Act::Node(name) => {
+                let (n1, n2, n3) = (name.clone(), name.clone(), name.clone());
+                vec![
+                    Action::new("打开", move || {
+                        go(&format!("/nodes/{}", api::enc(&n1)));
+                    })
+                    .hint(crate::shortcuts::label("Enter")),
+                    Action::new("新建工作区", move || {
+                        app.new_ws_node.set(Some(n2.clone()));
+                        app.new_ws.set(true);
+                    }),
+                    Action::new("检查", move || spawn_local(probe(n3.clone()))),
+                ]
+            }
+            _ => Vec::new(),
         }
-        let href = h.href.clone();
-        let navigate = navigate.clone();
+    };
+    let shown_actions = move || -> Vec<Action> {
+        let Some(item) = focus.get() else {
+            return Vec::new();
+        };
+        let needle = aq.get().trim().to_lowercase();
+        actions_of(&item)
+            .into_iter()
+            .filter(|a| needle.is_empty() || a.label.to_lowercase().contains(&needle))
+            .collect()
+    };
+
+    let run_item = move |it: &Item| {
         app.palette.set(false);
-        leptos::task::spawn_local(async move {
-            if !crate::files_js::confirm_leave().await {
-                return;
+        match &it.act {
+            Act::Go(href) => go(href),
+            Act::Ws(id) => go(&format!("/w/{id}")),
+            Act::Node(name) => go(&format!("/nodes/{}", api::enc(name))),
+            Act::Cmd("newchat") => new_chat(),
+            Act::Cmd(action) => {
+                run_cmd(action);
             }
-            if href.starts_with('/') {
-                navigate(&href, Default::default());
-            } else {
-                let _ = window().location().set_href(&href);
+        }
+    };
+    let run_action = move |a: &Action| {
+        app.palette.set(false);
+        a.run.run(());
+    };
+    let enter_actions = move || -> bool {
+        let Some(item) = flat().get(sel.get_untracked()).cloned() else {
+            return false;
+        };
+        if !matches!(item.act, Act::Ws(_) | Act::Node(_)) {
+            return false;
+        }
+        focus.set(Some(item));
+        aq.set(String::new());
+        sel.set(0);
+        true
+    };
+    let leave_actions = move || {
+        let back = focus
+            .get_untracked()
+            .and_then(|it| flat().iter().position(|x| x.act == it.act))
+            .unwrap_or(0);
+        focus.set(None);
+        aq.set(String::new());
+        sel.set(back);
+        reveal_selected();
+    };
+    let count = move || {
+        if focus.with_untracked(Option::is_some) {
+            shown_actions().len()
+        } else {
+            flat().len()
+        }
+    };
+    let on_key = move |e: ev::KeyboardEvent| {
+        let meta = e.meta_key() || e.ctrl_key();
+        let in_actions = focus.with_untracked(Option::is_some);
+        let on_input = e
+            .target()
+            .and_then(|t| t.dyn_into::<web_sys::HtmlInputElement>().ok())
+            .is_some();
+        match e.key().as_str() {
+            "ArrowDown" | "ArrowUp" => {
+                e.prevent_default();
+                let n = count().max(1);
+                let down = e.key() == "ArrowDown";
+                sel.update(|s| *s = if down { (*s + 1) % n } else { (*s + n - 1) % n });
+                reveal_selected();
             }
-        });
-    });
+            "Enter" if on_input && !e.is_composing() => {
+                e.prevent_default();
+                if in_actions {
+                    if let Some(a) = shown_actions().get(sel.get_untracked()) {
+                        run_action(a);
+                    }
+                } else if let Some(it) = flat().get(sel.get_untracked()) {
+                    run_item(it);
+                }
+            }
+            "Escape" if in_actions => {
+                e.prevent_default();
+                e.stop_propagation();
+                leave_actions();
+            }
+            "ArrowLeft" if in_actions && on_input && caret_at(&e, false) => {
+                e.prevent_default();
+                leave_actions();
+            }
+            "ArrowRight" if !in_actions && on_input && caret_at(&e, true) => {
+                if enter_actions() {
+                    e.prevent_default();
+                }
+            }
+            _ if meta && e.code() == "KeyK" => {
+                e.prevent_default();
+                if in_actions {
+                    leave_actions();
+                } else {
+                    enter_actions();
+                }
+            }
+            _ if meta && e.code() == "KeyI" && !in_actions => {
+                if let Some(Item {
+                    act: Act::Ws(id), ..
+                }) = flat().get(sel.get_untracked())
+                {
+                    e.prevent_default();
+                    app.palette.set(false);
+                    app.inspect_ws.set(Some(id.clone()));
+                }
+            }
+            _ => {}
+        }
+    };
+
+    let input_el = NodeRef::<html::Input>::new();
     view! {
         <Show when=move || app.palette.get()>
             <Modal
-                label="搜索"
+                label="命令面板"
                 class="palette"
                 mask_class="dlg-mask top"
                 on_close=Callback::new(move |_| app.palette.set(false))
             >
-                <input
-                    data-modal-initial-focus=""
-                    aria-label="搜索工作区、机器和页面"
-                    placeholder="搜索工作区、机器、页面…"
-                    prop:value=move || q.get()
-                    on:input=move |e| {
-                        q.set(event_target_value(&e));
-                        sel.set(0);
-                    }
-                    on:keydown=move |e| {
-                        let n = hits().len().max(1);
-                        match e.key().as_str() {
-                            "ArrowDown" => {
-                                e.prevent_default();
-                                sel.update(|s| *s = (*s + 1) % n);
-                            }
-                            "ArrowUp" => {
-                                e.prevent_default();
-                                sel.update(|s| *s = (*s + n - 1) % n);
-                            }
-                            "Enter" if !e.is_composing() => {
-                                e.prevent_default();
-                                if let Some(h) = hits().get(sel.get_untracked()) {
-                                    go.with_value(|g| g(h));
+                <div class="pal" on:keydown=on_key>
+                    <div class="pal-search">
+                        <span class="ic" inner_html=icon::svg(icon::SEARCH)></span>
+                        <input
+                            node_ref=input_el
+                            data-modal-initial-focus=""
+                            aria-label="搜索工作区、页面、命令和机器"
+                            placeholder=move || {
+                                match focus.get() {
+                                    Some(it) => format!("「{}」的操作…", it.title),
+                                    None => "搜索工作区、页面、命令和机器…".to_owned(),
                                 }
                             }
-                            _ => {}
-                        }
-                    }
-                />
-                <div class="pal-list">
-                    <div class="pal-flow">
-                        {move || {
-                            let list = hits();
-                            if list.is_empty() {
-                                return view! { <EmptyState title="无匹配" /> }.into_any();
+                            autocomplete="off"
+                            spellcheck="false"
+                            prop:value=move || {
+                                if focus.with(Option::is_some) { aq.get() } else { q.get() }
                             }
-                            list.into_iter()
-                                .enumerate()
-                                .map(|(i, h)| {
-                                    let h2 = h.clone();
-                                    view! {
-                                        <button
-                                            type="button"
-                                            class="palrow"
-                                            data-sel=move || (sel.get() == i).to_string()
-                                            on:click=move |_| go.with_value(|g| g(&h2))
-                                        >
-                                            <span class="t">{h.title.clone()}</span>
-                                            <span class="k">{h.kind.clone()}</span>
-                                        </button>
+                            on:input=move |e| {
+                                let v = event_target_value(&e);
+                                if focus.with_untracked(Option::is_some) {
+                                    aq.set(v);
+                                } else {
+                                    q.set(v);
+                                }
+                                sel.set(0);
+                            }
+                        />
+                    </div>
+                    <div class="pal-list">
+                        <div class="pal-flow">
+                            {move || {
+                                if let Some(item) = focus.get() {
+                                    let list = shown_actions();
+                                    if list.is_empty() {
+                                        return view! { <EmptyState title="没有匹配的操作" /> }.into_any();
                                     }
-                                })
-                                .collect_view()
-                                .into_any()
-                        }}
+                                    return view! {
+                                        <div class="pal-group">{item.title.clone()}</div>
+                                        {list
+                                            .into_iter()
+                                            .enumerate()
+                                            .map(|(i, a)| {
+                                                let a2 = a.clone();
+                                                view! {
+                                                    <button
+                                                        type="button"
+                                                        class="palrow"
+                                                        class:danger=a.danger
+                                                        tabindex="-1"
+                                                        data-sel=move || (sel.get() == i).to_string()
+                                                        on:click=move |_| run_action(&a2)
+                                                    >
+                                                        <span class="t">{a.label}</span>
+                                                        <span class="s"></span>
+                                                        {a.hint.map(|h| view! { <kbd>{h}</kbd> })}
+                                                    </button>
+                                                }
+                                            })
+                                            .collect_view()}
+                                    }
+                                        .into_any();
+                                }
+                                let sections = sections();
+                                if sections.is_empty() {
+                                    return view! { <EmptyState title="无匹配" /> }.into_any();
+                                }
+                                let mut n = 0usize;
+                                sections
+                                    .into_iter()
+                                    .map(|(group, items)| {
+                                        let rows = items
+                                            .into_iter()
+                                            .map(|it| {
+                                                let i = n;
+                                                n += 1;
+                                                let it2 = it.clone();
+                                                let right = it.right();
+                                                view! {
+                                                    <button
+                                                        type="button"
+                                                        class="palrow"
+                                                        tabindex="-1"
+                                                        data-sel=move || (sel.get() == i).to_string()
+                                                        on:click=move |_| run_item(&it2)
+                                                    >
+                                                        <span class="ic" inner_html=icon::svg(it.icon)></span>
+                                                        <span class="t">{it.title.clone()}</span>
+                                                        <span class="s">{it.sub.clone()}</span>
+                                                        {match right {
+                                                            Some(k) => view! { <kbd>{k}</kbd> }.into_any(),
+                                                            None => {
+                                                                view! { <span class="c">{it.group.title()}</span> }
+                                                                    .into_any()
+                                                            }
+                                                        }}
+                                                    </button>
+                                                }
+                                            })
+                                            .collect_view();
+                                        view! {
+                                            <div class="pal-group">{group.title()}</div>
+                                            {rows}
+                                        }
+                                    })
+                                    .collect_view()
+                                    .into_any()
+                            }}
+                        </div>
+                    </div>
+                    <div class="pal-foot">
+                        <span class="pal-mode">
+                            {move || {
+                                if focus.with(Option::is_some) { "操作" } else { "Blazar" }
+                            }}
+                        </span>
+                        <span class="grow"></span>
+                        <span class="pal-key">
+                            {move || if focus.with(Option::is_some) { "执行" } else { "打开" }}
+                            <kbd>{crate::shortcuts::label("Enter")}</kbd>
+                        </span>
+                        <span class="pal-key">
+                            {move || if focus.with(Option::is_some) { "返回" } else { "操作" }}
+                            <kbd>{crate::shortcuts::label("Mod+K")}</kbd>
+                        </span>
                     </div>
                 </div>
             </Modal>
