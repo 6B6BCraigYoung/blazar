@@ -993,6 +993,58 @@ def row_menu_parts():
             for slug, route, row, expect in rows]
 
 
+ROW_OF = {"/tasks": "button.work-task", "/autopilots": "button.work-ap-row", "/jobs": "tr.job-row",
+          "/agents": "tr.agent-row", "/skills": "tr.skill-row"}
+
+
+def poke_menu(href):
+    row = ROW_OF.get(href)
+    if not row or not ui({"action": "text", "selector": f"{row}[data-index=\"0\"]"})["matches"]:
+        return
+    ui({"action": "context_menu", "selector": f"{row}[data-index=\"0\"]"})
+    ui({"action": "wait", "selector": ".ctx-menu", "timeout_ms": 2000})
+    ui({"action": "key", "key": "Escape", "selector": ".ctx-menu", "settle_ms": 150})
+
+
+def poke_palette():
+    for step in PALETTE_OPEN:
+        ui(step)
+    ui({"action": "key", "key": "Escape", "selector": PALETTE_INPUT, "settle_ms": 150})
+
+
+def stress(rounds):
+    ui({"action": "init"})
+    ready()
+    failed = False
+    for t in ("dark", "light"):
+        theme(t)
+        ui({"action": "errors"})
+        switches = 0
+        errors = []
+        for _, route, tabs in TABS:
+            ui({"action": "navigate", "path": route, "settle_ms": 400})
+            for n in range(rounds):
+                for i, (_, label, href) in enumerate(tabs):
+                    ui(tab_step(href))
+                    switches += 1
+                    if (n + i) % 3 == 0:
+                        poke_menu(href)
+                    if (n + i) % 5 == 0:
+                        poke_palette()
+                    left = dismiss()
+                    if left:
+                        errors.append(f"第 {n + 1} 轮「{label}」之后还有没关掉的{'、'.join(left)}")
+                    for e in ui({"action": "errors"}).get("errors", []):
+                        errors.append(f"第 {n + 1} 轮「{label}」之后：{e}")
+        print(f"{t}\t切换 {switches} 次\t控制台错误 {len(errors)} 条")
+        for e in errors:
+            print(f"  ! {e}", file=sys.stderr)
+        failed = failed or bool(errors)
+    theme("system")
+    if failed:
+        sys.exit(1)
+
+
 def undo_parts():
     item = ".pref-item"
     return [("settings-snippet-undo-toast", "/settings?s=snippets", "删除一个片段：行立即消失，底部出现带「撤销」的提示",
@@ -1242,8 +1294,10 @@ def main():
         shots(sys.argv[2], sys.argv[3], rehearse=len(sys.argv) == 5)
     elif cmd == "index" and len(sys.argv) == 3:
         index(Path(sys.argv[2]))
+    elif cmd == "stress" and len(sys.argv) <= 3:
+        stress(int(sys.argv[2]) if len(sys.argv) == 3 else 30)
     else:
-        sys.exit("用法：ui_audit.py seed | clean | shots <目录> empty|data [--rehearse] | index <目录>")
+        sys.exit("用法：ui_audit.py seed | clean | shots <目录> empty|data [--rehearse] | index <目录> | stress [轮数]")
 
 
 if __name__ == "__main__":
