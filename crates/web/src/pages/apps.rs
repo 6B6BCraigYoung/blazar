@@ -4,6 +4,7 @@ use serde_json::{Value, json};
 
 use super::settings::{NOTIFY_KINDS, flag, rows, save, text};
 use crate::components::page_head::PageHead;
+use crate::components::prefs::{PrefAdvanced, PrefGroup, PrefRow, Switch};
 use crate::components::{
     dialog::{Choice, ask},
     status::{EmptyState, InlineError, LoadingState, Status, Tone},
@@ -60,6 +61,25 @@ fn state_tone(id: &str, value: &Value) -> &'static str {
     if ready(id, value) { "ok" } else { "neutral" }
 }
 
+fn next_step(id: &str, v: &Value) -> &'static str {
+    if !flag(v, "installed") {
+        return "安装";
+    }
+    match id {
+        "github" if !flag(v, "authed") => "登录",
+        "lark" if !flag(v, "configured") => "创建应用",
+        "lark" if !ready(id, v) => "登录",
+        "obsidian"
+            if rows(&v["vaults"])
+                .iter()
+                .any(|x| flag(x, "exists") && text(x, "workspace_id").is_empty()) =>
+        {
+            "创建工作区"
+        }
+        _ => "设置",
+    }
+}
+
 #[component]
 fn AppStatus(#[prop(into)] label: String, tone: &'static str) -> impl IntoView {
     let tone = match tone {
@@ -86,8 +106,7 @@ fn AppLogo(id: &'static str) -> impl IntoView {
             view! { <img class="apps-logo" src="/vendor/brands/isaacsim.png" alt="" /> }.into_any()
         }
         "mujoco" => {
-            view! { <img class="apps-logo apps-logo-wide" src="/vendor/brands/mujoco.svg" alt="" /> }
-                .into_any()
+            view! { <img class="apps-logo" src="/vendor/brands/mujoco.svg" alt="" /> }.into_any()
         }
         _ => ().into_any(),
     }
@@ -128,6 +147,11 @@ fn AppCard(id: &'static str, name: &'static str, desc: &'static str) -> impl Int
         rev.get();
         async move { api::get::<Value>(&format!("/api/office/{id}")).await }
     });
+    let step = move || {
+        data.get()
+            .and_then(Result::ok)
+            .map_or("打开", |v| next_step(id, &v))
+    };
     view! {
         <article class="card apps-card">
             <div class="apps-card-head">
@@ -162,9 +186,9 @@ fn AppCard(id: &'static str, name: &'static str, desc: &'static str) -> impl Int
             <a
                 class="btn apps-card-link"
                 href=format!("/apps/{id}")
-                aria-label=format!("管理 {name} 连接")
+                aria-label=move || format!("{name}：{}", step())
             >
-                "管理连接"
+                {step}
                 <span aria-hidden="true">"→"</span>
             </a>
         </article>
@@ -175,7 +199,7 @@ fn AppCard(id: &'static str, name: &'static str, desc: &'static str) -> impl Int
 pub fn AppDetailPage() -> impl IntoView {
     let params = use_params_map();
     view! {
-        <div class="page apps-page">
+        <div class="page apps-page detail-page">
             <For
                 each=move || vec![params.with(|p| p.get("id").unwrap_or_default())]
                 key=|id| id.clone()
@@ -210,57 +234,42 @@ fn AppDetail(id: &'static str, name: &'static str) -> impl IntoView {
         rev.get();
         async move { api::get::<Value>(&format!("/api/office/{id}")).await }
     });
+    let last = RwSignal::new(None::<Value>);
+    Effect::new(move |_| {
+        if let Some(Ok(v)) = data.get() {
+            last.set(Some(v));
+        }
+    });
+    let loading = Signal::derive(move || data.get().is_none());
     view! {
-        <PageHead parent=("接入的软件", "/apps") icon=move || view! { <AppLogo id /> } title=name>
-            <button class="btn" on:click=move |_| rev.update(|n| *n += 1)>
-                "刷新"
-            </button>
-        </PageHead>
-        {move || match data.get() {
-            None => view! { <LoadingState text="读取连接…" /> }.into_any(),
-            Some(Err(e)) => {
+        {move || match (last.get(), data.get()) {
+            (Some(v), _) => {
+                if id == "obsidian" {
+                    view! { <Obsidian initial=v rev loading /> }.into_any()
+                } else {
+                    view! { <ConnectApp id name initial=v rev loading /> }.into_any()
+                }
+            }
+            (None, Some(Err(e))) => {
                 view! {
-                    <InlineError
-                        message=e.to_string()
-                        retry=Callback::new(move |_| rev.update(|n| *n += 1))
-                    />
+                    <PageHead parent=("接入的软件", "/apps") icon=move || view! { <AppLogo id /> } title=name />
+                    <div class="detail-body">
+                        <InlineError
+                            message=e.to_string()
+                            retry=Callback::new(move |_| rev.update(|n| *n += 1))
+                        />
+                    </div>
                 }
                     .into_any()
             }
-            Some(Ok(v)) => {
-                if id == "obsidian" {
-                    view! { <Obsidian initial=v rev /> }.into_any()
-                } else {
-                    view! {
-                        <ConnectApp id initial=v.clone() rev />
-                        {if id == "lark" && flag(&v, "installed") {
-                            view! { <LarkSettings initial=v /> }.into_any()
-                        } else if id == "github" {
-                            view! {
-                                <section class="card settings-card">
-                                    <h3>"使用 GitHub"</h3>
-                                    <p>
-                                        "在工作区的 Git 面板创建 PR、查看状态和检查结果。"
-                                    </p>
-                                    <details class="apps-details">
-                                        <summary>"远端工作区"</summary>
-                                        <p class="muted">
-                                            "远端工作区使用所在机器上的 gh 登录态。这里管理本机连接。"
-                                        </p>
-                                    </details>
-                                    <div class="settings-actions">
-                                        <a href="/settings?s=git">"PR 默认设置"</a>
-                                        <a href="/skills?tab=market">"发现技能"</a>
-                                    </div>
-                                </section>
-                            }
-                                .into_any()
-                        } else {
-                            ().into_any()
-                        }}
-                    }
-                        .into_any()
+            _ => {
+                view! {
+                    <PageHead parent=("接入的软件", "/apps") icon=move || view! { <AppLogo id /> } title=name />
+                    <div class="detail-body">
+                        <LoadingState text="读取连接…" />
+                    </div>
                 }
+                    .into_any()
             }
         }}
     }
@@ -286,7 +295,13 @@ const DOMAINS: &[(&str, &str)] = &[
 ];
 
 #[component]
-fn ConnectApp(id: &'static str, initial: Value, rev: RwSignal<u32>) -> impl IntoView {
+fn ConnectApp(
+    id: &'static str,
+    name: &'static str,
+    initial: Value,
+    rev: RwSignal<u32>,
+    loading: Signal<bool>,
+) -> impl IntoView {
     let tick = RwSignal::new(0u32);
     let pending = RwSignal::new(false);
     let fetching = RwSignal::new(false);
@@ -324,7 +339,7 @@ fn ConnectApp(id: &'static str, initial: Value, rev: RwSignal<u32>) -> impl Into
         }),
         None => {}
     });
-    let busy = move || pending.get() || fetching.get() || poll.get().busy();
+    let busy = move || pending.get() || fetching.get() || poll.get().busy() || loading.get();
     let start = Callback::new(move |body: Value| {
         if busy() {
             return;
@@ -381,257 +396,341 @@ fn ConnectApp(id: &'static str, initial: Value, rev: RwSignal<u32>) -> impl Into
     let scope = RwSignal::new("recommend".to_owned());
     let domains = RwSignal::new(Vec::<String>::new());
     let installed = flag(&initial, "installed");
+    let can_install = flag(&initial, "can_install");
     let authed = if id == "lark" {
         flag(&initial["auth"]["user"], "available") || flag(&initial["auth"]["bot"], "available")
     } else {
         flag(&initial, "authed")
     };
     let configured = flag(&initial, "configured") || authed;
+    let login = move || {
+        if id == "lark" && scope.get_untracked() == "domains" && domains.get_untracked().is_empty()
+        {
+            toast("至少选择一项权限");
+            return;
+        }
+        start.run(
+            json!({"step":"login","scope":scope.get_untracked(),"domains":domains.get_untracked()}),
+        );
+    };
+    let status_label = state(id, &initial);
+    let status_tone = state_tone(id, &initial);
+    let version = text(&initial, "version");
+    let tool_text = if installed {
+        format!("已安装 {version}")
+    } else {
+        "未安装".to_owned()
+    };
+    let tool = if id == "lark" { "lark-cli" } else { "gh" };
+    let install_url = if id == "lark" {
+        "https://nodejs.org"
+    } else {
+        "https://cli.github.com"
+    };
+    let brand_label = if initial["auth"]["brand"] == "lark" {
+        "Lark"
+    } else {
+        "飞书"
+    };
+    let identities = if id == "lark" {
+        [("user", "用户"), ("bot", "机器人")]
+            .iter()
+            .filter(|(k, _)| flag(&initial["auth"][*k], "available"))
+            .map(|(_, l)| *l)
+            .collect::<Vec<_>>()
+            .join("、")
+    } else {
+        String::new()
+    };
+    let account_text = if !installed {
+        "先安装连接工具".to_owned()
+    } else if authed && identities.is_empty() {
+        "已登录".to_owned()
+    } else if authed {
+        format!("已登录（{identities}）")
+    } else if id == "lark" && !configured {
+        "先创建应用".to_owned()
+    } else {
+        "未登录".to_owned()
+    };
+    let account_detail = if authed || !installed {
+        ""
+    } else if id == "lark" && !configured {
+        "创建应用后再登录。"
+    } else {
+        "点上方「登录」，在浏览器完成授权。"
+    };
+    let settings_initial = initial.clone();
+    let commands = (
+        text(&initial, "install"),
+        initial["init"].as_str().map(str::to_owned),
+        initial["login"]
+            .as_str()
+            .unwrap_or(if id == "lark" {
+                "lark-cli auth login --recommend"
+            } else {
+                "gh auth login"
+            })
+            .to_owned(),
+    );
+    let primary = if !installed && can_install {
+        view! {
+            <button
+                type="button"
+                class="btn primary"
+                disabled=busy
+                on:click=move |_| start.run(json!({"step":"install"}))
+            >
+                "安装"
+            </button>
+        }
+        .into_any()
+    } else if !installed {
+        view! {
+            <a class="btn primary" href=install_url target="_blank" rel="noopener noreferrer">
+                "查看安装说明 ↗"
+            </a>
+        }
+        .into_any()
+    } else if id == "lark" && !configured {
+        view! {
+            <button
+                type="button"
+                class="btn primary"
+                disabled=busy
+                on:click=move |_| {
+                    start.run(json!({"step":"init","brand":brand.get_untracked(),"force":false}))
+                }
+            >
+                "创建应用"
+            </button>
+        }
+        .into_any()
+    } else if !authed {
+        view! {
+            <button type="button" class="btn primary" disabled=busy on:click=move |_| login()>
+                "登录"
+            </button>
+        }
+        .into_any()
+    } else {
+        ().into_any()
+    };
     view! {
-        <section class="card settings-card">
-            <div class="apps-section-head">
-                <h3>"连接状态"</h3>
-                <AppStatus label=state(id, &initial) tone=state_tone(id, &initial) />
-            </div>
-            {(!authed)
-                .then(|| {
-                    view! {
-                        <p class="muted">
-                            {if !installed {
-                                "先安装连接工具。"
-                            } else if id == "lark" && !configured {
-                                "创建应用后继续登录。"
-                            } else {
-                                "在浏览器完成授权后即可使用。"
-                            }}
-                        </p>
-                    }
-                })}
-            {(!installed)
-                .then(|| {
-                    view! {
-                        <div class="settings-row">
-                            <div class="settings-label">
-                                <b>"安装连接工具"</b>
-                            </div>
-                            {if flag(&initial, "can_install") {
-                                view! {
-                                    <button
-                                        class="btn primary"
-                                        disabled=busy
-                                        on:click=move |_| start.run(json!({"step":"install"}))
-                                    >
-                                        "安装"
-                                    </button>
+        <PageHead
+            parent=("接入的软件", "/apps")
+            icon=move || view! { <AppLogo id /> }
+            title=name
+            status=move || view! { <AppStatus label=status_label.clone() tone=status_tone /> }
+        >
+            {primary}
+            <button
+                type="button"
+                class="btn"
+                disabled=busy
+                on:click=move |_| rev.update(|n| *n += 1)
+            >
+                "刷新"
+            </button>
+        </PageHead>
+        <div class="detail-body">
+            <PrefGroup title="连接">
+                <PrefRow label="连接工具" detail=tool>
+                    <span class="pref-text">{tool_text}</span>
+                </PrefRow>
+                {(id == "lark" && installed)
+                    .then(|| {
+                        view! {
+                            <PrefRow
+                                label="应用"
+                                detail=if configured {
+                                    "重新创建后需要再次登录。"
+                                } else {
+                                    "选择飞书或 Lark，然后点上方「创建应用」。"
                                 }
-                                    .into_any()
-                            } else {
-                                view! {
-                                    <a
-                                        href=if id == "lark" {
-                                            "https://nodejs.org"
-                                        } else {
-                                            "https://cli.github.com"
-                                        }
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                    >
-                                        "查看安装说明 ↗"
-                                    </a>
-                                }
-                                    .into_any()
-                            }}
-                        </div>
-                    }
-                })}
-            {(id == "lark")
-                .then(|| {
-                    view! {
-                        <details class="apps-details" open=installed && !configured>
-                            <summary>"应用配置"</summary>
-                            <div class="settings-row">
-                                <div class="settings-label">
-                                    <b>
-                                        {if configured {
-                                            "当前应用"
-                                        } else {
-                                            "创建飞书应用"
-                                        }}
-                                    </b>
-                                    <span>
-                                        {if configured {
-                                            "重新创建后需要再次登录"
-                                        } else {
-                                            "选择飞书或 Lark"
-                                        }}
-                                    </span>
-                                </div>
-                                <div class="settings-actions">
-                                    <select
-                                        class="settings-input"
-                                        aria-label="飞书品牌"
-                                        prop:value=move || brand.get()
-                                        disabled=move || busy() || !installed
-                                        on:change=move |e| brand.set(event_target_value(&e))
-                                    >
-                                        <option
-                                            value="feishu"
-                                            selected=move || brand.get() == "feishu"
-                                        >
-                                            "飞书"
-                                        </option>
-                                        <option value="lark" selected=move || brand.get() == "lark">
-                                            "Lark"
-                                        </option>
-                                    </select>
-                                    <button
-                                        class=if configured { "btn" } else { "btn primary" }
-                                        disabled=move || busy() || !installed
-                                        on:click=move |_| {
-                                            start
-                                                .run(
-                                                    json!(
-                                                        {"step":"init","brand":brand.get_untracked(),"force":configured}
-                                                    ),
-                                                )
-                                        }
-                                    >
-                                        {if configured {
-                                            "重新创建…"
-                                        } else {
-                                            "创建应用"
-                                        }}
-                                    </button>
-                                </div>
-                            </div>
-                        </details>
-                    }
-                })}
-            <details class="apps-details" open=installed && (id != "lark" || configured) && !authed>
-                <summary>"登录与权限"</summary>
-                <div class="settings-row">
-                    <div class="settings-label">
-                        <b>"账号授权"</b>
-                        <span>
-                            {if authed {
-                                "管理此账号的访问权限"
-                            } else {
-                                "在浏览器完成授权"
-                            }}
-                        </span>
-                    </div>
-                    <div class="settings-actions">
-                        {(id == "lark")
-                            .then(|| {
-                                view! {
-                                    <select
-                                        class="settings-input"
-                                        aria-label="授权范围"
-                                        prop:value=move || scope.get()
-                                        disabled=busy
-                                        on:change=move |e| scope.set(event_target_value(&e))
-                                    >
-                                        <option
-                                            value="recommend"
-                                            selected=move || scope.get() == "recommend"
-                                        >
-                                            "推荐权限"
-                                        </option>
-                                        <option value="all" selected=move || scope.get() == "all">
-                                            "全部权限"
-                                        </option>
-                                        <option
-                                            value="domains"
-                                            selected=move || scope.get() == "domains"
-                                        >
-                                            "自选权限"
-                                        </option>
-                                    </select>
-                                }
-                            })}
-                        <button
-                            class=if authed { "btn" } else { "btn primary" }
-                            disabled=move || busy() || !installed || (id == "lark" && !configured)
-                            on:click=move |_| {
-                                if id == "lark" && scope.get_untracked() == "domains"
-                                    && domains.get_untracked().is_empty()
-                                {
-                                    toast("至少选择一项权限");
-                                    return;
-                                }
-                                start
-                                    .run(
-                                        json!(
-                                            {"step":"login","scope":scope.get_untracked(),"domains":domains.get_untracked()}
-                                        ),
-                                    );
-                            }
-                        >
-                            {if authed { "重新授权" } else { "登录" }}
-                        </button>
-                        {authed
-                            .then(|| {
-                                view! {
-                                    <button
-                                        class="btn danger"
-                                        disabled=busy
-                                        on:click=move |_| start.run(json!({"step":"logout"}))
-                                    >
-                                        "退出登录"
-                                    </button>
-                                }
-                            })}
-                    </div>
-                </div>
-                <Show when=move || id == "lark" && scope.get() == "domains">
-                    <div class="settings-checks">
-                        {DOMAINS
-                            .iter()
-                            .map(move |&(domain, label)| {
-                                view! {
-                                    <label>
-                                        <input
-                                            type="checkbox"
+                            >
+                                {if configured {
+                                    view! {
+                                        <span class="pref-text">{brand_label}</span>
+                                        <button
+                                            type="button"
+                                            class="btn"
                                             disabled=busy
-                                            prop:checked=move || {
-                                                domains.get().iter().any(|d| d == domain)
+                                            on:click=move |_| {
+                                                start
+                                                    .run(
+                                                        json!(
+                                                            {"step":"init","brand":brand.get_untracked(),"force":true}
+                                                        ),
+                                                    )
                                             }
-                                            on:change=move |e| {
-                                                let checked = event_target_checked(&e);
-                                                domains
-                                                    .update(|d| {
-                                                        d.retain(|s| s != domain);
-                                                        if checked {
-                                                            d.push(domain.into());
-                                                        }
-                                                    });
-                                            }
-                                        />
-                                        {label}
-                                    </label>
-                                }
-                            })
-                            .collect_view()}
-                    </div>
+                                        >
+                                            "重新创建…"
+                                        </button>
+                                    }
+                                        .into_any()
+                                } else {
+                                    view! {
+                                        <select
+                                            class="settings-input"
+                                            aria-label="飞书品牌"
+                                            prop:value=move || brand.get()
+                                            disabled=busy
+                                            on:change=move |e| brand.set(event_target_value(&e))
+                                        >
+                                            <option
+                                                value="feishu"
+                                                selected=move || brand.get() == "feishu"
+                                            >
+                                                "飞书"
+                                            </option>
+                                            <option value="lark" selected=move || brand.get() == "lark">
+                                                "Lark"
+                                            </option>
+                                        </select>
+                                    }
+                                        .into_any()
+                                }}
+                            </PrefRow>
+                        }
+                    })}
+                <PrefRow label="账号" detail=account_detail>
+                    {(id == "lark" && installed && configured)
+                        .then(|| {
+                            view! {
+                                <select
+                                    class="settings-input"
+                                    aria-label="授权范围"
+                                    prop:value=move || scope.get()
+                                    disabled=busy
+                                    on:change=move |e| scope.set(event_target_value(&e))
+                                >
+                                    <option
+                                        value="recommend"
+                                        selected=move || scope.get() == "recommend"
+                                    >
+                                        "推荐权限"
+                                    </option>
+                                    <option value="all" selected=move || scope.get() == "all">
+                                        "全部权限"
+                                    </option>
+                                    <option
+                                        value="domains"
+                                        selected=move || scope.get() == "domains"
+                                    >
+                                        "自选权限"
+                                    </option>
+                                </select>
+                            }
+                        })}
+                    <span class="pref-text">{account_text}</span>
+                    {authed
+                        .then(|| {
+                            view! {
+                                <button
+                                    type="button"
+                                    class="btn"
+                                    disabled=busy
+                                    on:click=move |_| login()
+                                >
+                                    "重新授权"
+                                </button>
+                                <button
+                                    type="button"
+                                    class="btn danger"
+                                    disabled=busy
+                                    on:click=move |_| start.run(json!({"step":"logout"}))
+                                >
+                                    "退出登录"
+                                </button>
+                            }
+                        })}
+                </PrefRow>
+                <Show when=move || id == "lark" && installed && configured && scope.get() == "domains">
+                    <PrefRow label="自选权限">
+                        <div class="settings-checks">
+                            {DOMAINS
+                                .iter()
+                                .map(move |&(domain, label)| {
+                                    view! {
+                                        <label>
+                                            <input
+                                                type="checkbox"
+                                                disabled=busy
+                                                prop:checked=move || {
+                                                    domains.get().iter().any(|d| d == domain)
+                                                }
+                                                on:change=move |e| {
+                                                    let checked = event_target_checked(&e);
+                                                    domains
+                                                        .update(|d| {
+                                                            d.retain(|s| s != domain);
+                                                            if checked {
+                                                                d.push(domain.into());
+                                                            }
+                                                        });
+                                                }
+                                            />
+                                            {label}
+                                        </label>
+                                    }
+                                })
+                                .collect_view()}
+                        </div>
+                    </PrefRow>
                 </Show>
-            </details>
+                <PrefAdvanced title="连接详情">
+                    {
+                        let version = version.clone();
+                        view! {
+                            <PrefRow label="版本">
+                                <code>{if version.is_empty() { "—".to_owned() } else { version }}</code>
+                            </PrefRow>
+                        }
+                    }
+                    {
+                        let install = commands.0.clone();
+                        view! {
+                            <PrefRow label="安装">
+                                <code>{install}</code>
+                            </PrefRow>
+                        }
+                    }
+                    {commands
+                        .1
+                        .clone()
+                        .map(|init| {
+                            view! {
+                                <PrefRow label="配置">
+                                    <code>{init}</code>
+                                </PrefRow>
+                            }
+                        })}
+                    {
+                        let login = commands.2.clone();
+                        view! {
+                            <PrefRow label="登录">
+                                <code>{login}</code>
+                            </PrefRow>
+                        }
+                    }
+                    <p>"安装与登录在本机执行，令牌由软件自己的命令行管理。"</p>
+                    {(id == "lark")
+                        .then(|| {
+                            view! { <p>"绑定已有应用需要 App ID 和 Secret，请在终端配置。"</p> }
+                        })}
+                </PrefAdvanced>
+            </PrefGroup>
             {move || {
                 job.get()
                     .and_then(Result::err)
                     .map(|error| {
                         view! {
-                            <InlineError message="连接状态读取失败，正在重试。" />
-                            <details class="apps-details">
-                                <summary>"错误详情"</summary>
-                                <p>{error.to_string()}</p>
-                            </details>
-                            <button
-                                class="btn"
-                                disabled=move || fetching.get() || pending.get()
-                                on:click=move |_| tick.update(|n| *n += 1)
-                            >
-                                "重试"
-                            </button>
+                            <InlineError
+                                message="连接状态读取失败，正在重试。"
+                                detail=error.to_string()
+                                retry=Callback::new(move |_| tick.update(|n| *n += 1))
+                            />
                         }
                     })
             }}
@@ -644,44 +743,29 @@ fn ConnectApp(id: &'static str, initial: Value, rev: RwSignal<u32>) -> impl Into
                         }
                     })
             }}
-            <details class="apps-details">
-                <summary>"连接详情与终端配置"</summary>
-                <p class="muted">
-                    {format!(
-                        "连接工具：{} · 版本：{}",
-                        if installed { "已安装" } else { "未安装" },
-                        text(&initial, "version"),
-                    )}
-                </p>
-                <p class="muted">
-                    "安装与登录在本机执行，令牌由软件自己的命令行管理。"
-                </p>
-                {(id == "lark")
-                    .then(|| {
-                        view! {
-                            <p class="muted">
-                                "绑定已有应用需要 App ID 和 Secret，请在终端配置。"
-                            </p>
-                        }
-                    })}
-                <pre class="settings-pre">
-                    {format!(
-                        "安装：{}\n配置：{}\n登录：{}",
-                        text(&initial, "install"),
-                        initial["init"].as_str().unwrap_or("—"),
-                        initial["login"]
-                            .as_str()
-                            .unwrap_or(
-                                if id == "lark" {
-                                    "lark-cli auth login --recommend"
-                                } else {
-                                    "gh auth login"
-                                },
-                            ),
-                    )}
-                </pre>
-            </details>
-        </section>
+            {(id == "lark" && installed)
+                .then(|| view! { <LarkSettings initial=settings_initial.clone() /> })}
+            {(id == "github")
+                .then(|| {
+                    view! {
+                        <PrefGroup
+                            title="使用 GitHub"
+                            note="在工作区的 Git 面板创建 PR、查看状态和检查结果。远端工作区使用所在机器上的 gh 登录态，这里管理本机连接。"
+                        >
+                            <PrefRow label="PR 默认设置" detail="草稿 PR、分支前缀和 AI 起草。">
+                                <a class="btn" href="/settings?s=git">
+                                    "打开设置"
+                                </a>
+                            </PrefRow>
+                            <PrefRow label="技能" detail="从 GitHub 发现并导入技能。">
+                                <a class="btn" href="/skills?tab=market">
+                                    "发现技能"
+                                </a>
+                            </PrefRow>
+                        </PrefGroup>
+                    }
+                })}
+        </div>
     }
 }
 
@@ -707,104 +791,119 @@ fn ConnectJob(id: &'static str, data: Value, tick: RwSignal<u32>) -> impl IntoVi
         .as_str()
         .filter(|s| s.starts_with("https://") || s.starts_with("http://"))
         .map(str::to_owned);
+    let message = data["message"]
+        .as_str()
+        .filter(|message| !message.trim().is_empty())
+        .map(str::to_owned);
+    let lines = rows(&data["lines"])
+        .into_iter()
+        .filter_map(|s| s.as_str().map(str::to_owned))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let summary = format!("{} · {}", text(&data, "step"), text(&data, "status"));
+    let code = data["code"].as_str().map(str::to_owned);
+    let qr = data["qr"]
+        .as_str()
+        .filter(|s| s.starts_with("data:image/"))
+        .map(str::to_owned);
+    let untrusted = running && !flag(&data, "url_trusted") && data["url"].is_string();
     view! {
-        <div class="app-connect-job" aria-live="polite">
-            <div class="settings-actions">
-                <b>{step}</b>
-                <AppStatus label=status tone />
-                <span class="grow"></span>
-                {running
+        <PrefGroup title=step>
+            <div aria-live="polite">
+                <PrefRow label="状态">
+                    <AppStatus label=status tone />
+                    {running
+                        .then(|| {
+                            view! {
+                                <button
+                                    type="button"
+                                    class="btn"
+                                    disabled=move || cancel.get()
+                                    on:click=move |_| {
+                                        cancel.set(true);
+                                        leptos::task::spawn_local(async move {
+                                            match api::send::<
+                                                Value,
+                                            >(
+                                                    "POST",
+                                                    &format!("/api/office/{id}/job/cancel"),
+                                                    &json!({}),
+                                                )
+                                                .await
+                                            {
+                                                Ok(_) => tick.update(|n| *n += 1),
+                                                Err(e) => toast(e.to_string()),
+                                            }
+                                            cancel.set(false);
+                                        });
+                                    }
+                                >
+                                    "取消"
+                                </button>
+                            }
+                        })}
+                </PrefRow>
+                {message
+                    .map(|message| {
+                        view! {
+                            <PrefRow label="提示">
+                                <span class="pref-text" class:bad=tone == "error">
+                                    {message}
+                                </span>
+                            </PrefRow>
+                        }
+                    })}
+                {code
+                    .map(|code| {
+                        view! {
+                            <PrefRow label="一次性验证码">
+                                <strong>{code}</strong>
+                            </PrefRow>
+                        }
+                    })}
+                {url
+                    .map(|url| {
+                        view! {
+                            <PrefRow label="授权页面" detail=url.clone()>
+                                <a
+                                    class="btn primary"
+                                    href=url
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                >
+                                    "打开授权页面 ↗"
+                                </a>
+                            </PrefRow>
+                        }
+                    })}
+                {qr
+                    .map(|qr| {
+                        view! {
+                            <PrefRow label="二维码" detail="用飞书扫码登录。">
+                                <img class="app-qr" src=qr alt="授权二维码" />
+                            </PrefRow>
+                        }
+                    })}
+                {untrusted
                     .then(|| {
                         view! {
-                            <button
-                                class="btn"
-                                disabled=move || cancel.get()
-                                on:click=move |_| {
-                                    cancel.set(true);
-                                    leptos::task::spawn_local(async move {
-                                        match api::send::<
-                                            Value,
-                                        >(
-                                                "POST",
-                                                &format!("/api/office/{id}/job/cancel"),
-                                                &json!({}),
-                                            )
-                                            .await
-                                        {
-                                            Ok(_) => tick.update(|n| *n += 1),
-                                            Err(e) => toast(e.to_string()),
-                                        }
-                                        cancel.set(false);
-                                    });
-                                }
-                            >
-                                "取消"
-                            </button>
+                            <p class="pref-status bad">
+                                "此链接域名不在应用官方域名列表中，请核对后打开。"
+                            </p>
                         }
                     })}
             </div>
-            {data["message"]
-                .as_str()
-                .filter(|message| !message.trim().is_empty())
-                .map(|message| {
-                    if tone == "error" {
-                        view! { <InlineError message=message.to_owned() /> }.into_any()
-                    } else {
-                        view! { <p class="muted small">{message.to_owned()}</p> }.into_any()
-                    }
-                })}
-            {data["code"]
-                .as_str()
-                .map(|code| {
-                    view! { <p>"一次性验证码："<strong>{code.to_owned()}</strong></p> }
-                })}
-            {url
-                .map(|url| {
-                    view! {
-                        <div class="settings-actions">
-                            <a
-                                class="btn primary"
-                                href=url.clone()
-                                target="_blank"
-                                rel="noopener noreferrer"
-                            >
-                                "打开授权页面 ↗"
-                            </a>
-                            <code>{url}</code>
-                        </div>
-                    }
-                })}
-            {data["qr"]
-                .as_str()
-                .filter(|s| s.starts_with("data:image/"))
-                .map(|qr| view! { <img class="app-qr" src=qr.to_owned() alt="授权二维码" /> })}
-            {(running && !flag(&data, "url_trusted") && data["url"].is_string())
-                .then(|| {
-                    view! {
-                        <p class="err-line">
-                            "此链接域名不在应用官方域名列表中，请核对后打开。"
-                        </p>
-                    }
-                })}
-            <details class="apps-details">
-                <summary>"操作详情"</summary>
-                <p class="muted">
-                    {format!("{} · {}", text(&data, "step"), text(&data, "status"))}
-                </p>
-                {(!rows(&data["lines"]).is_empty())
-                    .then(|| {
-                        view! {
-                            <pre class="settings-pre">
-                                {rows(&data["lines"])
-                                    .into_iter()
-                                    .filter_map(|s| s.as_str().map(str::to_owned))
-                                    .collect::<Vec<_>>()
-                                    .join("\n")}
-                            </pre>
-                        }
-                    })}
-            </details>
-        </div>
+            <PrefAdvanced title="操作详情">
+                {
+                    let summary = summary.clone();
+                    view! { <p>{summary}</p> }
+                }
+                {
+                    let lines = lines.clone();
+                    (!lines.is_empty()).then(|| view! { <pre class="settings-pre">{lines}</pre> })
+                }
+            </PrefAdvanced>
+        </PrefGroup>
     }
 }
 
@@ -822,7 +921,20 @@ fn LarkSettings(initial: Value) -> impl IntoView {
             .collect::<Vec<_>>(),
     );
     let output = RwSignal::new(String::new());
+    let skills = format!(
+        "本机 {} 个，已导入 {} 个。",
+        initial["skills_local"], initial["skills_imported"],
+    );
     let patch = move || json!({"notify":{"enabled":enabled.get_untracked(),"target":target.get_untracked().trim(),"as":identity.get_untracked(),"kinds":kinds.get_untracked()}});
+    let persist = move |undo: Box<dyn FnOnce() + 'static>| {
+        busy.set(true);
+        leptos::task::spawn_local(async move {
+            if !save("PUT", "/api/office/lark/settings", patch()).await {
+                undo();
+            }
+            busy.set(false);
+        });
+    };
     let test = Callback::new(move |dry: bool| {
         if busy.get_untracked() {
             return;
@@ -855,14 +967,51 @@ fn LarkSettings(initial: Value) -> impl IntoView {
             busy.set(false);
         });
     });
+    let import = move || {
+        busy.set(true);
+        leptos::task::spawn_local(async move {
+            if ask(
+                "导入并覆盖飞书技能",
+                "技能库中同名的飞书技能文件将被替换，本地修改无法恢复。",
+                vec![Choice::plain("取消"), Choice::danger("导入并覆盖")],
+            )
+            .await
+                != Some(1)
+            {
+                busy.set(false);
+                return;
+            }
+            let result = async {
+                let found = api::get::<Value>("/api/skills/import").await?;
+                let sources = rows(&found)
+                    .into_iter()
+                    .filter(|s| text(s, "name").starts_with("lark-"))
+                    .map(|s| s["source"].clone())
+                    .collect::<Vec<_>>();
+                api::send::<Value>(
+                    "POST",
+                    "/api/skills/import",
+                    &json!({"sources":sources,"conflict":"overwrite"}),
+                )
+                .await
+            }
+            .await;
+            match result {
+                Ok(r) => {
+                    output.set(serde_json::to_string_pretty(&r).unwrap_or_default());
+                    toast("飞书技能导入完成，可在智能体能力页配置");
+                }
+                Err(e) => toast(e.to_string()),
+            }
+            busy.set(false);
+        });
+    };
     view! {
-        <section class="card settings-card">
-            <h3>"智能体权限"</h3>
-            <p class="muted">
-                "飞书操作在本机执行。高风险写操作以及登录、配置命令始终被限制。"
-            </p>
-            <div class="settings-row">
-                <label for="lark-access">"权限"</label>
+        <PrefGroup
+            title="智能体权限"
+            note="飞书操作在本机执行。高风险写操作以及登录、配置命令始终被限制。"
+        >
+            <PrefRow label="权限" for_id="lark-access">
                 <select
                     id="lark-access"
                     class="settings-input"
@@ -908,177 +1057,132 @@ fn LarkSettings(initial: Value) -> impl IntoView {
                         "读写"
                     </option>
                 </select>
-            </div>
-            <details class="apps-details">
-                <summary>"飞书技能"</summary>
-                <div class="settings-row">
-                    <div class="settings-label">
-                        <b>"技能包"</b>
-                        <span>
-                            {format!(
-                                "本机 {} 个，已导入 {} 个",
-                                initial["skills_local"],
-                                initial["skills_imported"],
-                            )}
-                        </span>
-                    </div>
-                    <button
-                        class="btn"
-                        disabled=move || busy.get()
-                        on:click=move |_| {
-                            busy.set(true);
-                            leptos::task::spawn_local(async move {
-                                if ask(
-                                        "导入并覆盖飞书技能",
-                                        "技能库中同名的飞书技能文件将被替换，本地修改无法恢复。",
-                                        vec![
-                                            Choice::plain("取消"),
-                                            Choice::danger("导入并覆盖"),
-                                        ],
-                                    )
-                                    .await != Some(1)
-                                {
-                                    busy.set(false);
-                                    return;
-                                }
-                                let result = async {
-                                    let found = api::get::<Value>("/api/skills/import").await?;
-                                    let sources = rows(&found)
-                                        .into_iter()
-                                        .filter(|s| text(s, "name").starts_with("lark-"))
-                                        .map(|s| s["source"].clone())
-                                        .collect::<Vec<_>>();
-                                    api::send::<
-                                        Value,
-                                    >(
-                                            "POST",
-                                            "/api/skills/import",
-                                            &json!({"sources":sources,"conflict":"overwrite"}),
-                                        )
-                                        .await
-                                }
-                                    .await;
-                                match result {
-                                    Ok(r) => {
-                                        output
-                                            .set(serde_json::to_string_pretty(&r).unwrap_or_default());
-                                        toast(
-                                            "飞书技能导入完成，可在智能体能力页配置",
-                                        );
-                                    }
-                                    Err(e) => toast(e.to_string()),
-                                }
-                                busy.set(false);
-                            });
-                        }
-                    >
-                        "导入或更新技能"
-                    </button>
-                </div>
-            </details>
-        </section>
-        <section class="card settings-card">
-            <h3>"转发工作提醒"</h3>
-            <p class="muted">
-                "提醒内容包含标题、正文摘要，可能带工作区名和智能体回复。"
-            </p>
-            <form
-                class="settings-form"
-                on:submit=move |e| {
-                    e.prevent_default();
-                    if busy.get_untracked() {
-                        return;
+            </PrefRow>
+            <PrefRow label="飞书技能" detail=skills>
+                <button
+                    type="button"
+                    class="btn"
+                    disabled=move || busy.get()
+                    on:click=move |_| import()
+                >
+                    "导入或更新技能"
+                </button>
+            </PrefRow>
+            <LarkCalls />
+        </PrefGroup>
+        <PrefGroup
+            title="转发工作提醒"
+            note="提醒内容包含标题、正文摘要，可能带工作区名和智能体回复。改动随手保存。"
+        >
+            <PrefRow label="开启转发" for_id="lark-notify">
+                <Switch
+                    id="lark-notify"
+                    checked=enabled
+                    disabled=busy
+                    on_change=move |v: bool| {
+                        enabled.set(v);
+                        persist(Box::new(move || enabled.set(!v)));
                     }
-                    busy.set(true);
-                    leptos::task::spawn_local(async move {
-                        save("PUT", "/api/office/lark/settings", patch()).await;
-                        busy.set(false);
-                    });
-                }
+                />
+            </PrefRow>
+            <PrefRow
+                label="接收群或用户"
+                detail="群聊填写群 ID（oc_ 开头），个人填写用户 ID（ou_ 开头）。"
+                for_id="lark-target"
             >
-                <fieldset disabled=move || busy.get()>
-                    <label>
-                        <input
-                            type="checkbox"
-                            prop:checked=move || enabled.get()
-                            on:change=move |e| enabled.set(event_target_checked(&e))
-                        />
-                        " 开启转发"
-                    </label>
-                    <label class="settings-field">
-                        "接收群或用户"
-                        <span class="muted">"群聊填写群 ID（oc_ 开头），个人填写用户 ID（ou_ 开头）。"</span>
-                        <input
-                            class="settings-input"
-                            placeholder="oc_… 或 ou_…"
-                            prop:value=move || target.get()
-                            on:input=move |e| target.set(event_target_value(&e))
-                        />
-                    </label>
-                    <label class="settings-field">
-                        "发送身份"
-                        <select
-                            class="settings-input"
-                            prop:value=move || identity.get()
-                            on:change=move |e| identity.set(event_target_value(&e))
-                        >
-                            <option value="" selected=move || identity.get() == "">
-                                "默认身份"
-                            </option>
-                            <option value="bot" selected=move || identity.get() == "bot">
-                                "机器人"
-                            </option>
-                            <option value="user" selected=move || identity.get() == "user">
-                                "我自己"
-                            </option>
-                        </select>
-                    </label>
-                    <div class="settings-checks">
-                        {NOTIFY_KINDS
-                            .iter()
-                            .map(move |&(kind, label)| {
-                                view! {
-                                    <label>
-                                        <input
-                                            type="checkbox"
-                                            prop:checked=move || kinds.get().iter().any(|s| s == kind)
-                                            on:change=move |e| {
-                                                let checked = event_target_checked(&e);
-                                                kinds
-                                                    .update(|ks| {
-                                                        ks.retain(|s| s != kind);
-                                                        if checked {
-                                                            ks.push(kind.into());
-                                                        }
-                                                    });
+                <input
+                    id="lark-target"
+                    class="settings-input"
+                    placeholder="oc_… 或 ou_…"
+                    autocomplete="off"
+                    spellcheck="false"
+                    disabled=move || busy.get()
+                    prop:value=move || target.get()
+                    on:change=move |e| {
+                        let next = event_target_value(&e).trim().to_owned();
+                        let old = target.get_untracked();
+                        if next == old {
+                            return;
+                        }
+                        target.set(next);
+                        persist(Box::new(move || target.set(old)));
+                    }
+                />
+            </PrefRow>
+            <PrefRow label="发送身份" for_id="lark-as">
+                <select
+                    id="lark-as"
+                    class="settings-input"
+                    disabled=move || busy.get()
+                    prop:value=move || identity.get()
+                    on:change=move |e| {
+                        let next = event_target_value(&e);
+                        let old = identity.get_untracked();
+                        identity.set(next);
+                        persist(Box::new(move || identity.set(old)));
+                    }
+                >
+                    <option value="" selected=move || identity.get() == "">
+                        "默认身份"
+                    </option>
+                    <option value="bot" selected=move || identity.get() == "bot">
+                        "机器人"
+                    </option>
+                    <option value="user" selected=move || identity.get() == "user">
+                        "我自己"
+                    </option>
+                </select>
+            </PrefRow>
+            {NOTIFY_KINDS
+                .iter()
+                .map(move |&(kind, label)| {
+                    let id = format!("lark-kind-{kind}");
+                    view! {
+                        <PrefRow label=label for_id=id.clone()>
+                            <Switch
+                                id=id
+                                checked=Signal::derive(move || kinds.get().iter().any(|s| s == kind))
+                                disabled=busy
+                                on_change=move |checked: bool| {
+                                    let old = kinds.get_untracked();
+                                    kinds
+                                        .update(|ks| {
+                                            ks.retain(|s| s != kind);
+                                            if checked {
+                                                ks.push(kind.into());
                                             }
-                                        />
-                                        {label}
-                                    </label>
+                                        });
+                                    persist(Box::new(move || kinds.set(old)));
                                 }
-                            })
-                            .collect_view()}
-                    </div>
-                    <div class="settings-actions">
-                        <button class="btn primary" type="submit">
-                            "保存"
-                        </button>
-                        <button class="btn" type="button" on:click=move |_| test.run(true)>
-                            "预览提醒"
-                        </button>
-                        <button class="btn" type="button" on:click=move |_| test.run(false)>
-                            "发送测试消息"
-                        </button>
-                    </div>
-                </fieldset>
-            </form>
+                            />
+                        </PrefRow>
+                    }
+                })
+                .collect_view()}
+            <PrefRow label="测试" detail="按当前设置预览一条提醒，或真的发一条到接收方。">
+                <button
+                    type="button"
+                    class="btn"
+                    disabled=move || busy.get()
+                    on:click=move |_| test.run(true)
+                >
+                    "预览提醒"
+                </button>
+                <button
+                    type="button"
+                    class="btn"
+                    disabled=move || busy.get()
+                    on:click=move |_| test.run(false)
+                >
+                    "发送测试消息"
+                </button>
+            </PrefRow>
             <Show when=move || !output.get().is_empty()>
-                <pre class="settings-pre" aria-live="polite">
+                <pre class="settings-pre pref-log" aria-live="polite">
                     {move || output.get()}
                 </pre>
             </Show>
-        </section>
-        <LarkCalls />
+        </PrefGroup>
     }
 }
 
@@ -1086,57 +1190,45 @@ fn LarkSettings(initial: Value) -> impl IntoView {
 fn LarkCalls() -> impl IntoView {
     let data = LocalResource::new(|| api::get::<Value>("/api/office/lark/calls"));
     view! {
-        <section class="card settings-card">
-            <details class="apps-details">
-                <summary>"智能体调用记录"</summary>
-                <p class="muted">"只记录命令，不记录消息或文档正文等参数。"</p>
-                {move || match data.get() {
-                    None => {
-                        view! {
-                            <LoadingState text="读取调用记录…" class="apps-inline-state" />
-                        }
+        <PrefAdvanced title="智能体调用记录">
+            <p>"只记录命令，不记录消息或文档正文等参数。"</p>
+            {move || match data.get() {
+                None => {
+                    view! { <LoadingState text="读取调用记录…" class="apps-inline-state" /> }
+                        .into_any()
+                }
+                Some(Err(e)) => view! { <InlineError message=e.to_string() /> }.into_any(),
+                Some(Ok(v)) => {
+                    let list = rows(&v);
+                    if list.is_empty() {
+                        view! { <EmptyState title="还没有调用记录" class="apps-inline-state" /> }
+                            .into_any()
+                    } else {
+                        list.into_iter()
+                            .map(|c| {
+                                view! {
+                                    <PrefRow
+                                        label=format!("lark-cli {}", text(&c, "command"))
+                                        detail=format!(
+                                            "{} · {} · {}",
+                                            text(&c, "verdict"),
+                                            text(&c, "risk"),
+                                            text(&c, "created_at"),
+                                        )
+                                    />
+                                }
+                            })
+                            .collect_view()
                             .into_any()
                     }
-                    Some(Err(e)) => view! { <InlineError message=e.to_string() /> }.into_any(),
-                    Some(Ok(v)) => {
-                        let list = rows(&v);
-                        if list.is_empty() {
-                            view! {
-                                <EmptyState
-                                    title="还没有调用记录"
-                                    class="apps-inline-state"
-                                />
-                            }
-                                .into_any()
-                        } else {
-                            list.into_iter()
-                                .map(|c| {
-                                    view! {
-                                        <div class="settings-row">
-                                            <code>{format!("lark-cli {}", text(&c, "command"))}</code>
-                                            <span>
-                                                {format!(
-                                                    "{} · {} · {}",
-                                                    text(&c, "verdict"),
-                                                    text(&c, "risk"),
-                                                    text(&c, "created_at"),
-                                                )}
-                                            </span>
-                                        </div>
-                                    }
-                                })
-                                .collect_view()
-                                .into_any()
-                        }
-                    }
-                }}
-            </details>
-        </section>
+                }
+            }}
+        </PrefAdvanced>
     }
 }
 
 #[component]
-fn Obsidian(initial: Value, rev: RwSignal<u32>) -> impl IntoView {
+fn Obsidian(initial: Value, rev: RwSignal<u32>, loading: Signal<bool>) -> impl IntoView {
     let navigate = StoredValue::new_local(use_navigate());
     let app = use_app();
     let busy = RwSignal::new(false);
@@ -1156,244 +1248,246 @@ fn Obsidian(initial: Value, rev: RwSignal<u32>) -> impl IntoView {
             .unwrap_or(first),
     );
     let folder = RwSignal::new(text(&initial["prefs"], "folder"));
+    let installed = flag(&initial, "installed");
     let has_live = !live.is_empty();
+    let status_label = state("obsidian", &initial);
+    let status_tone = state_tone("obsidian", &initial);
     let persist =
         move || json!({"vault":vault.get_untracked(),"folder":folder.get_untracked().trim()});
+    let put = move |undo: Box<dyn FnOnce() + 'static>| {
+        busy.set(true);
+        leptos::task::spawn_local(async move {
+            if !save("PUT", "/api/office/obsidian/settings", persist()).await {
+                undo();
+            }
+            busy.set(false);
+        });
+    };
+    let create = move |path: String| {
+        busy.set(true);
+        leptos::task::spawn_local(async move {
+            match api::send::<Value>(
+                "POST",
+                "/api/workspaces",
+                &json!({"node":"local","path":path,"name":null,"project":null}),
+            )
+            .await
+            {
+                Ok(r) => {
+                    app.load_state();
+                    navigate
+                        .with_value(|go| go(&format!("/w/{}", text(&r, "id")), Default::default()));
+                    rev.update(|n| *n += 1);
+                }
+                Err(e) => toast(e.to_string()),
+            }
+            busy.set(false);
+        });
+    };
+    let write_test = move || {
+        busy.set(true);
+        leptos::task::spawn_local(async move {
+            if ask(
+                "写入测试笔记",
+                "将在当前笔记库写入「Blazar 测试笔记」，同名笔记会被覆盖。",
+                vec![Choice::plain("取消"), Choice::danger("写入并覆盖")],
+            )
+            .await
+                != Some(1)
+            {
+                busy.set(false);
+                return;
+            }
+            if save("PUT", "/api/office/obsidian/settings", persist()).await {
+                match api::send::<Value>(
+                    "POST",
+                    "/api/office/obsidian/note",
+                    &json!({"title":"Blazar 测试笔记","content":"# Blazar 测试笔记\n\n这篇测试笔记可以删除。\n","overwrite":true}),
+                )
+                .await
+                {
+                    Ok(v) => output.set(Some(v)),
+                    Err(e) => toast(e.to_string()),
+                }
+            }
+            busy.set(false);
+        });
+    };
     view! {
-        <section class="card settings-card">
-            <div class="apps-section-head">
-                <h3>"笔记库"</h3>
-                <AppStatus
-                    label=state("obsidian", &initial)
-                    tone=state_tone("obsidian", &initial)
-                />
-            </div>
-            <p class="muted">"打开笔记库作为工作区，或把任务保存为笔记。"</p>
-            <details class="apps-details">
-                <summary>"笔记库来源"</summary>
-                <p class="muted">
-                    "列表来自 Obsidian 记录的本机 Markdown 文件夹，无需插件或登录。"
-                </p>
-            </details>
-            {if !flag(&initial, "installed") {
-                view! {
-                    <a href="https://obsidian.md" target="_blank" rel="noopener noreferrer">
-                        "安装 Obsidian ↗"
-                    </a>
-                }
-                    .into_any()
-            } else if vaults.is_empty() {
-                view! {
-                    <EmptyState
-                        title="还没有笔记库"
-                        detail="先在 Obsidian 新建或打开一个库，再刷新本页。"
-                        class="apps-inline-state"
-                    />
-                }
-                    .into_any()
-            } else {
-                vaults
-                    .into_iter()
-                    .map(move |v| {
-                        let path = text(&v, "path");
-                        let ws = text(&v, "workspace_id");
-                        view! {
-                            <div class="settings-row">
-                                <div class="settings-label">
-                                    <b>{text(&v, "name")}</b>
-                                    <span>
-                                        {if flag(&v, "exists") {
-                                            format!("{} 篇笔记", v["notes"])
-                                        } else {
-                                            "找不到文件夹".into()
-                                        }}
-                                    </span>
-                                    <details class="apps-details">
-                                        <summary>"文件夹位置"</summary>
-                                        <code>{path.clone()}</code>
-                                    </details>
-                                </div>
-                                {if !flag(&v, "exists") {
-                                    ().into_any()
-                                } else if !ws.is_empty() {
-                                    view! {
-                                        <a class="btn" href=format!("/w/{}", api::enc(&ws))>
-                                            "打开工作区"
-                                        </a>
-                                    }
-                                        .into_any()
-                                } else {
-                                    view! {
-                                        <button
-                                            class="btn primary"
-                                            disabled=move || busy.get()
-                                            on:click=move |_| {
-                                                let path = path.clone();
-                                                busy.set(true);
-                                                leptos::task::spawn_local(async move {
-                                                    match api::send::<
-                                                        Value,
-                                                    >(
-                                                            "POST",
-                                                            "/api/workspaces",
-                                                            &json!(
-                                                                {"node":"local","path":path,"name":null,"project":null}
-                                                            ),
-                                                        )
-                                                        .await
-                                                    {
-                                                        Ok(r) => {
-                                                            app.load_state();
-                                                            navigate
-                                                                .with_value(|go| go(
-                                                                    &format!("/w/{}", text(&r, "id")),
-                                                                    Default::default(),
-                                                                ));
-                                                            rev.update(|n| *n += 1);
-                                                        }
-                                                        Err(e) => toast(e.to_string()),
-                                                    }
-                                                    busy.set(false);
-                                                });
-                                            }
-                                        >
-                                            "创建工作区"
-                                        </button>
-                                    }
-                                        .into_any()
-                                }}
-                            </div>
-                        }
-                    })
-                    .collect_view()
-                    .into_any()
-            }}
-        </section>
-        {has_live
-            .then(|| {
-                view! {
-                    <section class="card settings-card">
-                        <h3>"存到 Obsidian"</h3>
-                        <p class="muted">
-                            "设置任务笔记的默认保存位置。文件夹填写库内相对路径。"
-                        </p>
-                        <form
-                            class="settings-form"
-                            on:submit=move |e| {
-                                e.prevent_default();
-                                if busy.get_untracked() {
-                                    return;
-                                }
-                                busy.set(true);
-                                leptos::task::spawn_local(async move {
-                                    save("PUT", "/api/office/obsidian/settings", persist()).await;
-                                    busy.set(false);
-                                });
-                            }
+        <PageHead
+            parent=("接入的软件", "/apps")
+            icon=|| view! { <AppLogo id="obsidian" /> }
+            title="Obsidian"
+            status=move || view! { <AppStatus label=status_label.clone() tone=status_tone /> }
+        >
+            {(!installed)
+                .then(|| {
+                    view! {
+                        <a
+                            class="btn primary"
+                            href="https://obsidian.md"
+                            target="_blank"
+                            rel="noopener noreferrer"
                         >
-                            <fieldset disabled=move || busy.get()>
-                                <label class="settings-field">
-                                    "默认笔记库"
-                                    <select
-                                        class="settings-input"
-                                        prop:value=move || vault.get()
-                                        on:change=move |e| vault.set(event_target_value(&e))
-                                    >
-                                        {live
-                                            .into_iter()
-                                            .map(|v| {
-                                                let path = text(&v, "path");
-                                                view! {
-                                                    <option
-                                                        value=text(&v, "path")
-                                                        selected=move || vault.get() == path
-                                                    >
-                                                        {text(&v, "name")}
-                                                    </option>
-                                                }
-                                            })
-                                            .collect_view()}
-                                    </select>
-                                </label>
-                                <label class="settings-field">
-                                    "文件夹"
-                                    <input
-                                        class="settings-input"
-                                        placeholder="Blazar"
-                                        prop:value=move || folder.get()
-                                        on:input=move |e| folder.set(event_target_value(&e))
-                                    />
-                                </label>
-                                <div class="settings-actions">
-                                    <button class="btn primary" type="submit">
-                                        "保存"
-                                    </button>
-                                    <button
-                                        class="btn"
-                                        type="button"
-                                        on:click=move |_| {
-                                            busy.set(true);
-                                            leptos::task::spawn_local(async move {
-                                                if ask(
-                                                        "写入测试笔记",
-                                                        "将在当前笔记库写入「Blazar 测试笔记」，同名笔记会被覆盖。",
-                                                        vec![
-                                                            Choice::plain("取消"),
-                                                            Choice::danger("写入并覆盖"),
-                                                        ],
-                                                    )
-                                                    .await != Some(1)
-                                                {
-                                                    busy.set(false);
-                                                    return;
-                                                }
-                                                if save("PUT", "/api/office/obsidian/settings", persist())
-                                                    .await
-                                                {
-                                                    match api::send::<
-                                                        Value,
-                                                    >(
-                                                            "POST",
-                                                            "/api/office/obsidian/note",
-                                                            &json!(
-                                                                {"title":"Blazar 测试笔记","content":"# Blazar 测试笔记\n\n这篇测试笔记可以删除。\n","overwrite":true}
-                                                            ),
-                                                        )
-                                                        .await
-                                                    {
-                                                        Ok(v) => output.set(Some(v)),
-                                                        Err(e) => toast(e.to_string()),
-                                                    }
-                                                }
-                                                busy.set(false);
-                                            });
+                            "安装 Obsidian ↗"
+                        </a>
+                    }
+                })}
+            <button
+                type="button"
+                class="btn"
+                disabled=move || busy.get() || loading.get()
+                on:click=move |_| rev.update(|n| *n += 1)
+            >
+                "刷新"
+            </button>
+        </PageHead>
+        <div class="detail-body">
+            <PrefGroup title="笔记库" note="列表来自 Obsidian 记录的本机 Markdown 文件夹，无需插件或登录。">
+                {if !installed {
+                    view! {
+                        <PrefRow label="Obsidian" detail="装好并打开一个库后，刷新本页。">
+                            <span class="pref-text">"未安装"</span>
+                        </PrefRow>
+                    }
+                        .into_any()
+                } else if vaults.is_empty() {
+                    view! {
+                        <PrefRow
+                            label="还没有笔记库"
+                            detail="先在 Obsidian 新建或打开一个库，再刷新本页。"
+                        />
+                    }
+                        .into_any()
+                } else {
+                    vaults
+                        .into_iter()
+                        .map(move |v| {
+                            let path = text(&v, "path");
+                            let ws = text(&v, "workspace_id");
+                            let exists = flag(&v, "exists");
+                            let detail = if exists {
+                                format!("{} 篇笔记 · {path}", v["notes"])
+                            } else {
+                                format!("找不到文件夹 · {path}")
+                            };
+                            view! {
+                                <PrefRow label=text(&v, "name") detail=detail>
+                                    {if !exists {
+                                        view! { <span class="pref-text">"找不到"</span> }.into_any()
+                                    } else if !ws.is_empty() {
+                                        view! {
+                                            <a class="btn" href=format!("/w/{}", api::enc(&ws))>
+                                                "打开工作区"
+                                            </a>
                                         }
-                                    >
-                                        "写入测试笔记"
-                                    </button>
-                                </div>
-                            </fieldset>
-                        </form>
-                        {move || {
-                            output
-                                .get()
-                                .map(|v| {
-                                    view! {
-                                        <div aria-live="polite">
-                                            <p>
-                                                "测试笔记已保存。"
+                                            .into_any()
+                                    } else {
+                                        view! {
+                                            <button
+                                                type="button"
+                                                class="btn"
+                                                disabled=move || busy.get()
+                                                on:click=move |_| create(path.clone())
+                                            >
+                                                "创建工作区"
+                                            </button>
+                                        }
+                                            .into_any()
+                                    }}
+                                </PrefRow>
+                            }
+                        })
+                        .collect_view()
+                        .into_any()
+                }}
+            </PrefGroup>
+            {has_live
+                .then(|| {
+                    view! {
+                        <PrefGroup
+                            title="存到 Obsidian"
+                            note="任务笔记的默认保存位置。文件夹填写库内相对路径，改动随手保存。"
+                        >
+                            <PrefRow label="默认笔记库" for_id="obsidian-vault">
+                                <select
+                                    id="obsidian-vault"
+                                    class="settings-input"
+                                    disabled=move || busy.get()
+                                    prop:value=move || vault.get()
+                                    on:change=move |e| {
+                                        let next = event_target_value(&e);
+                                        let old = vault.get_untracked();
+                                        vault.set(next);
+                                        put(Box::new(move || vault.set(old)));
+                                    }
+                                >
+                                    {live
+                                        .into_iter()
+                                        .map(|v| {
+                                            let path = text(&v, "path");
+                                            view! {
+                                                <option
+                                                    value=text(&v, "path")
+                                                    selected=move || vault.get() == path
+                                                >
+                                                    {text(&v, "name")}
+                                                </option>
+                                            }
+                                        })
+                                        .collect_view()}
+                                </select>
+                            </PrefRow>
+                            <PrefRow label="文件夹" for_id="obsidian-folder">
+                                <input
+                                    id="obsidian-folder"
+                                    class="settings-input"
+                                    placeholder="Blazar"
+                                    autocomplete="off"
+                                    spellcheck="false"
+                                    disabled=move || busy.get()
+                                    prop:value=move || folder.get()
+                                    on:change=move |e| {
+                                        let next = event_target_value(&e).trim().to_owned();
+                                        let old = folder.get_untracked();
+                                        if next == old {
+                                            return;
+                                        }
+                                        folder.set(next);
+                                        put(Box::new(move || folder.set(old)));
+                                    }
+                                />
+                            </PrefRow>
+                            <PrefRow
+                                label="测试"
+                                detail="在当前笔记库写入「Blazar 测试笔记」，同名笔记会被覆盖。"
+                            >
+                                <button
+                                    type="button"
+                                    class="btn"
+                                    disabled=move || busy.get()
+                                    on:click=move |_| write_test()
+                                >
+                                    "写入测试笔记"
+                                </button>
+                            </PrefRow>
+                            {move || {
+                                output
+                                    .get()
+                                    .map(|v| {
+                                        view! {
+                                            <p class="pref-status" aria-live="polite">
+                                                "测试笔记已保存到 "
+                                                <code>{text(&v, "path")}</code>
+                                                "。"
                                                 <a href=text(&v, "open")>"在 Obsidian 打开"</a>
                                             </p>
-                                            <details class="apps-details">
-                                                <summary>"保存位置"</summary>
-                                                <code>{text(&v, "path")}</code>
-                                            </details>
-                                        </div>
-                                    }
-                                })
-                        }}
-                    </section>
-                }
-            })}
+                                        }
+                                    })
+                            }}
+                        </PrefGroup>
+                    }
+                })}
+        </div>
     }
 }

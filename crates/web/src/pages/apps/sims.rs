@@ -12,7 +12,8 @@ use crate::app_state::use_app;
 use crate::components::dialog::{Choice, ask};
 use crate::components::modal::Modal;
 use crate::components::page_head::PageHead;
-use crate::components::status::{EmptyState, InlineError, LoadingState};
+use crate::components::prefs::{PrefGroup, PrefRow};
+use crate::components::status::InlineError;
 use crate::components::toast::toast;
 use crate::fmt;
 use crate::realtime::use_bus;
@@ -424,57 +425,109 @@ pub fn SimApp(id: &'static str, name: &'static str) -> impl IntoView {
         list
     };
 
+    let can_launch = move || {
+        scan.get()
+            .and_then(Result::ok)
+            .is_some_and(|v| v["candidates"].as_array().is_some_and(|c| !c.is_empty()))
+    };
+    let running_n = move || {
+        launches
+            .get()
+            .and_then(Result::ok)
+            .map_or(0, |v| running_of(&v, id))
+    };
+    let install_running =
+        move || inst.with(|v| v.as_ref().is_some_and(|v| v["state"] == "running"));
+
     view! {
-        <PageHead parent=("接入的软件", "/apps") icon=move || view! { <AppLogo id /> } title=name>
-            <button class="btn" on:click=move |_| rev.update(|n| *n += 1)>
+        <PageHead
+            parent=("接入的软件", "/apps")
+            icon=move || view! { <AppLogo id /> }
+            title=name
+            status=move || {
+                view! {
+                    {move || {
+                        let n = running_n();
+                        if n > 0 {
+                            view! { <AppStatus label=format!("{n} 个运行中") tone="busy" /> }
+                                .into_any()
+                        } else {
+                            view! { <AppStatus label="未启动" tone="neutral" /> }.into_any()
+                        }
+                    }}
+                }
+            }
+        >
+            <button
+                type="button"
+                class="btn primary"
+                disabled=move || busy.get() || !can_launch()
+                on:click=move |_| launch()
+            >
+                {move || if busy.get() { "处理中…" } else { "启动" }}
+            </button>
+            <button type="button" class="btn" on:click=move |_| rev.update(|n| *n += 1)>
                 "刷新"
             </button>
         </PageHead>
-        <section class="card settings-card">
-            <h3>"启动"</h3>
-            <p class="muted">
-                {format!(
-                    "选一个远端工作区，Blazar 在它所在的机器上找 {name}，启动后在下面看画面。",
-                )}
-            </p>
-            <div class="sim-form">
-                <label for="sim-ws">"工作区"</label>
-                <select
-                    id="sim-ws"
-                    class="settings-input"
-                    prop:value=move || ws_sel.get()
-                    disabled=move || scanning.get() || busy.get()
-                    on:change=move |e| {
-                        ws_sel.set(event_target_value(&e));
-                        scan.set(None);
-                        do_scan();
+        {move || {
+            viewing
+                .get()
+                .map(|(node, disp)| {
+                    view! {
+                        <SimViewer node disp on_close=Callback::new(move |_| viewing.set(None)) />
                     }
-                >
-                    <option value="" selected=move || ws_sel.get().is_empty()>
-                        "选择工作区…"
-                    </option>
-                    {move || {
-                        remote_ws()
-                            .into_iter()
-                            .map(|w| {
-                                let id = w.id.clone();
-                                let on = move || ws_sel.get() == id;
-                                view! {
-                                    <option value=w.id.clone() selected=on>
-                                        {crate::fmt::ws_label(&w.name, &w.node)}
-                                    </option>
-                                }
-                            })
-                            .collect_view()
-                    }}
-                </select>
+                })
+        }}
+        <div class="detail-body">
+            <PrefGroup
+                title="启动"
+                note=format!("选一个远端工作区，Blazar 在它所在的机器上找 {name}，然后点上方「启动」。")
+            >
+                <PrefRow label="工作区" for_id="sim-ws">
+                    <select
+                        id="sim-ws"
+                        class="settings-input"
+                        prop:value=move || ws_sel.get()
+                        disabled=move || scanning.get() || busy.get()
+                        on:change=move |e| {
+                            ws_sel.set(event_target_value(&e));
+                            scan.set(None);
+                            do_scan();
+                        }
+                    >
+                        <option value="" selected=move || ws_sel.get().is_empty()>
+                            "选择工作区…"
+                        </option>
+                        {move || {
+                            remote_ws()
+                                .into_iter()
+                                .map(|w| {
+                                    let id = w.id.clone();
+                                    let on = move || ws_sel.get() == id;
+                                    view! {
+                                        <option value=w.id.clone() selected=on>
+                                            {crate::fmt::ws_label(&w.name, &w.node)}
+                                        </option>
+                                    }
+                                })
+                                .collect_view()
+                        }}
+                    </select>
+                </PrefRow>
+                {move || {
+                    scanning
+                        .get()
+                        .then(|| view! { <p class="pref-status">"正在机器上查找…"</p> })
+                }}
                 {move || {
                     scan.get()
                         .map(|r| match r {
                             Err(e) => {
                                 view! {
-                                    <label>"程序"</label>
-                                    <div class="sim-hint bad">{e}</div>
+                                    <PrefRow label="程序">
+                                        <span class="pref-text bad">{e}</span>
+                                    </PrefRow>
                                 }
                                     .into_any()
                             }
@@ -519,78 +572,99 @@ pub fn SimApp(id: &'static str, name: &'static str) -> impl IntoView {
                                 } else {
                                     "这台机器的 ffmpeg 没有 NVENC，推流会用 CPU 编码。"
                                 };
+                                let locked_only = mine
+                                    .iter()
+                                    .any(|d| d["locked"] == true && d["managed"] != true)
+                                    && !mine.iter().any(|d| d["locked"] != true);
+                                let hint = if locked_only {
+                                    format!(
+                                        "{node} 的桌面已锁屏，画面里只会看到锁屏：到那台机器上解锁，或者改用虚拟显示。{ffmpeg_hint}",
+                                    )
+                                } else if mine.is_empty() && !virtual_ready {
+                                    format!(
+                                        "{node} 上没有你能用的桌面，虚拟显示也还没准备好（{}）。",
+                                        missing.join("、"),
+                                    )
+                                } else if mine.is_empty() {
+                                    format!("{node} 上没有桌面会话，会用虚拟显示。{ffmpeg_hint}")
+                                } else {
+                                    ffmpeg_hint.to_owned()
+                                };
+                                let hint_bad = !virtual_ready && mine.is_empty();
+                                let needs_virtual = mine.is_empty() || !virtual_ready;
                                 let cands2 = cands.clone();
-                                view! {
-                                    <label for="sim-prog">"程序"</label>
-                                    {if cands.is_empty() {
-                                        view! {
-                                            <div class="sim-hint bad">
-                                                {format!(
-                                                    "在 {node} 上没找到 {name}：工作区目录里没有装了它的 .venv，conda 环境里也没有。{}",
-                                                    if standalone.is_empty() {
-                                                        ""
-                                                    } else {
-                                                        "可以在下面填独立安装的启动脚本路径。"
-                                                    },
-                                                )}
-                                            </div>
-                                        }
-                                            .into_any()
+                                let none_found = format!(
+                                    "在 {node} 上没找到 {name}：工作区目录里没有装了它的 .venv，conda 环境里也没有。{}",
+                                    if standalone.is_empty() {
+                                        ""
                                     } else {
-                                        view! {
-                                            <select
-                                                id="sim-prog"
-                                                class="settings-input"
-                                                disabled=move || busy.get()
-                                                on:change=move |e| {
-                                                    let i: usize = event_target_value(&e).parse().unwrap_or(0);
-                                                    cand.set(i);
-                                                    let a = cands2
-                                                        .get(i)
-                                                        .and_then(|c| c["args"].as_array())
-                                                        .map(|a| {
-                                                            a.iter()
-                                                                .filter_map(Value::as_str)
-                                                                .collect::<Vec<_>>()
-                                                                .join(" ")
+                                        "可以在下面填独立安装的启动脚本路径。"
+                                    },
+                                );
+                                view! {
+                                    <PrefRow label="程序" for_id="sim-prog">
+                                        {if cands.is_empty() {
+                                            view! { <span class="pref-text bad">{none_found}</span> }
+                                                .into_any()
+                                        } else {
+                                            view! {
+                                                <select
+                                                    id="sim-prog"
+                                                    class="settings-input"
+                                                    disabled=move || busy.get()
+                                                    on:change=move |e| {
+                                                        let i: usize = event_target_value(&e).parse().unwrap_or(0);
+                                                        cand.set(i);
+                                                        let a = cands2
+                                                            .get(i)
+                                                            .and_then(|c| c["args"].as_array())
+                                                            .map(|a| {
+                                                                a.iter()
+                                                                    .filter_map(Value::as_str)
+                                                                    .collect::<Vec<_>>()
+                                                                    .join(" ")
+                                                            })
+                                                            .unwrap_or_default();
+                                                        args.set(a);
+                                                    }
+                                                >
+                                                    {cands
+                                                        .iter()
+                                                        .enumerate()
+                                                        .map(|(i, c)| {
+                                                            let ver = s(c, "version");
+                                                            view! {
+                                                                <option
+                                                                    value=i.to_string()
+                                                                    selected=move || cand.get() == i
+                                                                >
+                                                                    {format!(
+                                                                        "{}{} · {}",
+                                                                        s(c, "source"),
+                                                                        if ver.is_empty() {
+                                                                            String::new()
+                                                                        } else {
+                                                                            format!(" · {ver}")
+                                                                        },
+                                                                        s(c, "program"),
+                                                                    )}
+                                                                </option>
+                                                            }
                                                         })
-                                                        .unwrap_or_default();
-                                                    args.set(a);
-                                                }
-                                            >
-                                                {cands
-                                                    .iter()
-                                                    .enumerate()
-                                                    .map(|(i, c)| {
-                                                        let ver = s(c, "version");
-                                                        view! {
-                                                            <option
-                                                                value=i.to_string()
-                                                                selected=move || cand.get() == i
-                                                            >
-                                                                {format!(
-                                                                    "{}{} · {}",
-                                                                    s(c, "source"),
-                                                                    if ver.is_empty() {
-                                                                        String::new()
-                                                                    } else {
-                                                                        format!(" · {ver}")
-                                                                    },
-                                                                    s(c, "program"),
-                                                                )}
-                                                            </option>
-                                                        }
-                                                    })
-                                                    .collect_view()}
-                                            </select>
-                                        }
-                                            .into_any()
-                                    }}
+                                                        .collect_view()}
+                                                </select>
+                                            }
+                                                .into_any()
+                                        }}
+                                    </PrefRow>
                                     {(!standalone.is_empty())
                                         .then(|| {
                                             view! {
-                                                <label for="sim-path">"独立安装"</label>
-                                                <div class="settings-actions">
+                                                <PrefRow
+                                                    label="独立安装"
+                                                    detail="填启动脚本的完整路径，保存后重新查找。"
+                                                    for_id="sim-path"
+                                                >
                                                     <input
                                                         id="sim-path"
                                                         class="settings-input"
@@ -602,110 +676,83 @@ pub fn SimApp(id: &'static str, name: &'static str) -> impl IntoView {
                                                         on:input=move |e| cfg_path.set(event_target_value(&e))
                                                     />
                                                     <button
+                                                        type="button"
                                                         class="btn"
                                                         disabled=move || busy.get()
                                                         on:click=move |_| save_path()
                                                     >
                                                         "保存并重新查找"
                                                     </button>
-                                                </div>
+                                                </PrefRow>
                                             }
                                         })}
-                                    <label for="sim-args">"参数"</label>
-                                    <input
-                                        id="sim-args"
-                                        class="settings-input"
-                                        placeholder="可留空"
-                                        prop:value=move || args.get()
-                                        on:input=move |e| args.set(event_target_value(&e))
-                                    />
-                                    <label for="sim-display">"显示"</label>
-                                    <select
-                                        id="sim-display"
-                                        class="settings-input"
-                                        disabled=move || busy.get()
-                                        on:change=move |e| display.set(event_target_value(&e))
-                                    >
-                                        <option
-                                            value="auto"
-                                            selected=move || display.get() == "auto"
+                                    <PrefRow label="参数" for_id="sim-args">
+                                        <input
+                                            id="sim-args"
+                                            class="settings-input"
+                                            placeholder="可留空"
+                                            prop:value=move || args.get()
+                                            on:input=move |e| args.set(event_target_value(&e))
+                                        />
+                                    </PrefRow>
+                                    <PrefRow label="显示" for_id="sim-display">
+                                        <select
+                                            id="sim-display"
+                                            class="settings-input"
+                                            disabled=move || busy.get()
+                                            on:change=move |e| display.set(event_target_value(&e))
                                         >
-                                            "自动（有桌面用桌面，没有就起虚拟显示）"
-                                        </option>
-                                        {mine
-                                            .iter()
-                                            .map(|d| {
-                                                let v = format!(":{}", d["number"]);
-                                                let v2 = v.clone();
-                                                let v3 = v.clone();
-                                                view! {
-                                                    <option value=v selected=move || display.get() == v2>
-                                                        {format!(
-                                                            "{v3}{}{}{}",
-                                                            d["size"]
-                                                                .as_str()
-                                                                .map(|x| format!(" · {x}"))
-                                                                .unwrap_or_default(),
-                                                            if d["managed"] == true {
-                                                                " · 虚拟"
-                                                            } else {
-                                                                " · 桌面"
-                                                            },
-                                                            if d["locked"] == true { "（已锁屏）" } else { "" },
-                                                        )}
-                                                    </option>
-                                                }
-                                            })
-                                            .collect_view()}
-                                        <option
-                                            value="virtual"
-                                            selected=move || display.get() == "virtual"
-                                        >
-                                            "虚拟显示"
-                                        </option>
-                                    </select>
-                                    <span></span>
-                                    <div
-                                        class="sim-hint"
-                                        class:bad=!virtual_ready && mine.is_empty()
-                                    >
-                                        {if mine
-                                            .iter()
-                                            .any(|d| d["locked"] == true && d["managed"] != true)
-                                            && !mine.iter().any(|d| d["locked"] != true)
-                                        {
-                                            format!(
-                                                "{node} 的桌面已锁屏，画面里只会看到锁屏：到那台机器上解锁，或者改用虚拟显示。{ffmpeg_hint}",
-                                            )
-                                        } else if mine.is_empty() && !virtual_ready {
-                                            format!(
-                                                "{node} 上没有你能用的桌面，虚拟显示也还没准备好（{}）。",
-                                                missing.join("、"),
-                                            )
-                                        } else if mine.is_empty() {
-                                            format!(
-                                                "{node} 上没有桌面会话，会用虚拟显示。{ffmpeg_hint}",
-                                            )
-                                        } else {
-                                            ffmpeg_hint.to_owned()
-                                        }}
-                                    </div>
-                                    <span></span>
-                                    <div class="settings-actions">
-                                        <button
-                                            class="btn primary"
-                                            disabled=move || busy.get() || cands.is_empty()
-                                            on:click=move |_| launch()
-                                        >
-                                            {move || if busy.get() { "处理中…" } else { "启动" }}
-                                        </button>
-                                        {(mine.is_empty() || !virtual_ready)
-                                            .then(|| {
-                                                view! {
+                                            <option
+                                                value="auto"
+                                                selected=move || display.get() == "auto"
+                                            >
+                                                "自动（有桌面用桌面，没有就起虚拟显示）"
+                                            </option>
+                                            {mine
+                                                .iter()
+                                                .map(|d| {
+                                                    let v = format!(":{}", d["number"]);
+                                                    let v2 = v.clone();
+                                                    let v3 = v.clone();
+                                                    view! {
+                                                        <option value=v selected=move || display.get() == v2>
+                                                            {format!(
+                                                                "{v3}{}{}{}",
+                                                                d["size"]
+                                                                    .as_str()
+                                                                    .map(|x| format!(" · {x}"))
+                                                                    .unwrap_or_default(),
+                                                                if d["managed"] == true {
+                                                                    " · 虚拟"
+                                                                } else {
+                                                                    " · 桌面"
+                                                                },
+                                                                if d["locked"] == true { "（已锁屏）" } else { "" },
+                                                            )}
+                                                        </option>
+                                                    }
+                                                })
+                                                .collect_view()}
+                                            <option
+                                                value="virtual"
+                                                selected=move || display.get() == "virtual"
+                                            >
+                                                "虚拟显示"
+                                            </option>
+                                        </select>
+                                    </PrefRow>
+                                    {needs_virtual
+                                        .then(|| {
+                                            view! {
+                                                <PrefRow
+                                                    label="虚拟显示"
+                                                    detail="没有桌面会话时，画面从虚拟显示推流。"
+                                                >
                                                     {virtual_ready
                                                         .then(|| {
                                                             view! {
                                                                 <button
+                                                                    type="button"
                                                                     class="btn"
                                                                     disabled=move || busy.get()
                                                                     on:click=move |_| prepare_virtual()
@@ -714,87 +761,93 @@ pub fn SimApp(id: &'static str, name: &'static str) -> impl IntoView {
                                                                 </button>
                                                             }
                                                         })}
-                                                    <button class="btn" on:click=move |_| show_script()>
+                                                    <button
+                                                        type="button"
+                                                        class="btn"
+                                                        on:click=move |_| show_script()
+                                                    >
                                                         "准备脚本（root）"
                                                     </button>
-                                                }
-                                            })}
-                                    </div>
+                                                </PrefRow>
+                                            }
+                                        })}
+                                    {(!hint.is_empty())
+                                        .then(|| {
+                                            view! {
+                                                <p class="pref-status" class:bad=hint_bad>
+                                                    {hint}
+                                                </p>
+                                            }
+                                        })}
                                 }
                                     .into_any()
                             }
                         })
                 }}
-            </div>
-            {move || {
-                scanning
-                    .get()
-                    .then(|| {
-                        view! {
-                            <LoadingState text="正在机器上查找…" class="muted small" />
-                        }
-                    })
-            }}
-        </section>
-        <section class="card settings-card">
-            <h3>"安装到机器"</h3>
-            <p class="muted">
-                {if id == "isaacsim" {
+            </PrefGroup>
+            <PrefGroup
+                title="安装到机器"
+                note=if id == "isaacsim" {
                     "Blazar 在那台机器上建一个自己的 Python 3.11 环境，从 NVIDIA 的软件源装 Isaac Sim（约 8 GB 下载，装完 20 GB 左右）。装好后这台机器上的所有工作区都能直接选到。"
                 } else {
                     "Blazar 在那台机器上建一个自己的 Python 环境并装 MuJoCo。装好后这台机器上的所有工作区都能直接选到。"
-                }}
-            </p>
-            <div class="sim-form">
-                <label for="sim-inst-node">"机器"</label>
-                <select
-                    id="sim-inst-node"
-                    class="settings-input"
-                    prop:value=move || inst_node.get()
-                    disabled=move || inst_busy.get()
-                    on:change=move |e| {
-                        inst_node.set(event_target_value(&e));
-                        inst.set(None);
-                        poll_install();
-                    }
-                >
-                    <option value="" selected=move || inst_node.get().is_empty()>
-                        "选择机器…"
-                    </option>
-                    {move || {
-                        machines()
-                            .into_iter()
-                            .map(|n| {
-                                let n2 = n.clone();
-                                let n3 = n.clone();
-                                view! {
-                                    <option value=n selected=move || inst_node.get() == n2>
-                                        {n3}
-                                    </option>
-                                }
-                            })
-                            .collect_view()
-                    }}
-                </select>
-                <label for="sim-inst-ver">"版本"</label>
-                <input
-                    id="sim-inst-ver"
-                    class="settings-input"
-                    placeholder=if id == "isaacsim" { "例如 5.1.0.0" } else { "留空装最新" }
-                    prop:value=move || inst_version.get()
-                    on:input=move |e| inst_version.set(event_target_value(&e))
-                />
+                }
+            >
+                <PrefRow label="机器" for_id="sim-inst-node">
+                    <select
+                        id="sim-inst-node"
+                        class="settings-input"
+                        prop:value=move || inst_node.get()
+                        disabled=move || inst_busy.get()
+                        on:change=move |e| {
+                            inst_node.set(event_target_value(&e));
+                            inst.set(None);
+                            poll_install();
+                        }
+                    >
+                        <option value="" selected=move || inst_node.get().is_empty()>
+                            "选择机器…"
+                        </option>
+                        {move || {
+                            machines()
+                                .into_iter()
+                                .map(|n| {
+                                    let n2 = n.clone();
+                                    let n3 = n.clone();
+                                    view! {
+                                        <option value=n selected=move || inst_node.get() == n2>
+                                            {n3}
+                                        </option>
+                                    }
+                                })
+                                .collect_view()
+                        }}
+                    </select>
+                </PrefRow>
+                <PrefRow label="版本" for_id="sim-inst-ver">
+                    <input
+                        id="sim-inst-ver"
+                        class="settings-input"
+                        placeholder=if id == "isaacsim" { "例如 5.1.0.0" } else { "留空装最新" }
+                        prop:value=move || inst_version.get()
+                        on:input=move |e| inst_version.set(event_target_value(&e))
+                    />
+                </PrefRow>
                 {(id == "isaacsim")
                     .then(|| {
                         view! {
-                            <span></span>
-                            <label class="chk block">
-                                <input
-                                    type="checkbox"
-                                    prop:checked=move || inst_eula.get()
-                                    on:change=move |_| inst_eula.update(|c| *c = !*c)
-                                />
-                                <span>
+                            <PrefRow
+                                label="许可协议"
+                                detail="Isaac Sim 的 pip 包免费但不是开源许可。"
+                                for_id="sim-inst-eula"
+                            >
+                                <label class="chk">
+                                    <input
+                                        id="sim-inst-eula"
+                                        type="checkbox"
+                                        prop:checked=move || inst_eula.get()
+                                        on:change=move |_| inst_eula.update(|c| *c = !*c)
+                                    />
                                     "我接受 "
                                     <a
                                         href="https://docs.isaacsim.omniverse.nvidia.com/latest/common/NVIDIA_Omniverse_License_Agreement.html"
@@ -802,198 +855,169 @@ pub fn SimApp(id: &'static str, name: &'static str) -> impl IntoView {
                                         rel="noopener noreferrer"
                                     >
                                         "NVIDIA Omniverse 软件许可协议"
-                                    </a>"（Isaac Sim 的 pip 包免费但不是开源许可）"
-                                </span>
-                            </label>
+                                    </a>
+                                </label>
+                            </PrefRow>
                         }
                     })}
-                <span></span>
-                <div class="settings-actions">
+                <PrefRow label="安装">
                     <button
-                        class="btn primary"
+                        type="button"
+                        class="btn"
                         disabled=move || {
                             inst_busy.get() || inst_node.get().is_empty()
-                                || (id == "isaacsim" && !inst_eula.get())
-                                || inst
-                                    .with(|v| v.as_ref().is_some_and(|v| v["state"] == "running"))
+                                || (id == "isaacsim" && !inst_eula.get()) || install_running()
                         }
                         on:click=move |_| start_install()
                     >
                         {move || if inst_busy.get() { "准备中…" } else { "安装" }}
                     </button>
                     {move || {
-                        inst.with(|v| v.as_ref().is_some_and(|v| v["state"] == "running"))
+                        install_running()
                             .then(|| {
                                 view! {
-                                    <button class="btn" on:click=move |_| cancel_install()>
+                                    <button type="button" class="btn" on:click=move |_| cancel_install()>
                                         "取消"
                                     </button>
                                 }
                             })
                     }}
-                </div>
-            </div>
-            {move || {
-                inst.get()
-                    .filter(|v| v["state"] != "none")
-                    .map(|v| {
-                        let state = s(&v, "state");
-                        let (label, tone) = match state.as_str() {
-                            "running" => ("安装中".to_owned(), "busy"),
-                            "exited" => {
-                                match v["exit_code"].as_i64() {
-                                    Some(0) => ("已装好".to_owned(), "ok"),
-                                    Some(c) => (format!("失败（{c}）"), "error"),
-                                    None => ("已结束".to_owned(), "neutral"),
+                </PrefRow>
+                {move || {
+                    inst.get()
+                        .filter(|v| v["state"] != "none")
+                        .map(|v| {
+                            let state = s(&v, "state");
+                            let (label, tone) = match state.as_str() {
+                                "running" => ("安装中".to_owned(), "busy"),
+                                "exited" => {
+                                    match v["exit_code"].as_i64() {
+                                        Some(0) => ("已装好".to_owned(), "ok"),
+                                        Some(c) => (format!("失败（{c}）"), "error"),
+                                        None => ("已结束".to_owned(), "neutral"),
+                                    }
                                 }
-                            }
-                            "lost" => ("进程不在了".to_owned(), "error"),
-                            _ => ("连不上机器".to_owned(), "error"),
-                        };
-                        view! {
-                            <div class="sim-inst">
-                                <div class="apps-section-head">
+                                "lost" => ("进程不在了".to_owned(), "error"),
+                                _ => ("连不上机器".to_owned(), "error"),
+                            };
+                            let log = s(&v, "log");
+                            view! {
+                                <PrefRow
+                                    label="进度"
+                                    detail=format!(
+                                        "{} · {}",
+                                        s(&v, "version"),
+                                        fmt::ago(&s(&v, "started_at")),
+                                    )
+                                >
                                     <AppStatus label tone />
-                                    <span class="muted small">
-                                        {format!(
-                                            "{} · {}",
-                                            s(&v, "version"),
-                                            fmt::ago(&s(&v, "started_at")),
-                                        )}
-                                    </span>
-                                </div>
-                                <pre class="settings-pre sim-inst-log">
+                                </PrefRow>
+                                <pre class="settings-pre sim-inst-log pref-log">
                                     <span class="sim-log-flow">
-                                        {
-                                            let l = s(&v, "log");
-                                            if l.is_empty() {
-                                                "（还没有输出）".to_owned()
-                                            } else {
-                                                l
-                                            }
-                                        }
+                                        {if log.is_empty() { "（还没有输出）".to_owned() } else { log }}
                                     </span>
                                 </pre>
-                            </div>
+                            }
+                        })
+                }}
+            </PrefGroup>
+            <PrefGroup title="已启动">
+                {move || match launches.get() {
+                    None => view! { <p class="pref-status">"读取中…"</p> }.into_any(),
+                    Some(Err(e)) => {
+                        view! {
+                            <InlineError
+                                message=e.to_string()
+                                retry=Callback::new(move |_| rev.update(|n| *n += 1))
+                            />
                         }
-                    })
-            }}
-        </section>
-        <section class="card settings-card">
-            <h3>"已启动"</h3>
-            {move || match launches.get() {
-                None => {
-                    view! { <LoadingState text="读取中…" class="muted small" /> }.into_any()
-                }
-                Some(Err(e)) => {
-                    view! {
-                        <InlineError
-                            message=e.to_string()
-                            retry=Callback::new(move |_| rev.update(|n| *n += 1))
-                        />
+                            .into_any()
                     }
-                        .into_any()
-                }
-                Some(Ok(v)) => {
-                    let mut list: Vec<Value> = v["launches"]
-                        .as_array()
-                        .map(|l| l.iter().filter(|x| x["software"] == id).cloned().collect())
-                        .unwrap_or_default();
-                    list.reverse();
-                    if list.is_empty() {
-                        return view! {
-                            <EmptyState title="还没有启动过" class="muted small" />
+                    Some(Ok(v)) => {
+                        let mut list: Vec<Value> = v["launches"]
+                            .as_array()
+                            .map(|l| l.iter().filter(|x| x["software"] == id).cloned().collect())
+                            .unwrap_or_default();
+                        list.reverse();
+                        if list.is_empty() {
+                            return view! {
+                                <PrefRow label="还没有启动过" detail="启动后，这里会列出每次启动的机器和画面。" />
+                            }
+                                .into_any();
                         }
-                            .into_any();
-                    }
-                    view! {
-                        <div class="sim-rows">
-                            {list
-                                .into_iter()
-                                .map(|l| {
-                                    let lid = s(&l, "id");
-                                    let node = s(&l, "node");
-                                    let disp = s(&l, "display");
-                                    let state = s(&l, "state");
-                                    let (label, tone) = state_label(
-                                        &state,
-                                        l["exit_code"].as_i64(),
-                                    );
-                                    let running = state == "running";
-                                    let (n1, d1) = (node.clone(), disp.clone());
-                                    let (l1, l2, l3) = (lid.clone(), lid.clone(), lid.clone());
-                                    view! {
-                                        <div class="sim-row">
-                                            <div>
-                                                <div class="nm">
-                                                    {format!("{} · {}", s(&l, "workspace_name"), fmt::machine(&node))}
-                                                </div>
-                                                <div class="meta">
-                                                    {format!(
-                                                        "{disp} · {} · {}",
-                                                        fmt::ago(&s(&l, "started_at")),
-                                                        s(&l, "program"),
-                                                    )}
-                                                </div>
-                                            </div>
-                                            <AppStatus label tone />
-                                            <button
-                                                class="btn small"
-                                                disabled=!running
-                                                on:click=move |_| {
-                                                    viewing.set(Some((n1.clone(), d1.clone())))
+                        list.into_iter()
+                            .map(|l| {
+                                let lid = s(&l, "id");
+                                let node = s(&l, "node");
+                                let disp = s(&l, "display");
+                                let state = s(&l, "state");
+                                let (label, tone) = state_label(&state, l["exit_code"].as_i64());
+                                let running = state == "running";
+                                let (n1, d1) = (node.clone(), disp.clone());
+                                let (l1, l2, l3) = (lid.clone(), lid.clone(), lid.clone());
+                                view! {
+                                    <PrefRow
+                                        label=format!("{} · {}", s(&l, "workspace_name"), fmt::machine(&node))
+                                        detail=format!(
+                                            "{disp} · {} · {}",
+                                            fmt::ago(&s(&l, "started_at")),
+                                            s(&l, "program"),
+                                        )
+                                    >
+                                        <AppStatus label tone />
+                                        {running
+                                            .then(|| {
+                                                view! {
+                                                    <button
+                                                        type="button"
+                                                        class="btn"
+                                                        on:click=move |_| {
+                                                            viewing.set(Some((n1.clone(), d1.clone())))
+                                                        }
+                                                    >
+                                                        "画面"
+                                                    </button>
                                                 }
-                                            >
-                                                "画面"
-                                            </button>
-                                            <div class="act">
+                                            })}
+                                        <button
+                                            type="button"
+                                            class="btn ghost"
+                                            on:click=move |_| act(l1.clone(), "log")
+                                        >
+                                            "日志"
+                                        </button>
+                                        {if running {
+                                            view! {
                                                 <button
-                                                    class="btn small ghost"
-                                                    on:click=move |_| act(l1.clone(), "log")
+                                                    type="button"
+                                                    class="btn ghost"
+                                                    on:click=move |_| act(l2.clone(), "stop")
                                                 >
-                                                    "日志"
+                                                    "停止"
                                                 </button>
-                                                {if running {
-                                                    view! {
-                                                        <button
-                                                            class="btn small ghost"
-                                                            on:click=move |_| act(l2.clone(), "stop")
-                                                        >
-                                                            "停止"
-                                                        </button>
-                                                    }
-                                                        .into_any()
-                                                } else {
-                                                    view! {
-                                                        <button
-                                                            class="btn small ghost"
-                                                            on:click=move |_| act(l3.clone(), "remove")
-                                                        >
-                                                            "移除"
-                                                        </button>
-                                                    }
-                                                        .into_any()
-                                                }}
-                                            </div>
-                                        </div>
-                                    }
-                                })
-                                .collect_view()}
-                        </div>
+                                            }
+                                                .into_any()
+                                        } else {
+                                            view! {
+                                                <button
+                                                    type="button"
+                                                    class="btn ghost"
+                                                    on:click=move |_| act(l3.clone(), "remove")
+                                                >
+                                                    "移除"
+                                                </button>
+                                            }
+                                                .into_any()
+                                        }}
+                                    </PrefRow>
+                                }
+                            })
+                            .collect_view()
+                            .into_any()
                     }
-                        .into_any()
-                }
-            }}
-        </section>
-        {move || {
-            viewing
-                .get()
-                .map(|(node, disp)| {
-                    view! {
-                        <SimViewer node disp on_close=Callback::new(move |_| viewing.set(None)) />
-                    }
-                })
-        }}
+                }}
+            </PrefGroup>
+        </div>
         {move || {
             script
                 .get()
@@ -1018,6 +1042,7 @@ pub fn SimApp(id: &'static str, name: &'static str) -> impl IntoView {
                                     "跑完后回到这里点「刷新」。"
                                 </span>
                                 <button
+                                    type="button"
                                     class="btn"
                                     on:click=move |_| crate::files_js::download_text(
                                         "blazar-headless-display.sh",
@@ -1027,7 +1052,11 @@ pub fn SimApp(id: &'static str, name: &'static str) -> impl IntoView {
                                 >
                                     "下载脚本"
                                 </button>
-                                <button class="btn primary" on:click=move |_| script.set(None)>
+                                <button
+                                    type="button"
+                                    class="btn primary"
+                                    on:click=move |_| script.set(None)
+                                >
                                     "关闭"
                                 </button>
                             </div>
@@ -1066,7 +1095,11 @@ pub fn SimApp(id: &'static str, name: &'static str) -> impl IntoView {
                             </pre>
                             <div class="dlg-foot">
                                 <span class="grow"></span>
-                                <button class="btn primary" on:click=move |_| log.set(None)>
+                                <button
+                                    type="button"
+                                    class="btn primary"
+                                    on:click=move |_| log.set(None)
+                                >
                                     "关闭"
                                 </button>
                             </div>
@@ -1155,11 +1188,11 @@ fn SimViewer(node: String, disp: String, on_close: Callback<()>) -> impl IntoVie
         })
     };
     view! {
-        <section class="card settings-card">
-            <div class="apps-section-head">
+        <section class="sim-viewer" aria-label="画面">
+            <div class="sim-viewer-head">
                 <h3>{format!("画面 · {} {disp}", fmt::machine(&node))}</h3>
                 <span class="grow"></span>
-                <button class="btn small" on:click=move |_| on_close.run(())>
+                <button type="button" class="btn small" on:click=move |_| on_close.run(())>
                     "关闭"
                 </button>
             </div>
