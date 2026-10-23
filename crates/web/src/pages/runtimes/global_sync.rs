@@ -72,7 +72,7 @@ pub(super) fn GlobalSync(
         });
     };
     view! {
-        <details class="card pad global-sync runtime-details">
+        <details class="runtime-details global-sync">
             <summary>
                 "终端与 Cursor"
                 <span class="status" data-tone="other">
@@ -84,25 +84,6 @@ pub(super) fn GlobalSync(
                     }}
                 </span>
             </summary>
-            <div class="card-title">
-                <h3>"同步账号选择"</h3>
-                <span class="grow"></span>
-                <button
-                    class="btn"
-                    disabled=move || busy.get() || !matches!(state.get(), Some(Ok(_)))
-                    on:click=toggle
-                >
-                    {move || {
-                        if busy.get() {
-                            "切换中…"
-                        } else if on() {
-                            "停止同步"
-                        } else {
-                            "开启同步"
-                        }
-                    }}
-                </button>
-            </div>
             {move || match state.get() {
                 None => view! { <LoadingState text="正在加载同步设置…" /> }.into_any(),
                 Some(Err(error)) => {
@@ -116,12 +97,12 @@ pub(super) fn GlobalSync(
                 }
                 Some(Ok(_)) => ().into_any(),
             }}
-            <div class="muted small">
+            <p class="muted small">
                 {move || {
                     if on() {
                         let v = state.get().and_then(Result::ok).unwrap_or(Value::Null);
                         format!(
-                            "终端里的 claude 和 Cursor 插件现在用「{}」，codex 用「{}」。在下面点「使用」会一起换。",
+                            "终端里的 claude 和 Cursor 插件现在用「{}」，codex 用「{}」。在上面点「使用」会一起换。",
                             label_of(v["current"]["claude"].as_str()),
                             label_of(v["current"]["codex"].as_str()),
                         )
@@ -130,6 +111,24 @@ pub(super) fn GlobalSync(
                             .to_owned()
                     }
                 }}
+            </p>
+            <div class="row-actions">
+                <button
+                    type="button"
+                    class="btn small"
+                    disabled=move || busy.get() || !matches!(state.get(), Some(Ok(_)))
+                    on:click=toggle
+                >
+                    {move || {
+                        if busy.get() {
+                            "切换中…"
+                        } else if on() {
+                            "停止同步"
+                        } else {
+                            "开启同步"
+                        }
+                    }}
+                </button>
             </div>
         </details>
     }

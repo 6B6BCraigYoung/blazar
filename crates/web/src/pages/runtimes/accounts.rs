@@ -287,6 +287,16 @@ pub(super) fn AccountRow(
     let aid = a.id.clone();
     view! {
         <div class="acc-row" class:on=active>
+            <span class="acc-check">
+                {active
+                    .then(|| {
+                        view! {
+                            <span role="img" aria-label="当前使用">
+                                "✓"
+                            </span>
+                        }
+                    })}
+            </span>
             <span class="name">
                 <b title=title>{a.label.clone()}</b>
                 {(!blocks.is_empty())
@@ -349,21 +359,19 @@ pub(super) fn AccountRow(
                 {a.last_used_at.as_deref().map_or_else(|| "—".to_owned(), fmt::ago)}
             </span>
             <span class="act">
-                {if active {
-                    view! { <span class="muted">"使用中"</span> }.into_any()
-                } else {
-                    view! {
-                        <button
-                            class="btn small"
-                            on:click=on_use
-                            disabled=move || busy.get() || !usable
-                            title=(!usable).then_some("请先登录或更新账号凭据")
-                        >
-                            {move || if busy.get() { "切换中…" } else { "使用" }}
-                        </button>
-                    }
-                        .into_any()
-                }} <span class="more">
+                {(!active)
+                    .then(|| {
+                        view! {
+                            <button
+                                class="btn small"
+                                on:click=on_use
+                                disabled=move || busy.get() || !usable
+                                title=(!usable).then_some("请先登录或更新账号凭据")
+                            >
+                                {move || if busy.get() { "切换中…" } else { "使用" }}
+                            </button>
+                        }
+                    })} <span class="more">
                     <button
                         class="btn ghost"
                         node_ref=menu_button

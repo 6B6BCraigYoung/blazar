@@ -42,61 +42,10 @@ pub fn RuntimesPage() -> impl IntoView {
     spawn_local(async move {
         let _ = api::send::<Value>("POST", "/api/accounts/check", &json!({})).await;
     });
-    let refreshing = RwSignal::new(false);
-    let refresh_quota = move |_| {
-        if refreshing.get_untracked() {
-            return;
-        }
-        refreshing.set(true);
-        spawn_local(async move {
-            match api::send::<Value>("POST", "/api/accounts/quota", &json!({})).await {
-                Ok(r) => {
-                    let total = r["total"].as_u64().unwrap_or(0);
-                    let ok = r["refreshed"].as_u64().unwrap_or(0);
-                    let failed: Vec<String> = r["failed"]
-                        .as_array()
-                        .map(|f| {
-                            f.iter()
-                                .map(|x| {
-                                    format!(
-                                        "{}：{}",
-                                        x["label"].as_str().unwrap_or("?"),
-                                        x["error"].as_str().unwrap_or("失败")
-                                    )
-                                })
-                                .collect()
-                        })
-                        .unwrap_or_default();
-                    toast(if total == 0 {
-                        "没有能查额度的账号（浏览器登录的 Claude 账号跑一次会话才会更新）"
-                            .to_owned()
-                    } else if failed.is_empty() {
-                        format!("已刷新 {ok} 个账号的额度")
-                    } else {
-                        format!("刷新了 {ok}/{total} 个账号；{}", failed.join("；"))
-                    });
-                }
-                Err(e) => toast(format!("刷新额度失败：{e}")),
-            }
-            let _ = refreshing.try_set(false);
-        });
-    };
 
     view! {
         <div class="page runtimes-page">
-            <PageHead title="智能体" nav=|| crate::components::section::agents("/runtimes")>
-                <button
-                    class="btn"
-                    disabled=move || refreshing.get() || runtimes.get().is_none()
-                    on:click=move |e| {
-                        rescan.update(|n| *n += 1);
-                        refresh_quota(e);
-                    }
-                    title="重新查找运行时，并刷新所有账号的额度"
-                >
-                    {move || if refreshing.get() { "刷新中…" } else { "刷新" }}
-                </button>
-            </PageHead>
+            <PageHead title="智能体" nav=|| crate::components::section::agents("/runtimes") />
             {move || match runtimes.get() {
                 None => view! { <LoadingState text="正在查找运行时…" /> }.into_any(),
                 Some(Err(e)) => {
@@ -198,15 +147,12 @@ pub fn AccountsSection(
             .then(|| {
                 view! {
                     <div class="acc-row head">
+                        <span></span>
                         <span>"账号"</span>
                         <span>"状态"</span>
                         <span>"额度"</span>
                         <span>"最近使用"</span>
-                        <span class="runtime-row-action">
-                            <button class="btn small" on:click=move |_| form.set(Some(Form::Add))>
-                                "添加账号"
-                            </button>
-                        </span>
+                        <span></span>
                     </div>
                 }
             })}
@@ -243,6 +189,23 @@ pub fn AccountsSection(
                 .collect_view()
                 .into_any()
         }}
+        {head
+            .then(|| {
+                view! {
+                    <div class="pref-bar">
+                        <button
+                            type="button"
+                            class="pref-bar-btn"
+                            aria-label="添加账号"
+                            title="添加账号"
+                            aria-haspopup="dialog"
+                            on:click=move |_| form.set(Some(Form::Add))
+                        >
+                            "+"
+                        </button>
+                    </div>
+                }
+            })}
         {move || {
             form.get()
                 .map(|f| {
