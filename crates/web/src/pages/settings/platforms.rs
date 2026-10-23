@@ -2,10 +2,10 @@ use leptos::prelude::*;
 use serde_json::{Value, json};
 
 use crate::api;
-use crate::components::dialog::{Choice, ask};
 use crate::components::prefs::{PrefGroup, PrefItem, PrefList, PrefRow, Sheet};
 use crate::components::status::{InlineError, LoadingState};
 use crate::components::toast::toast;
+use crate::components::undo::{self, Request};
 
 use super::{flag, rows, save, text};
 
@@ -55,11 +55,12 @@ fn ProviderList(list: Vec<Value>, rev: RwSignal<i32>) -> impl IntoView {
         })
     };
     let keyed = move |id: &str| {
-        list.with_value(|l| {
-            l.iter()
-                .find(|p| text(p, "id") == id)
-                .is_some_and(|p| flag(p, "has_key"))
-        })
+        undo::shows(id)
+            && list.with_value(|l| {
+                l.iter()
+                    .find(|p| text(p, "id") == id)
+                    .is_some_and(|p| flag(p, "has_key"))
+            })
     };
     let accepts_key = move |id: &str| {
         list.with_value(|l| {
@@ -76,33 +77,20 @@ fn ProviderList(list: Vec<Value>, rev: RwSignal<i32>) -> impl IntoView {
         }
     });
     let remove = Callback::new(move |id: String| {
-        if busy.get_untracked() {
-            return;
-        }
         if !keyed(&id) {
             toast(format!("{} 没有配置密钥", label_of(&id)));
             return;
         }
-        busy.set(true);
-        leptos::task::spawn_local(async move {
-            if ask(
-                "删除密钥",
-                &format!("删除 {} 的 API key？", label_of(&id)),
-                vec![Choice::plain("保留密钥"), Choice::danger("删除密钥")],
-            )
-            .await
-                == Some(1)
-                && save(
-                    "PUT",
-                    "/api/skills/market/key",
-                    json!({"provider": id, "key": ""}),
-                )
-                .await
-            {
-                rev.update(|n| *n += 1);
-            }
-            busy.set(false);
-        });
+        undo::remove_row(
+            format!("已删除 {} 的密钥", label_of(&id)),
+            id.clone(),
+            Request {
+                method: "PUT",
+                path: "/api/skills/market/key".into(),
+                body: json!({"provider": id, "key": ""}),
+            },
+            move || rev.update(|n| *n += 1),
+        );
     });
     let add = Callback::new(move |()| {
         let first = list.with_value(|l| {
@@ -130,12 +118,17 @@ fn ProviderList(list: Vec<Value>, rev: RwSignal<i32>) -> impl IntoView {
                 .map(|p| {
                     let id = text(&p, "id");
                     let home = text(&p, "home");
-                    let status = if p.get("has_key").is_none() {
-                        ""
-                    } else if flag(&p, "has_key") {
-                        "已配置密钥"
-                    } else {
-                        "未配置密钥"
+                    let status_id = id.clone();
+                    let takes_key = p.get("has_key").is_some();
+                    let has_key = flag(&p, "has_key");
+                    let status = move || {
+                        if !takes_key {
+                            ""
+                        } else if has_key && undo::shows(&status_id) {
+                            "已配置密钥"
+                        } else {
+                            "未配置密钥"
+                        }
                     };
                     view! {
                         <PrefItem
@@ -145,6 +138,7 @@ fn ProviderList(list: Vec<Value>, rev: RwSignal<i32>) -> impl IntoView {
                             title=text(&p, "label")
                             detail=text(&p, "note")
                             trailing=move || {
+                                let status = status.clone();
                                 view! {
                                     <span>{status}</span>
                                     <a href=home.clone() target="_blank" rel="noopener noreferrer">

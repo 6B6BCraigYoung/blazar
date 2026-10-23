@@ -13,3 +13,4 @@ pub mod sidebar;
 pub mod status;
 pub mod term_dialog;
 pub mod toast;
+pub mod undo;

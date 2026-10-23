@@ -7,6 +7,7 @@ use crate::components::{
     modal::Modal,
     status::{EmptyState, InlineError, LoadingState},
     toast::toast,
+    undo::{self, Request},
 };
 use crate::{api, fmt, md, storage};
 use leptos::prelude::*;
@@ -51,6 +52,23 @@ struct TaskUi {
     comment_sending: RwSignal<std::collections::BTreeSet<String>>,
 }
 impl TaskUi {
+    fn remove(self, t: &Value) {
+        let id = s(t, "id");
+        self.comment_drafts.update(|drafts| {
+            drafts.remove(&id);
+        });
+        self.selected.update(|current| {
+            if *current == id {
+                current.clear();
+            }
+        });
+        undo::remove_row(
+            format!("已删除「{}」", s(t, "title")),
+            id.clone(),
+            Request::delete(format!("/api/tasks/{}", api::enc(&id))),
+            move || refresh(self.rev),
+        );
+    }
     fn mutate(self, id: String, method: &'static str, suffix: &'static str, body: Value) {
         if self.busy.try_get_untracked().unwrap_or(true) {
             return;
@@ -161,6 +179,7 @@ pub fn TasksPage() -> impl IntoView {
                 let p = prio.get();
                 let w = ws.get();
                 s(t, "parent_id").is_empty()
+                    && undo::shows(&s(t, "id"))
                     && (search.is_empty()
                         || format!("{} {} {}", s(t, "key"), s(t, "title"), s(t, "description"))
                             .to_lowercase()
@@ -1159,54 +1178,7 @@ fn TaskDetail(id: String, ui: TaskUi) -> impl IntoView {
                                                 <button
                                                     class="btn small danger"
                                                     disabled=move || ui.busy.get()
-                                                    on:click=move |_| {
-                                                        let t = delete.clone();
-                                                        spawn_local(async move {
-                                                            if dialog::ask(
-                                                                    "删除任务",
-                                                                    &format!(
-                                                                        "删除 {}「{}」？对话记录保留；子任务变为独立任务。未发送的评论将丢失。",
-                                                                        s(&t, "key"),
-                                                                        s(&t, "title"),
-                                                                    ),
-                                                                    vec![Choice::plain("取消"), Choice::danger("删除")],
-                                                                )
-                                                                .await != Some(1)
-                                                            {
-                                                                return;
-                                                            }
-                                                            if ui.busy.try_get_untracked().unwrap_or(true) {
-                                                                return;
-                                                            }
-                                                            ui.busy.set(true);
-                                                            match api::send::<
-                                                                Value,
-                                                            >(
-                                                                    "DELETE",
-                                                                    &format!("/api/tasks/{}", api::enc(&s(&t, "id"))),
-                                                                    &json!({}),
-                                                                )
-                                                                .await
-                                                            {
-                                                                Ok(_) => {
-                                                                    ui.comment_drafts
-                                                                        .try_update(|drafts| {
-                                                                            drafts.remove(&s(&t, "id"));
-                                                                        });
-                                                                    ui.selected
-                                                                        .try_update(|current| {
-                                                                            if *current == s(&t, "id") {
-                                                                                current.clear();
-                                                                            }
-                                                                        });
-                                                                    refresh(ui.rev);
-                                                                    toast("已删除");
-                                                                }
-                                                                Err(e) => toast(e.to_string()),
-                                                            }
-                                                            ui.busy.try_set(false);
-                                                        });
-                                                    }
+                                                    on:click=move |_| ui.remove(&delete)
                                                 >
                                                     "删除任务"
                                                 </button>

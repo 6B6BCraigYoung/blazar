@@ -2,11 +2,11 @@ use leptos::prelude::*;
 use serde_json::{Value, json};
 
 use crate::api;
-use crate::components::dialog::{Choice, ask};
 use crate::components::prefs::{
     PrefAdvanced, PrefEmpty, PrefGroup, PrefItem, PrefList, PrefRow, Sheet, Switch,
 };
 use crate::components::status::{InlineError, LoadingState};
+use crate::components::undo::{self, Request};
 
 use super::{flag, rows, save, text};
 
@@ -38,31 +38,21 @@ pub(super) fn HookSettings() -> impl IntoView {
         rev.get();
         api::get::<Value>("/api/hooks")
     });
+    let list = RwSignal::new(Vec::<Value>::new());
     let remove = Callback::new(move |id: String| {
-        if busy.get_untracked() {
-            return;
-        }
-        busy.set(true);
-        leptos::task::spawn_local(async move {
-            if ask(
-                "删除自动执行脚本",
-                "删除后不再自动执行这个脚本。",
-                vec![Choice::plain("保留脚本"), Choice::danger("删除脚本")],
-            )
-            .await
-                == Some(1)
-                && save(
-                    "DELETE",
-                    &format!("/api/hooks/{}", api::enc(&id)),
-                    json!({}),
-                )
-                .await
-            {
-                selected.set(None);
-                rev.update(|n| *n += 1);
-            }
-            busy.set(false);
+        let name = list.with_untracked(|l| {
+            l.iter()
+                .find(|h| text(h, "id") == id)
+                .map(|h| text(h, "command"))
+                .unwrap_or_default()
         });
+        selected.set(None);
+        undo::remove_row(
+            format!("已删除脚本「{name}」"),
+            id.clone(),
+            Request::delete(format!("/api/hooks/{}", api::enc(&id))),
+            move || rev.update(|n| *n += 1),
+        );
     });
     view! {
         <PrefGroup title="自动执行脚本" note="在会话开始、结束或出错时执行脚本。">
@@ -85,14 +75,20 @@ pub(super) fn HookSettings() -> impl IntoView {
                             .into_any()
                     }
                     Some(Ok(v)) => {
-                        let list = rows(&v);
-                        if list.is_empty() {
+                        let items = rows(&v);
+                        list.set(items.clone());
+                        let items: Vec<Value> = items
+                            .into_iter()
+                            .filter(|h| undo::shows(&text(h, "id")))
+                            .collect();
+                        if items.is_empty() {
                             return view! {
                                 <PrefEmpty text="还没有自动执行脚本。按「+」添加脚本并选择执行时点。" />
                             }
                                 .into_any();
                         }
-                        list.into_iter()
+                        items
+                            .into_iter()
                             .map(|h| {
                                 view! {
                                     <PrefItem

@@ -8,6 +8,7 @@ use crate::components::{
     modal::Modal,
     status::{EmptyState, InlineError, LoadingState},
     toast::toast,
+    undo::{self, Request},
 };
 use crate::{api, fmt};
 use leptos::prelude::*;
@@ -23,6 +24,20 @@ struct ApUi {
     token: RwSignal<Option<(String, String)>>,
 }
 impl ApUi {
+    fn remove(self, a: &Value) {
+        let id = s(a, "id");
+        self.selected.update(|current| {
+            if *current == id {
+                current.clear();
+            }
+        });
+        undo::remove_row(
+            format!("已删除「{}」", s(a, "name")),
+            id.clone(),
+            Request::delete(format!("/api/autopilots/{}", api::enc(&id))),
+            move || refresh(self.rev),
+        );
+    }
     fn mutate(self, id: String, method: &'static str, suffix: &'static str, body: Value) {
         if self.busy.try_get_untracked().unwrap_or(true) {
             return;
@@ -54,14 +69,6 @@ impl ApUi {
                                 format!("{}{}", origin, s(&r, "path")),
                             )));
                         }
-                    }
-                    if method == "DELETE" && suffix.is_empty() {
-                        self.selected.try_update(|current| {
-                            if current == &id {
-                                current.clear();
-                            }
-                        });
-                        toast("已删除");
                     }
                     refresh(self.rev);
                 }
@@ -190,6 +197,7 @@ pub fn AutopilotsPage() -> impl IntoView {
                                     }
                                     let rows = items
                                         .iter()
+                                        .filter(|a| undo::shows(&s(a, "id")))
                                         .cloned()
                                         .map(|a| {
                                             let id = s(&a, "id");
@@ -638,23 +646,7 @@ fn AutopilotDetail(id: String, ui: ApUi) -> impl IntoView {
                                                 <button
                                                     class="btn small danger"
                                                     disabled=move || ui.busy.get()
-                                                    on:click=move |_| {
-                                                        let a = delete.clone();
-                                                        spawn_local(async move {
-                                                            if dialog::ask(
-                                                                    "删除自动化",
-                                                                    &format!(
-                                                                        "删除「{}」和它的运行记录？已创建的任务与对话会保留。",
-                                                                        s(&a, "name"),
-                                                                    ),
-                                                                    vec![Choice::plain("取消"), Choice::danger("删除")],
-                                                                )
-                                                                .await == Some(1)
-                                                            {
-                                                                ui.mutate(s(&a, "id"), "DELETE", "", json!({}));
-                                                            }
-                                                        });
-                                                    }
+                                                    on:click=move |_| ui.remove(&delete)
                                                 >
                                                     "删除自动化"
                                                 </button>

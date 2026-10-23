@@ -5,10 +5,8 @@ use crate::components::prefs::{
     PrefAdvanced, PrefEmpty, PrefGroup, PrefItem, PrefList, Sheet, Switch,
 };
 use crate::components::status::{InlineError, LoadingState};
-use crate::components::{
-    dialog::{Choice, ask},
-    toast::toast,
-};
+use crate::components::toast::toast;
+use crate::components::undo::{self, Request};
 use crate::{api, app_state::use_app};
 
 use super::{flag, rows, save, text};
@@ -23,31 +21,21 @@ pub(super) fn RuleSettings() -> impl IntoView {
         rev.get();
         api::get::<Value>("/api/approval-rules")
     });
+    let list = RwSignal::new(Vec::<Value>::new());
     let remove = Callback::new(move |id: String| {
-        if busy.get_untracked() {
-            return;
-        }
-        busy.set(true);
-        leptos::task::spawn_local(async move {
-            if ask(
-                "删除自动批准规则",
-                "删除后，匹配的操作将按当前权限模式处理。",
-                vec![Choice::plain("保留规则"), Choice::danger("删除规则")],
-            )
-            .await
-                == Some(1)
-                && save(
-                    "DELETE",
-                    &format!("/api/approval-rules/{}", api::enc(&id)),
-                    json!({}),
-                )
-                .await
-            {
-                selected.set(None);
-                rev.update(|n| *n += 1);
-            }
-            busy.set(false);
+        let name = list.with_untracked(|l| {
+            l.iter()
+                .find(|r| text(r, "id") == id)
+                .map(|r| format!("{} {}", text(r, "tool"), text(r, "pattern")))
+                .unwrap_or_default()
         });
+        selected.set(None);
+        undo::remove_row(
+            format!("已删除规则「{}」", name.trim()),
+            id.clone(),
+            Request::delete(format!("/api/approval-rules/{}", api::enc(&id))),
+            move || rev.update(|n| *n += 1),
+        );
     });
     view! {
         <PrefGroup
@@ -74,14 +62,20 @@ pub(super) fn RuleSettings() -> impl IntoView {
                             .into_any()
                     }
                     Some(Ok(v)) => {
-                        let list = rows(&v);
-                        if list.is_empty() {
+                        let items = rows(&v);
+                        list.set(items.clone());
+                        let items: Vec<Value> = items
+                            .into_iter()
+                            .filter(|r| undo::shows(&text(r, "id")))
+                            .collect();
+                        if items.is_empty() {
                             return view! {
                                 <PrefEmpty text="还没有自动批准规则。按「+」填写可信任的工具和适用范围。" />
                             }
                                 .into_any();
                         }
-                        list.into_iter()
+                        items
+                            .into_iter()
                             .map(move |r| {
                                 let id = text(&r, "id");
                                 let enabled = RwSignal::new(flag(&r, "enabled"));

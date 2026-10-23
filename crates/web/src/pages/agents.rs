@@ -16,6 +16,7 @@ use crate::components::modal::Modal;
 use crate::components::page_head::{MenuItem, MoreMenu, PageHead};
 use crate::components::status::{EmptyState, InlineError, LoadingState, StateOf};
 use crate::components::toast::toast;
+use crate::components::undo::{self, Request};
 use crate::{api, fmt, storage};
 
 pub(super) fn text(v: &Value, key: &str) -> String {
@@ -61,6 +62,23 @@ pub(super) async fn confirm(title: &str, body: &str) -> bool {
     )
     .await
         == Some(1)
+}
+
+pub(super) fn remove_profile(agent: &Value, forever: bool, done: impl Fn() + 'static) {
+    let id = text(agent, "id");
+    let name = text(agent, "name");
+    let (text, request) = if forever {
+        (
+            format!("已删除「{name}」"),
+            Request::delete(format!("/api/agent-profiles/{}", api::enc(&id))),
+        )
+    } else {
+        (
+            format!("已归档「{name}」"),
+            Request::post(format!("/api/agent-profiles/{}/archive", api::enc(&id))),
+        )
+    };
+    undo::remove_row(text, id, request, done);
 }
 
 pub(super) fn guard_unsaved(dirty: RwSignal<bool>) {
@@ -392,7 +410,7 @@ pub fn AgentsPage() -> impl IntoView {
                         .unwrap_or_default();
                     profiles
                         .retain(|a| {
-                            (q.is_empty()
+                            undo::shows(&text(a, "id")) && (q.is_empty()
                                 || format!("{} {}", text(a, "name"), text(a, "description"))
                                     .to_lowercase()
                                     .contains(&q)) && (r.is_empty() || text(a, "runtime") == r)
@@ -824,50 +842,38 @@ fn AgentActions(agent: Value, rev: RwSignal<u32>, blocked: RwSignal<bool>) -> im
         spawn_local(async move {
             let agent = a.get_value();
             let id = text(&agent, "id");
-            if matches!(action, "archive" | "delete" | "cancel-runs")
+            if matches!(action, "archive" | "delete") {
+                if crate::files_js::confirm_leave().await {
+                    nav.with_value(|n| n("/agents", Default::default()));
+                    remove_profile(&agent, action == "delete", || {});
+                }
+                busy.set(false);
+                return;
+            }
+            if action == "cancel-runs"
                 && !confirm(
-                    match action {
-                        "archive" => "归档这个角色档案？",
-                        "delete" => "彻底删除这个角色档案？",
-                        _ => "取消全部运行？",
-                    },
-                    match action {
-                        "archive" => "正在运行的任务会取消，所有历史保留，可以稍后恢复。",
-                        "delete" => "删除后无法恢复；已有对话记录保留。",
-                        _ => "正在运行的任务将被取消，最多需要 5 秒停止。",
-                    },
+                    "取消全部运行？",
+                    "正在运行的任务将被取消，最多需要 5 秒停止。",
                 )
                 .await
             {
                 busy.set(false);
                 return;
             }
-            let path = if action == "delete" {
-                format!("/api/agent-profiles/{}", api::enc(&id))
-            } else {
-                format!("/api/agent-profiles/{}/{action}", api::enc(&id))
-            };
             match api::send::<Value>(
-                if action == "delete" { "DELETE" } else { "POST" },
-                &path,
+                "POST",
+                &format!("/api/agent-profiles/{}/{action}", api::enc(&id)),
                 &json!({}),
             )
             .await
             {
                 Ok(_) => {
-                    toast(match action {
-                        "archive" => "已归档",
-                        "restore" => "已恢复",
-                        "delete" => "已删除",
-                        _ => "已取消全部运行",
-                    });
-                    if action == "delete" {
-                        if crate::files_js::confirm_leave().await {
-                            nav.with_value(|n| n("/agents", Default::default()));
-                        }
+                    toast(if action == "restore" {
+                        "已恢复"
                     } else {
-                        rev.update(|r| *r += 1);
-                    }
+                        "已取消全部运行"
+                    });
+                    rev.update(|r| *r += 1);
                 }
                 Err(e) => toast(e.to_string()),
             }

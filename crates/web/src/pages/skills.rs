@@ -7,6 +7,7 @@ use crate::components::modal::Modal;
 use crate::components::page_head::PageHead;
 use crate::components::status::{EmptyState, InlineError, LoadingState};
 use crate::components::toast::toast;
+use crate::components::undo::{self, Request};
 use crate::{api, md, storage};
 use leptos::prelude::*;
 use leptos::task::spawn_local;
@@ -38,6 +39,25 @@ pub(super) fn parse_kv(source: &str) -> Result<Value, String> {
     }
     Ok(Value::Object(map))
 }
+fn remove_skill(v: &Value, is_mcp: bool, done: impl Fn() + 'static) {
+    let id = text(v, "id");
+    let path = format!(
+        "{}/{}",
+        if is_mcp {
+            "/api/mcp-servers"
+        } else {
+            "/api/skills"
+        },
+        api::enc(&id)
+    );
+    undo::remove_row(
+        format!("已删除「{}」", text(v, "name")),
+        id,
+        Request::delete(path),
+        done,
+    );
+}
+
 fn kv_text(v: &Value) -> String {
     v.as_object()
         .map(|m| {
@@ -221,6 +241,10 @@ pub fn SkillsPage() -> impl IntoView {
                                     .into_any()
                             }
                             Some(Ok(lib)) => {
+                                let lib: Vec<Value> = lib
+                                    .into_iter()
+                                    .filter(|v| undo::shows(&text(v, "id")))
+                                    .collect();
                                 if lib.is_empty() {
                                     return if is_mcp {
                                         view! {
@@ -353,37 +377,7 @@ pub fn SkillsPage() -> impl IntoView {
                                                                                 class="btn danger"
                                                                                 disabled=move || busy.get()
                                                                                 on:click=move |_| {
-                                                                                    if busy.get_untracked() {
-                                                                                        return;
-                                                                                    }
-                                                                                    busy.set(true);
-                                                                                    spawn_local(async move {
-                                                                                        let v = v.get_value();
-                                                                                        if confirm(
-                                                                                                &format!("删除「{}」？", text(&v, "name")),
-                                                                                                &format!(
-                                                                                                    "删除后，使用它的智能体将无法继续加载此能力。{}",
-                                                                                                    text(&v, "used_by"),
-                                                                                                ),
-                                                                                            )
-                                                                                            .await
-                                                                                        {
-                                                                                            let path = format!(
-                                                                                                "{}/{}",
-                                                                                                if is_mcp { "/api/mcp-servers" } else { "/api/skills" },
-                                                                                                api::enc(&text(&v, "id")),
-                                                                                            );
-                                                                                            match api::send::<Value>("DELETE", &path, &json!({})).await
-                                                                                            {
-                                                                                                Ok(_) => {
-                                                                                                    toast("已删除");
-                                                                                                    rev.update(|r| *r += 1);
-                                                                                                }
-                                                                                                Err(e) => toast(e.to_string()),
-                                                                                            }
-                                                                                        }
-                                                                                        busy.set(false);
-                                                                                    });
+                                                                                    remove_skill(&v.get_value(), is_mcp, move || rev.update(|r| *r += 1));
                                                                                 }
                                                                             >
                                                                                 "删除"

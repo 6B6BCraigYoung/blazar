@@ -8,6 +8,7 @@ use crate::components::palette::{AlertsDialog, Palette};
 use crate::components::sidebar::Sidebar;
 use crate::components::term_dialog::{self, TermDialogHost};
 use crate::components::toast::{self, ToastHost};
+use crate::components::undo::{self, UndoHost};
 use crate::pages::*;
 use crate::realtime;
 
@@ -19,6 +20,7 @@ pub fn App() -> impl IntoView {
     dialog::provide();
     crate::files_js::install_leave_confirm();
     toast::provide();
+    undo::provide();
     term_dialog::provide();
     view! {
         <Router>
@@ -84,6 +86,7 @@ pub fn App() -> impl IntoView {
             <TermDialogHost />
             <DialogHost />
             <ToastHost />
+            <UndoHost />
         </Router>
     }
 }

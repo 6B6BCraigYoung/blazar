@@ -43,6 +43,11 @@
 .toast { padding: var(--space-md) var(--space-xl); border: 0; border-radius: var(--radius-pill); background: var(--material-menu); -webkit-backdrop-filter: var(--blur-material); backdrop-filter: var(--blur-material); color: var(--fg); font-size: var(--font-size-label-readable); font-weight: var(--font-weight-medium); box-shadow: var(--shadow-toast); max-width: min(560px, calc(100vw - 32px)); animation: dlgpop var(--duration-approval-enter) ease-out; }
 .dlg.wide { width: min(620px, calc(100vw - 32px)); }
 .toast.quiet { padding: var(--space-sm) var(--space-lg); font-size: var(--font-size-label); font-weight: var(--font-weight-regular); color: var(--fg-2); }
+.toast.act { display: inline-flex; align-items: center; gap: var(--space-md); pointer-events: auto; }
+.toast-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.toast-sep { color: var(--fg-4); }
+.toast-btn { all: unset; cursor: pointer; padding: 0 var(--space-xs); border-radius: var(--r-sm); color: var(--accent); font-weight: var(--font-weight-semibold); white-space: nowrap; }
+.toast-btn:focus-visible { outline: var(--focus-ring); }
 .dlg .field { display: flex; flex-direction: column; gap: var(--space-sm); margin-top: var(--space-lg); font-size: var(--font-size-label); color: var(--fg-2); }
 .dlg .chk { margin-top: var(--space-control); }
 .dlg input:not([type]), .dlg textarea { width: 100%; padding: var(--space-field) var(--space-control); border: 1px solid var(--border); border-radius: var(--r-md); background: var(--bg-canvas); box-shadow: var(--shadow-field); color: var(--fg); font: var(--font-size-body) var(--font-sans); outline: none; resize: vertical; }

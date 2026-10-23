@@ -1,5 +1,4 @@
 use super::work_shared::*;
-use crate::components::dialog::{self, Choice};
 use crate::components::empty::{self, Action, Blank};
 use crate::components::group::ListGroup;
 use crate::components::icon;
@@ -7,12 +6,13 @@ use crate::components::modal::Modal;
 use crate::components::page_head::{MenuItem, MoreMenu, PageHead};
 use crate::components::status::{InlineError, LoadingState, StateOf};
 use crate::components::toast::toast;
+use crate::components::undo::{self, Request};
 use crate::realtime::use_bus;
 use crate::{api, app_state::use_app, fmt};
 use blazar_core_types::api::{ServerEvent, valid_bot_handle as valid_handle};
 use leptos::prelude::*;
 use leptos::task::spawn_local;
-use leptos_router::hooks::use_params_map;
+use leptos_router::hooks::{use_navigate, use_params_map};
 use serde_json::{Value, json};
 
 pub fn bots_revision() -> RwSignal<u32> {
@@ -78,6 +78,15 @@ fn from_label(m: &Value, bots: &[Value]) -> String {
         "schedule" => "定时".into(),
         _ => "系统".into(),
     }
+}
+
+pub(super) fn archive_bot(id: &str, name: &str, done: impl Fn() + 'static) {
+    undo::remove_row(
+        format!("已归档「{name}」"),
+        id.to_owned(),
+        Request::delete(format!("/api/bots/{}", api::enc(id))),
+        done,
+    );
 }
 
 async fn post(path: &str, body: Value) -> Result<Value, api::ApiError> {
@@ -184,7 +193,10 @@ pub fn BotsPage() -> impl IntoView {
                         .into_any()
                 }
                 Some(Ok(r)) => {
-                    let bots = arr(&r, "bots");
+                    let bots: Vec<Value> = arr(&r, "bots")
+                        .into_iter()
+                        .filter(|b| undo::shows(&s(b, "id")))
+                        .collect();
                     let showing_archived = archived.get_untracked();
                     if bots.is_empty() {
                         return if showing_archived {
@@ -562,6 +574,7 @@ pub fn BotPage() -> impl IntoView {
     let rev = bots_revision();
     let app = use_app();
     let busy = RwSignal::new(false);
+    let nav = StoredValue::new(use_navigate());
     let data = LocalResource::new(move || {
         rev.track();
         let id = id.get();
@@ -666,6 +679,7 @@ pub fn BotPage() -> impl IntoView {
                     );
                     let nodes = app.nodes();
                     let state = s(&b, "state");
+                    let name = s(&b, "display_name");
                     view! {
                         <PageHead
                             parent=("bot", "/bots")
@@ -735,27 +749,11 @@ pub fn BotPage() -> impl IntoView {
                                     "归档",
                                     move || {
                                         let id = b3.clone();
+                                        let name = name.clone();
                                         spawn_local(async move {
-                                            if dialog::ask(
-                                                    "归档 bot",
-                                                    "归档后它不再接收新工作，排队的工作会作废；工作目录和对话历史保留，可以再恢复。",
-                                                    vec![Choice::plain("取消"), Choice::danger("归档")],
-                                                )
-                                                .await == Some(1)
-                                            {
-                                                if let Err(e) = api::send::<
-                                                    Value,
-                                                >(
-                                                        "DELETE",
-                                                        &format!("/api/bots/{}", api::enc(&id)),
-                                                        &json!({}),
-                                                    )
-                                                    .await
-                                                {
-                                                    toast(e.to_string());
-                                                } else {
-                                                    let _ = window().location().set_href("/bots");
-                                                }
+                                            if crate::files_js::confirm_leave().await {
+                                                nav.with_value(|n| n("/bots", Default::default()));
+                                                archive_bot(&id, &name, move || app.load_bots());
                                             }
                                         });
                                     },

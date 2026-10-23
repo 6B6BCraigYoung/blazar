@@ -2,9 +2,9 @@ use leptos::prelude::*;
 use serde_json::{Value, json};
 
 use crate::api;
-use crate::components::dialog::{Choice, ask};
 use crate::components::prefs::{PrefEmpty, PrefGroup, PrefItem, PrefList, Sheet};
 use crate::components::status::{InlineError, LoadingState};
+use crate::components::undo::{self, Request};
 
 use super::{rows, save, text};
 
@@ -37,30 +37,19 @@ pub(super) fn SnippetSettings() -> impl IntoView {
         }
     });
     let remove = Callback::new(move |id: String| {
-        if busy.get_untracked() {
-            return;
-        }
-        busy.set(true);
-        leptos::task::spawn_local(async move {
-            if ask(
-                "删除片段",
-                "删除后不能恢复。",
-                vec![Choice::plain("取消"), Choice::danger("删除")],
-            )
-            .await
-                == Some(1)
-                && save(
-                    "DELETE",
-                    &format!("/api/snippets/{}", api::enc(&id)),
-                    json!({}),
-                )
-                .await
-            {
-                selected.set(None);
-                rev.update(|n| *n += 1);
-            }
-            busy.set(false);
+        let name = list.with_untracked(|l| {
+            l.iter()
+                .find(|s| text(s, "id") == id)
+                .map(|s| text(s, "name"))
+                .unwrap_or_default()
         });
+        selected.set(None);
+        undo::remove_row(
+            format!("已删除「{name}」"),
+            id.clone(),
+            Request::delete(format!("/api/snippets/{}", api::enc(&id))),
+            move || rev.update(|n| *n += 1),
+        );
     });
     view! {
         <PrefGroup
@@ -91,6 +80,10 @@ pub(super) fn SnippetSettings() -> impl IntoView {
                     Some(Ok(v)) => {
                         let items = rows(&v);
                         list.set(items.clone());
+                        let items: Vec<Value> = items
+                            .into_iter()
+                            .filter(|s| undo::shows(&text(s, "id")))
+                            .collect();
                         if items.is_empty() {
                             return view! {
                                 <PrefEmpty text="还没有片段。按「+」添加常用内容，在对话中输入 @ 即可引用。" />
