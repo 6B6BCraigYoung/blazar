@@ -16,36 +16,24 @@ use crate::components::{
 use crate::files_js;
 use wasm_bindgen::closure::Closure;
 
+mod advanced;
 mod detail;
 mod invites;
 mod mesh;
 mod roles;
 mod ssh;
+mod table;
 
+use advanced::AdvancedSheet;
 pub use detail::NodeDetailPage;
 use invites::{Invites, Issuer};
-use mesh::{ConfigEditor, ConfigPreview, JoinDialog, MeshLocal, TopoFix};
-use roles::{PendingMachines, PersonalMachines};
+use mesh::{ConfigEditor, ConfigPreview, JoinDialog, MeshLocal};
+use roles::ConfirmSheet;
 use ssh::{SshPicker, remove_ssh};
+use table::{MachineTable, listed, sorted};
 
 fn s(v: &Value, k: &str) -> String {
     v.get(k).and_then(Value::as_str).unwrap_or("").to_owned()
-}
-
-fn latency(ms: Option<f64>) -> AnyView {
-    match ms {
-        None => view! { <span class="muted">"—"</span> }.into_any(),
-        Some(ms) => {
-            let cls = if ms < 60.0 {
-                "ok"
-            } else if ms < 150.0 {
-                "warn"
-            } else {
-                "bad"
-            };
-            view! { <span class=format!("lat {cls}")>{format!("{ms:.0} ms")}</span> }.into_any()
-        }
-    }
 }
 
 fn date_of(t: i64) -> String {
@@ -211,15 +199,40 @@ pub fn NodesPage() -> impl IntoView {
     let invite_in = NodeRef::<leptos::html::Input>::new();
     let toml_in = NodeRef::<leptos::html::Input>::new();
     let ssh_pick = RwSignal::new(false);
+    let confirm = RwSignal::new(false);
+    let advanced = RwSignal::new(false);
     let nodes = move || {
         app.state
             .with(|s| s.as_ref().map(|s| s.nodes.clone()).unwrap_or_default())
     };
+    let shown = Signal::derive(move || {
+        let k = q.get().to_lowercase();
+        sorted(
+            nodes()
+                .into_iter()
+                .filter(listed)
+                .filter(|n| {
+                    k.is_empty()
+                        || n.name.to_lowercase().contains(&k)
+                        || (n.name == "local" && "本机".contains(&k))
+                })
+                .collect(),
+        )
+    });
+    let pending_count = Memo::new(move |_| nodes().iter().filter(|n| n.is_pending()).count());
+    let loading = Memo::new(move |_| app.state.with(|s| s.is_none()));
+    let empty = Memo::new(move |_| shown.with(Vec::is_empty));
     let bus = crate::realtime::use_bus();
     let topo = LocalResource::new(move || {
         m.local.track();
         bus.nodes.track();
         api::get::<Value>("/api/mesh/topology")
+    });
+    let source = Signal::derive(move || {
+        topo.get()
+            .and_then(Result::ok)
+            .map(|t| s(&t, "source"))
+            .filter(|x| !x.is_empty())
     });
     let on_file = move |e: leptos::ev::Event| {
         let input: web_sys::HtmlInputElement = event_target(&e);
@@ -260,6 +273,22 @@ pub fn NodesPage() -> impl IntoView {
                     view! { <Status tone=Tone::Other label=format!("{n} 台开发机在线") /> }
                 }
             >
+                {move || {
+                    let n = pending_count.get();
+                    (n > 0)
+                        .then(|| {
+                            view! {
+                                <button
+                                    type="button"
+                                    class="btn"
+                                    aria-haspopup="dialog"
+                                    on:click=move |_| confirm.set(true)
+                                >
+                                    {format!("确认 {n} 台…")}
+                                </button>
+                            }
+                        })
+                }}
                 <button class="btn primary" on:click=move |_| ssh_pick.set(true)>
                     "添加机器"
                 </button>
@@ -273,240 +302,131 @@ pub fn NodesPage() -> impl IntoView {
                 on:change=on_file
             />
             <p class="muted nodes-intro">"选择一台机器，创建或打开工作区。"</p>
-            <PendingMachines nodes=Signal::derive(nodes) />
-            <section class="card pad">
-                <div class="card-title">
-                    <h3>"开发机"</h3>
-                    <span class="muted small">
-                        {move || {
-                            format!("{} 台", nodes().iter().filter(|n| n.is_usable()).count())
-                        }}
-                    </span>
-                    <span class="grow"></span>
-                    <input
-                        class="page-filter"
-                        aria-label="筛选机器"
-                        placeholder="搜索机器"
-                        prop:value=move || q.get()
-                        on:input=move |e| q.set(event_target_value(&e))
-                    />
-                    <button
-                        class="btn small"
-                        disabled=move || m.refreshing.get()
-                        on:click=move |_| spawn_local(refresh_mesh(m))
-                    >
-                        {move || {
-                            if m.refreshing.get() { "发现中…" } else { "发现组网机器" }
-                        }}
-                    </button>
-                </div>
-                <details class="nodes-details">
-                    <summary>"机器从哪里来"</summary>
-                    <p class="muted small">
-                        "组网机器会自动出现；也可以从本机 SSH 配置中选择机器。SSH 机器无需加入组网。"
-                    </p>
-                    <div class="muted small">
-                        {move || {
-                            topo.get()
-                                .and_then(Result::ok)
-                                .map(|t| s(&t, "source"))
-                                .filter(|x| !x.is_empty())
-                                .map(|x| format!("发现来源：{x}"))
-                        }}
-                    </div>
-                </details>
-                {move || {
-                    topo.get()
-                        .and_then(Result::err)
-                        .map(|e| {
-                            view! {
-                                <InlineError
-                                    message=format!("无法读取组网机器：{e}")
-                                    retry=Callback::new(move |()| m.local.update(|n| *n += 1))
+            {move || {
+                (nodes().len() >= 8)
+                    .then(|| {
+                        view! {
+                            <div class="machines-toolbar">
+                                <input
+                                    class="page-filter"
+                                    aria-label="筛选机器"
+                                    placeholder="搜索机器"
+                                    prop:value=move || q.get()
+                                    on:input=move |e| q.set(event_target_value(&e))
                                 />
-                            }
-                        })
-                }}
-                {move || {
-                    app.state_error
-                        .get()
-                        .map(|message| {
-                            view! {
-                                <InlineError
-                                    message
-                                    retry=Callback::new(move |_| app.load_state())
-                                />
-                            }
-                        })
-                }}
-                {move || {
-                    topo.get()
-                        .and_then(Result::ok)
-                        .filter(|t| s(t, "source").is_empty())
-                        .map(|_| view! { <TopoFix m /> })
-                }}
-                <div class="ws-list nodes">
-                    {move || {
-                        if app.state.with(|state| state.is_none()) {
-                            return if app.state_error.with(Option::is_some) {
-                                ().into_any()
+                            </div>
+                        }
+                    })
+            }}
+            {move || {
+                topo.get()
+                    .and_then(Result::err)
+                    .map(|e| {
+                        view! {
+                            <InlineError
+                                message=format!("无法读取组网机器：{e}")
+                                retry=Callback::new(move |()| m.local.update(|n| *n += 1))
+                            />
+                        }
+                    })
+            }}
+            {move || {
+                app.state_error
+                    .get()
+                    .map(|message| {
+                        view! {
+                            <InlineError
+                                message
+                                retry=Callback::new(move |_| app.load_state())
+                            />
+                        }
+                    })
+            }}
+            {move || {
+                if loading.get() {
+                    return if app.state_error.with(Option::is_some) {
+                        ().into_any()
+                    } else {
+                        view! { <LoadingState text="正在读取机器…" /> }.into_any()
+                    };
+                }
+                if empty.get() {
+                    let filtered = !q.with(String::is_empty);
+                    return view! {
+                        <EmptyState
+                            title=if filtered { "没有匹配的机器" } else { "还没有可用机器" }
+                            detail=if filtered {
+                                "换个名称搜索，或清空筛选。"
                             } else {
-                                view! { <LoadingState text="正在读取机器…" /> }.into_any()
-                            };
-                        }
-                        let k = q.get().to_lowercase();
-                        let list: Vec<_> = nodes()
-                            .into_iter()
-                            .filter(|n| n.is_usable())
-                            .filter(|n| {
-                                k.is_empty() || n.name.to_lowercase().contains(&k)
-                                    || (n.name == "local" && "本机".contains(&k))
-                            })
-                            .collect();
-                        if list.is_empty() {
-                            return view! {
-                                <EmptyState
-                                    title=if k.is_empty() {
-                                        "还没有可用机器"
-                                    } else {
-                                        "没有匹配的机器"
-                                    }
-                                    detail=if k.is_empty() {
-                                        "添加 SSH 机器，或发现已加入组网的机器。"
-                                    } else {
-                                        "换个名称搜索，或清空筛选。"
-                                    }
-                                />
+                                "添加 SSH 机器，或发现已加入组网的机器。"
                             }
-                                .into_any();
+                        />
+                    }
+                        .into_any();
+                }
+                view! { <MachineTable nodes=shown /> }.into_any()
+            }}
+            {move || {
+                topo.get()
+                    .and_then(Result::ok)
+                    .map(|_| {
+                        let src = source.get();
+                        view! {
+                            <p class="machines-foot muted small">
+                                <span>
+                                    {src
+                                        .clone()
+                                        .map_or_else(
+                                            || "暂时无法发现组网机器。".to_owned(),
+                                            |x| format!("组网机器由{x}发现。"),
+                                        )}
+                                </span>
+                                <button
+                                    type="button"
+                                    class="linkbtn"
+                                    aria-haspopup="dialog"
+                                    on:click=move |_| advanced.set(true)
+                                >
+                                    {if src.is_some() { "高级…" } else { "设置…" }}
+                                </button>
+                            </p>
                         }
-                        list.into_iter()
-                            .map(|n| {
-                                let name2 = n.name.clone();
-                                let name3 = n.name.clone();
-                                let is_ssh = n.network.as_deref() == Some("ssh");
-                                let is_mesh = n.network.as_deref() == Some("easytier");
-                                let removable = is_ssh && n.workspace_count == 0;
-                                let name4 = n.name.clone();
-                                view! {
-                                    <article class="ws-card node-card">
-                                        <div class="top">
-                                            <a
-                                                class="node-name"
-                                                href=format!("/nodes/{}", api::enc(&n.name))
-                                            >
-                                                {if n.name == "local" {
-                                                    "本机".to_owned()
-                                                } else {
-                                                    n.name.clone()
-                                                }}
-                                            </a>
-                                            <StateOf state=if n.status == "online" { "online" } else { "offline" } />
-                                        </div>
-                                        <div class="meta">
-                                            <span>
-                                                {if n.name == "local" {
-                                                    "当前电脑"
-                                                } else if is_ssh {
-                                                    "SSH 连接"
-                                                } else {
-                                                    "组网连接"
-                                                }}
-                                            </span>
-                                            <span>{format!("{} 个工作区", n.workspace_count)}</span>
-                                        </div>
-                                        <div class="nodes-details">
-                                            <div class="kv">
-                                                <span class="k">"标识"</span>
-                                                <span class="v mono">{n.name.clone()}</span>
-                                            </div>
-                                            <div class="kv">
-                                                <span class="k">"地址"</span>
-                                                <span
-                                                    class="v mono"
-                                                    title=n.ipv4.clone().unwrap_or_default()
-                                                >
-                                                    {n
-                                                        .ipv4
-                                                        .clone()
-                                                        .filter(|v| !v.is_empty())
-                                                        .unwrap_or_else(|| "—".into())}
-                                                </span>
-                                            </div>
-                                            <div class="kv">
-                                                <span class="k">"连接方式"</span>
-                                                <span class="v">
-                                                    {if n.name == "local" {
-                                                        "本机".to_owned()
-                                                    } else if is_ssh {
-                                                        "SSH".to_owned()
-                                                    } else {
-                                                        n.cost
-                                                            .clone()
-                                                            .filter(|c| !c.is_empty())
-                                                            .unwrap_or_else(|| "组网".into())
-                                                    }}
-                                                </span>
-                                            </div>
-                                            <div class="kv">
-                                                <span class="k">"延迟"</span>
-                                                <span class="v">
-                                                    {latency(if is_mesh { n.latency_ms } else { None })}
-                                                </span>
-                                            </div>
-                                        </div>
-                                        <div class="act">
-                                            <a
-                                                class="btn small"
-                                                href=format!("/nodes/{}", api::enc(&n.name))
-                                            >
-                                                "查看机器"
-                                            </a>
-                                            {removable
-                                                .then(|| {
-                                                    view! {
-                                                        <button
-                                                            class="btn small danger"
-                                                            title="从 Blazar 移除，不修改 SSH 配置"
-                                                            on:click=move |_| remove_ssh(name3.clone())
-                                                        >
-                                                            "移除"
-                                                        </button>
-                                                    }
-                                                })}
-                                            {is_mesh
-                                                .then(|| {
-                                                    view! {
-                                                        <button
-                                                            class="btn small ghost"
-                                                            title="改为个人电脑：不再用来运行任务"
-                                                            on:click=move |_| set_roles(
-                                                                vec![(name4.clone(), Some("personal"))],
-                                                            )
-                                                        >
-                                                            "不是开发机"
-                                                        </button>
-                                                    }
-                                                })}
-                                            <button
-                                                class="btn small"
-                                                on:click=move |_| {
-                                                    app.new_ws_node.set(Some(name2.clone()));
-                                                    app.new_ws.set(true);
-                                                }
-                                            >
-                                                "新建工作区"
-                                            </button>
-                                        </div>
-                                    </article>
-                                }
-                            })
-                            .collect_view()
-                            .into_any()
-                    }}
-                </div>
-            </section>
-            <PersonalMachines nodes=Signal::derive(nodes) />
+                    })
+            }}
+            {move || {
+                confirm
+                    .get()
+                    .then(|| {
+                        let pending = app
+                            .state
+                            .with_untracked(|s| {
+                                s.as_ref()
+                                    .map(|s| {
+                                        s.nodes.iter().filter(|n| n.is_pending()).cloned().collect()
+                                    })
+                                    .unwrap_or_default()
+                            });
+                        view! {
+                            <ConfirmSheet
+                                pending
+                                on_close=Callback::new(move |()| confirm.set(false))
+                            />
+                        }
+                    })
+            }}
+            {move || {
+                advanced
+                    .get()
+                    .then(|| {
+                        view! {
+                            <AdvancedSheet
+                                m
+                                source
+                                on_close=Callback::new(move |()| advanced.set(false))
+                            />
+                        }
+                    })
+            }}
             <div class="nodes-section-heading">
                 <h2>"团队组网"</h2>
                 <span class="muted small">"由 EasyTier 提供"</span>
@@ -523,16 +443,15 @@ pub fn NodesPage() -> impl IntoView {
     }
 }
 
-fn set_roles(roles: Vec<(String, Option<&'static str>)>) {
+fn set_roles(app: AppData, roles: Vec<(String, Option<&'static str>)>) {
     let roles: serde_json::Map<String, Value> = roles
         .into_iter()
         .map(|(name, role)| (name, json!(role)))
         .collect();
     spawn_local(async move {
-        if let Err(e) =
-            api::send::<Value>("PUT", "/api/nodes/roles", &json!({ "roles": roles })).await
-        {
-            toast(format!("设置机器类型失败：{e}"));
+        match api::send::<Value>("PUT", "/api/nodes/roles", &json!({ "roles": roles })).await {
+            Ok(_) => app.load_state(),
+            Err(e) => toast(format!("设置机器类型失败：{e}")),
         }
     });
 }
