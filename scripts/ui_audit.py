@@ -895,6 +895,17 @@ def tab_step(href):
     return {"action": "click", "selector": f"nav.section-tabs a[href=\"{href}\"]"}
 
 
+def brow(path):
+    return f".browser .brow[title$=\"/{path.parent.name}/{path.name}\"]"
+
+
+def browse_to(folder, expect):
+    return ({"action": "type", "selector": "input[aria-label=\"目录路径\"]", "value": str(folder)},
+            {"action": "click", "text": "前往"},
+            {"action": "wait", "selector": brow(expect), "timeout_ms": 8000},
+            {"action": "wait", "ms": 300})
+
+
 def settings_parts(round_name):
     sheet = {"action": "wait", "selector": "[data-modal-root]", "timeout_ms": 4000}
     items = [
@@ -939,10 +950,13 @@ def plan(round_name):
         items.append(("start-new-workspace", "/", "开始清单里「选择项目文件夹…」打开的对话框",
                       ({"action": "click", "selector": ".start-actions .btn.primary"}, {"action": "wait", "ms": 600}), False))
         return state, items
+    make_repos()
     new_ws = {"action": "click", "selector": ".home-page .page-actions .btn.primary"}
-    items.append(("new-workspace", "/", "新建工作区对话框（页头「新建」）", (new_ws, {"action": "wait", "ms": 600}), False))
-    items.append(("new-workspace-folder-menu", "/", "新建工作区对话框里目录的右键菜单",
-                  (new_ws, {"action": "wait", "ms": 600}, {"action": "context_menu", "text": "tmp"}), False))
+    items.append(("new-workspace", "/", "新建工作区对话框（页头「新建」），目录停在演示仓库",
+                  (new_ws, {"action": "wait", "ms": 600}, *browse_to(DEMO, DEMO / "atlas-api")), False))
+    items.append(("new-workspace-folder-menu", "/", "新建工作区对话框里目录的右键菜单（演示仓库里的 src）",
+                  (new_ws, {"action": "wait", "ms": 600}, *browse_to(DEMO / "atlas-api", DEMO / "atlas-api" / "src"),
+                   {"action": "context_menu", "selector": brow(DEMO / "atlas-api" / "src")}), False))
     first_row = ".home-row[data-index=\"0\"] > .home-main"
     items.append(("home-selected", "/", "首页用 ↓ 选中第一行",
                   ({"action": "wait", "selector": first_row, "timeout_ms": 8000},
