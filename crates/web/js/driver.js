@@ -17,9 +17,10 @@ function guard(el) {
 function install() {
   if (state.installed) return;
   state.installed = true;
-  window.addEventListener('error', e => state.errors.push(`error: ${e.message}`));
+  const trace = (text, cause) => (cause?.stack && !String(cause.stack).startsWith(text) ? `${text}\n${cause.stack}` : text);
+  window.addEventListener('error', e => state.errors.push(trace(`error: ${e.message}`, e.error)));
   window.addEventListener('unhandledrejection', e => {
-    if (!e.defaultPrevented) state.errors.push(`rejection: ${e.reason}`);
+    if (!e.defaultPrevented) state.errors.push(trace(`rejection: ${e.reason}`, e.reason));
   });
   const original = console.error.bind(console);
   console.error = (...args) => {

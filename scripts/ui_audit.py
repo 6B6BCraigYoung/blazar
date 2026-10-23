@@ -763,7 +763,11 @@ class Shooter:
         for o in over:
             self.issues.append(f"{name}\t溢出\t{o.get('name', '')[:80]}\t{o.get('rect')}")
         for e in errors:
-            self.issues.append(f"{name}\t错误\t{e[:300]}")
+            self.issues.append(f"{name}\t错误\t{e.splitlines()[0][:300]}（完整内容见 console-errors.log）")
+        if errors:
+            with (self.dir / "console-errors.log").open("a", encoding="utf-8") as log:
+                for e in errors:
+                    log.write(f"== {name}\n{e}\n\n")
         print(f"{name}\t溢出 {len(over)}\t错误 {len(errors)}" + ("\t演练，没截图" if self.rehearse else ""))
 
     def page(self, no, slug, theme, route, expect, state, steps=(), scroll=True, settle=900):
@@ -1222,6 +1226,9 @@ def index(out):
                     f"截图 {size[0]}×{size[1]} 像素（只含页面可见区域）。")
     head.append("")
     tail = ["", "## 驱动发现的溢出和控制台错误", ""] + (issues or ["（无）"])
+    logs = [p.relative_to(out) for p in sorted(out.glob("*/console-errors.log"))]
+    if logs:
+        tail += ["", "控制台错误的完整文本（含堆栈）：" + "、".join(f"`{p}`" for p in logs)]
     (out / "index.md").write_text("\n".join(head + lines + tail) + "\n")
 
 
