@@ -3,6 +3,7 @@ use crate::components::page_head::PageHead;
 use crate::components::{
     dialog::{self, Choice},
     empty::{self, Action, Blank},
+    group::ListGroup,
     icon,
     modal::Modal,
     status::{EmptyState, InlineError, LoadingState},
@@ -187,7 +188,7 @@ pub fn AutopilotsPage() -> impl IntoView {
                                         }
                                             .into_any();
                                     }
-                                    items
+                                    let rows = items
                                         .iter()
                                         .cloned()
                                         .map(|a| {
@@ -196,7 +197,7 @@ pub fn AutopilotsPage() -> impl IntoView {
                                             let next = s(&a, "next_run_at");
                                             view! {
                                                 <button
-                                                    class="card work-ap-row"
+                                                    class="work-ap-row lrow"
                                                     class:work-selected=move || ui.selected.get() == selected
                                                     on:click=move |_| ui.selected.set(id.clone())
                                                 >
@@ -237,8 +238,8 @@ pub fn AutopilotsPage() -> impl IntoView {
                                                 </button>
                                             }
                                         })
-                                        .collect_view()
-                                        .into_any()
+                                        .collect_view();
+                                    view! { <ListGroup>{rows}</ListGroup> }.into_any()
                                 }
                             }
                         }

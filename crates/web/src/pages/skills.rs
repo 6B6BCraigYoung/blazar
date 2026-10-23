@@ -1,6 +1,7 @@
 use super::agents::{confirm, text};
 use crate::app_state::use_app;
 use crate::components::empty::{self, Action, Blank};
+use crate::components::group::ListGroup;
 use crate::components::icon;
 use crate::components::modal::Modal;
 use crate::components::page_head::PageHead;
@@ -247,154 +248,156 @@ pub fn SkillsPage() -> impl IntoView {
                                     };
                                 }
                                 view! {
-                                    <div class="card agent-table">
-                                        <table>
-                                            <thead>
-                                                <tr>
-                                                    <th>"名称"</th>
-                                                    <th>{if is_mcp { "连接方式" } else { "说明" }}</th>
-                                                    <th>{if is_mcp { "密钥" } else { "文件" }}</th>
-                                                    <th>"用在"</th>
-                                                    <th>"操作"</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {lib
-                                                    .into_iter()
-                                                    .map(|item| {
-                                                        let v = StoredValue::new(item.clone());
-                                                        view! {
-                                                            <tr>
-                                                                <td>
-                                                                    <button
-                                                                        class="agent-link"
-                                                                        on:click=move |_| {
-                                                                            if is_mcp {
-                                                                                mcp.set(Some(v.get_value()));
-                                                                            } else {
-                                                                                editing.set(Some(text(&v.get_value(), "id")));
-                                                                            }
-                                                                        }
-                                                                    >
-                                                                        {text(&item, "name")}
-                                                                    </button>
-                                                                    <div class="muted">
-                                                                        {if is_mcp {
-                                                                            text(&item, "transport")
-                                                                        } else {
-                                                                            text(&item["origin"], "provider")
-                                                                        }}
-                                                                    </div>
-                                                                </td>
-                                                                <td>
-                                                                    {if is_mcp {
-                                                                        if text(&item, "transport") == "http" {
-                                                                            text(&item, "url")
-                                                                        } else {
-                                                                            format!(
-                                                                                "{} {}",
-                                                                                text(&item, "command"),
-                                                                                rows(&item, "args")
-                                                                                    .iter()
-                                                                                    .filter_map(Value::as_str)
-                                                                                    .collect::<Vec<_>>()
-                                                                                    .join(" "),
-                                                                            )
-                                                                        }
-                                                                    } else {
-                                                                        text(&item, "description")
-                                                                    }}
-                                                                </td>
-                                                                <td>
-                                                                    {if is_mcp {
-                                                                        (rows(&item, "env_keys").len()
-                                                                            + rows(&item, "header_keys").len())
-                                                                            .to_string()
-                                                                    } else {
-                                                                        item["files"].as_u64().unwrap_or_default().to_string()
-                                                                    }}
-                                                                </td>
-                                                                <td>
-                                                                    {if text(&item, "used_by").is_empty() {
-                                                                        "尚未启用".into()
-                                                                    } else {
-                                                                        text(&item, "used_by")
-                                                                    }}
-                                                                </td>
-                                                                <td>
-                                                                    <div class="agent-actions">
-                                                                        {(!is_mcp && !item["origin"].is_null())
-                                                                            .then(|| {
-                                                                                view! {
-                                                                                    <button
-                                                                                        class="btn"
-                                                                                        on:click=move |_| {
-                                                                                            let item = v.get_value();
-                                                                                            let o = &item["origin"];
-                                                                                            let install = if text(o, "provider") == "clawhub" {
-                                                                                                json!(
-                                                                                                    {"kind":"clawhub","owner":o["owner"],"slug":o["slug"]}
-                                                                                                )
-                                                                                            } else {
-                                                                                                json!(
-                                                                                                    {"kind":"github","repo":o["repo"],"path":o["path"],"ref":o["ref"]}
-                                                                                                )
-                                                                                            };
-                                                                                            preview.set(Some((install, true)));
-                                                                                        }
-                                                                                    >
-                                                                                        "更新"
-                                                                                    </button>
-                                                                                }
-                                                                            })}
+                                    <ListGroup>
+                                        <div class="agent-table">
+                                            <table>
+                                                <thead>
+                                                    <tr>
+                                                        <th>"名称"</th>
+                                                        <th>{if is_mcp { "连接方式" } else { "说明" }}</th>
+                                                        <th>{if is_mcp { "密钥" } else { "文件" }}</th>
+                                                        <th>"用在"</th>
+                                                        <th>"操作"</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {lib
+                                                        .into_iter()
+                                                        .map(|item| {
+                                                            let v = StoredValue::new(item.clone());
+                                                            view! {
+                                                                <tr>
+                                                                    <td>
                                                                         <button
-                                                                            class="btn danger"
-                                                                            disabled=move || busy.get()
+                                                                            class="agent-link"
                                                                             on:click=move |_| {
-                                                                                if busy.get_untracked() {
-                                                                                    return;
+                                                                                if is_mcp {
+                                                                                    mcp.set(Some(v.get_value()));
+                                                                                } else {
+                                                                                    editing.set(Some(text(&v.get_value(), "id")));
                                                                                 }
-                                                                                busy.set(true);
-                                                                                spawn_local(async move {
-                                                                                    let v = v.get_value();
-                                                                                    if confirm(
-                                                                                            &format!("删除「{}」？", text(&v, "name")),
-                                                                                            &format!(
-                                                                                                "删除后，使用它的智能体将无法继续加载此能力。{}",
-                                                                                                text(&v, "used_by"),
-                                                                                            ),
-                                                                                        )
-                                                                                        .await
-                                                                                    {
-                                                                                        let path = format!(
-                                                                                            "{}/{}",
-                                                                                            if is_mcp { "/api/mcp-servers" } else { "/api/skills" },
-                                                                                            api::enc(&text(&v, "id")),
-                                                                                        );
-                                                                                        match api::send::<Value>("DELETE", &path, &json!({})).await
-                                                                                        {
-                                                                                            Ok(_) => {
-                                                                                                toast("已删除");
-                                                                                                rev.update(|r| *r += 1);
-                                                                                            }
-                                                                                            Err(e) => toast(e.to_string()),
-                                                                                        }
-                                                                                    }
-                                                                                    busy.set(false);
-                                                                                });
                                                                             }
                                                                         >
-                                                                            "删除"
+                                                                            {text(&item, "name")}
                                                                         </button>
-                                                                    </div>
-                                                                </td>
-                                                            </tr>
-                                                        }
-                                                    })
-                                                    .collect_view()}
-                                            </tbody>
-                                        </table>
-                                    </div>
+                                                                        <div class="muted">
+                                                                            {if is_mcp {
+                                                                                text(&item, "transport")
+                                                                            } else {
+                                                                                text(&item["origin"], "provider")
+                                                                            }}
+                                                                        </div>
+                                                                    </td>
+                                                                    <td>
+                                                                        {if is_mcp {
+                                                                            if text(&item, "transport") == "http" {
+                                                                                text(&item, "url")
+                                                                            } else {
+                                                                                format!(
+                                                                                    "{} {}",
+                                                                                    text(&item, "command"),
+                                                                                    rows(&item, "args")
+                                                                                        .iter()
+                                                                                        .filter_map(Value::as_str)
+                                                                                        .collect::<Vec<_>>()
+                                                                                        .join(" "),
+                                                                                )
+                                                                            }
+                                                                        } else {
+                                                                            text(&item, "description")
+                                                                        }}
+                                                                    </td>
+                                                                    <td>
+                                                                        {if is_mcp {
+                                                                            (rows(&item, "env_keys").len()
+                                                                                + rows(&item, "header_keys").len())
+                                                                                .to_string()
+                                                                        } else {
+                                                                            item["files"].as_u64().unwrap_or_default().to_string()
+                                                                        }}
+                                                                    </td>
+                                                                    <td>
+                                                                        {if text(&item, "used_by").is_empty() {
+                                                                            "尚未启用".into()
+                                                                        } else {
+                                                                            text(&item, "used_by")
+                                                                        }}
+                                                                    </td>
+                                                                    <td>
+                                                                        <div class="agent-actions">
+                                                                            {(!is_mcp && !item["origin"].is_null())
+                                                                                .then(|| {
+                                                                                    view! {
+                                                                                        <button
+                                                                                            class="btn"
+                                                                                            on:click=move |_| {
+                                                                                                let item = v.get_value();
+                                                                                                let o = &item["origin"];
+                                                                                                let install = if text(o, "provider") == "clawhub" {
+                                                                                                    json!(
+                                                                                                        {"kind":"clawhub","owner":o["owner"],"slug":o["slug"]}
+                                                                                                    )
+                                                                                                } else {
+                                                                                                    json!(
+                                                                                                        {"kind":"github","repo":o["repo"],"path":o["path"],"ref":o["ref"]}
+                                                                                                    )
+                                                                                                };
+                                                                                                preview.set(Some((install, true)));
+                                                                                            }
+                                                                                        >
+                                                                                            "更新"
+                                                                                        </button>
+                                                                                    }
+                                                                                })}
+                                                                            <button
+                                                                                class="btn danger"
+                                                                                disabled=move || busy.get()
+                                                                                on:click=move |_| {
+                                                                                    if busy.get_untracked() {
+                                                                                        return;
+                                                                                    }
+                                                                                    busy.set(true);
+                                                                                    spawn_local(async move {
+                                                                                        let v = v.get_value();
+                                                                                        if confirm(
+                                                                                                &format!("删除「{}」？", text(&v, "name")),
+                                                                                                &format!(
+                                                                                                    "删除后，使用它的智能体将无法继续加载此能力。{}",
+                                                                                                    text(&v, "used_by"),
+                                                                                                ),
+                                                                                            )
+                                                                                            .await
+                                                                                        {
+                                                                                            let path = format!(
+                                                                                                "{}/{}",
+                                                                                                if is_mcp { "/api/mcp-servers" } else { "/api/skills" },
+                                                                                                api::enc(&text(&v, "id")),
+                                                                                            );
+                                                                                            match api::send::<Value>("DELETE", &path, &json!({})).await
+                                                                                            {
+                                                                                                Ok(_) => {
+                                                                                                    toast("已删除");
+                                                                                                    rev.update(|r| *r += 1);
+                                                                                                }
+                                                                                                Err(e) => toast(e.to_string()),
+                                                                                            }
+                                                                                        }
+                                                                                        busy.set(false);
+                                                                                    });
+                                                                                }
+                                                                            >
+                                                                                "删除"
+                                                                            </button>
+                                                                        </div>
+                                                                    </td>
+                                                                </tr>
+                                                            }
+                                                        })
+                                                        .collect_view()}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </ListGroup>
                                 }
                                     .into_any()
                             }
@@ -1524,62 +1527,64 @@ fn SkillMarket(preview: RwSignal<Option<(Value, bool)>>, refresh: RwSignal<u32>)
                             .into_any();
                     }
                     view! {
-                        <div class="card agent-table">
-                            <table>
-                                <thead>
-                                    <tr>
-                                        <th>"技能"</th>
-                                        <th>"说明"</th>
-                                        <th>"来自"</th>
-                                        <th>"热度"</th>
-                                        <th>"操作"</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {items
-                                        .into_iter()
-                                        .map(|it| {
-                                            let install = it["install"].clone();
-                                            view! {
-                                                <tr>
-                                                    <td>
-                                                        <b>{text(&it, "name")}</b>
-                                                        {(it["suspicious"] == true)
-                                                            .then(|| {
-                                                                view! {
-                                                                    <span class="err-line">" · 平台标记可疑"</span>
+                        <ListGroup>
+                            <div class="agent-table">
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th>"技能"</th>
+                                            <th>"说明"</th>
+                                            <th>"来自"</th>
+                                            <th>"热度"</th>
+                                            <th>"操作"</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {items
+                                            .into_iter()
+                                            .map(|it| {
+                                                let install = it["install"].clone();
+                                                view! {
+                                                    <tr>
+                                                        <td>
+                                                            <b>{text(&it, "name")}</b>
+                                                            {(it["suspicious"] == true)
+                                                                .then(|| {
+                                                                    view! {
+                                                                        <span class="err-line">" · 平台标记可疑"</span>
+                                                                    }
+                                                                })}
+                                                        </td>
+                                                        <td>{text(&it, "description")}</td>
+                                                        <td>{text(&it, "by")}</td>
+                                                        <td>
+                                                            {it["count"]
+                                                                .as_u64()
+                                                                .map(|n| n.to_string())
+                                                                .unwrap_or("—".into())}
+                                                        </td>
+                                                        <td>
+                                                            <button
+                                                                class="btn"
+                                                                on:click=move |_| {
+                                                                    preview.set(Some((install.clone(), false)))
                                                                 }
-                                                            })}
-                                                    </td>
-                                                    <td>{text(&it, "description")}</td>
-                                                    <td>{text(&it, "by")}</td>
-                                                    <td>
-                                                        {it["count"]
-                                                            .as_u64()
-                                                            .map(|n| n.to_string())
-                                                            .unwrap_or("—".into())}
-                                                    </td>
-                                                    <td>
-                                                        <button
-                                                            class="btn"
-                                                            on:click=move |_| {
-                                                                preview.set(Some((install.clone(), false)))
-                                                            }
-                                                        >
-                                                            {if it["installed"] == true {
-                                                                "已安装 · 查看"
-                                                            } else {
-                                                                "预览安装"
-                                                            }}
-                                                        </button>
-                                                    </td>
-                                                </tr>
-                                            }
-                                        })
-                                        .collect_view()}
-                                </tbody>
-                            </table>
-                        </div>
+                                                            >
+                                                                {if it["installed"] == true {
+                                                                    "已安装 · 查看"
+                                                                } else {
+                                                                    "预览安装"
+                                                                }}
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                }
+                                            })
+                                            .collect_view()}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </ListGroup>
                         {(v["truncated"] == true)
                             .then(|| {
                                 view! {

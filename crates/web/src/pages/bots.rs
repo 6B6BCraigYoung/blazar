@@ -1,6 +1,7 @@
 use super::work_shared::*;
 use crate::components::dialog::{self, Choice};
 use crate::components::empty::{self, Action, Blank};
+use crate::components::group::ListGroup;
 use crate::components::icon;
 use crate::components::modal::Modal;
 use crate::components::page_head::{MenuItem, MoreMenu, PageHead};
@@ -209,7 +210,7 @@ pub fn BotsPage() -> impl IntoView {
                         };
                     }
                     view! {
-                        <div class="bots-grid">
+                        <ListGroup class="bots-list">
                             {bots
                                 .into_iter()
                                 .map(|b| {
@@ -228,7 +229,7 @@ pub fn BotsPage() -> impl IntoView {
                                         id.clone(),
                                     );
                                     view! {
-                                        <article class="card bot-card">
+                                        <article class="bot-card lrow">
                                             <div class="bot-head">
                                                 <a href=href.clone()>
                                                     <strong>{s(&b, "display_name")}</strong>
@@ -328,7 +329,7 @@ pub fn BotsPage() -> impl IntoView {
                                     }
                                 })
                                 .collect_view()}
-                        </div>
+                        </ListGroup>
                     }
                         .into_any()
                 }

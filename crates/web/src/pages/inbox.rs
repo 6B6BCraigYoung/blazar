@@ -1,6 +1,7 @@
 use super::work_shared::*;
 use crate::action_gate::ActionGate;
 use crate::components::empty::{self, Action, Blank};
+use crate::components::group::ListGroup;
 use crate::components::icon;
 use crate::components::menu::menu_keydown;
 use crate::components::page_head::PageHead;
@@ -383,22 +384,24 @@ pub fn InboxPage() -> impl IntoView {
                             .into_any();
                     }
                     view! {
-                        <div
-                            class="inbox-list"
-                            role="list"
-                            aria-label="通知"
-                            aria-busy=move || busy.get().to_string()
-                            node_ref=list_el
-                        >
-                            {list
-                                .into_iter()
-                                .enumerate()
-                                .map(|(i, it)| {
-                                    let pending = pending_of(&it);
-                                    row_view(ctx, i, it, pending)
-                                })
-                                .collect_view()}
-                        </div>
+                        <ListGroup>
+                            <div
+                                class="inbox-list"
+                                role="list"
+                                aria-label="通知"
+                                aria-busy=move || busy.get().to_string()
+                                node_ref=list_el
+                            >
+                                {list
+                                    .into_iter()
+                                    .enumerate()
+                                    .map(|(i, it)| {
+                                        let pending = pending_of(&it);
+                                        row_view(ctx, i, it, pending)
+                                    })
+                                    .collect_view()}
+                            </div>
+                        </ListGroup>
                     }
                         .into_any()
                 }
@@ -530,7 +533,7 @@ fn row_view(ctx: Ctx, i: usize, it: Item, pending: Option<Value>) -> impl IntoVi
     });
     view! {
         <div
-            class="inbox-row"
+            class="inbox-row lrow"
             role="listitem"
             data-index=i.to_string()
             data-kind=it.kind.clone()

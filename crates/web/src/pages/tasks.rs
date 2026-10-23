@@ -312,6 +312,7 @@ pub fn TasksPage() -> impl IntoView {
                                                     view! {
                                                         <section
                                                             class="work-column"
+                                                            class:lgroup=!board
                                                             on:dragover=|e: leptos::ev::DragEvent| e.prevent_default()
                                                             on:drop=move |e: leptos::ev::DragEvent| {
                                                                 e.prevent_default();
@@ -322,7 +323,7 @@ pub fn TasksPage() -> impl IntoView {
                                                                 }
                                                             }
                                                         >
-                                                            <header>
+                                                            <header class:lgroup-title=!board>
                                                                 <strong>{label.to_string()}</strong>
                                                                 <span class="muted">{items.len()}</span>
                                                                 <span class="grow"></span>
@@ -336,78 +337,82 @@ pub fn TasksPage() -> impl IntoView {
                                                                     "＋"
                                                                 </button>
                                                             </header>
-                                                            {column_empty
-                                                                .then(|| {
-                                                                    view! {
-                                                                        <EmptyState
-                                                                            title="暂无任务"
-                                                                            class="tasks-column-empty"
-                                                                        />
-                                                                    }
-                                                                })}
-                                                            {items
-                                                                .into_iter()
-                                                                .map(|t| {
-                                                                    let id = s(&t, "id");
-                                                                    let (drag_id, drop_id) = (id.clone(), id.clone());
-                                                                    let drop_key = key.clone();
-                                                                    let selected_id = id.clone();
-                                                                    view! {
-                                                                        <button
-                                                                            class="card work-task"
-                                                                            class:work-selected=move || ui.selected.get() == selected_id
-                                                                            draggable="true"
-                                                                            on:dragstart=move |e: leptos::ev::DragEvent| {
-                                                                                if let Some(d) = e.data_transfer() {
-                                                                                    let _ = d.set_data("text/plain", &drag_id);
-                                                                                    d.set_effect_allowed("move");
+                                                            <div class:lgroup-body=!board>
+                                                                {column_empty
+                                                                    .then(|| {
+                                                                        view! {
+                                                                            <EmptyState
+                                                                                title="暂无任务"
+                                                                                class="tasks-column-empty"
+                                                                            />
+                                                                        }
+                                                                    })}
+                                                                {items
+                                                                    .into_iter()
+                                                                    .map(|t| {
+                                                                        let id = s(&t, "id");
+                                                                        let (drag_id, drop_id) = (id.clone(), id.clone());
+                                                                        let drop_key = key.clone();
+                                                                        let selected_id = id.clone();
+                                                                        view! {
+                                                                            <button
+                                                                                class="work-task"
+                                                                                class:card=board
+                                                                                class:lrow=!board
+                                                                                class:work-selected=move || ui.selected.get() == selected_id
+                                                                                draggable="true"
+                                                                                on:dragstart=move |e: leptos::ev::DragEvent| {
+                                                                                    if let Some(d) = e.data_transfer() {
+                                                                                        let _ = d.set_data("text/plain", &drag_id);
+                                                                                        d.set_effect_allowed("move");
+                                                                                    }
                                                                                 }
-                                                                            }
-                                                                            on:dragover=|e: leptos::ev::DragEvent| e.prevent_default()
-                                                                            on:drop=move |e: leptos::ev::DragEvent| {
-                                                                                e.prevent_default();
-                                                                                e.stop_propagation();
-                                                                                if let Some(d) = e.data_transfer()
-                                                                                    && let Ok(id) = d.get_data("text/plain")
-                                                                                {
-                                                                                    move_task
-                                                                                        .run((id, drop_key.clone(), Some(drop_id.clone())));
+                                                                                on:dragover=|e: leptos::ev::DragEvent| e.prevent_default()
+                                                                                on:drop=move |e: leptos::ev::DragEvent| {
+                                                                                    e.prevent_default();
+                                                                                    e.stop_propagation();
+                                                                                    if let Some(d) = e.data_transfer()
+                                                                                        && let Ok(id) = d.get_data("text/plain")
+                                                                                    {
+                                                                                        move_task
+                                                                                            .run((id, drop_key.clone(), Some(drop_id.clone())));
+                                                                                    }
                                                                                 }
-                                                                            }
-                                                                            on:click=move |_| ui.selected.set(id.clone())
-                                                                        >
-                                                                            <strong>{s(&t, "title")}</strong>
-                                                                            <span class="work-task-key">
-                                                                                <span>{s(&t, "key")}</span>
-                                                                                <span>{priority(&t)}</span>
-                                                                                {(t["running"] == true).then(|| badge("running"))}
-                                                                            </span>
-                                                                            <small class="muted">
-                                                                                {meta(&[crate::fmt::ws_label_of(&t), who(&t)])}
-                                                                            </small>
-                                                                            <span class="row-actions">
-                                                                                {arr(&t, "labels")
-                                                                                    .into_iter()
-                                                                                    .filter_map(|v| v.as_str().map(str::to_string))
-                                                                                    .map(|l| view! { <span class="gchip">{l}</span> })
-                                                                                    .collect_view()}
-                                                                                {(t["children"].as_u64().unwrap_or(0) > 0)
-                                                                                    .then(|| {
-                                                                                        view! {
-                                                                                            <small class="muted">
-                                                                                                {format!(
-                                                                                                    "子任务 {}/{}",
-                                                                                                    t["children_done"],
-                                                                                                    t["children"],
-                                                                                                )}
-                                                                                            </small>
-                                                                                        }
-                                                                                    })}
-                                                                            </span>
-                                                                        </button>
-                                                                    }
-                                                                })
-                                                                .collect_view()}
+                                                                                on:click=move |_| ui.selected.set(id.clone())
+                                                                            >
+                                                                                <strong>{s(&t, "title")}</strong>
+                                                                                <span class="work-task-key">
+                                                                                    <span>{s(&t, "key")}</span>
+                                                                                    <span>{priority(&t)}</span>
+                                                                                    {(t["running"] == true).then(|| badge("running"))}
+                                                                                </span>
+                                                                                <small class="muted">
+                                                                                    {meta(&[crate::fmt::ws_label_of(&t), who(&t)])}
+                                                                                </small>
+                                                                                <span class="row-actions">
+                                                                                    {arr(&t, "labels")
+                                                                                        .into_iter()
+                                                                                        .filter_map(|v| v.as_str().map(str::to_string))
+                                                                                        .map(|l| view! { <span class="gchip">{l}</span> })
+                                                                                        .collect_view()}
+                                                                                    {(t["children"].as_u64().unwrap_or(0) > 0)
+                                                                                        .then(|| {
+                                                                                            view! {
+                                                                                                <small class="muted">
+                                                                                                    {format!(
+                                                                                                        "子任务 {}/{}",
+                                                                                                        t["children_done"],
+                                                                                                        t["children"],
+                                                                                                    )}
+                                                                                                </small>
+                                                                                            }
+                                                                                        })}
+                                                                                </span>
+                                                                            </button>
+                                                                        }
+                                                                    })
+                                                                    .collect_view()}
+                                                            </div>
                                                         </section>
                                                     }
                                                 })

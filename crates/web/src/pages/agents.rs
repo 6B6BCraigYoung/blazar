@@ -10,6 +10,7 @@ use wasm_bindgen::{JsCast, closure::Closure};
 use crate::app_state::use_app;
 use crate::components::dialog::{self, Choice};
 use crate::components::empty::{self, Action, Blank};
+use crate::components::group::ListGroup;
 use crate::components::icon;
 use crate::components::modal::Modal;
 use crate::components::page_head::{MenuItem, MoreMenu, PageHead};
@@ -447,119 +448,121 @@ pub fn AgentsPage() -> impl IntoView {
                         };
                     }
                     view! {
-                        <div class="card agent-table">
-                            <table>
-                                <thead>
-                                    <tr>
-                                        <th>"选择"</th>
-                                        <th>"角色档案"</th>
-                                        <th>"状态"</th>
-                                        <th>"运行时 / 模型"</th>
-                                        <th>"近 30 天"</th>
-                                        <th>"最近活跃"</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {profiles
-                                        .into_iter()
-                                        .map(|a| {
-                                            let id = text(&a, "id");
-                                            let check_id = id.clone();
-                                            let toggle_id = id.clone();
-                                            let status = availability(&a, &rts);
-                                            view! {
-                                                <tr>
-                                                    <td>
-                                                        <input
-                                                            type="checkbox"
-                                                            disabled=move || busy.get()
-                                                            aria-label=format!("选择 {}", text(&a, "name"))
-                                                            prop:checked=move || {
-                                                                selected.with(|s| s.contains(&check_id))
-                                                            }
-                                                            on:change=move |e| {
-                                                                selected
-                                                                    .update(|s| {
-                                                                        if event_target_checked(&e) {
-                                                                            s.insert(toggle_id.clone());
-                                                                        } else {
-                                                                            s.remove(&toggle_id);
-                                                                        }
-                                                                    })
-                                                            }
-                                                        />
-                                                    </td>
-                                                    <td>
-                                                        <a
-                                                            class="agent-name"
-                                                            href=format!("/agent/{}", api::enc(&id))
-                                                        >
-                                                            <span>
-                                                                {if text(&a, "avatar").is_empty() {
-                                                                    "🤖".into()
+                        <ListGroup>
+                            <div class="agent-table">
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th>"选择"</th>
+                                            <th>"角色档案"</th>
+                                            <th>"状态"</th>
+                                            <th>"运行时 / 模型"</th>
+                                            <th>"近 30 天"</th>
+                                            <th>"最近活跃"</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {profiles
+                                            .into_iter()
+                                            .map(|a| {
+                                                let id = text(&a, "id");
+                                                let check_id = id.clone();
+                                                let toggle_id = id.clone();
+                                                let status = availability(&a, &rts);
+                                                view! {
+                                                    <tr>
+                                                        <td>
+                                                            <input
+                                                                type="checkbox"
+                                                                disabled=move || busy.get()
+                                                                aria-label=format!("选择 {}", text(&a, "name"))
+                                                                prop:checked=move || {
+                                                                    selected.with(|s| s.contains(&check_id))
+                                                                }
+                                                                on:change=move |e| {
+                                                                    selected
+                                                                        .update(|s| {
+                                                                            if event_target_checked(&e) {
+                                                                                s.insert(toggle_id.clone());
+                                                                            } else {
+                                                                                s.remove(&toggle_id);
+                                                                            }
+                                                                        })
+                                                                }
+                                                            />
+                                                        </td>
+                                                        <td>
+                                                            <a
+                                                                class="agent-name"
+                                                                href=format!("/agent/{}", api::enc(&id))
+                                                            >
+                                                                <span>
+                                                                    {if text(&a, "avatar").is_empty() {
+                                                                        "🤖".into()
+                                                                    } else {
+                                                                        text(&a, "avatar")
+                                                                    }}
+                                                                </span>
+                                                                <b>{text(&a, "name")}</b>
+                                                            </a>
+                                                            <div class="muted">{text(&a, "description")}</div>
+                                                        </td>
+                                                        <td>
+                                                            <span
+                                                                class="status"
+                                                                data-tone=if rts_ready && status == "offline" {
+                                                                    "attention"
                                                                 } else {
-                                                                    text(&a, "avatar")
-                                                                }}
+                                                                    "other"
+                                                                }
+                                                            >
+                                                                {if rts_ready { status_label(status) } else { "待检查" }}
                                                             </span>
-                                                            <b>{text(&a, "name")}</b>
-                                                        </a>
-                                                        <div class="muted">{text(&a, "description")}</div>
-                                                    </td>
-                                                    <td>
-                                                        <span
-                                                            class="status"
-                                                            data-tone=if rts_ready && status == "offline" {
-                                                                "attention"
+                                                            {(n(&a, "running") > 0)
+                                                                .then(|| {
+                                                                    view! {
+                                                                        <div class="muted">
+                                                                            {format!("{} 次运行中", n(&a, "running"))}
+                                                                        </div>
+                                                                    }
+                                                                })}
+                                                        </td>
+                                                        <td>
+                                                            {text(&a, "runtime_label")}
+                                                            <div class="muted mono">
+                                                                {if text(&a, "model").is_empty() {
+                                                                    "默认".into()
+                                                                } else {
+                                                                    text(&a, "model")
+                                                                }}
+                                                            </div>
+                                                        </td>
+                                                        <td>
+                                                            {format!("{} 次运行", n(&a, "runs_30d"))}
+                                                            {(n(&a, "failed_30d") > 0)
+                                                                .then(|| {
+                                                                    view! {
+                                                                        <div class="muted">
+                                                                            {format!("{} 次失败", n(&a, "failed_30d"))}
+                                                                        </div>
+                                                                    }
+                                                                })}
+                                                        </td>
+                                                        <td>
+                                                            {if text(&a, "last_used_at").is_empty() {
+                                                                "尚未运行".into()
                                                             } else {
-                                                                "other"
-                                                            }
-                                                        >
-                                                            {if rts_ready { status_label(status) } else { "待检查" }}
-                                                        </span>
-                                                        {(n(&a, "running") > 0)
-                                                            .then(|| {
-                                                                view! {
-                                                                    <div class="muted">
-                                                                        {format!("{} 次运行中", n(&a, "running"))}
-                                                                    </div>
-                                                                }
-                                                            })}
-                                                    </td>
-                                                    <td>
-                                                        {text(&a, "runtime_label")}
-                                                        <div class="muted mono">
-                                                            {if text(&a, "model").is_empty() {
-                                                                "默认".into()
-                                                            } else {
-                                                                text(&a, "model")
+                                                                fmt::ago(&text(&a, "last_used_at"))
                                                             }}
-                                                        </div>
-                                                    </td>
-                                                    <td>
-                                                        {format!("{} 次运行", n(&a, "runs_30d"))}
-                                                        {(n(&a, "failed_30d") > 0)
-                                                            .then(|| {
-                                                                view! {
-                                                                    <div class="muted">
-                                                                        {format!("{} 次失败", n(&a, "failed_30d"))}
-                                                                    </div>
-                                                                }
-                                                            })}
-                                                    </td>
-                                                    <td>
-                                                        {if text(&a, "last_used_at").is_empty() {
-                                                            "尚未运行".into()
-                                                        } else {
-                                                            fmt::ago(&text(&a, "last_used_at"))
-                                                        }}
-                                                    </td>
-                                                </tr>
-                                            }
-                                        })
-                                        .collect_view()}
-                                </tbody>
-                            </table>
-                        </div>
+                                                        </td>
+                                                    </tr>
+                                                }
+                                            })
+                                            .collect_view()}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </ListGroup>
                     }
                         .into_any()
                 }

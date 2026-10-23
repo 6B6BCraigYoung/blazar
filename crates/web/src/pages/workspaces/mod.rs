@@ -12,6 +12,7 @@ use crate::action_gate::ActionGate;
 use crate::api;
 use crate::app_state::use_app;
 use crate::components::empty::{self, Blank};
+use crate::components::group::ListGroup;
 use crate::components::icon;
 use crate::components::menu::menu_keydown;
 use crate::components::page_head::PageHead;
@@ -342,21 +343,15 @@ fn Home() -> impl IntoView {
                     .collect();
                 (!members.is_empty()).then(|| {
                     view! {
-                        <section class="home-group" data-group=g.key() aria-label=g.title()>
-                            <h2 class="home-group-title">
-                                {g.title()}
-                                <span class="n">{members.len()}</span>
-                            </h2>
-                            <div class="home-rows">
-                                {members
-                                    .into_iter()
-                                    .map(|(i, row)| {
-                                        let pending = pending_of(&row);
-                                        row_view(ctx, i, row, pending)
-                                    })
-                                    .collect_view()}
-                            </div>
-                        </section>
+                        <ListGroup title=g.title() count=members.len() key=g.key() class="home-group">
+                            {members
+                                .into_iter()
+                                .map(|(i, row)| {
+                                    let pending = pending_of(&row);
+                                    row_view(ctx, i, row, pending)
+                                })
+                                .collect_view()}
+                        </ListGroup>
                     }
                 })
             })
@@ -490,7 +485,7 @@ fn row_view(ctx: Ctx, i: usize, row: Row, pending: Option<Value>) -> impl IntoVi
     });
     view! {
         <div
-            class="home-row"
+            class="home-row lrow"
             data-index=i.to_string()
             data-state=row.state.clone()
             data-sel=move || (ctx.sel.get() == Some(i)).to_string()

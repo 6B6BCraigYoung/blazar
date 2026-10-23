@@ -3,6 +3,7 @@ use crate::components::page_head::PageHead;
 use crate::components::{
     dialog::{self, Choice},
     empty::{self, Action, Blank},
+    group::ListGroup,
     icon,
     modal::Modal,
     status::{InlineError, LoadingState, StateOf},
@@ -214,86 +215,88 @@ pub fn JobsPage() -> impl IntoView {
                     }
                 }
                 Some(Ok(list)) => view! {
-                    <div class="jobs-table">
-                        <table class="tb">
-                            <thead>
-                                <tr>
-                                    <th>"状态"</th>
-                                    <th>"标签"</th>
-                                    <th>"机器"</th>
-                                    <th>"发起方"</th>
-                                    <th>"开始"</th>
-                                    <th>"已运行"</th>
-                                    <th>"截止"</th>
-                                    <th>"退出码"</th>
-                                    <th class="jobs-actions-head">"操作"</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {list
-                                    .into_iter()
-                                    .map(|j| {
-                                        let running = s(&j, "status") == "running";
-                                        let error = s(&j, "last_error");
-                                        let id = s(&j, "id");
-                                        let (for_log, for_kill, row) = (j.clone(), j.clone(), j.clone());
-                                        let started = s(&j, "created_at");
-                                        view! {
-                                            <tr>
-                                                <td>
-                                                    <StateOf
-                                                        state=s(&j, "status")
-                                                        title=(!error.is_empty()).then(|| error.clone())
-                                                    />
-                                                </td>
-                                                <td class="jobs-label">
-                                                    <div class="jobs-label-text" title=s(&j, "command")>
-                                                        {s(&j, "label")}
-                                                    </div>
-                                                    {(!waits(&j).is_empty())
-                                                        .then(|| {
-                                                            view! {
-                                                                <div class="jobs-waits muted" title=waits(&j)>
-                                                                    {waits(&j)}
-                                                                </div>
-                                                            }
-                                                        })}
-                                                </td>
-                                                <td>{fmt::machine(&s(&j, "node"))}</td>
-                                                <td>{owner(&j)}</td>
-                                                <td class="num" title=started.clone()>
-                                                    {fmt::ago(&started)}
-                                                </td>
-                                                <td class="num">{move || elapsed(&row, now.get())}</td>
-                                                <td class="num">{move || deadline(&j, now.get())}</td>
-                                                <td class="num">{exit_code(&for_log)}</td>
-                                                <td class="jobs-actions">
-                                                    <button
-                                                        class="btn small"
-                                                        on:click=move |_| log_of.set(Some(for_log.clone()))
-                                                    >
-                                                        "日志"
-                                                    </button>
-                                                    {running
-                                                        .then(|| {
-                                                            view! {
-                                                                <button
-                                                                    class="btn small danger"
-                                                                    disabled=move || killing.get() == id
-                                                                    on:click=move |_| kill(for_kill.clone())
-                                                                >
-                                                                    "结束"
-                                                                </button>
-                                                            }
-                                                        })}
-                                                </td>
-                                            </tr>
-                                        }
-                                    })
-                                    .collect_view()}
-                            </tbody>
-                        </table>
-                    </div>
+                    <ListGroup>
+                        <div class="jobs-table">
+                            <table class="tb">
+                                <thead>
+                                    <tr>
+                                        <th>"状态"</th>
+                                        <th>"标签"</th>
+                                        <th>"机器"</th>
+                                        <th>"发起方"</th>
+                                        <th>"开始"</th>
+                                        <th>"已运行"</th>
+                                        <th>"截止"</th>
+                                        <th>"退出码"</th>
+                                        <th class="jobs-actions-head">"操作"</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {list
+                                        .into_iter()
+                                        .map(|j| {
+                                            let running = s(&j, "status") == "running";
+                                            let error = s(&j, "last_error");
+                                            let id = s(&j, "id");
+                                            let (for_log, for_kill, row) = (j.clone(), j.clone(), j.clone());
+                                            let started = s(&j, "created_at");
+                                            view! {
+                                                <tr>
+                                                    <td>
+                                                        <StateOf
+                                                            state=s(&j, "status")
+                                                            title=(!error.is_empty()).then(|| error.clone())
+                                                        />
+                                                    </td>
+                                                    <td class="jobs-label">
+                                                        <div class="jobs-label-text" title=s(&j, "command")>
+                                                            {s(&j, "label")}
+                                                        </div>
+                                                        {(!waits(&j).is_empty())
+                                                            .then(|| {
+                                                                view! {
+                                                                    <div class="jobs-waits muted" title=waits(&j)>
+                                                                        {waits(&j)}
+                                                                    </div>
+                                                                }
+                                                            })}
+                                                    </td>
+                                                    <td>{fmt::machine(&s(&j, "node"))}</td>
+                                                    <td>{owner(&j)}</td>
+                                                    <td class="num" title=started.clone()>
+                                                        {fmt::ago(&started)}
+                                                    </td>
+                                                    <td class="num">{move || elapsed(&row, now.get())}</td>
+                                                    <td class="num">{move || deadline(&j, now.get())}</td>
+                                                    <td class="num">{exit_code(&for_log)}</td>
+                                                    <td class="jobs-actions">
+                                                        <button
+                                                            class="btn small"
+                                                            on:click=move |_| log_of.set(Some(for_log.clone()))
+                                                        >
+                                                            "日志"
+                                                        </button>
+                                                        {running
+                                                            .then(|| {
+                                                                view! {
+                                                                    <button
+                                                                        class="btn small danger"
+                                                                        disabled=move || killing.get() == id
+                                                                        on:click=move |_| kill(for_kill.clone())
+                                                                    >
+                                                                        "结束"
+                                                                    </button>
+                                                                }
+                                                            })}
+                                                    </td>
+                                                </tr>
+                                            }
+                                        })
+                                        .collect_view()}
+                                </tbody>
+                            </table>
+                        </div>
+                    </ListGroup>
                 }
                 .into_any(),
             }}

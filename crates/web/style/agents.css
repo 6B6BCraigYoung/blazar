@@ -11,7 +11,7 @@
 .agent-tabs .active, .agent-pick.active { background: var(--bg-hover); color: var(--accent); border-color: var(--accent); }
 .agent-table { overflow: auto; }
 .agent-table table { width: 100%; border-collapse: collapse; font-size: var(--font-size-body); text-align: left; }
-.agent-table th { font-size: var(--font-size-caption); font-weight: var(--font-weight-medium); color: var(--fg-3); background: var(--bg-hover); }
+.agent-table th { font-size: var(--font-size-caption); font-weight: var(--font-weight-medium); color: var(--fg-3); }
 .agent-table th, .agent-table td { padding: var(--inset-agent-cell); border-bottom: 1px solid var(--line); vertical-align: middle; }
 .agent-table td .muted { margin-top: var(--space-icon); font-size: var(--font-size-label); }
 .agent-table td:first-child { white-space: nowrap; }

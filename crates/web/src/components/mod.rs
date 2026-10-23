@@ -1,5 +1,6 @@
 pub mod dialog;
 pub mod empty;
+pub mod group;
 pub mod icon;
 pub mod menu;
 pub mod modal;
