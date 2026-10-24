@@ -373,15 +373,17 @@ fn Home() -> impl IntoView {
                     .map(|(i, row)| (i, row.clone()))
                     .collect();
                 (!members.is_empty()).then(|| {
+                    let count = members.len();
+                    let rows = members
+                        .into_iter()
+                        .map(|(i, row)| {
+                            let pending = pending_of(&row);
+                            row_view(ctx, i, row, pending)
+                        })
+                        .collect_view();
                     view! {
-                        <ListGroup title=g.title() count=members.len() key=g.key() class="home-group">
-                            {members
-                                .into_iter()
-                                .map(|(i, row)| {
-                                    let pending = pending_of(&row);
-                                    row_view(ctx, i, row, pending)
-                                })
-                                .collect_view()}
+                        <ListGroup title=g.title() count key=g.key() class="home-group">
+                            {rows}
                         </ListGroup>
                     }
                 })

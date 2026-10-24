@@ -402,6 +402,14 @@ pub fn InboxPage() -> impl IntoView {
                         }
                             .into_any();
                     }
+                    let rows = list
+                        .into_iter()
+                        .enumerate()
+                        .map(|(i, it)| {
+                            let pending = pending_of(&it);
+                            row_view(ctx, i, it, pending)
+                        })
+                        .collect_view();
                     view! {
                         <ListGroup>
                             <div
@@ -411,14 +419,7 @@ pub fn InboxPage() -> impl IntoView {
                                 aria-busy=move || busy.get().to_string()
                                 node_ref=list_el
                             >
-                                {list
-                                    .into_iter()
-                                    .enumerate()
-                                    .map(|(i, it)| {
-                                        let pending = pending_of(&it);
-                                        row_view(ctx, i, it, pending)
-                                    })
-                                    .collect_view()}
+                                {rows}
                             </div>
                         </ListGroup>
                     }
