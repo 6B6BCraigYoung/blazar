@@ -72,7 +72,6 @@
   --font-size-heading: 22px;
   --font-size-metric: 24px;
   --font-size-avatar: 42px;
-  --font-size-progress-glyph: 1.3em;
   --font-weight-regular: 400;
   --font-weight-medium: 500;
   --font-weight-semibold: 600;
@@ -254,7 +253,6 @@
   --duration-content-dim: .15s;
   --duration-approval-enter: .2s;
   --duration-content-enter: .3s;
-  --duration-spinner: 1s;
   --duration-activity-pulse: 1.2s;
   --duration-tab-pulse: 1.6s;
 }

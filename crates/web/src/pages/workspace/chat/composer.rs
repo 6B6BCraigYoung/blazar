@@ -21,7 +21,7 @@ mod queue;
 mod status;
 
 use pickers::{FilesPop, agent_pop, mcp_pop, mode_pop, model_pop, plus_pop, slash_pop, style_pop};
-use presentation::{eff_label, fmt_dur, fmt_k, icon, svg};
+use presentation::{eff_label, icon, svg};
 use queue::{FailedEditor, QueueBand, QueueEditor};
 use status::{RateBanner, Tray};
 
@@ -188,7 +188,6 @@ fn FailedCard(
 #[component]
 pub fn Composer(
     chat: Chat,
-    tick: RwSignal<u32>,
     tree_files: Signal<Vec<String>>,
     log_h: RwSignal<f64>,
 ) -> impl IntoView {
@@ -204,7 +203,6 @@ pub fn Composer(
         }
     });
     let file_in = NodeRef::<html::Input>::new();
-    let run_since = StoredValue::new(None::<f64>);
 
     let grow = move || {
         if let Some(t) = ta.try_get_untracked().flatten() {
@@ -641,44 +639,6 @@ pub fn Composer(
     };
 
     let running = chat.running;
-    let ring = move || {
-        let (used, model) = chat.transcript.with(|t| {
-            (
-                t.usage
-                    .as_ref()
-                    .map_or(0, |u| u.input + u.cache_read + u.cache_creation),
-                t.model.clone(),
-            )
-        });
-        let win: u64 = if model.to_lowercase().contains("[1m]") {
-            1_000_000
-        } else {
-            200_000
-        };
-        let pct = (used as f64 / win as f64 * 100.0).min(100.0);
-        let title = if running.get() {
-            "Running".to_owned()
-        } else if used > 0 {
-            format!("Context {pct:.0}% · {} / {}", fmt_k(used), fmt_k(win))
-        } else {
-            "Context".to_owned()
-        };
-        (format!("--p:{pct:.1}"), title, !running.get())
-    };
-    let timer = move || {
-        tick.track();
-        if running.get() {
-            let now = js_sys::Date::now();
-            let since = run_since.get_value().unwrap_or_else(|| {
-                run_since.set_value(Some(now));
-                now
-            });
-            fmt_dur(((now - since) / 1000.0) as u64)
-        } else {
-            run_since.set_value(None);
-            String::new()
-        }
-    };
     let stop_mode = move || running.get() && chat.prompt.with(|p| p.trim().is_empty());
 
     let model_label = move || {
@@ -1224,19 +1184,6 @@ pub fn Composer(
                             "New conversation ×"
                         </button>
                     </Show>
-                    {move || {
-                        let (st, title, empty) = ring();
-                        view! {
-                            <span
-                                class="cb-ring"
-                                data-empty=empty.to_string()
-                                data-run=running.get().to_string()
-                                style=st
-                                title=title
-                            ></span>
-                        }
-                    }}
-                    <span class="cb-time">{timer}</span>
                     <span class="cb-grow"></span>
                     <span class="cb-right">
                         <button

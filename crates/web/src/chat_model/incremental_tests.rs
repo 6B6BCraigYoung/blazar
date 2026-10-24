@@ -22,10 +22,7 @@ fn same(a: &Transcript, b: &Transcript) -> Result<(), String> {
     if a.todos != b.todos {
         return Err("todos differ".into());
     }
-    if format!("{:?}", a.usage) != format!("{:?}", b.usage) {
-        return Err("usage differs".into());
-    }
-    if a.model != b.model || a.mcp != b.mcp {
+    if a.mcp != b.mcp {
         return Err("session info differs".into());
     }
     if format!("{:?}", a.rate) != format!("{:?}", b.rate) {

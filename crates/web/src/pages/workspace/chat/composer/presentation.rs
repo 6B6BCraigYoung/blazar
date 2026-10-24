@@ -42,26 +42,6 @@ pub(super) fn eff_label(e: &str) -> String {
         .map_or_else(|| e.to_owned(), |x| x.1.to_owned())
 }
 
-pub(super) fn fmt_k(n: u64) -> String {
-    if n >= 1_000_000 {
-        format!("{:.1}M", n as f64 / 1e6)
-    } else if n >= 1000 {
-        format!("{:.1}k", n as f64 / 1e3)
-    } else {
-        n.to_string()
-    }
-}
-
-pub(super) fn fmt_dur(sec: u64) -> String {
-    if sec < 60 {
-        format!("{sec}s")
-    } else if sec < 3600 {
-        format!("{}m {}s", sec / 60, sec % 60)
-    } else {
-        format!("{}h {}m", sec / 3600, sec % 3600 / 60)
-    }
-}
-
 pub(super) fn editor_url(node: &str, path: &str, line: Option<u32>) -> (String, String) {
     let k = storage::load_raw("blazar.editor").unwrap_or_else(|| "vscode".into());
     let (label, scheme) = match k.as_str() {

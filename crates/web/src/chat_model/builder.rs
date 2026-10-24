@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
-use blazar_core_types::{EntryKind, McpServerStatus, Outcome, RateLimitWindow, TokenUsage};
+use blazar_core_types::{EntryKind, McpServerStatus, Outcome, RateLimitWindow};
 use serde_json::Value;
 
 use super::approvals::{appr_kind_label, decision_text};
@@ -127,11 +127,9 @@ pub(super) struct BItem {
 struct Carry {
     last_ts: i64,
     last_text: String,
-    usage: Option<TokenUsage>,
     turn_tokens: HashMap<String, u64>,
     turn_est: u64,
     todos: Option<Vec<Todo>>,
-    model: String,
     mcp: Vec<McpServerStatus>,
     rate: Vec<RateLimitWindow>,
 }
@@ -518,15 +516,10 @@ impl<'a> Builder<'a> {
                 }
             }
             EntryKind::ApprovalResolved { .. } | EntryKind::InputConsumed { .. } => {}
-            EntryKind::SessionStarted {
-                model, mcp_servers, ..
-            } => {
-                if let Some(m) = model {
-                    self.carry.model = m.clone();
-                }
+            EntryKind::SessionStarted { mcp_servers, .. } => {
                 self.carry.mcp = mcp_servers.clone();
             }
-            EntryKind::TokenUsage(u) => self.carry.usage = Some(u.clone()),
+            EntryKind::TokenUsage(_) => {}
             EntryKind::Progress {
                 message_id,
                 output_tokens,
@@ -739,14 +732,7 @@ impl<'a> Builder<'a> {
                     },
                 );
             }
-            Outcome::Success {
-                text,
-                usage,
-                denied,
-            } => {
-                if let Some(u) = usage {
-                    self.carry.usage = Some(u.clone());
-                }
+            Outcome::Success { text, denied, .. } => {
                 if let Some(t) = text
                     .as_ref()
                     .filter(|t| !t.trim().is_empty() && t.trim() != self.carry.last_text)
@@ -811,8 +797,6 @@ impl<'a> Builder<'a> {
             index,
             pending,
             todos: carry.todos,
-            usage: carry.usage,
-            model: carry.model,
             mcp: carry.mcp,
             rate: carry.rate,
             last_session: rows.last().map(|r| r.session_id.clone()),

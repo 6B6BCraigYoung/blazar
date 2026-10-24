@@ -1222,10 +1222,21 @@ const WORDS: [&str; 12] = [
     "归纳中",
 ];
 
+fn fmt_secs(sec: u64) -> String {
+    if sec < 60 {
+        format!("{sec} 秒")
+    } else if sec < 3600 {
+        format!("{} 分 {} 秒", sec / 60, sec % 60)
+    } else {
+        format!("{} 时 {} 分", sec / 3600, sec % 3600 / 60)
+    }
+}
+
 #[component]
 fn Spinner(chat: Chat, tick: RwSignal<u32>) -> impl IntoView {
     let word = RwSignal::new(0usize);
     let changes = StoredValue::new((0u32, 0u32));
+    let started = js_sys::Date::now();
     Effect::new(move |_| {
         let t = tick.get();
         let (at, n) = changes.get_value();
@@ -1236,15 +1247,25 @@ fn Spinner(chat: Chat, tick: RwSignal<u32>) -> impl IntoView {
         }
     });
     let mode = move || chat.effective_mode().map(|m| m.0).unwrap_or("");
+    let elapsed = move || {
+        tick.track();
+        fmt_secs(((js_sys::Date::now() - started) / 1000.0) as u64)
+    };
     let tokens = move || {
         chat.transcript
             .with(|t| (t.turn_tokens > 0).then(|| fmt_tokens(t.turn_tokens)))
     };
     view! {
-        <div class="cc-spin" data-mode=mode>
-            <span class="ic">{move || SPIN[tick.get() as usize % SPIN.len()]}</span>
+        <div class="cc-spin" data-mode=mode role="status">
+            <span class="ic" aria-hidden="true">
+                {move || SPIN[tick.get() as usize % SPIN.len()]}
+            </span>
             <span class="tx">{move || format!("{}…", WORDS[word.get()])}</span>
-            {move || tokens().map(|n| view! { <span class="tk">{format!("· {n} tokens")}</span> })}
+            <span class="tk">{elapsed}</span>
+            {move || tokens().map(|n| view! { <span class="tk">{format!("· ↑{n} tokens")}</span> })}
+            {move || {
+                chat.running.get().then(|| view! { <span class="tk">"· Esc 打断"</span> })
+            }}
         </div>
     }
 }

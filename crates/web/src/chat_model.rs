@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use blazar_core_types::{EntryKind, McpServerStatus, NormalizedEntry, RateLimitWindow, TokenUsage};
+use blazar_core_types::{EntryKind, McpServerStatus, NormalizedEntry, RateLimitWindow};
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -238,8 +238,6 @@ pub struct Transcript {
     index: HashMap<String, usize>,
     pub pending: Vec<Pending>,
     pub todos: Option<Vec<Todo>>,
-    pub usage: Option<TokenUsage>,
-    pub model: String,
     pub mcp: Vec<McpServerStatus>,
     pub rate: Vec<RateLimitWindow>,
 
