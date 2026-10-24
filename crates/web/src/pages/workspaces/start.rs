@@ -8,41 +8,55 @@ use crate::api;
 use crate::app_state::use_app;
 use crate::components::status::InlineError;
 use crate::components::toast::toast;
+use crate::pages::runtimes::{active_account, login, runtime_status};
+
+#[derive(Clone, PartialEq)]
+enum LineAction {
+    Link(&'static str, String),
+    Login(api::Account),
+}
 
 #[derive(Clone, PartialEq)]
 struct RuntimeLine {
     ready: bool,
     text: String,
-    action: Option<(&'static str, String)>,
+    action: Option<LineAction>,
 }
 
-fn runtime_line(r: &api::Runtime) -> RuntimeLine {
+fn runtime_line(r: &api::Runtime, accounts: Option<&api::Accounts>) -> RuntimeLine {
     let href = format!("/runtimes/{}", r.id);
     if !r.installed {
-        RuntimeLine {
+        return RuntimeLine {
             ready: false,
             text: format!("{} 未安装", r.label),
-            action: Some(("怎么装", href)),
-        }
-    } else if r.authed == Some(false) {
-        RuntimeLine {
-            ready: false,
-            text: format!("{} 已安装，还没登录", r.label),
-            action: Some(("登录", href)),
-        }
-    } else {
-        RuntimeLine {
+            action: Some(LineAction::Link("怎么装", href)),
+        };
+    }
+    let account = accounts.and_then(|a| active_account(a, &r.id));
+    let (status, _) = runtime_status(r, account.as_ref());
+    let name = format!(
+        "{}{}",
+        r.label,
+        r.version
+            .as_deref()
+            .map(|v| format!(" {v}"))
+            .unwrap_or_default()
+    );
+    if status == "已登录" {
+        return RuntimeLine {
             ready: true,
-            text: format!(
-                "{}{} 已就绪",
-                r.label,
-                r.version
-                    .as_deref()
-                    .map(|v| format!(" {v}"))
-                    .unwrap_or_default()
-            ),
+            text: name,
             action: None,
-        }
+        };
+    }
+    let action = match account {
+        Some(a) if status == "未登录" && a.kind != "token" => LineAction::Login(a),
+        _ => LineAction::Link("设置", href),
+    };
+    RuntimeLine {
+        ready: false,
+        text: format!("{name} · {status}"),
+        action: Some(action),
     }
 }
 
@@ -83,6 +97,7 @@ pub fn Start() -> impl IntoView {
     let app = use_app();
     let go = StoredValue::new_local(use_navigate());
     let runtimes = LocalResource::new(|| api::get::<api::Runtimes>("/api/runtimes"));
+    let accounts = LocalResource::new(|| api::get::<api::Accounts>("/api/accounts"));
     let busy = RwSignal::new(None::<String>);
     let url = RwSignal::new(String::new());
     let over = RwSignal::new(false);
@@ -158,27 +173,31 @@ pub fn Start() -> impl IntoView {
     let keys = crate::desktop::available().then(|| {
         view! { <kbd>{crate::shortcuts::label(&crate::shortcuts::current("newws"))}</kbd> }
     });
-    let runtime_step = move || match runtimes.get() {
-        None => (
+    let runtime_step = move || match (runtimes.get(), accounts.get()) {
+        (None, _) | (_, None) => (
             false,
             view! { <p class="start-note">"正在检测 Claude Code 和 Codex…"</p> }.into_any(),
         ),
-        Some(Err(e)) => (
+        (Some(Err(e)), _) => (
             false,
             view! {
                 <InlineError
                     message=format!("检测失败：{e}")
-                    retry=Callback::new(move |_| runtimes.refetch())
+                    retry=Callback::new(move |_| {
+                        runtimes.refetch();
+                        accounts.refetch();
+                    })
                 />
             }
             .into_any(),
         ),
-        Some(Ok(r)) => {
+        (Some(Ok(r)), Some(accounts)) => {
+            let accounts = accounts.ok();
             let lines: Vec<RuntimeLine> = r
                 .runtimes
                 .iter()
                 .filter(|x| matches!(x.id.as_str(), "claude" | "codex"))
-                .map(runtime_line)
+                .map(|x| runtime_line(x, accounts.as_ref()))
                 .collect();
             let ready = lines.iter().any(|l| l.ready);
             if lines.is_empty() {
@@ -201,13 +220,24 @@ pub fn Start() -> impl IntoView {
                             .map(|l| {
                                 view! {
                                     <li data-ok=l.ready.to_string()>
-                                        {l.text}
+                                        <span>{l.text}</span>
                                         {l
                                             .action
-                                            .map(|(label, href)| {
-                                                view! {
-                                                    " "
-                                                    <a href=href>{label}</a>
+                                            .map(|action| match action {
+                                                LineAction::Link(label, href) => {
+                                                    view! { <a href=href>{label}</a> }.into_any()
+                                                }
+                                                LineAction::Login(a) => {
+                                                    view! {
+                                                        <button
+                                                            type="button"
+                                                            class="btn small"
+                                                            on:click=move |_| login(&a)
+                                                        >
+                                                            "登录…"
+                                                        </button>
+                                                    }
+                                                        .into_any()
                                                 }
                                             })}
                                     </li>
