@@ -87,7 +87,9 @@
 .palette .pal-search input { flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; box-shadow: none; background: transparent; color: var(--fg); font: var(--font-size-card-title) var(--font-sans); outline: none; }
 .palette .pal-search input:focus { border: 0; outline: none; }
 .palette .pal-search input::placeholder { color: var(--fg-4); }
-.pal-list { max-height: min(56vh, 432px); overflow: auto; overscroll-behavior: contain; padding: var(--space-xs) var(--space-md) var(--space-md); }
+.pal-list { display: flex; flex-direction: column; height: 328px; overflow: auto; overscroll-behavior: contain; padding: var(--space-xs) var(--space-md) var(--space-md); }
+.pal-flow { display: flex; flex-direction: column; flex: 1 0 auto; }
+.pal-list .pal-empty { flex: 1; display: grid; place-items: center; color: var(--fg-4); font-size: var(--font-size-body); }
 .pal-group { height: 28px; padding: var(--space-control) var(--space-control) 0; font-size: var(--font-size-caption); font-weight: var(--font-weight-semibold); color: var(--fg-4); white-space: nowrap; }
 .palrow { display: flex; align-items: center; gap: var(--space-control); height: 36px; padding: 0 var(--space-control); border-radius: var(--r-md); cursor: default; color: var(--fg); }
 .palrow .ic { display: inline-flex; width: 16px; height: 16px; flex: 0 0 auto; color: var(--fg-2); }
@@ -153,7 +155,7 @@ button.brow, button.palrow { --focus-offset: var(--focus-offset-inset); }
 .dlg-mask.top [data-modal-root] { max-height: calc(78dvh - var(--space-xl)); }
 .palette[data-modal-root] { display: flex; flex-direction: column; }
 .palette[data-modal-root] .pal-search, .palette[data-modal-root] .pal-foot { flex: 0 0 auto; }
-.palette[data-modal-root] .pal-list { min-height: 0; }
+.palette[data-modal-root] .pal-list { flex: 0 1 auto; min-height: 0; }
 .menu button.danger:hover { background: var(--err); color: var(--on-accent); }
 
 .page:has(.blank.fill) { position: relative; min-height: 100%; }

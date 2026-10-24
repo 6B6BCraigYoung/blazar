@@ -13,7 +13,6 @@ use crate::palette_match::score;
 use crate::{api, fmt, storage};
 
 use super::modal::Modal;
-use super::status::EmptyState;
 
 const RECENT_KEY: &str = "blazar.palette.recent";
 const RECENT_MAX: usize = 5;
@@ -737,7 +736,8 @@ pub fn Palette() -> impl IntoView {
                                 if let Some(item) = focus.get() {
                                     let list = shown_actions();
                                     if list.is_empty() {
-                                        return view! { <EmptyState title="没有匹配的操作" /> }.into_any();
+                                        return view! { <div class="pal-empty">"没有匹配的结果"</div> }
+                                            .into_any();
                                     }
                                     return view! {
                                         <div class="pal-group">{item.title.clone()}</div>
@@ -768,7 +768,8 @@ pub fn Palette() -> impl IntoView {
                                 }
                                 let sections = sections();
                                 if sections.is_empty() {
-                                    return view! { <EmptyState title="无匹配" /> }.into_any();
+                                    return view! { <div class="pal-empty">"没有匹配的结果"</div> }
+                                        .into_any();
                                 }
                                 let mut n = 0usize;
                                 sections
