@@ -188,7 +188,6 @@ details[open] > summary::before { transform: rotate(90deg); }
 .lgroup-title .n { font-weight: var(--font-weight-regular); color: var(--fg-4); font-variant-numeric: tabular-nums; }
 .lgroup-title .grow { flex: 1; }
 .lgroup-actions { display: inline-flex; align-items: center; gap: var(--space-sm); font-weight: var(--font-weight-regular); }
-.lgroup[data-group="needs"] .lgroup-title { color: var(--status-attention); }
 .lgroup-body { display: flex; flex-direction: column; min-width: 0; border-radius: var(--r-group); background: var(--bg-group); overflow: hidden; }
 .lgroup-body:has(.menu) { overflow: visible; }
 .lrow { position: relative; }

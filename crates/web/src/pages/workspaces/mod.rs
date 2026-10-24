@@ -7,6 +7,7 @@ use leptos::prelude::*;
 use leptos_router::hooks::use_params_map;
 use serde_json::Value;
 use wasm_bindgen::JsCast;
+use wasm_bindgen::prelude::Closure;
 
 use crate::action_gate::ActionGate;
 use crate::api;
@@ -20,7 +21,7 @@ use crate::components::rows::{MenuAt, RowAction, RowMenu};
 use crate::components::status::{InlineError, LoadingState, StateOf, Status, Tone};
 use crate::components::undo;
 use crate::fmt;
-use crate::home_rows::{self, Group, Row, StepText};
+use crate::home_rows::{self, Group, Move, Row, StepText};
 
 use super::work_shared::{
     allow_always, approval_key_hint, approval_summary, decide_approval, list_keys_apply,
@@ -242,6 +243,8 @@ fn Home() -> impl IntoView {
         appr_rev: RwSignal::new(0),
     };
     let list_el = NodeRef::<html::Div>::new();
+    let cols = RwSignal::new(4usize);
+    let all_recent = RwSignal::new(false);
     let rows = Memo::new(move |_| {
         let all = app.workspaces();
         let top = app
@@ -250,6 +253,45 @@ fn Home() -> impl IntoView {
             .filter(|w| undo::shows(&w.id))
             .collect();
         home_rows::group_rows(top, &all, |w| app.shown_activity(w))
+    });
+    let shown = Memo::new(move |_| {
+        let mut counts = [0usize; 3];
+        rows.with(|r| {
+            for row in r {
+                let g = Group::ALL.iter().position(|g| *g == row.group).unwrap_or(2);
+                counts[g] += 1;
+            }
+        });
+        home_rows::shown_counts(counts, cols.get(), all_recent.get())
+    });
+    let measure = move || {
+        if let Some(list) = list_el.try_get_untracked().flatten()
+            && let Some(n) = grid_cols(&list)
+            && cols.try_get_untracked() != Some(n)
+        {
+            let _ = cols.try_set(n);
+        }
+    };
+    Effect::new(move |_| {
+        rows.track();
+        request_animation_frame(measure);
+    });
+    let on_resize = Closure::<dyn Fn()>::new(move || request_animation_frame(measure));
+    let observer = web_sys::ResizeObserver::new(on_resize.as_ref().unchecked_ref()).ok();
+    let held = StoredValue::new_local(observer.map(|ro| (ro, on_resize)));
+    Effect::new(move |_| {
+        if let Some(list) = list_el.get() {
+            held.with_value(|h| {
+                if let Some((ro, _)) = h {
+                    ro.observe(&list);
+                }
+            });
+        }
+    });
+    on_cleanup(move || {
+        if let Some(Some((ro, _))) = held.try_update_value(Option::take) {
+            ro.disconnect();
+        }
     });
     let approvals = LocalResource::new(move || {
         ctx.appr_rev.track();
@@ -288,10 +330,9 @@ fn Home() -> impl IntoView {
             "list"
         }
     });
-    let focus_row = move |i: usize| {
+    let focus_card = move |i: usize| {
         if let Some(list) = list_el.try_get_untracked().flatten()
-            && let Ok(Some(a)) =
-                list.query_selector(&format!(".home-row[data-index=\"{i}\"] > .home-main"))
+            && let Ok(Some(a)) = list.query_selector(&format!(".home-card[data-index=\"{i}\"]"))
             && let Ok(a) = a.dyn_into::<web_sys::HtmlElement>()
         {
             let _ = a.focus();
@@ -301,8 +342,8 @@ fn Home() -> impl IntoView {
         if !list_keys_apply(&e) {
             return;
         }
-        let n = rows.try_with_untracked(|r| r.len()).unwrap_or(0);
-        if n == 0 {
+        let groups = shown.try_get_untracked().unwrap_or_default();
+        if groups.iter().sum::<usize>() == 0 {
             return;
         }
         let meta = e.meta_key() || e.ctrl_key();
@@ -310,19 +351,18 @@ fn Home() -> impl IntoView {
         let current = ctx.sel.try_get_untracked().flatten();
         let selected =
             move || current.and_then(|i| rows.try_with_untracked(|r| r.get(i).cloned()).flatten());
-        match key.as_str() {
-            "ArrowDown" | "ArrowUp" if !meta => {
+        if let Some(dir) = Move::from_key(&key)
+            && !meta
+        {
+            let per_row = cols.try_get_untracked().unwrap_or(1);
+            if let Some(next) = home_rows::grid_move(&groups, per_row, current, dir) {
                 e.prevent_default();
-                let down = key == "ArrowDown";
-                let next = match current {
-                    None if down => 0,
-                    None => n - 1,
-                    Some(i) if down => (i + 1).min(n - 1),
-                    Some(i) => i.saturating_sub(1),
-                };
                 ctx.sel.set(Some(next));
-                focus_row(next);
+                focus_card(next);
             }
+            return;
+        }
+        match key.as_str() {
             "1" | "2" | "3" if !meta && !e.alt_key() && !e.shift_key() => {
                 let Some(row) = selected() else {
                     return;
@@ -363,9 +403,11 @@ fn Home() -> impl IntoView {
             }
             .into_any();
         }
+        let shown = shown.get();
         Group::ALL
             .iter()
-            .filter_map(|g| {
+            .enumerate()
+            .filter_map(|(gi, g)| {
                 let members: Vec<(usize, Row)> = r
                     .iter()
                     .enumerate()
@@ -374,16 +416,37 @@ fn Home() -> impl IntoView {
                     .collect();
                 (!members.is_empty()).then(|| {
                     let count = members.len();
-                    let rows = members
+                    let folded = shown[gi] < count;
+                    let more = ViewFn::from(move || {
+                        folded.then(|| {
+                            view! {
+                                <button
+                                    type="button"
+                                    class="linkbtn home-more"
+                                    on:click=move |_| all_recent.set(true)
+                                >
+                                    {format!("显示全部（{count}）")}
+                                </button>
+                            }
+                        })
+                    });
+                    let cards = members
                         .into_iter()
+                        .take(shown[gi])
                         .map(|(i, row)| {
                             let pending = pending_of(&row);
-                            row_view(ctx, i, row, pending)
+                            card_view(ctx, i, row, pending)
                         })
                         .collect_view();
                     view! {
-                        <ListGroup title=g.title() count key=g.key() class="home-group">
-                            {rows}
+                        <ListGroup
+                            title=g.title()
+                            count
+                            key=g.key()
+                            class="home-group"
+                            actions=more
+                        >
+                            {cards}
                         </ListGroup>
                     }
                 })
@@ -450,7 +513,55 @@ fn Home() -> impl IntoView {
     }
 }
 
-fn row_view(ctx: Ctx, i: usize, row: Row, pending: Option<Value>) -> impl IntoView {
+fn grid_cols(list: &web_sys::HtmlElement) -> Option<usize> {
+    let grid = list
+        .query_selector(".home-group > .lgroup-body")
+        .ok()
+        .flatten()?;
+    let style = window().get_computed_style(&grid).ok().flatten()?;
+    let tracks = style.get_property_value("grid-template-columns").ok()?;
+    let n = tracks.split_whitespace().filter(|t| *t != "none").count();
+    (n > 0).then_some(n)
+}
+
+fn idle_text(row: &Row) -> StepText {
+    let subject = row.subject();
+    let machine = (subject.node != "local").then(|| fmt::machine(&subject.node));
+    let meta = [row.ws.project.clone(), machine]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join(" · ");
+    if meta.is_empty() {
+        StepText::plain(crate::vocab::state(&row.state).0)
+    } else {
+        StepText::plain(meta)
+    }
+}
+
+fn key_hint(ask: bool) -> AnyView {
+    if ask {
+        view! {
+            <span class="home-keys">
+                <kbd>"↩"</kbd>
+                "回答"
+            </span>
+        }
+        .into_any()
+    } else {
+        view! {
+            <span class="home-keys">
+                <kbd>{approval_key_hint(0)}</kbd>
+                "允许"
+                <kbd>{approval_key_hint(2)}</kbd>
+                "拒绝"
+            </span>
+        }
+        .into_any()
+    }
+}
+
+fn card_view(ctx: Ctx, i: usize, row: Row, pending: Option<Value>) -> impl IntoView {
     let app = use_app();
     let subject = row.subject().clone();
     let unseen = app.unseen(&row.ws) || row.child.as_ref().is_some_and(|c| app.unseen(c));
@@ -458,20 +569,20 @@ fn row_view(ctx: Ctx, i: usize, row: Row, pending: Option<Value>) -> impl IntoVi
     let title = fmt::ws_title(&row.ws.name, &row.ws.node);
     let child_title = row.child.as_ref().map(|c| fmt::ws_title(&c.name, &c.node));
     let tone = crate::vocab::state(&row.state).1.key();
-    let (step, pending_id, ask) = match &pending {
+    let (step, ask) = match &pending {
         Some(a) => {
             let (label, code) = approval_summary(&a["request"], &subject.path);
-            (
-                StepText { label, code },
-                Some(a["id"].as_str().unwrap_or("").to_owned()),
-                is_question(a),
-            )
+            (StepText { label, code }, Some(is_question(a)))
         }
         None => (
             home_rows::step_text(subject.step.as_ref(), &row.state, &subject.path),
             None,
-            false,
         ),
+    };
+    let step = if step == StepText::default() {
+        idle_text(&row)
+    } else {
+        step
     };
     let diff = subject.diff.filter(|d| d.files > 0);
     let when = subject
@@ -479,57 +590,34 @@ fn row_view(ctx: Ctx, i: usize, row: Row, pending: Option<Value>) -> impl IntoVi
         .as_deref()
         .map(fmt::ago)
         .unwrap_or_default();
-    let machine = (subject.node != "local").then(|| subject.node.clone());
     let full = if step.code.is_empty() {
         step.label.clone()
     } else {
         format!("{} {}", step.label, step.code)
     };
     let location = format!("{}:{}", fmt::machine(&subject.node), subject.path);
-    let open_href = href.clone();
-    let actions = pending_id.map(|id| {
-        if ask {
-            view! {
-                <div class="home-act">
-                    <a class="btn small" href=open_href>
-                        "回答"
-                    </a>
-                </div>
-            }
-            .into_any()
-        } else {
-            let (i1, i2, i3, i4) = (id.clone(), id.clone(), id.clone(), id);
-            view! {
-                <div class="home-act" data-ui-guard="">
-                    <button
-                        type="button"
-                        class="btn small"
-                        disabled=move || ctx.gate.with(|g| g.busy(&i1))
-                        on:click=move |_| decide(ctx, i2.clone(), true)
-                    >
-                        "允许"
-                        <kbd>{approval_key_hint(0)}</kbd>
-                    </button>
-                    <button
-                        type="button"
-                        class="btn small"
-                        disabled=move || ctx.gate.with(|g| g.busy(&i3))
-                        on:click=move |_| decide(ctx, i4.clone(), false)
-                    >
-                        "拒绝"
-                        <kbd>{approval_key_hint(2)}</kbd>
-                    </button>
-                </div>
-            }
-            .into_any()
-        }
-    });
+    let selected = move || ctx.sel.get() == Some(i);
+    let trailing = move || match ask {
+        Some(ask) if selected() => key_hint(ask),
+        _ => diff
+            .map(|d| {
+                view! {
+                    <span class="home-diff" title=format!("{} 个文件", d.files)>
+                        <i class="ok">{format!("+{}", d.added)}</i>
+                        <i class="bad">{format!("−{}", d.removed)}</i>
+                    </span>
+                }
+            })
+            .into_any(),
+    };
     view! {
-        <div
-            class="home-row lrow"
+        <a
+            class="home-card"
+            href=href
+            title=location
             data-index=i.to_string()
             data-state=row.state.clone()
-            data-sel=move || (ctx.sel.get() == Some(i)).to_string()
+            data-sel=move || selected().to_string()
             data-menu=move || {
                 ctx.menu.with(|m| m.as_ref().is_some_and(|m| m.index == i)).to_string()
             }
@@ -541,33 +629,24 @@ fn row_view(ctx: Ctx, i: usize, row: Row, pending: Option<Value>) -> impl IntoVi
                 ctx.menu.set(Some(MenuAt::from(&e, i)));
             }
         >
-            <a class="home-main" href=href title=location>
+            <span class="home-top">
                 <span class="dot" data-tone=tone aria-hidden="true"></span>
                 <span class="home-name">
                     {title}
                     {child_title
                         .map(|c| view! { <span class="home-child">{format!(" ↳ {c}")}</span> })}
                 </span>
-                {row.ws.project.clone().map(|p| view! { <span class="home-project">{p}</span> })}
-                {machine.map(|m| view! { <span class="home-machine">{m}</span> })}
+                <span class="home-time">{when}</span>
+            </span>
+            <span class="home-sub">
                 <span class="home-step" title=full>
                     {(!step.label.is_empty())
                         .then(|| view! { <span class="home-step-label">{step.label.clone()}</span> })}
                     {(!step.code.is_empty()).then(|| view! { <code>{step.code.clone()}</code> })}
                 </span>
-                {diff
-                    .map(|d| {
-                        view! {
-                            <span class="home-diff" title=format!("{} 个文件", d.files)>
-                                <i class="ok">{format!("+{}", d.added)}</i>
-                                <i class="bad">{format!("−{}", d.removed)}</i>
-                            </span>
-                        }
-                    })}
-                <span class="home-time">{when}</span>
-            </a>
-            {actions}
-        </div>
+                {trailing}
+            </span>
+        </a>
     }
 }
 

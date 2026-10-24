@@ -227,6 +227,7 @@
   --control-bg-hover: #444448;
   --control-track: rgba(118,118,128,.24);
   --gradient-primary: linear-gradient(180deg, #2e95ff, #0a7cf5);
+  --shadow-tile: 0 0 0 0 transparent;
   --blur-material: saturate(180%) blur(24px);
 
   --layer-chat-marker: 1;
@@ -342,6 +343,7 @@
   --control-bg-hover: #f5f5f7;
   --control-track: rgba(118,118,128,.12);
   --gradient-primary: linear-gradient(180deg, #1a8cff, #007aff);
+  --shadow-tile: 0 1px 3px rgba(0,0,0,.06);
 }
 
 @media (prefers-color-scheme: light) {
@@ -435,5 +437,6 @@
     --control-bg-hover: #f5f5f7;
     --control-track: rgba(118,118,128,.12);
     --gradient-primary: linear-gradient(180deg, #1a8cff, #007aff);
+    --shadow-tile: 0 1px 3px rgba(0,0,0,.06);
   }
 }

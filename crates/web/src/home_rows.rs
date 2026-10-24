@@ -174,6 +174,89 @@ pub fn group_rows(
     rows
 }
 
+pub const RECENT_ROWS: usize = 2;
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Move {
+    Left,
+    Right,
+    Up,
+    Down,
+}
+
+impl Move {
+    #[must_use]
+    pub fn from_key(key: &str) -> Option<Self> {
+        match key {
+            "ArrowLeft" => Some(Self::Left),
+            "ArrowRight" => Some(Self::Right),
+            "ArrowUp" => Some(Self::Up),
+            "ArrowDown" => Some(Self::Down),
+            _ => None,
+        }
+    }
+}
+
+#[must_use]
+pub fn shown_counts(counts: [usize; 3], cols: usize, all_recent: bool) -> [usize; 3] {
+    let [needs, running, recent] = counts;
+    let cap = RECENT_ROWS * cols.max(1);
+    let recent = if all_recent || recent <= cap {
+        recent
+    } else {
+        cap
+    };
+    [needs, running, recent]
+}
+
+#[must_use]
+pub fn grid_move(
+    groups: &[usize],
+    cols: usize,
+    current: Option<usize>,
+    dir: Move,
+) -> Option<usize> {
+    let cols = cols.max(1);
+    let n: usize = groups.iter().sum();
+    if n == 0 {
+        return None;
+    }
+    let Some(i) = current.map(|i| i.min(n - 1)) else {
+        return Some(match dir {
+            Move::Right | Move::Down => 0,
+            Move::Left | Move::Up => n - 1,
+        });
+    };
+    let spans: Vec<(usize, usize)> = groups
+        .iter()
+        .scan(0, |start, &len| {
+            let s = *start;
+            *start += len;
+            Some((s, len))
+        })
+        .filter(|(_, len)| *len > 0)
+        .collect();
+    let g = spans.iter().position(|(s, len)| i >= *s && i < s + len)?;
+    let (start, len) = spans[g];
+    let local = i - start;
+    let (row, col) = (local / cols, local % cols);
+    let rows = len.div_ceil(cols);
+    Some(match dir {
+        Move::Right => (i + 1).min(n - 1),
+        Move::Left => i.saturating_sub(1),
+        Move::Down if row + 1 < rows => (i + cols).min(start + len - 1),
+        Move::Down => match spans.get(g + 1) {
+            Some(&(s, l)) => s + col.min(l - 1),
+            None => i,
+        },
+        Move::Up if row > 0 => i - cols,
+        Move::Up => match g.checked_sub(1).map(|p| spans[p]) {
+            Some((s, l)) => s + (((l - 1) / cols) * cols + col).min(l - 1),
+            None => i,
+        },
+    })
+}
+
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct StepText {
     pub label: String,
@@ -181,7 +264,7 @@ pub struct StepText {
 }
 
 impl StepText {
-    fn plain(label: impl Into<String>) -> Self {
+    pub fn plain(label: impl Into<String>) -> Self {
         Self {
             label: label.into(),
             code: String::new(),
@@ -412,5 +495,41 @@ mod tests {
             ..WorkspaceStep::default()
         };
         assert_eq!(step_text(Some(&said), "running", "").label, "改好了。");
+    }
+
+    #[test]
+    fn recent_is_capped_at_two_rows_until_expanded() {
+        assert_eq!(shown_counts([1, 2, 9], 4, false), [1, 2, 8]);
+        assert_eq!(shown_counts([1, 2, 9], 4, true), [1, 2, 9]);
+        assert_eq!(shown_counts([0, 0, 5], 3, false), [0, 0, 5]);
+        assert_eq!(shown_counts([0, 0, 5], 0, false), [0, 0, 2]);
+    }
+
+    #[test]
+    fn arrows_walk_the_grid_row_by_row_and_across_groups() {
+        let groups = [2, 5, 8];
+        let step = |i, dir| grid_move(&groups, 4, Some(i), dir);
+        assert_eq!(grid_move(&groups, 4, None, Move::Down), Some(0));
+        assert_eq!(grid_move(&groups, 4, None, Move::Up), Some(14));
+        assert_eq!(grid_move(&[0, 0, 0], 4, None, Move::Down), None);
+        assert_eq!(step(0, Move::Right), Some(1));
+        assert_eq!(step(1, Move::Right), Some(2));
+        assert_eq!(step(14, Move::Right), Some(14));
+        assert_eq!(step(0, Move::Left), Some(0));
+        assert_eq!(step(2, Move::Left), Some(1));
+        assert_eq!(step(1, Move::Down), Some(3));
+        assert_eq!(step(3, Move::Down), Some(6));
+        assert_eq!(step(5, Move::Down), Some(6));
+        assert_eq!(step(6, Move::Down), Some(7));
+        assert_eq!(step(4, Move::Down), Some(6));
+        assert_eq!(step(13, Move::Down), Some(13));
+        assert_eq!(step(11, Move::Up), Some(7));
+        assert_eq!(step(7, Move::Up), Some(6));
+        assert_eq!(step(9, Move::Up), Some(6));
+        assert_eq!(step(6, Move::Up), Some(2));
+        assert_eq!(step(3, Move::Up), Some(1));
+        assert_eq!(step(0, Move::Up), Some(0));
+        assert_eq!(grid_move(&[0, 3, 0], 4, Some(9), Move::Left), Some(1));
+        assert_eq!(grid_move(&[3], 0, Some(1), Move::Down), Some(2));
     }
 }
