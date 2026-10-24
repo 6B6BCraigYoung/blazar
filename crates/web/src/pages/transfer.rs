@@ -71,7 +71,7 @@ pub fn TransferSettings() -> impl IntoView {
     view! {
         <PrefGroup
             title="迁移配置"
-            note="把智能体档案、skills、MCP、自动化、审批规则等配置导出成一个文件，再导入到另一台机器上的 hub。会话历史和账号不迁移，密钥的值导出时会清空。"
+            note="把智能体档案、技能、MCP、自动化、审批规则等配置导出成一个文件，再导入到另一台机器上的 hub。会话历史和账号不迁移，密钥的值导出时会清空。"
         >
             <PrefRow label="导出配置" detail="下载成一个 JSON 文件。">
                 <a class="btn" href="/api/export" download="" on:click=export>

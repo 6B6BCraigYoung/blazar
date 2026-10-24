@@ -269,7 +269,7 @@ pub(super) fn RuntimeDetail(id: String) -> impl IntoView {
                         view! {
                             <PrefGroup
                                 title="账号"
-                                note="每个账号是一个独立的 CLI 配置目录。有多个账号时，可以在这里切换这个运行时用哪一个；对话里也可以从运行时选择器单独换。"
+                                note="每个账号是一份独立的登录身份。有多个账号时，可以在这里切换这个运行时用哪一个；对话里也可以从运行时选择器单独换。"
                             >
                                 <div class="pref-list acc-list">
                                     <AccountsSection

@@ -251,7 +251,7 @@ pub(super) fn MeshLocal(
                     view! {
                         <PrefRow
                             label="状态"
-                            detail="用邀请文件或 EasyTier 配置加入，也可把 .blazar 或 .toml 文件拖到此处。"
+                            detail="用邀请文件或 EasyTier 配置加入，也可以直接把它拖到这里。"
                         >
                             <Status tone=Tone::Other label="未加入" />
                             <MoreMenu label="更多…".to_owned() text="更多…" items=menu disabled=busy />

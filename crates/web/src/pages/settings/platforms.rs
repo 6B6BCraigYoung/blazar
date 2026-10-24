@@ -17,7 +17,7 @@ pub(super) fn PlatformSettings() -> impl IntoView {
         api::get::<Value>("/api/skills/market/providers")
     });
     view! {
-        <PrefGroup note="搜索技能时查这些目录。密钥只写不读。">
+        <PrefGroup note="搜索技能时去这些来源找。密钥保存后不再显示。">
             <PrefRow label="搜索和安装技能" detail="在「智能体 → 技能」里。">
                 <a class="btn" href="/skills?tab=market">
                     "打开技能库"
@@ -236,7 +236,7 @@ fn KeySheet(
                 }
             }
         >
-            <p>"密钥只写不读，保存后这里不再显示。"</p>
+            <p>"密钥保存后这里不再显示。"</p>
             <label class="field">
                 "API key"
                 <input

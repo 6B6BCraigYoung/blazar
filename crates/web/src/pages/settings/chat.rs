@@ -109,7 +109,7 @@ pub(super) fn FleetSettings() -> impl IntoView {
             view! {
                 <PrefGroup title="多机调度">
                     <PrefRow
-                        label="给 Blazar 启动的智能体挂上调度工具"
+                        label="允许智能体跨机器建工作区、派活"
                         detail="下一轮启动生效。"
                         for_id="settings-fleet"
                     >
@@ -181,7 +181,7 @@ pub(super) fn FleetSettings() -> impl IntoView {
                     </PrefRow>
                     <PrefAdvanced title="多机调度">
                         <p>
-                            "打开后，Blazar 启动的每个会话都会挂上调度工具，不管它跑在哪台机器上：列出机器、建工作区、给任意机器上的智能体发指令、等它跑完、读它的记录和改动、在工作区之间拷文件。"
+                            "打开后，Blazar 启动的每个会话都能跨机器协作，不管它跑在哪台机器上：列出机器、建工作区、给任意机器上的智能体发指令、等它跑完、读它的记录和改动、在工作区之间拷文件。"
                         </p>
                         <p>
                             "远端机器经本机 hub 中转，自己不需要别的机器的密钥；每个会话一枚独立令牌，结束即作废。"

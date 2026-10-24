@@ -32,7 +32,7 @@ pub const SPECS: &[Spec] = &[
     Spec {
         key: "fact_stale",
         label: "事实失联",
-        about: "事实超过心跳间隔 5 倍没更新：进收件箱，并写信给负责它的 bot。",
+        about: "事实超过平时更新间隔的 5 倍没更新：进收件箱，并写信给负责它的 bot。",
         unit: "",
         default: None,
         min: 0,
@@ -50,7 +50,7 @@ pub const SPECS: &[Spec] = &[
     Spec {
         key: "bot_stuck",
         label: "bot 卡住",
-        about: "bot 在跑却这么久没有新事件：进收件箱；到两倍时再写信给总控 bot。",
+        about: "bot 在跑却这么久没有动静：进收件箱；到两倍时再写信给总控 bot。",
         unit: "分钟",
         default: Some(20),
         min: 1,
@@ -68,7 +68,7 @@ pub const SPECS: &[Spec] = &[
     Spec {
         key: "job_orphan",
         label: "后台任务落单",
-        about: "后台任务 waits_for 里的机器、事实、文件或任务不在了：进收件箱，并写信给发起它的 bot。",
+        about: "后台任务等待的机器、文件或任务不见了时提醒，并通知发起它的 bot。",
         unit: "",
         default: None,
         min: 0,
@@ -397,7 +397,7 @@ async fn fact_stale(st: &Shared) -> Vec<Cond> {
             subject: key.clone(),
             title: format!("事实 {key} 失联"),
             body: format!(
-                "超过心跳间隔（{ttl} 秒）的 5 倍没有更新，最后一次在 {last}{}。",
+                "超过平时更新间隔（{ttl} 秒）的 5 倍没有更新，最后一次在 {last}{}。",
                 opt(r, "owner_name")
                     .map(|h| format!("，负责人是 {h}"))
                     .unwrap_or_default()

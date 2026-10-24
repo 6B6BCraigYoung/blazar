@@ -1493,7 +1493,7 @@ fn SkillMarket(preview: RwSignal<Option<(Value, bool)>>, refresh: RwSignal<u32>)
                         view! {
                             <div class="card pad">
                                 <p class="muted">
-                                    "密钥只写不读。留空保存会删除现有 key。"
+                                    "密钥保存后不再显示。留空保存会删掉现有密钥。"
                                 </p>
                                 <div class="agent-toolbar">
                                     <input

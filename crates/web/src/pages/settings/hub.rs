@@ -2,7 +2,7 @@ use leptos::prelude::*;
 use serde_json::{Value, json};
 
 use crate::components::dialog::{Choice, ask};
-use crate::components::prefs::{PrefGroup, PrefRow};
+use crate::components::prefs::{PrefAdvanced, PrefGroup, PrefRow};
 use crate::components::status::{InlineError, LoadingState};
 use crate::desktop;
 
@@ -17,7 +17,7 @@ pub(super) fn HubSettings() -> impl IntoView {
     view! {
         <PrefGroup
             title="这台电脑连哪个 hub"
-            note="本机：这台电脑自己运行 hub。远程机器：经 SSH 连到一台常驻机器上用 scripts/hub-service.sh 装好的 hub，bot 和对话在那台机器上继续跑。"
+            note="本机：这台电脑自己运行 hub。远程机器：连到一台常开的机器，合上这台电脑后 bot 和对话继续跑。"
         >
             {move || match data.get() {
                 None => view! { <LoadingState text="正在读取 hub 设置…" /> }.into_any(),
@@ -35,6 +35,11 @@ pub(super) fn HubSettings() -> impl IntoView {
                 }
                 Some(Ok(v)) => view! { <HubModeForm state=v /> }.into_any(),
             }}
+            <PrefAdvanced title="远程 hub">
+                <p>
+                    "远程机器上的 hub 用仓库里的 scripts/hub-service.sh 装成常驻服务，默认监听 7777 端口。这台电脑经 SSH 连过去，所以 SSH 主机别名要能免密登录。"
+                </p>
+            </PrefAdvanced>
         </PrefGroup>
     }
     .into_any()

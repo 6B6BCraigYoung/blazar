@@ -666,7 +666,7 @@ fn NodeDetail(name: String) -> impl IntoView {
                                         view! {
                                             <PrefRow
                                                 label=s(&a, "label")
-                                                detail="未安装。把官方发布的版本装进这台机器的 ~/.blazar，和本机版本一致。"
+                                                detail="未安装。把和本机相同的版本装到这台机器上。"
                                             >
                                                 <button
                                                     type="button"
@@ -687,7 +687,7 @@ fn NodeDetail(name: String) -> impl IntoView {
                     }}
                 </PrefGroup>
                 <PrefGroup title="维护" note="查找已不属于工作区的目录，确认后删除。">
-                    <PrefRow label="残留目录" detail="磁盘上未被 Blazar 记录的 worktree 和私有目录。">
+                    <PrefRow label="残留目录" detail="磁盘上未被 Blazar 记录的隔离工作区和私有目录。">
                         {offline_note}
                         <button
                             type="button"
