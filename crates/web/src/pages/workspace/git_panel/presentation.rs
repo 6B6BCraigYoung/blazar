@@ -29,7 +29,7 @@ pub(super) fn op_text(op: &str) -> &str {
 
 pub(super) fn code_mark(code: &str) -> (&'static str, &'static str) {
     match code {
-        "??" => ("U", "added"),
+        "??" => ("A", "added"),
         "UU" | "AA" | "DD" | "AU" | "UA" | "DU" | "UD" => ("!", "deleted"),
         c if c.starts_with('A') => ("A", "added"),
         c if c.starts_with('D') => ("D", "deleted"),

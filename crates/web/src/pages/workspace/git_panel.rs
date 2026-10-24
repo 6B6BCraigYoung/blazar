@@ -667,6 +667,7 @@ pub fn GitView(git: Git, files: Files, draft: RwSignal<Option<String>>) -> impl 
             let n = g.conflicts.len();
             view! {
                 <div class="gp-op">
+                    <span class="dot" data-tone="attention" aria-hidden="true"></span>
                     <b>{format!("{what}进行到一半")}</b>
                     <span>
                         {if n > 0 {

@@ -115,9 +115,12 @@ fn row_view(i: usize, n: NodeView, menu: RwSignal<Option<MenuAt>>) -> impl IntoV
         last_seen(&n)
     };
     let badge = if n.is_pending() {
-        Some(("待确认", "gchip info"))
+        Some(
+            view! { <span class="status node-badge" data-tone="attention">"待确认"</span> }
+                .into_any(),
+        )
     } else if n.is_personal() {
-        Some(("个人电脑", "gchip"))
+        Some(view! { <span class="gchip">"个人电脑"</span> }.into_any())
     } else {
         None
     };
@@ -164,7 +167,7 @@ fn row_view(i: usize, n: NodeView, menu: RwSignal<Option<MenuAt>>) -> impl IntoV
                 <a class="node-name" href=href>
                     {fmt::machine(&n.name)}
                 </a>
-                {badge.map(|(text, class)| view! { <span class=class>{text}</span> })}
+                {badge}
             </td>
             <td class="node-addr" title=addr.clone()>
                 {addr.clone()}

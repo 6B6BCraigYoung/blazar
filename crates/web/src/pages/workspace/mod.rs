@@ -172,19 +172,6 @@ fn Workspace(id: String) -> impl IntoView {
             files.reload(cur, false);
         }
     });
-    let changes = Memo::new(move |_| {
-        tree.with(|t| {
-            t.as_ref()
-                .and_then(|r| r.as_ref().ok())
-                .map(|t| {
-                    t.entries
-                        .iter()
-                        .filter_map(|e| e.change.map(|c| (e.path.clone(), c)))
-                        .collect::<std::collections::HashMap<_, _>>()
-                })
-                .unwrap_or_default()
-        })
-    });
     let tree_count = Signal::derive(move || {
         tree.with(|t| {
             t.as_ref().and_then(|r| r.as_ref().ok()).map(|t| {
@@ -485,7 +472,6 @@ fn Workspace(id: String) -> impl IntoView {
                                 diff
                                 state
                                 host
-                                changes
                                 md_preview
                                 draft
                                 isolated

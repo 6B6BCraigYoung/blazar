@@ -429,7 +429,7 @@ pub fn change_mark(c: Option<ChangeKind>) -> (&'static str, &'static str) {
         Some(ChangeKind::Modified) => ("M", "modified"),
         Some(ChangeKind::Added) => ("A", "added"),
         Some(ChangeKind::Deleted) => ("D", "deleted"),
-        Some(ChangeKind::Untracked) => ("U", "untracked"),
+        Some(ChangeKind::Untracked) => ("A", "untracked"),
         None => ("", ""),
     }
 }
@@ -919,7 +919,13 @@ pub fn FileTree(
                                                 <span class="nm" class:dir=dir>
                                                     {row.name}
                                                 </span>
-                                                <span class=format!("ch {cls}")>{mark}</span>
+                                                {if dir {
+                                                    row.has_change
+                                                        .then(|| view! { <span class="chg" aria-hidden="true"></span> })
+                                                        .into_any()
+                                                } else {
+                                                    view! { <span class=format!("ch {cls}")>{mark}</span> }.into_any()
+                                                }}
                                             </button>
                                         }
                                     })

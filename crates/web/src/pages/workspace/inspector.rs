@@ -10,7 +10,6 @@ use super::git_panel::{Git, GitView};
 use super::layout::{Changes, Edge, LayoutState, Splitter, Tab};
 use super::preview_panel::PreviewBar;
 use super::tree::{FileTree, TreePane};
-use crate::api;
 use crate::components::empty::{Action, Blank};
 use crate::components::icon;
 
@@ -26,7 +25,6 @@ pub fn Inspector(
     diff: DiffState,
     state: LayoutState,
     host: NodeRef<html::Div>,
-    changes: Memo<std::collections::HashMap<String, api::ChangeKind>>,
     md_preview: RwSignal<bool>,
     draft: RwSignal<Option<String>>,
     isolated: Signal<bool>,
@@ -183,7 +181,7 @@ pub fn Inspector(
                 </aside>
                 <Splitter edge=Edge::Files state />
                 <div class="ed-main">
-                    <Tabs files changes />
+                    <Tabs files />
                     <EdBar files preview=md_preview />
                     <div class="editor-stack">
                         <div class="editor-host" node_ref=host aria-label="代码编辑器"></div>

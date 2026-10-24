@@ -4,29 +4,20 @@ use leptos::prelude::*;
 use wasm_bindgen::JsCast;
 
 use super::files::Files;
-use super::tree::change_mark;
-use crate::api;
 use crate::md;
 
 #[component]
-pub fn Tabs(
-    files: Files,
-    changes: Memo<std::collections::HashMap<String, api::ChangeKind>>,
-) -> impl IntoView {
+pub fn Tabs(files: Files) -> impl IntoView {
     view! {
         <div class="tabbar" role="group" aria-label="打开的文件">
             <For each=move || files.open_tabs.get() key=|p| p.clone() let:path>
                 {
                     let p = path.clone();
                     let p2 = path.clone();
-                    let p3 = path.clone();
                     let p4 = path.clone();
                     let active = move || files.current.with(|c| c.as_deref() == Some(p.as_str()));
                     let active_button = active.clone();
                     let dirty = move || files.dirty.with(|d| d.contains(&p2));
-                    let mark = Memo::new(move |_| change_mark(
-                        changes.with(|c| c.get(&p3).copied()),
-                    ));
                     view! {
                         <div
                             class="etab"
@@ -48,9 +39,6 @@ pub fn Tabs(
                                 aria-pressed=move || active_button().to_string()
                                 aria-label=path.clone()
                             >
-                                <span class=move || {
-                                    format!("ch {}", mark.get().1)
-                                }>{move || mark.get().0}</span>
                                 <span class="nm">
                                     {path.rsplit('/').next().unwrap_or(&path).to_owned()}
                                 </span>

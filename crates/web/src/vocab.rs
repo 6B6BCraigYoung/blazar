@@ -24,7 +24,7 @@ pub fn state(raw: &str) -> (&'static str, Tone) {
         "running" | "in_progress" | "busy" => ("运行中", Tone::Run),
         "starting" => ("启动中", Tone::Run),
         "awaiting_approval" | "awaiting" | "approval" => ("等你批准", Tone::Attention),
-        "lost" => ("已失联", Tone::Attention),
+        "lost" => ("已失联", Tone::Failed),
         "in_review" => ("待审阅", Tone::Attention),
         "failed" | "errored" | "error" => ("失败", Tone::Failed),
         "paused" => ("已暂停", Tone::Other),

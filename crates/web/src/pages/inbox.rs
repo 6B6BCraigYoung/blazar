@@ -332,7 +332,7 @@ pub fn InboxPage() -> impl IntoView {
                 title="收件箱"
                 status=move || {
                     let n = app.inbox_unread.get();
-                    (n != 0).then(|| view! { <Status tone=Tone::Attention label=format!("{n} 条未读") /> })
+                    (n != 0).then(|| view! { <span class="page-note">{format!("{n} 条未读")}</span> })
                 }
             >
                 <Show when=move || { has_any() && app.inbox_unread.get() > 0 }>
