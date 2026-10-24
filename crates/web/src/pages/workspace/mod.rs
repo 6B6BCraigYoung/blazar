@@ -323,6 +323,8 @@ fn Workspace(id: String) -> impl IntoView {
         })
     });
     let chat_id = id.clone();
+    let chat_slot = RwSignal::new_local(None::<chat::Chat>);
+    let thread_menu = RwSignal::new(false);
     let chat_view = move || {
         detail
             .with(|d| {
@@ -334,6 +336,7 @@ fn Workspace(id: String) -> impl IntoView {
                 let c = chat::Chat::new(
                     &chat_id, &path, &node, files, diff, git, running, show_aux, show_diff,
                 );
+                chat_slot.set(Some(c));
                 view! { <chat::ChatPane chat=c tree_files draft mention /> }
             })
     };
@@ -415,7 +418,17 @@ fn Workspace(id: String) -> impl IntoView {
                     </a>
                 </div>
             </Show>
-            <WsHead id=id.clone() detail state git props kids_open gone />
+            <WsHead
+                id=id.clone()
+                detail
+                state
+                git
+                props
+                kids_open
+                gone
+                chat=chat_slot
+                thread_menu
+            />
             {
                 let id = id.clone();
                 move || {

@@ -239,6 +239,8 @@ pub fn WsHead(
     props: RwSignal<bool>,
     kids_open: RwSignal<bool>,
     gone: Memo<bool>,
+    chat: RwSignal<Option<super::chat::Chat>, LocalStorage>,
+    thread_menu: RwSignal<bool>,
 ) -> impl IntoView {
     let app = use_app();
     let wid = StoredValue::new(id.clone());
@@ -309,6 +311,7 @@ pub fn WsHead(
             item("Git", Some("git"), move || state.open_changes(Changes::Git)),
             item("预览", Some("preview"), move || state.open(Tab::Preview)),
         ],
+        vec![item("历史对话…", None, move || thread_menu.set(true))],
         vec![
             Item {
                 label: kids_label,
@@ -342,6 +345,9 @@ pub fn WsHead(
             {move || {
                 let s = sub();
                 (!s.is_empty()).then(|| view! { <span class="ws-sub">{s}</span> })
+            }}
+            {move || {
+                chat.get().map(|c| view! { <super::chat::ThreadPicker chat=c open=thread_menu /> })
             }}
             {move || {
                 parent()

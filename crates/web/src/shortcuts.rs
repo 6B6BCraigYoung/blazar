@@ -8,6 +8,8 @@ const DEFAULTS: &[(&str, &str)] = &[
     ("chat", "Mod+Alt+B"),
     ("panel", "Mod+J"),
     ("newchat", "Mod+T"),
+    ("prevchat", "Mod+Shift+["),
+    ("nextchat", "Mod+Shift+]"),
     ("newws", "Mod+N"),
     ("inspect", "Mod+I"),
     ("delete", "Mod+Backspace"),

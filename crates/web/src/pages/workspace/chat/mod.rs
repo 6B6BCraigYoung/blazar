@@ -2,12 +2,11 @@ mod composer;
 mod dock;
 mod log;
 pub mod state;
+mod threads;
 mod turns;
 
 use leptos::prelude::*;
 
-use crate::components::menu::menu_keydown;
-use leptos::html;
 use wasm_bindgen::JsCast;
 
 use crate::realtime::use_bus;
@@ -15,6 +14,7 @@ use crate::realtime::use_bus;
 use composer::Composer;
 use log::Log;
 pub use state::Chat;
+pub use threads::ThreadPicker;
 
 #[component]
 pub fn ChatPane(
@@ -46,11 +46,16 @@ pub fn ChatPane(
     });
     chat.load_catalogs();
     let keys = window_event_listener(leptos::ev::keydown, move |e| {
-        if crate::shortcuts::action(&e) == Some("newchat") {
-            e.prevent_default();
-            chat.new_chat();
-            chat.show_aux.run(());
+        match crate::shortcuts::action(&e) {
+            Some("newchat") => {
+                chat.new_chat();
+                chat.show_aux.run(());
+            }
+            Some("prevchat") => threads::cycle(chat, -1),
+            Some("nextchat") => threads::cycle(chat, 1),
+            _ => return,
         }
+        e.prevent_default();
     });
     let menu = crate::shortcuts::on_menu(move |id| {
         if id == "act:newchat" {
@@ -122,193 +127,7 @@ pub fn ChatPane(
     on_cleanup(move || iv.set_value(None));
 
     let log_h = RwSignal::new(0.0f64);
-    let hist = RwSignal::new(false);
-    let history_menu = NodeRef::<html::Div>::new();
-    let history_trigger = NodeRef::<html::Button>::new();
     view! {
-        <div class="rhead chat-head">
-            <div class="chat-tabs" role="group" aria-label="Open conversations">
-                <For each=move || chat.tabs.get() key=|t| t.clone() let:t>
-                    {
-                        let t1 = t.clone();
-                        let t2 = t.clone();
-                        let t3 = t.clone();
-                        let t4 = t.clone();
-                        let title = Signal::derive(move || chat.thread_title(t1.as_deref()));
-                        let active = move || chat.view.get() == t2;
-                        let live = move || t3.as_deref().is_some_and(|id| chat.thread_running(id));
-                        let rename = move || {
-                            let Some(id) = t4.clone() else { return };
-                            let cur = chat.thread_title(Some(&id));
-                            chat.spawn(async move {
-                                if let Some(name) = crate::components::dialog::prompt_with(
-                                        "重命名对话",
-                                        "对话名称",
-                                        &cur,
-                                        "重命名",
-                                    )
-                                    .await
-                                {
-                                    chat.rename(id, name);
-                                }
-                            });
-                        };
-                        let active_button = active.clone();
-                        view! {
-                            <span
-                                class="ctab"
-                                data-active=move || active().to_string()
-                                title=move || format!("{}（双击重命名）", title.get())
-                                on:click={
-                                    let t = t.clone();
-                                    move |_| {
-                                        if chat.view.get_untracked() != t {
-                                            chat.activate(t.clone())
-                                        }
-                                    }
-                                }
-                                on:dblclick=move |_| rename()
-                            >
-                                <button
-                                    type="button"
-                                    class="ctab-select"
-                                    aria-pressed=move || active_button().to_string()
-                                >
-                                    <span class="t">{move || title.get()}</span>
-                                    {move || {
-                                        live()
-                                            .then(|| {
-                                                view! { <span class="live" aria-label="Running"></span> }
-                                            })
-                                    }}
-                                </button>
-                                <button
-                                    type="button"
-                                    class="x"
-                                    title="关闭"
-                                    aria-label="关闭"
-                                    on:click={
-                                        let t = t.clone();
-                                        move |e| {
-                                            e.stop_propagation();
-                                            chat.close_tab(t.clone());
-                                        }
-                                    }
-                                >
-                                    "×"
-                                </button>
-                            </span>
-                        }
-                    }
-                </For>
-                <button
-                    class="ctab add"
-                    aria-label="新对话"
-                    title=move || crate::shortcuts::titled("新对话", "newchat")
-                    on:click=move |_| chat.new_chat()
-                    inner_html=r#"<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>"#
-                ></button>
-            </div>
-            <span class="more">
-                <button
-                    class="laybtn"
-                    node_ref=history_trigger
-                    aria-label="历史对话"
-                    aria-haspopup="menu"
-                    aria-expanded=move || hist.get().to_string()
-                    title="历史对话"
-                    on:click=move |_| {
-                        hist.update(|h| *h = !*h);
-                        if hist.get_untracked() {
-                            chat.spawn(async move { chat.load_threads().await });
-                        }
-                    }
-                    inner_html=r#"<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7M3 4v4h4"/><path d="M12 7v5l3 2"/></svg>"#
-                ></button>
-                <Show when=move || hist.get()>
-                    <div
-                        class="menu hist"
-                        role="menu"
-                        aria-label="历史对话"
-                        node_ref=history_menu
-                        on:keydown=move |event| {
-                            if let Some(root) = history_menu.get_untracked() {
-                                menu_keydown(
-                                    &event,
-                                    root.unchecked_ref(),
-                                    Callback::new(move |_| {
-                                        hist.set(false);
-                                        if let Some(trigger) = history_trigger.get_untracked() {
-                                            let _ = trigger.focus();
-                                        }
-                                    }),
-                                );
-                            }
-                        }
-                        on:mouseleave=move |_| hist.set(false)
-                    >
-                        <button
-                            role="menuitem"
-                            on:click=move |_| {
-                                hist.set(false);
-                                chat.new_chat();
-                            }
-                        >
-                            <b>"新对话"</b>
-                        </button>
-                        <div class="menu-sep"></div>
-                        {move || {
-                            chat.threads
-                                .get()
-                                .into_iter()
-                                .map(|t| {
-                                    let id = t.id.clone();
-                                    let on = chat.view.get().as_deref() == Some(id.as_str());
-                                    let when = t
-                                        .last_at
-                                        .clone()
-                                        .unwrap_or_else(|| t.created_at.clone());
-                                    let sub = format!(
-                                        "{} · {}{}",
-                                        match t.runtime.as_str() {
-                                            "claude" | "claude_cli" => "Claude Code",
-                                            "codex" => "Codex",
-                                            other => other,
-                                        },
-                                        crate::fmt::ago(&when),
-                                        if t.status.as_deref() == Some("running") {
-                                            " · 运行中"
-                                        } else {
-                                            ""
-                                        },
-                                    );
-                                    view! {
-                                        <button
-                                            role="menuitem"
-                                            class="hist-row"
-                                            data-sel=on.to_string()
-                                            on:click=move |_| {
-                                                hist.set(false);
-                                                chat.activate(Some(id.clone()));
-                                            }
-                                        >
-                                            <b>
-                                                {t
-                                                    .title
-                                                    .clone()
-                                                    .filter(|x| !x.is_empty())
-                                                    .unwrap_or_else(|| "新对话".into())}
-                                            </b>
-                                            <span class="muted small">{sub}</span>
-                                        </button>
-                                    }
-                                })
-                                .collect_view()
-                        }}
-                    </div>
-                </Show>
-            </span>
-        </div>
         <div class="chat-body">
             <super::children::ChildrenPanel id=chat.ws_id() />
             <Log chat tick log_h />
