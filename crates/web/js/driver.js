@@ -224,6 +224,48 @@ function overflowing() {
   return out;
 }
 
+function signature(el, pseudo) {
+  const classes = [...el.classList].slice(0, 3).join('.');
+  return `${el.tagName.toLowerCase()}${classes ? `.${classes}` : ''}${pseudo || ''}`;
+}
+
+function isDot(width, height, radius) {
+  return width > 0 && width <= 12 && height > 0 && height <= 12 && radius >= Math.min(width, height) / 2 - 0.5;
+}
+
+function colours(command) {
+  const skip = command.skip || '.monaco-editor, .xterm, svg, script, style';
+  const text = new Map();
+  const dots = new Map();
+  const note = (map, color, el, pseudo) => {
+    if (!color || color === 'rgba(0, 0, 0, 0)') return;
+    let entry = map.get(color);
+    if (!entry) map.set(color, (entry = { color, count: 0, where: new Map() }));
+    entry.count++;
+    const sig = signature(el, pseudo);
+    if (!entry.where.has(sig) && entry.where.size < 60) entry.where.set(sig, clean(el.innerText || el.textContent).slice(0, 40));
+  };
+  for (const el of document.querySelectorAll('body *')) {
+    if (el.closest(skip) || !shown(el)) continue;
+    const s = getComputedStyle(el);
+    if ([...el.childNodes].some(n => n.nodeType === Node.TEXT_NODE && n.textContent.trim())) note(text, s.color, el);
+    const r = el.getBoundingClientRect();
+    if (isDot(r.width, r.height, parseFloat(s.borderRadius))) note(dots, s.backgroundColor, el);
+    for (const pseudo of ['::before', '::after']) {
+      const ps = getComputedStyle(el, pseudo);
+      if (ps.content === 'none' || ps.display === 'none') continue;
+      if (isDot(parseFloat(ps.width), parseFloat(ps.height), parseFloat(ps.borderRadius))) note(dots, ps.backgroundColor, el, pseudo);
+      if (ps.content !== '""' && ps.content !== 'normal') note(text, ps.color, el, pseudo);
+    }
+  }
+  const list = map => [...map.values()].sort((a, b) => b.count - a.count).map(e => ({
+    color: e.color,
+    count: e.count,
+    where: [...e.where].map(([sig, sample]) => (sample ? `${sig} “${sample}”` : sig)),
+  }));
+  return { url: location.pathname + location.search, text: list(text), dots: list(dots) };
+}
+
 async function run(command) {
   install();
   const settle = command.settle_ms ?? 150;
@@ -232,6 +274,8 @@ async function run(command) {
       return { ok: true, url: location.pathname };
     case 'snapshot':
       return snapshot();
+    case 'colors':
+      return colours(command);
     case 'click': {
       const el = guard(find(command));
       const box = el.getBoundingClientRect();
