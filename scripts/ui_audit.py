@@ -24,7 +24,7 @@ def did(kind, n):
 
 
 WS = {name: did(1, i) for i, name in enumerate(
-    ["atlas-api", "nebula-web", "quasar-ml", "orbit-docs", "quasar-train"], 1)}
+    ["atlas-api", "nebula-web", "quasar-ml", "orbit-docs", "quasar-train", "orbit-site"], 1)}
 AGENTS = {name: did(2, i) for i, name in enumerate(["backend", "reviewer", "writer"], 1)}
 BOTS = {name: did(3, i) for i, name in enumerate(["demo-trainer", "demo-reviewer"], 1)}
 PROJECTS = {name: did(4, i) for i, name in enumerate(["demo-orbit", "demo-quasar"], 1)}
@@ -229,6 +229,14 @@ def make_repos():
         write(docs, "docs/deploy.md", "# 部署\n\n1. 构建\n2. 上传\n3. 切流量\n")
         git(docs, "add", "-A")
         git(docs, "commit", "-q", "-m", "docs: first draft")
+    site = DEMO / "orbit-site"
+    if not (site / ".git").exists():
+        site.mkdir(parents=True, exist_ok=True)
+        git(site, "init", "-q", "-b", "main")
+        write(site, "index.html", "<!doctype html>\n<title>Orbit</title>\n<h1>Orbit 官网</h1>\n")
+        write(site, "styles.css", "body { font-family: sans-serif; margin: 40px; }\n")
+        git(site, "add", "-A")
+        git(site, "commit", "-q", "-m", "feat: landing page")
 
 
 class Clock:
@@ -443,8 +451,9 @@ def seed_rows(db):
         ("atlas-api", local, str(DEMO / "atlas-api"), PROJECTS["demo-orbit"], "completed", ago(minutes=12), (61, 4, 3)),
         ("nebula-web", local, str(DEMO / "nebula-web"), PROJECTS["demo-orbit"], "running", ago(minutes=1), (0, 0, 0)),
         ("quasar-ml", local, str(DEMO / "quasar-ml"), PROJECTS["demo-quasar"], "awaiting_approval", ago(minutes=4), (3, 2, 1)),
-        ("orbit-docs", local, str(DEMO / "orbit-docs"), None, "errored", ago(hours=3), (0, 0, 0)),
+        ("orbit-docs", local, str(DEMO / "orbit-docs"), None, "running", ago(minutes=2), (0, 0, 0)),
         ("quasar-train", NODE_ID, "/home/demo/quasar-train", PROJECTS["demo-quasar"], "idle", ago(days=2), None),
+        ("orbit-site", local, str(DEMO / "orbit-site"), PROJECTS["demo-orbit"], "errored", ago(hours=3), (0, 0, 0)),
     ]
     for name, node, path, proj, act, last, diff in wss:
         a, r, f = diff or (None, None, None)
@@ -532,6 +541,15 @@ def seed_rows(db):
         (c.tick(2), dict(retry, attempt=2, delay_ms=4000), None),
     ]
     add_session(db, did(12, 3), WS["orbit-docs"], ago(minutes=2), "claude_cli", "补充回滚步骤", did(12, 3), "done", orbit, AGENTS["writer"])
+
+    c = Clock(ago(hours=3, minutes=2))
+    site = [
+        (c.tick(0), {"type": "session_started", "provider_session_id": "demo-failed", "model": "claude-opus-5-5", "cwd": str(DEMO / "orbit-site"), "permission_mode": "default"}, None),
+        (c.tick(1), {"type": "user_message", "text": "把首页的英雄区文案改成三句话，突出离线可用"}, None),
+    ]
+    site += [(c.tick(2 + n), dict(retry, attempt=n, delay_ms=min(1000 * 2 ** (n - 1), 32000)), None) for n in range(1, 11)]
+    site.append((c.tick(5), {"type": "finished", "status": "failed", "message": "API Error: 529 overloaded"}, None))
+    add_session(db, did(12, 4), WS["orbit-site"], ago(hours=3, minutes=2), "claude_cli", "改首页文案", did(12, 4), "failed", site, AGENTS["writer"])
 
     c = Clock(ago(minutes=6))
     req = {"tool_name": "Bash", "input": {"command": "python train.py --config configs/base.yaml --steps 200", "description": "冒烟训练 200 步"}, "tool_use_id": "toolu_demo_appr"}
@@ -654,10 +672,10 @@ def seed_rows(db):
                     iso(ago(hours=hours)), iso(ago(hours=hours - 1)), iso(ago(hours=hours - 1))))
 
     inbox = [
-        ("run_done", "atlas-api 跑完了", "给 /users 加分页：已提交 3f9c2ab，35 个测试通过。", "atlas-api", THREAD, None, ago(minutes=20), False, False),
+        ("run_done", "atlas-api · 跑完了：提交吧，提交信息用英文", "已提交：`3f9c2ab feat(users): paginate the users list and return 400 on bad params`。没有推送。", "atlas-api", THREAD, None, ago(minutes=20), False, False),
         ("approval", "quasar-ml · 等你批准：Bash", "python train.py --config configs/base.yaml --steps 200", "quasar-ml", did(12, 2), APPROVAL, ago(minutes=4), False, False),
         ("question", "quasar-ml · 智能体在问你", "lr=3e-4 那组的节点离线了，要不要换到本机重跑？", "quasar-ml", did(12, 2), QUESTION, ago(minutes=3), False, False),
-        ("run_failed", "orbit-docs 失败了", "API Error: 529 overloaded", "orbit-docs", None, None, ago(hours=3), False, False),
+        ("run_failed", "orbit-site · 没跑成：把首页的英雄区文案改成三句话，突出离线可用", "API Error: 529 overloaded", "orbit-site", did(12, 4), None, ago(hours=3), False, False),
         ("autopilot_paused", "自动化「夜间评测汇总」已暂停", "连续失败 3 次。", None, None, AUTOPILOTS[1], ago(hours=9), True, False),
         ("job", "后台任务「演示：导出评测表」失败了", "退出码 1", None, None, None, ago(hours=4), True, False),
         ("alert", "后台任务「演示：远程评测」失联", "它在等的机器 gpu-a.invalid 不在线。", None, None, "rule:job_orphan:demo", ago(hours=19), True, True),
