@@ -313,7 +313,9 @@ b.mk { font: var(--font-weight-semibold) var(--font-size-caption) var(--font-mon
 .gp-op { display: flex; align-items: center; gap: var(--space-control); padding: var(--space-md) var(--space-lg); border: 1px solid var(--warning-border); border-radius: var(--r-md); background: var(--git-operation-bg); }
 .gp-op b { color: var(--warn); }
 .gp-op .grow { flex: 1; }
-.gp-acts { display: flex; gap: var(--space-md); flex-wrap: wrap; }
+.gp-acts { display: flex; align-items: center; gap: var(--space-md); flex-wrap: wrap; }
+.gp-note { color: var(--fg-3); font-size: var(--font-size-label); white-space: nowrap; }
+.gp-head .more .menu { top: 30px; }
 .ws-info h3 { margin-bottom: var(--space-lg); }
 .ws-info .pref-group + .pref-group { margin-top: var(--space-xl); }
 .ws-info .pref-rows { background: var(--bg-raised); }

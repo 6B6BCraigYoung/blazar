@@ -8,6 +8,7 @@ use crate::components::dialog::{self, Choice};
 use crate::components::empty::Blank;
 use crate::components::icon;
 use crate::components::menu::menu_keydown;
+use crate::components::rows::{MenuAt, RowAction, RowMenu};
 use crate::components::status::{EmptyState, InlineError, LoadingState, Status, Tone};
 use crate::components::toast::toast;
 use crate::fmt;
@@ -45,6 +46,10 @@ pub fn GitView(git: Git, files: Files, draft: RwSignal<Option<String>>) -> impl 
     let form = RwSignal::new(None::<Form>);
     let menu = RwSignal::new(None::<Vec<String>>);
     let menu_trigger = NodeRef::<html::Button>::new();
+    let more = RwSignal::new(false);
+    let more_root = NodeRef::<html::Div>::new();
+    let more_trigger = NodeRef::<html::Button>::new();
+    let branch_menu = RwSignal::new(None::<MenuAt>);
     let busy = move |op: &str| git.busy.with(|b| *b == Some(op));
     let any_busy = move || git.busy.with(Option::is_some);
 
@@ -273,22 +278,16 @@ pub fn GitView(git: Git, files: Files, draft: RwSignal<Option<String>>) -> impl 
                 .into_any(),
             );
         }
-        chips.push(
-            view! {
-                <span class="gchip" class:warn={g.uncommitted > 0}>
-                    {if g.uncommitted > 0 {
-                        format!("{} 个未提交", g.uncommitted)
-                    } else {
-                        "无未提交改动".to_owned()
-                    }}
-                </span>
-            }
-            .into_any(),
-        );
+        if g.uncommitted > 0 {
+            chips.push(
+                view! { <span class="gp-note">{format!("{} 个未提交", g.uncommitted)}</span> }
+                    .into_any(),
+            );
+        }
         chips.push(if g.remote.is_empty() {
-            view! { <span class="gchip">"未设置远端"</span> }.into_any()
+            ().into_any()
         } else if g.upstream.is_empty() {
-            view! { <span class="gchip warn">"未推送"</span> }.into_any()
+            view! { <span class="gp-note">"未推送"</span> }.into_any()
         } else {
             let t = if g.up_ahead > 0 || g.up_behind > 0 {
                 format!("远端 ↑{} ↓{}", g.up_ahead, g.up_behind)
@@ -322,10 +321,20 @@ pub fn GitView(git: Git, files: Files, draft: RwSignal<Option<String>>) -> impl 
             g.target.clone()
         };
         let guess = g.target_guess && !g.target.is_empty();
-        let no_remote = g.remote.is_empty();
+        let has_remote = !g.remote.is_empty();
+        let branch_name = g.branch.clone();
         view! {
             <div class="gp-head">
-                <span class="gp-br" title="当前分支">
+                <span
+                    class="gp-br"
+                    title=if can_rename { "当前分支（右键改名）" } else { "当前分支" }
+                    on:contextmenu=move |e: leptos::ev::MouseEvent| {
+                        if can_rename {
+                            e.prevent_default();
+                            branch_menu.set(Some(MenuAt::from(&e, 0)));
+                        }
+                    }
+                >
                     <svg
                         viewBox="0 0 24 24"
                         fill="none"
@@ -339,19 +348,35 @@ pub fn GitView(git: Git, files: Files, draft: RwSignal<Option<String>>) -> impl 
                         <path d="M6 7v10M18 10c0 5-12 3-12 7" />
                     </svg>
                     <b>{branch}</b>
-                    {can_rename
-                        .then(|| {
-                            view! {
-                                <button
-                                    class="linkbtn"
-                                    disabled=any_busy
-                                    on:click=move |_| form.set(Some(Form::Rename))
-                                >
-                                    "改名"
-                                </button>
-                            }
-                        })}
                 </span>
+                {move || {
+                    branch_menu
+                        .get()
+                        .map(|at| {
+                            let name = branch_name.clone();
+                            view! {
+                                <RowMenu
+                                    at
+                                    label="分支"
+                                    groups=vec![
+                                        vec![
+                                            RowAction::new("改名…", move || form.set(Some(Form::Rename))),
+                                            RowAction::new("复制分支名", move || {
+                                                let name = name.clone();
+                                                spawn_local(async move {
+                                                    let p = window().navigator().clipboard().write_text(&name);
+                                                    if wasm_bindgen_futures::JsFuture::from(p).await.is_ok() {
+                                                        toast("已复制分支名");
+                                                    }
+                                                });
+                                            }),
+                                        ],
+                                    ]
+                                    on_close=Callback::new(move |()| branch_menu.set(None))
+                                />
+                            }
+                        })
+                }}
                 <span class="muted">"→"</span>
                 <span class="more">
                     <button
@@ -430,151 +455,210 @@ pub fn GitView(git: Git, files: Files, draft: RwSignal<Option<String>>) -> impl 
                 </span>
                 {chips}
                 <span class="grow"></span>
-                <button
-                    class="btn small"
-                    disabled=move || no_remote || any_busy()
-                    title=if no_remote { "未设置远端" } else { "" }
-                    on:click=move |_| run("fetch")
+                <span
+                    class="more"
+                    on:focusout=move |e| {
+                        let inside = e
+                            .related_target()
+                            .and_then(|t| t.dyn_into::<web_sys::Node>().ok())
+                            .zip(e.current_target().and_then(|t| t.dyn_into::<web_sys::Node>().ok()))
+                            .is_some_and(|(t, me)| me.contains(Some(&t)));
+                        if !inside {
+                            more.set(false);
+                        }
+                    }
                 >
-                    {move || if busy("fetch") { "拉取中…" } else { "拉取" }}
-                </button>
-                <button
-                    class="laybtn"
-                    aria-label="刷新 Git 状态"
-                    title="刷新"
-                    inner_html=super::ICON_REFRESH
-                    on:click=move |_| git.reload.update(|n| *n += 1)
-                ></button>
+                    <button
+                        type="button"
+                        class="btn ghost more-btn"
+                        node_ref=more_trigger
+                        aria-label="更多 Git 操作"
+                        title="更多"
+                        aria-haspopup="menu"
+                        aria-expanded=move || more.get().to_string()
+                        on:click=move |_| more.update(|o| *o = !*o)
+                    >
+                        "⋯"
+                    </button>
+                    <Show when=move || more.get()>
+                        <div
+                            class="menu"
+                            node_ref=more_root
+                            role="menu"
+                            aria-label="更多 Git 操作"
+                            on:keydown=move |event| {
+                                if let Some(root) = more_root.get_untracked() {
+                                    menu_keydown(
+                                        &event,
+                                        root.unchecked_ref(),
+                                        Callback::new(move |_| {
+                                            more.set(false);
+                                            if let Some(trigger) = more_trigger.get_untracked() {
+                                                let _ = trigger.focus();
+                                            }
+                                        }),
+                                    );
+                                }
+                            }
+                        >
+                            {has_remote
+                                .then(|| {
+                                    view! {
+                                        <button
+                                            type="button"
+                                            role="menuitem"
+                                            disabled=any_busy
+                                            on:click=move |_| {
+                                                more.set(false);
+                                                run("fetch");
+                                            }
+                                        >
+                                            {move || if busy("fetch") { "拉取中…" } else { "拉取远端" }}
+                                        </button>
+                                    }
+                                })}
+                            {can_rename
+                                .then(|| {
+                                    view! {
+                                        <button
+                                            type="button"
+                                            role="menuitem"
+                                            disabled=any_busy
+                                            on:click=move |_| {
+                                                more.set(false);
+                                                form.set(Some(Form::Rename));
+                                            }
+                                        >
+                                            "改名分支…"
+                                        </button>
+                                    }
+                                })}
+                            <button
+                                type="button"
+                                role="menuitem"
+                                on:click=move |_| {
+                                    more.set(false);
+                                    git.reload.update(|n| *n += 1);
+                                }
+                            >
+                                "刷新状态"
+                            </button>
+                        </div>
+                    </Show>
+                </span>
             </div>
         }
     };
 
     let actions = move |g: &GitStatus| {
+        if g.op.is_some() {
+            return None;
+        }
         let tgt = g.has_target();
-        let in_op = g.op.is_some();
+        let has_remote = !g.remote.is_empty();
         let has_up = !g.upstream.is_empty();
-        let target = if g.target.is_empty() {
-            "…".to_owned()
-        } else {
-            g.target.clone()
-        };
-        let commit_why = if in_op {
-            "先把进行到一半的操作收尾"
-        } else if g.uncommitted == 0 {
-            "没有改动可提交"
-        } else {
-            ""
-        };
-        let rebase_why = if !tgt {
-            "先选一个目标分支".to_owned()
-        } else if in_op || g.detached {
-            String::new()
-        } else if g.behind == 0 {
-            format!("没有落后 {}，不用变基", g.target)
-        } else {
-            String::new()
-        };
-        let rebase_off = !tgt || in_op || g.detached || g.behind == 0;
-        let merge_off = !tgt || in_op || g.detached || g.ahead == 0 || !g.target_local;
-        let merge_why = if !tgt {
-            "先选一个目标分支"
-        } else if !g.target_local {
-            "目标是远端分支：推送后走 PR"
-        } else if g.ahead == 0 {
-            "没有可合并的提交"
+        let target = g.target.clone();
+        let can_commit = g.uncommitted > 0;
+        let can_push = has_remote && !g.detached && (!has_up || g.up_ahead > 0);
+        let can_pr = has_remote && tgt && !g.detached && g.ahead > 0 && g.pr.is_none();
+        let can_rebase = tgt && !g.detached && g.behind > 0;
+        let can_merge = tgt && !g.detached && g.ahead > 0 && g.target_local;
+        let primary = if can_commit {
+            "commit"
+        } else if can_pr {
+            "pr"
+        } else if can_push {
+            "push"
+        } else if can_merge {
+            "merge"
         } else {
             ""
         };
-        let push_off = g.remote.is_empty()
-            || g.detached
-            || in_op
-            || (has_up && g.up_ahead == 0 && g.up_behind == 0);
-        let push_why = if g.remote.is_empty() {
-            "未设置远端"
-        } else if push_off {
-            "远端已经是最新的"
-        } else {
-            ""
-        };
+        let class = move |op: &str| if primary == op { "btn primary" } else { "btn" };
         let push_label = if g.up_ahead > 0 && has_up {
             format!("推送 ↑{}", g.up_ahead)
         } else {
             "推送".to_owned()
         };
-        let pr_off = g.remote.is_empty() || !tgt || g.detached || in_op || g.ahead == 0;
-        let pr_why = if g.remote.is_empty() {
-            "未设置远端"
-        } else if g.ahead == 0 {
-            "没有领先目标分支的提交"
-        } else {
-            ""
-        };
-        let has_pr = g.pr.is_some();
-        let commit_off = g.uncommitted == 0 || in_op;
         let t2 = target.clone();
-        view! {
+        if !(can_commit || can_push || can_pr || can_rebase || can_merge || !has_remote) {
+            return None;
+        }
+        Some(view! {
             <div class="gp-acts">
-                <button
-                    class="btn"
-                    disabled=move || commit_off || any_busy()
-                    title=commit_why
-                    on:click=move |_| form.set(Some(Form::Commit))
-                >
-                    "提交…"
-                </button>
-                <button
-                    class="btn"
-                    disabled=move || rebase_off || any_busy()
-                    title=rebase_why
-                    on:click=move |_| run("rebase")
-                >
-                    {move || {
-                        if busy("rebase") {
-                            "变基中…".to_owned()
-                        } else {
-                            format!("变基到 {target}")
-                        }
-                    }}
-                </button>
-                <button
-                    class="btn"
-                    disabled=move || merge_off || any_busy()
-                    title=merge_why
-                    on:click=move |_| run("merge")
-                >
-                    {move || {
-                        if busy("merge") {
-                            "合并中…".to_owned()
-                        } else {
-                            format!("合并进 {t2}")
-                        }
-                    }}
-                </button>
-                <button
-                    class="btn"
-                    disabled=move || push_off || any_busy()
-                    title=push_why
-                    on:click=move |_| run("push")
-                >
-                    {move || {
-                        if busy("push") { "推送中…".to_owned() } else { push_label.clone() }
-                    }}
-                </button>
-                {(!has_pr)
+                {can_commit
                     .then(|| {
                         view! {
                             <button
-                                class="btn primary"
-                                disabled=move || pr_off || any_busy()
-                                title=pr_why
+                                class=class("commit")
+                                disabled=any_busy
+                                on:click=move |_| form.set(Some(Form::Commit))
+                            >
+                                "提交…"
+                            </button>
+                        }
+                    })}
+                {can_pr
+                    .then(|| {
+                        view! {
+                            <button
+                                class=class("pr")
+                                disabled=any_busy
                                 on:click=move |_| form.set(Some(Form::Pr))
                             >
                                 "创建 PR…"
                             </button>
                         }
                     })}
+                {can_push
+                    .then(|| {
+                        view! {
+                            <button
+                                class=class("push")
+                                disabled=any_busy
+                                on:click=move |_| run("push")
+                            >
+                                {move || {
+                                    if busy("push") { "推送中…".to_owned() } else { push_label.clone() }
+                                }}
+                            </button>
+                        }
+                    })}
+                {can_rebase
+                    .then(|| {
+                        view! {
+                            <button class="btn" disabled=any_busy on:click=move |_| run("rebase")>
+                                {move || {
+                                    if busy("rebase") {
+                                        "变基中…".to_owned()
+                                    } else {
+                                        format!("变基到 {target}")
+                                    }
+                                }}
+                            </button>
+                        }
+                    })}
+                {can_merge
+                    .then(|| {
+                        view! {
+                            <button
+                                class=class("merge")
+                                disabled=any_busy
+                                on:click=move |_| run("merge")
+                            >
+                                {move || {
+                                    if busy("merge") {
+                                        "合并中…".to_owned()
+                                    } else {
+                                        format!("合并进 {t2}")
+                                    }
+                                }}
+                            </button>
+                        }
+                    })}
+                {(!has_remote).then(|| view! { <span class="gp-note">"未设置远端"</span> })}
             </div>
-        }
+        })
     };
 
     let op_bar = move |g: &GitStatus| {
@@ -710,14 +794,22 @@ pub fn GitView(git: Git, files: Files, draft: RwSignal<Option<String>>) -> impl 
                 .collect_view()
                 .into_any()
         };
+        let commits_empty = if tgt {
+            format!("没有领先 {} 的提交", g.target)
+        } else if g.same || !g.target_ok {
+            format!("{} 上还没有新提交", g.branch)
+        } else {
+            "选择目标分支查看提交".to_owned()
+        };
+        let commits_title = if tgt {
+            format!("领先 {} 的提交 ", g.target)
+        } else if g.same || !g.target_ok {
+            format!("{} 上的提交 ", g.branch)
+        } else {
+            "提交 ".to_owned()
+        };
         let commits = if g.commits.is_empty() {
-            view! {
-                <EmptyState
-                    title=if tgt { "没有领先提交" } else { "选择目标分支查看提交" }
-                    class="muted small"
-                />
-            }
-            .into_any()
+            view! { <EmptyState title=commits_empty class="muted small" /> }.into_any()
         } else {
             g.commits
                 .iter()
@@ -753,11 +845,8 @@ pub fn GitView(git: Git, files: Files, draft: RwSignal<Option<String>>) -> impl 
                 </div>
                 <div class="gp-col">
                     <h5>
-                        {if tgt {
-                            format!("领先 {} 的提交 ", g.target)
-                        } else {
-                            "提交 ".to_owned()
-                        }}<span class="muted">{n_commits}</span>
+                        {commits_title}
+                        {(!g.commits.is_empty()).then(|| view! { <span class="muted">{n_commits}</span> })}
                     </h5>
                     {commits}
                 </div>
