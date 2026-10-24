@@ -3,6 +3,7 @@ const offset = (el, n) => n.getBoundingClientRect().top - el.getBoundingClientRe
 export function keepScroll(el) {
   let width = el.clientWidth;
   let height = el.clientHeight;
+  let last = el.scrollTop;
   let bottom = true;
   let anchor = null;
   let queued = false;
@@ -17,7 +18,6 @@ export function keepScroll(el) {
   };
   const record = () => {
     queued = false;
-    bottom = atBottom();
     anchor = null;
     if (bottom) return;
     const top = el.getBoundingClientRect().top;
@@ -28,8 +28,14 @@ export function keepScroll(el) {
     anchor = firstVisible(row[0].querySelectorAll('.cc-md > *'), top) || row;
   };
   el.addEventListener('scroll', () => {
-    if (el.clientWidth !== width || el.clientHeight !== height) return;
-    bottom = atBottom();
+    const top = el.scrollTop;
+    if (el.clientWidth !== width || el.clientHeight !== height) {
+      last = top;
+      return;
+    }
+    if (top + 1 < last) bottom = false;
+    else if (atBottom()) bottom = true;
+    last = top;
     if (queued) return;
     queued = true;
     requestAnimationFrame(record);
@@ -40,6 +46,7 @@ export function keepScroll(el) {
     height = el.clientHeight;
     if (bottom) el.scrollTop = el.scrollHeight;
     else if (anchor && anchor[0].isConnected) el.scrollTop += offset(el, anchor[0]) - anchor[1];
+    last = el.scrollTop;
   }).observe(el);
 }
 

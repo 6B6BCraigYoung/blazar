@@ -1279,6 +1279,7 @@ pub fn Log(chat: Chat, tick: RwSignal<u32>) -> impl IntoView {
     let opened = Opened(RwSignal::new(HashSet::new()));
     let el = NodeRef::<html::Div>::new();
     let at_bottom = StoredValue::new(true);
+    let last_top = StoredValue::new(0i32);
     let frozen = RwSignal::new(None::<usize>);
     let ws = chat.ws_id();
     Effect::new(move |_| {
@@ -1397,8 +1398,15 @@ pub fn Log(chat: Chat, tick: RwSignal<u32>) -> impl IntoView {
             on:scroll=move |_| {
                 if let Some(e) = el.try_get_untracked().flatten() {
                     mark_stuck(&e);
-                    let bottom = e.scroll_height() - e.scroll_top() - e.client_height() < 80;
-                    at_bottom.set_value(bottom);
+                    let top = e.scroll_top();
+                    let near = e.scroll_height() - top - e.client_height() < 80;
+                    if top + 1 < last_top.get_value() {
+                        at_bottom.set_value(false);
+                    } else if near {
+                        at_bottom.set_value(true);
+                    }
+                    last_top.set_value(top);
+                    let bottom = at_bottom.get_value();
                     if bottom {
                         if frozen.get_untracked().is_some() {
                             frozen.set(None);
