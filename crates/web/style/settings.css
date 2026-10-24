@@ -44,6 +44,8 @@
 .usage-readout { flex: 0 0 auto; min-width: 14em; height: 20px; text-align: right; color: var(--fg-2); font-size: var(--font-size-label-readable); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .usage-chart { position: relative; height: 145px; display: flex; align-items: stretch; border-bottom: 1px solid var(--line); margin: var(--space-section) 0 var(--space-sm); border-radius: var(--r-sm); outline: none; }
 .usage-chart:focus-visible { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 50%, transparent); }
+.usage-gap { flex: 0 0 auto; display: grid; place-items: center; margin-right: var(--space-sm); padding: 0 var(--space-control); border-radius: var(--r-sm); background: var(--control-track); color: var(--fg-4); font-size: var(--font-size-caption); white-space: nowrap; }
+.usage-days { position: relative; flex: 1; min-width: 0; display: flex; align-items: stretch; }
 .usage-day { flex: 1; min-width: 0; position: relative; }
 .usage-stack { display: flex; flex-direction: column-reverse; height: 100%; padding: 0 var(--space-hairline); }
 .usage-stack i { display: block; flex-shrink: 0; background: var(--chart-bar); }

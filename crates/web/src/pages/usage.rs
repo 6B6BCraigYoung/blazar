@@ -17,6 +17,13 @@ fn s(v: &Value, k: &str) -> String {
 fn list(v: &Value, k: &str) -> Vec<Value> {
     v[k].as_array().cloned().unwrap_or_default()
 }
+fn short_day(day: &str) -> String {
+    let mut parts = day.split('-').skip(1).map(|p| p.trim_start_matches('0'));
+    match (parts.next(), parts.next()) {
+        (Some(m), Some(d)) => format!("{m}-{d}"),
+        _ => day.to_owned(),
+    }
+}
 
 #[component]
 pub fn UsagePage() -> impl IntoView {
@@ -268,7 +275,7 @@ fn Analytics(data: Value, days: u32, widen: Callback<()>) -> impl IntoView {
     }
     let daily = list(&data, "daily");
     let now = js_sys::Date::new_0();
-    let series = (0..days)
+    let mut series = (0..days)
         .rev()
         .map(|i| {
             let d = js_sys::Date::new(&wasm_bindgen::JsValue::from_f64(
@@ -294,6 +301,18 @@ fn Analytics(data: Value, days: u32, widen: Callback<()>) -> impl IntoView {
         .fold(0.0001_f64, f64::max);
     let first = series.first().map(|d| s(d, "day")).unwrap_or_default();
     let last = series.last().map(|d| s(d, "day")).unwrap_or_default();
+    let daily_table = series.clone();
+    let lead = series.iter().take_while(|d| n(d, "runs") == 0.0).count();
+    let gap = (lead >= 7 && lead < series.len()).then(|| {
+        format!(
+            "{} 至 {} 无运行",
+            short_day(&s(&series[0], "day")),
+            short_day(&s(&series[lead - 1], "day"))
+        )
+    });
+    if gap.is_some() {
+        series.drain(..lead);
+    }
     let count = series.len();
     let hover = RwSignal::new(None::<usize>);
     let keyed = RwSignal::new(None::<usize>);
@@ -350,7 +369,6 @@ fn Analytics(data: Value, days: u32, widen: Callback<()>) -> impl IntoView {
         }
     }
     let hmax = heat.iter().flatten().copied().fold(1.0_f64, f64::max);
-    let daily_table = series.clone();
     let heat_table = heat
         .into_iter()
         .enumerate()
@@ -417,33 +435,39 @@ fn Analytics(data: Value, days: u32, widen: Callback<()>) -> impl IntoView {
                     step(delta);
                 }
             >
-                {series
-                    .into_iter()
-                    .enumerate()
-                    .map(|(i, d)| {
-                        let runs = n(&d, "runs");
-                        let failed = n(&d, "failed");
-                        view! {
-                            <div
-                                class="usage-day"
-                                data-sel=move || (shown() == i).to_string()
-                                on:pointerenter=move |_| hover.set(Some(i))
-                            >
-                                <div class="usage-stack">
-                                    <i
-                                        class="run"
-                                        style:height=format!(
-                                            "{}%",
-                                            (runs - failed).max(0.0) / max_runs * 100.0,
-                                        )
-                                    ></i>
-                                    <i class="bad" style:height=format!("{}%", failed / max_runs * 100.0)></i>
+                {gap.map(|g| view! { <div class="usage-gap">{g}</div> })}
+                <div class="usage-days">
+                    {series
+                        .into_iter()
+                        .enumerate()
+                        .map(|(i, d)| {
+                            let runs = n(&d, "runs");
+                            let failed = n(&d, "failed");
+                            view! {
+                                <div
+                                    class="usage-day"
+                                    data-sel=move || (shown() == i).to_string()
+                                    on:pointerenter=move |_| hover.set(Some(i))
+                                >
+                                    <div class="usage-stack">
+                                        <i
+                                            class="run"
+                                            style:height=format!(
+                                                "{}%",
+                                                (runs - failed).max(0.0) / max_runs * 100.0,
+                                            )
+                                        ></i>
+                                        <i
+                                            class="bad"
+                                            style:height=format!("{}%", failed / max_runs * 100.0)
+                                        ></i>
+                                    </div>
                                 </div>
-                            </div>
-                        }
-                    })
-                    .collect_view()}
-                <div class="usage-line" inner_html=line_svg></div>
+                            }
+                        })
+                        .collect_view()}
+                    <div class="usage-line" inner_html=line_svg></div>
+                </div>
             </div>
             <div class="settings-actions muted">
                 <span>{first}</span>
