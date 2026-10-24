@@ -23,11 +23,12 @@ def did(kind, n):
     return f"{PREFIX}{kind:06x}{n:06x}"
 
 
+LEGACY = ["comet-cli", "pulsar-bot", "meteor-ui", "nova-infra", "lyra-sdk", "vega-tests", "halo-docs"]
 WS = {name: did(1, i) for i, name in enumerate(
-    ["atlas-api", "nebula-web", "quasar-ml", "orbit-docs", "quasar-train", "orbit-site"], 1)}
+    ["atlas-api", "nebula-web", "quasar-ml", "orbit-docs", "quasar-train", "orbit-site", *LEGACY], 1)}
 AGENTS = {name: did(2, i) for i, name in enumerate(["backend", "reviewer", "writer"], 1)}
 BOTS = {name: did(3, i) for i, name in enumerate(["demo-trainer", "demo-reviewer"], 1)}
-PROJECTS = {name: did(4, i) for i, name in enumerate(["demo-orbit", "demo-quasar"], 1)}
+PROJECTS = {name: did(4, i) for i, name in enumerate(["demo-orbit", "demo-quasar", "demo-legacy"], 1)}
 AUTOPILOTS = [did(5, i) for i in range(1, 4)]
 SKILLS = [did(6, i) for i in range(1, 3)]
 NODE_ID = did(7, 1)
@@ -454,7 +455,8 @@ def seed_rows(db):
         ("orbit-docs", local, str(DEMO / "orbit-docs"), None, "running", ago(minutes=2), (0, 0, 0)),
         ("quasar-train", NODE_ID, "/home/demo/quasar-train", PROJECTS["demo-quasar"], "idle", ago(days=2), None),
         ("orbit-site", local, str(DEMO / "orbit-site"), PROJECTS["demo-orbit"], "errored", ago(hours=3), (0, 0, 0)),
-    ]
+    ] + [(name, NODE_ID, f"/home/demo/{name}", PROJECTS["demo-legacy"], "completed" if i % 3 == 0 else "idle",
+          ago(days=3 + i, hours=i * 5), None) for i, name in enumerate(LEGACY)]
     for name, node, path, proj, act, last, diff in wss:
         a, r, f = diff or (None, None, None)
         db.execute("INSERT INTO workspaces (id, project_id, node_id, name, path, activity, status, last_active_at, created_at, repo_root,"
@@ -916,7 +918,7 @@ def calm(*after):
                  for step in (RESTORE, EDITOR_TAB, CLOSE_FILE, CLOSE_FILES, CLOSE_INSPECTOR, CLOSE_TERM))
 
 ROUTES = [
-    ("home", "/", "首页：需要你处理 / 运行中 / 最近 三组列表"),
+    ("home", "/", "首页：需要你处理 / 运行中 / 最近 三组两行短卡，「最近」超过两行时折叠并在标题右侧给出「显示全部（N）」"),
     ("inbox", "/inbox", "收件箱（无框列表，未读蓝点）"),
     ("tasks", "/tasks", "任务看板"),
     ("autopilots", "/autopilots", "自动化列表"),
@@ -1117,7 +1119,8 @@ def plan(round_name):
                    {"action": "wait", "selector": "nav.side .side-back", "timeout_ms": 4000},
                    {"action": "key", "key": "Escape", "code": "Escape", "selector": "body"},
                    {"action": "wait", "selector": ".inbox-page", "timeout_ms": 4000}), False))
-    ws_rows = db_rows("SELECT id, name FROM workspaces ORDER BY created_at")
+    ws_rows = db_rows("SELECT id, name FROM workspaces WHERE coalesce(project_id, '') != ? ORDER BY created_at",
+                      (PROJECTS["demo-legacy"],))
     if not ws_rows:
         TITLES["/"] = "开始"
         items.append(("start", "/", "首次打开的「开始」清单：运行时、机器、第一个工作区", (), False))
@@ -1131,13 +1134,20 @@ def plan(round_name):
     items.append(("new-workspace-folder-menu", "/", "新建工作区对话框里目录的右键菜单（演示仓库里的 src）",
                   (new_ws, {"action": "wait", "ms": 600}, *browse_to(DEMO / "atlas-api", DEMO / "atlas-api" / "src"),
                    {"action": "context_menu", "selector": brow(DEMO / "atlas-api" / "src")}), False))
-    first_row = ".home-row[data-index=\"0\"] > .home-main"
-    items.append(("home-selected", "/", "首页用 ↓ 选中第一行",
+    first_row = ".home-card[data-index=\"0\"]"
+    items.append(("home-selected", "/", "首页用 → 选中第一张卡：2px 蓝色描边，尺寸不变；审批卡第二行右侧换成「1 允许 3 拒绝」键帽",
                   ({"action": "wait", "selector": first_row, "timeout_ms": 8000},
-                   {"action": "key", "key": "ArrowDown", "code": "ArrowDown", "selector": ".home-page"}), False))
-    items.append(("home-row-menu", "/", "首页行的右键菜单（打开 ↩、简介 ⌘I、改名、移除 ⌘⌫）",
+                   {"action": "key", "key": "ArrowRight", "code": "ArrowRight", "selector": ".home-page"}), False))
+    items.append(("home-row-menu", "/", "首页卡片的右键菜单（允许 / 总是允许 / 拒绝、打开 ↩、简介 ⌘I、改名、移除 ⌘⌫）",
                   ({"action": "wait", "selector": first_row, "timeout_ms": 8000},
                    {"action": "context_menu", "selector": first_row}), False))
+    show_all = ".home-group[data-group=\"recent\"] .lgroup-actions button"
+    if db_rows("SELECT 1 FROM projects WHERE id = ?", (PROJECTS["demo-legacy"],)):
+        items.append(("home-recent-folded", "/", "「最近」超过两行时只显示两行，组标题右侧有「显示全部（N）」",
+                      ({"action": "wait", "selector": show_all, "timeout_ms": 8000},), False))
+        items.append(("home-recent-all", "/", "点「显示全部」后「最近」原地展开，不跳页",
+                      ({"action": "wait", "selector": show_all, "timeout_ms": 8000},
+                       {"action": "click", "selector": show_all}, {"action": "wait", "ms": 300}), False))
     items.append(("workspace-detail", "/", "右键菜单「简介」打开的属性弹层",
                   ({"action": "wait", "selector": first_row, "timeout_ms": 8000},
                    {"action": "context_menu", "selector": first_row}, {"action": "click", "text": "简介", "partial": True},
