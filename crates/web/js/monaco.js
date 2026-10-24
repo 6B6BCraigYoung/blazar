@@ -47,7 +47,7 @@ function load() {
           'editorStickyScroll.background': dark,
           'editorLineNumber.foreground': '#5a5a60',
           'editorLineNumber.activeForeground': '#a1a1a6',
-          'editor.lineHighlightBackground': '#2a2a2d',
+          'editor.lineHighlightBackground': '#ffffff0a',
           'editor.lineHighlightBorder': '#00000000',
           'editor.selectionBackground': '#0a84ff55',
           'editor.inactiveSelectionBackground': '#0a84ff2a',
@@ -89,7 +89,7 @@ function load() {
           'editorStickyScroll.background': light,
           'editorLineNumber.foreground': '#aeaeb2',
           'editorLineNumber.activeForeground': '#6e6e73',
-          'editor.lineHighlightBackground': '#f5f5f7',
+          'editor.lineHighlightBackground': '#0000000a',
           'editor.lineHighlightBorder': '#00000000',
           'editor.selectionBackground': '#007aff33',
           'editor.inactiveSelectionBackground': '#007aff1a',
@@ -141,7 +141,8 @@ export class Editor {
       minimap: { enabled: !!prefs.minimap }, scrollBeyondLastLine: false, renderWhitespace: 'selection',
       padding: { top: 12, bottom: 12 }, smoothScrolling: true, mouseWheelScrollSensitivity: 1,
       scrollbar: { horizontalScrollbarSize: 10, verticalScrollbarSize: 10, useShadows: false },
-      overviewRulerBorder: false, hideCursorInOverviewRuler: true, renderLineHighlight: 'line', guides: { indentation: true },
+      overviewRulerBorder: false, hideCursorInOverviewRuler: true, renderLineHighlight: 'line', renderLineHighlightOnlyWhenFocus: true,
+      guides: { indentation: true },
     });
     this.updatePrefs = () => {
       const p = preferences();
