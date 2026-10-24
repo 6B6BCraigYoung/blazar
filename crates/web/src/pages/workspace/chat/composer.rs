@@ -663,35 +663,7 @@ pub fn Composer(
     let review_n = move || chat.diff.comments.with(Vec::len);
     let app = crate::app_state::use_app();
     let node = chat.node.get_value();
-    let machine = crate::fmt::machine(&node);
-    let unreachable = {
-        let node = node.clone();
-        Memo::new(move |_| app.node_unreachable(&node))
-    };
-    let retrying = RwSignal::new(false);
-    let retry_node = move || {
-        if retrying.get_untracked() {
-            return;
-        }
-        retrying.set(true);
-        let node = node.clone();
-        chat.spawn(async move {
-            let probed = crate::api::send::<Value>(
-                "POST",
-                &format!("/api/nodes/{}/probe", crate::api::enc(&node)),
-                &json!({}),
-            )
-            .await;
-            app.load_state();
-            let _ = retrying.try_set(false);
-            if let Err(e) = probed {
-                toast(format!(
-                    "还是连不上：{}",
-                    crate::vocab::error(&e.to_string(), None)
-                ));
-            }
-        });
-    };
+    let unreachable = Memo::new(move |_| app.node_unreachable(&node));
     let deciding = Memo::new(move |_| {
         chat.transcript.with(|t| {
             chat.decided
@@ -942,28 +914,6 @@ pub fn Composer(
                         }
                     })
             }}
-            {move || {
-                unreachable
-                    .get()
-                    .then(|| {
-                        let retry_node = retry_node.clone();
-                        view! {
-                            <div class="cb-offline" role="alert">
-                                <span class="dot" aria-hidden="true"></span>
-                                <span>{format!("{machine} 连不上")}</span>
-                                <span class="sep">"·"</span>
-                                <button
-                                    type="button"
-                                    class="linkbtn"
-                                    disabled=move || retrying.get()
-                                    on:click=move |_| retry_node()
-                                >
-                                    {move || if retrying.get() { "正在重试…" } else { "重试" }}
-                                </button>
-                            </div>
-                        }
-                    })
-            }}
             <Dock chat />
             {move || {
                 failed
@@ -1066,7 +1016,9 @@ pub fn Composer(
                     disabled=move || unreachable.get()
                     aria-label="Message"
                     placeholder=move || {
-                        if running.get() {
+                        if unreachable.get() {
+                            "机器连上后才能发送"
+                        } else if running.get() {
                             if matches!(chat.runtime().as_str(), "claude" | "codex") {
                                 "Message the agent while it works…"
                             } else {

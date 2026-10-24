@@ -222,9 +222,10 @@
 .cb-att .nm { min-width: 0; overflow-wrap: anywhere; }
 .cb-att .x { all: unset; cursor: pointer; flex: 0 0 auto; width: 18px; height: 18px; display: grid; place-items: center; border-radius: 3px; color: var(--fg-4); }
 .cb-att .x:hover { background: var(--bg-hover); color: var(--fg); }
-.cb-offline { box-sizing: border-box; display: flex; align-items: center; gap: var(--space-sm); min-height: 32px; margin: 0 var(--space-md) calc(-1 * var(--space-sm)); padding: var(--space-xs) var(--space-control); border: 1px solid var(--border); border-bottom: 0; border-radius: var(--r-md) var(--r-md) 0 0; background: var(--bg-raised); font-size: var(--font-size-label); color: var(--fg-2); }
-.cb-offline .dot { width: 6px; height: 6px; flex: 0 0 auto; border-radius: 50%; background: var(--status-failed); }
-.cb-offline .sep { color: var(--fg-4); }
+.cc-offline { min-height: 100%; justify-content: center; padding: var(--space-3xl) var(--space-xl); }
+.cc-offline-acts { display: flex; align-items: center; gap: var(--space-md); margin-top: var(--space-xl); }
+.cc-offline-acts .btn { display: inline-flex; align-items: center; margin-top: 0; }
+.cc-flow[hidden] { display: none; }
 .cc-box[data-off="true"] { opacity: .55; }
 .cc-box[data-off="true"] .prompt { cursor: not-allowed; }
 .cb-bar { display: flex; align-items: center; gap: 2px; min-width: 0; padding: 5px; border-top: .5px solid var(--border); color: var(--fg-3); font-size: .85em; }

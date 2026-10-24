@@ -1433,8 +1433,12 @@ pub fn Log(chat: Chat, tick: RwSignal<u32>, log_h: RwSignal<f64>) -> impl IntoVi
                     .all(|p| chat.decided.with(|d| d.contains(&p.id)))
             })
     };
+    let app = crate::app_state::use_app();
+    let node = chat.node.get_value();
+    let unreachable = Memo::new(move |_| app.node_unreachable(&node));
     let empty = move || {
-        !chat.loading.get()
+        !unreachable.get()
+            && !chat.loading.get()
             && chat.rows.with(Vec::is_empty)
             && chat.local_errors.with(Vec::is_empty)
             && chat.pending.with(Vec::is_empty)
@@ -1492,13 +1496,16 @@ pub fn Log(chat: Chat, tick: RwSignal<u32>, log_h: RwSignal<f64>) -> impl IntoVi
                 }
             }
         >
-            <Show when=move || chat.loading.get()>
+            <Show when=move || unreachable.get()>
+                <super::offline::Offline chat />
+            </Show>
+            <Show when=move || chat.loading.get() && !unreachable.get()>
                 <LoadingState text="正在加载对话…" class="cc-load" />
             </Show>
             <Show when=empty>
                 <Empty chat />
             </Show>
-            <div class="cc-flow">
+            <div class="cc-flow" hidden=move || unreachable.get()>
                 <Show when=move || { earlier() > 0 }>
                     <button type="button" class="cc-more cc-earlier" on:click=show_earlier>
                         {move || format!("显示更早的 {} 条", earlier().min(WINDOW))}

@@ -274,7 +274,7 @@ pub fn WsHead(
             .as_ref()
             .filter(|w| w.node != "local")
             .map(|w| crate::fmt::machine(&w.node));
-        [branch(), machine]
+        [machine, branch()]
             .into_iter()
             .flatten()
             .collect::<Vec<_>>()

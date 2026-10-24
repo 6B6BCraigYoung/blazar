@@ -1,6 +1,7 @@
 mod composer;
 mod dock;
 mod log;
+mod offline;
 pub mod state;
 mod threads;
 mod turns;
