@@ -998,6 +998,8 @@ def palette_parts(with_workspace):
         ("palette", "/", "命令面板（⌘K）空输入：「最近」和「建议」两组", PALETTE_OPEN, False),
         ("palette-query", "/", "命令面板输入「设」：按工作区 / 页面 / 命令 / 机器分组，「设置」排在页面里",
          (*PALETTE_OPEN, {"action": "type", "selector": PALETTE_INPUT, "value": "设"}, {"action": "wait", "ms": 200}), False),
+        ("palette-empty", "/", "命令面板输入没人匹配的「zzqv」：面板高度不变，结果区中间一行灰字「没有匹配的结果」",
+         (*PALETTE_OPEN, {"action": "type", "selector": PALETTE_INPUT, "value": "zzqv"}, {"action": "wait", "ms": 200}), False),
     ]
     if with_workspace:
         items.append(("palette-actions", "/", "命令面板选中一个工作区后按 ⌘K 换成它的二级动作",
@@ -1199,6 +1201,10 @@ def detail_pages():
     items.append(("nodes-row-menu", "/nodes", "机器行的右键菜单（打开、新建工作区、设为开发机或个人电脑）",
                   ({"action": "wait", "selector": ".node-row[data-index=\"1\"]", "timeout_ms": 8000},
                    {"action": "context_menu", "selector": ".node-row[data-index=\"1\"]"}), False))
+    pending_confirm = ".nodes-page.detail-page .page-actions .btn:not(.primary)[aria-haspopup=\"dialog\"]"
+    items.append(("node-pending-confirm", f"/nodes/{NODE}", "待确认机器的详情：页头橙点「待确认」，次按钮「确认…」打开的确认面板",
+                  ({"action": "wait", "selector": pending_confirm, "timeout_ms": 8000},
+                   {"action": "click", "selector": pending_confirm}, sheet), False))
     items.append(("tree-menu", f"/w/{WS['atlas-api']}", "文件树的右键菜单",
                   ({"action": "wait", "ms": 800}, *calm(), dict(OPEN_FILES), {"action": "wait", "ms": 400},
                    {"action": "context_menu", "selector": "button.tn[title=\"README.md\"]"}, *calm(True)), False))
