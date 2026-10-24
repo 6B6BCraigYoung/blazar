@@ -98,6 +98,11 @@ pub fn step_of(payload: &str) -> Option<WorkspaceStep> {
         "api_retry" => WorkspaceStep {
             kind: "retry".into(),
             text: first_line(s("error"), STEP_TEXT_MAX),
+            input: serde_json::json!({
+                "attempt": v["attempt"].as_u64().unwrap_or(0),
+                "max_retries": v["max_retries"].as_u64().unwrap_or(0),
+                "status": v["status"].as_u64().unwrap_or(0),
+            }),
             ..WorkspaceStep::default()
         },
         _ => return None,
@@ -269,6 +274,9 @@ mod tests {
             (retry.kind.as_str(), retry.text.as_str()),
             ("retry", "server_error")
         );
+        assert_eq!(retry.input["attempt"], 2);
+        assert_eq!(retry.input["max_retries"], 10);
+        assert_eq!(retry.input["status"], 529);
         assert!(step_of(r#"{"type":"thinking","text":"hmm"}"#).is_none());
         assert!(step_of("not json").is_none());
     }

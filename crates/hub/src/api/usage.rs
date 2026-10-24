@@ -99,7 +99,7 @@ pub async fn workspace_detail(
     .await?;
 
     let sessions = sqlx::query(
-        "SELECT s.id, s.runtime_kind, s.status, s.provider_session_id, s.created_at,
+        "SELECT s.id, s.runtime_kind, s.status, s.provider_session_id, s.created_at, s.title,
                 (SELECT COUNT(*) FROM events e WHERE e.session_id = s.id) AS events
          FROM sessions s WHERE s.workspace_id = ?1 ORDER BY s.created_at DESC LIMIT 20",
     )
@@ -126,6 +126,7 @@ pub async fn workspace_detail(
             "id": s.try_get::<String,_>("id").unwrap_or_default(),
             "runtime": s.try_get::<String,_>("runtime_kind").unwrap_or_default(),
             "status": s.try_get::<String,_>("status").unwrap_or_default(),
+            "title": s.try_get::<Option<String>,_>("title").unwrap_or(None),
             "provider_session_id": s.try_get::<Option<String>,_>("provider_session_id").unwrap_or(None),
             "created_at": s.try_get::<String,_>("created_at").unwrap_or_default(),
             "events": s.try_get::<i64,_>("events").unwrap_or(0),
