@@ -801,6 +801,7 @@ class Shooter:
 
     def page(self, no, slug, theme, route, expect, state, steps=(), scroll=True, settle=900):
         ui({"action": "errors"})
+        try_ui({"action": "scroll", "selector": "main.main", "top": "start", "settle_ms": 50})
         if route:
             nav = ui({"action": "navigate", "path": route, "settle_ms": settle})
             if not nav.get("ok"):
@@ -1228,8 +1229,14 @@ def workspace_parts():
     reset = calm()
     after = calm(True)
     url = {"action": "type", "selector": "input[aria-label=\"预览地址\"]", "value": "http://localhost:18731/", "submit": True}
+    tray = {"action": "click", "selector": ".cc-box .cb-todo", "settle_ms": 300}
+    threads = {"action": "click", "selector": ".ws-head .ws-thread-btn", "settle_ms": 300}
     return [
         ("chat-bottom", w, "对话区底部（长对话，最后一轮）", (wait, *reset, {"action": "scroll", "selector": log, "top": "end", "settle_ms": 600}), False),
+        ("chat-tray-open", w, "输入框顶部的托盘：点「待办 2/3」向上展开最多三行，右侧是「3 个文件 +45 −6 · 审阅」",
+         (wait, *reset, {"action": "scroll", "selector": log, "top": "end", "settle_ms": 400}, tray, dict(tray, after=True)), False),
+        ("chat-threads", w, "页头里会话名的下拉：打开的对话、新对话、重命名、关闭，下面是历史",
+         (wait, *reset, threads, {"action": "wait", "selector": ".ws-threads", "timeout_ms": 4000}, dict(ESC, after=True)), False),
         ("chat-middle", w, "对话区中段（子智能体、diff、长代码块、表格）",
          (wait, *reset, {"action": "scroll", "selector": log, "top": "start", "settle_ms": 800}, {"action": "scroll", "selector": log, "top": "start", "settle_ms": 800},
           {"action": "scroll_mid", "selector": log}), False),
