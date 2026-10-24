@@ -22,20 +22,23 @@ pub fn App() -> impl IntoView {
     toast::provide();
     undo::provide();
     term_dialog::provide();
+    let side = move || {
+        if app.side_collapsed.get() {
+            "off"
+        } else if app.side_rail.get() {
+            "rail"
+        } else {
+            "on"
+        }
+    };
+    Effect::new(move |_| {
+        if let Some(root) = document().document_element() {
+            let _ = root.set_attribute("data-side", side());
+        }
+    });
     view! {
         <Router>
-            <div
-                class="shell"
-                data-side=move || {
-                    if app.side_collapsed.get() {
-                        "off"
-                    } else if app.side_rail.get() {
-                        "rail"
-                    } else {
-                        "on"
-                    }
-                }
-            >
+            <div class="shell" data-side=side>
                 <button
                     class="side-toggle"
                     aria-label="展开侧栏"

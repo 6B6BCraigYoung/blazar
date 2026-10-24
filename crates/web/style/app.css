@@ -427,6 +427,8 @@ input[type="range"] { accent-color: var(--accent); }
 .shell[data-side="off"] > .side { display: none; }
 .shell[data-side="off"] > .side-toggle { display: block; }
 .side .side-unfold { display: none; }
+:root[data-side="rail"] { --side-w: 52px; }
+:root[data-side="off"] { --side-w: 36px; }
 .shell[data-side="rail"] > .side { width: 52px; padding-inline: var(--space-sm); overflow-x: hidden; }
 .shell[data-side="rail"] > .side :is(.nm, .nav .n, .grp > span, .side-projects, .side-status, .side-fold, .brand .grow) { display: none; }
 .shell[data-side="rail"] > .side :is(.brand, .nav, .nav.search) { justify-content: center; padding-inline: 0; }
@@ -449,6 +451,7 @@ input[type="range"] { accent-color: var(--accent); }
   .ws-card .act { opacity: 1; }
 }
 @media (max-width: 600px) {
+  :root:not([data-side="rail"]):not([data-side="off"]) { --side-w: 180px; }
   .grid2, .joinways { grid-template-columns: minmax(0, 1fr); }
   .side { width: 180px; }
 }
