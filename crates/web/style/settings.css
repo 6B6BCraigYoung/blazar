@@ -129,7 +129,7 @@ select.settings-input, .dlg select, .card.pad select { appearance: none; -webkit
 .pref-note { margin: 0 0 var(--space-md); color: var(--fg-3); font-size: var(--font-size-label-readable); line-height: var(--line-height-compact); }
 .pref-rows { display: flex; flex-direction: column; padding-left: var(--space-xl); border-radius: var(--r-group); background: var(--bg-group); }
 .pref-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-xl); min-height: 44px; padding: var(--space-md) 0; border-bottom: 1px solid var(--line); }
-.pref-row:last-child { border-bottom: 0; }
+.pref-row:not(:has(~ .pref-row)) { border-bottom: 0; }
 .pref-rows > .pref-row { padding-right: var(--space-xl); }
 .pref-rows > .pref-list { margin: 0 0 0 calc(-1 * var(--space-xl)); }
 .pref-rows > .pref-list:first-child { border-top-left-radius: var(--r-group); border-top-right-radius: var(--r-group); }

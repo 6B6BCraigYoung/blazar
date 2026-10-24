@@ -99,9 +99,11 @@ pub fn TransferSettings() -> impl IntoView {
                     on:change=on_file
                 />
             </PrefRow>
-            <p class="pref-status" class:bad=move || status.get().1>
-                {move || status.get().0}
-            </p>
+            <Show when=move || !status.get().0.is_empty()>
+                <p class="pref-status" class:bad=move || status.get().1>
+                    {move || status.get().0}
+                </p>
+            </Show>
         </PrefGroup>
         {move || {
             pending

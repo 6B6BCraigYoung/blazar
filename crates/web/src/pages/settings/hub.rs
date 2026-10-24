@@ -94,9 +94,11 @@ fn RemoteHubNotice(state: Value) -> impl IntoView {
                 "切回本机 hub…"
             </button>
         </PrefRow>
-        <p class="pref-status" class:bad=move || status.get().1>
-            {move || status.get().0}
-        </p>
+        <Show when=move || !status.get().0.is_empty()>
+            <p class="pref-status" class:bad=move || status.get().1>
+                {move || status.get().0}
+            </p>
+        </Show>
     }
 }
 
@@ -246,8 +248,10 @@ fn HubModeForm(state: Value) -> impl IntoView {
                 </button>
             </PrefRow>
         </Show>
-        <p class="pref-status" class:bad=move || status.get().1>
-            {move || status.get().0}
-        </p>
+        <Show when=move || !status.get().0.is_empty()>
+            <p class="pref-status" class:bad=move || status.get().1>
+                {move || status.get().0}
+            </p>
+        </Show>
     }
 }
