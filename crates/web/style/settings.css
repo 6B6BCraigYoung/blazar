@@ -139,14 +139,16 @@ select.settings-input, .dlg select, .card.pad select { appearance: none; -webkit
 .pref-label { display: flex; flex-direction: column; gap: var(--space-2xs); min-width: 0; flex: 1 1 auto; }
 .pref-row-title { color: var(--fg); }
 .pref-row-detail { color: var(--fg-3); font-size: var(--font-size-label); overflow-wrap: anywhere; }
-.pref-control { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-md); flex: 0 1 auto; min-width: 0; }
+.pref-control { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-md); flex: 0 0 auto; max-width: 60%; }
+.pref-control > * { flex-shrink: 0; white-space: nowrap; }
+.pref-control > :is(.pref-text, .pref-stack, .settings-checks, code) { flex-shrink: 1; min-width: 0; white-space: normal; }
 .pref-control .settings-input { height: 28px; padding-block: 0; }
 .pref-control input.settings-input:not([type="number"]) { width: 280px; max-width: 100%; }
 .pref-control input[type="number"] { width: 72px; text-align: right; font-variant-numeric: tabular-nums; }
 .pref-control select.settings-input { max-width: 280px; }
 .pref-control input[type="range"] { width: 150px; margin: 0; accent-color: var(--accent); }
 .pref-value { min-width: 2.5em; text-align: right; color: var(--fg-3); font-size: var(--font-size-label); font-variant-numeric: tabular-nums; }
-.pref-unit { width: 2.5em; color: var(--fg-3); font-size: var(--font-size-label); }
+.pref-unit { width: 2.5em; color: var(--fg-3); font-size: var(--font-size-label); white-space: nowrap; }
 .pref-stack { display: flex; flex-direction: column; align-items: flex-end; gap: var(--space-xs); min-width: 0; }
 .pref-hint { color: var(--fg-3); font-size: var(--font-size-label); }
 .pref-hint.bad { color: var(--err-fg); }
@@ -184,7 +186,7 @@ code.pref-item-title { font: var(--font-size-label-readable) var(--font-mono); c
 .keycap[aria-pressed="true"] { background: var(--bg-selected); box-shadow: inset 0 0 0 1.5px var(--accent); color: var(--accent); }
 @media (max-width: 1000px) {
   .pref-row { flex-wrap: wrap; }
-  .pref-control { flex: 1 1 100%; justify-content: flex-start; }
+  .pref-control { flex: 1 1 100%; max-width: none; justify-content: flex-start; }
 }
 .acc-list:has(.menu) { overflow: visible; }
 .detail-body .acc-list .acc-row { grid-template-columns: 1.25rem minmax(7rem, 1fr) 4.5rem minmax(8rem, 1.4fr) auto; gap: var(--space-md); padding: var(--space-md) var(--space-xl); }
