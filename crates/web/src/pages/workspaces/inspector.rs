@@ -1,15 +1,19 @@
+use leptos::ev;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_router::hooks::use_navigate;
 use serde_json::{Value, json};
+use wasm_bindgen::JsCast;
 
 use crate::api;
 use crate::app_state::{AppData, use_app};
 use crate::components::dialog::{self, Choice};
 use crate::components::modal::Modal;
-use crate::components::status::{InlineError, LoadingState};
+use crate::components::prefs::{PrefGroup, PrefRow};
+use crate::components::status::{InlineError, LoadingState, Status};
 use crate::components::toast::toast;
 use crate::fmt;
+use crate::vocab::{self, Tone};
 
 fn removed_head(isolated: bool) -> &'static str {
     if isolated { "已销毁" } else { "已移除" }
@@ -39,17 +43,18 @@ fn outcome_text(head: &str, r: &Value) -> String {
     }
 }
 
-async fn confirm_remove(label: &str, isolated: bool, kids: usize) -> bool {
-    let orphans = if kids > 0 {
-        format!("它的 {kids} 个子工作区会变成独立的工作区。")
+async fn confirm_remove(label: &str, isolated: bool, kids: usize, busy: bool) -> bool {
+    let mut msg = if isolated {
+        format!("销毁工作区「{label}」？会删除远端 worktree、分支与私有目录，不可撤销。")
     } else {
-        String::new()
+        format!("从 Blazar 移除「{label}」？只删记录，不会动机器上的目录。")
     };
-    let msg = if isolated {
-        format!("销毁工作区「{label}」？会删除远端 worktree、分支与私有目录，不可撤销。{orphans}")
-    } else {
-        format!("从 Blazar 移除「{label}」？只删记录，不会动机器上的目录。{orphans}")
-    };
+    if busy {
+        msg.push_str("正在跑的会话会被停掉。");
+    }
+    if kids > 0 {
+        msg.push_str(&format!("它的 {kids} 个子工作区会变成独立的工作区。"));
+    }
     let verb = if isolated { "销毁" } else { "移除" };
     dialog::ask(
         verb,
@@ -102,11 +107,16 @@ pub fn remove_workspace(app: AppData, id: String) {
             d["name"].as_str().unwrap_or(""),
             d["node"].as_str().unwrap_or(""),
         );
-        if !confirm_remove(&label, isolated, app.children_of(&id).len()).await {
+        let kids = app.children_of(&id).len();
+        let busy = matches!(
+            d["activity"].as_str().unwrap_or(""),
+            "running" | "starting" | "awaiting_approval"
+        );
+        let path = format!("/api/workspaces/{id}/destroy");
+        if !confirm_remove(&label, isolated, kids, busy).await {
             return;
         }
-        match api::send::<Value>("POST", &format!("/api/workspaces/{id}/destroy"), &json!({})).await
-        {
+        match api::send::<Value>("POST", &path, &json!({})).await {
             Ok(r) => {
                 toast(outcome_text(removed_head(isolated), &r));
                 app.load_state();
@@ -128,325 +138,235 @@ pub fn InspectorHost() -> impl IntoView {
     }
 }
 
+fn on_control(e: &ev::KeyboardEvent) -> bool {
+    e.target()
+        .and_then(|t| t.dyn_into::<web_sys::Element>().ok())
+        .is_some_and(|t| {
+            t.closest("button, a, input, textarea, select")
+                .ok()
+                .flatten()
+                .is_some()
+        })
+}
+
 #[component]
 pub fn Inspector(id: String, on_close: impl Fn() + Copy + Send + Sync + 'static) -> impl IntoView {
     let app = use_app();
     let navigate = use_navigate();
     let rev = RwSignal::new(0u32);
-    let wid = id.clone();
+    let wid = StoredValue::new(id.clone());
     let detail = LocalResource::new(move || {
         rev.track();
-        let id = wid.clone();
+        let id = wid.get_value();
         async move { api::get::<Value>(&format!("/api/workspaces/{id}/detail")).await }
     });
-    let busy = RwSignal::new(None::<&'static str>);
+    let busy = RwSignal::new(false);
     let close = move || {
-        if busy.get_untracked().is_none() {
+        if !busy.get_untracked() {
             on_close();
         }
     };
-    let act = StoredValue::new_local(move |d: Value, a: &'static str| {
-        if busy.get_untracked().is_some() {
+    let href = format!("/w/{id}");
+    let open = {
+        let href = href.clone();
+        move || {
+            on_close();
+            navigate(&href, Default::default());
+        }
+    };
+    let toggle_frozen = move |paused: bool| {
+        if busy.get_untracked() {
             return;
         }
-        busy.set(Some(a));
-        let navigate = navigate.clone();
+        busy.set(true);
         spawn_local(async move {
-            let name = d["name"].as_str().unwrap_or("").to_owned();
-            let isolated = d["isolated"].as_bool().unwrap_or(false);
-            let id = d["id"].as_str().unwrap_or("").to_owned();
-            if a == "destroy"
-                && !confirm_remove(
-                    &fmt::ws_label(&name, d["node"].as_str().unwrap_or("")),
-                    isolated,
-                    app.children_of(&id).len(),
-                )
-                .await
-            {
-                let _ = busy.try_set(None);
-                return;
-            }
-            let mut body = json!({});
-            if a == "commit" {
-                let msg =
-                    dialog::prompt_with("提交", "提交信息", &format!("blazar: {name}"), "提交")
-                        .await;
-                let Some(m) = msg else {
-                    let _ = busy.try_set(None);
-                    return;
-                };
-                body = json!({ "message": m });
-            }
-            let r = api::send::<Value>("POST", &format!("/api/workspaces/{id}/{a}"), &body).await;
-            let _ = busy.try_set(None);
+            let id = wid.get_value();
+            let a = if paused { "resume" } else { "pause" };
+            let r =
+                api::send::<Value>("POST", &format!("/api/workspaces/{id}/{a}"), &json!({})).await;
+            let _ = busy.try_set(false);
             match r {
-                Err(e) => toast(format!("操作失败：{e}")),
-                Ok(r) if a == "push" => {
-                    if let Some(e) = r["error"].as_str() {
-                        toast(format!("推送失败：{e}"));
-                        return;
-                    }
-                    let link = r["web"]["new_pr"].as_str().map(str::to_owned);
-                    let body = format!(
-                        "分支：{}\n远端：{}{}",
-                        r["branch"].as_str().unwrap_or(""),
-                        r["remote"].as_str().unwrap_or(""),
-                        r["committed"]
-                            .as_str()
-                            .map(|c| format!(
-                                "\n自动提交：{}",
-                                c.chars().take(10).collect::<String>()
-                            ))
-                            .unwrap_or_default()
-                    );
-                    let mut ch = vec![Choice::plain("关闭")];
-                    if link.is_some() {
-                        ch.push(Choice::plain("开 PR / MR"));
-                    }
-                    if dialog::ask("已推送", &body, ch).await == Some(1)
-                        && let Some(l) = link
-                    {
-                        let _ = window().open_with_url_and_target(&l, "_blank");
-                    }
-                }
-                Ok(r) if a == "commit" => toast(if r["changed"].as_bool() == Some(true) {
-                    format!(
-                        "已提交 {}",
-                        r["commit"]
-                            .as_str()
-                            .unwrap_or("")
-                            .chars()
-                            .take(8)
-                            .collect::<String>()
-                    )
-                } else {
-                    "没有改动可提交".to_owned()
-                }),
                 Ok(r) => {
-                    let head = match a {
-                        "pause" => "已冻结",
-                        "resume" => "已解冻",
-                        _ => removed_head(isolated),
-                    };
-                    toast(outcome_text(head, &r));
+                    toast(outcome_text(if paused { "已解冻" } else { "已冻结" }, &r));
                     app.load_state();
-                    if a == "destroy" {
-                        on_close();
-                        navigate("/", Default::default());
-                    } else {
-                        rev.update(|n| *n += 1);
-                    }
+                    rev.update(|n| *n += 1);
                 }
+                Err(e) => toast(format!("操作失败：{e}")),
             }
         });
-    });
-    let act = move |d: Value, a: &'static str| act.with_value(|f| f(d, a));
+    };
+    let state = move |paused: bool| -> (String, Tone) {
+        if paused {
+            return ("已冻结".to_owned(), Tone::Other);
+        }
+        app.workspace(&wid.get_value())
+            .map(|w| crate::home_rows::status(&app.shown_activity(&w), w.step.as_ref()))
+            .unwrap_or_else(|| crate::home_rows::status("", None))
+    };
     view! {
-        <Modal label="工作区属性" class="dlg wide" on_close=Callback::new(move |_| close())>
-            {move || match detail.get() {
-                None => view! { <LoadingState text="读取详情…" /> }.into_any(),
-                Some(Err(e)) => {
-                    view! {
-                        <InlineError
-                            message=e.to_string()
-                            retry=Callback::new(move |_| rev.update(|n| *n += 1))
-                        />
-                        <div class="dlg-foot">
-                            <button type="button" class="btn" on:click=move |_| close()>
-                                "关闭"
-                            </button>
-                        </div>
+        <Modal label="工作区简介" class="dlg wide ws-info" on_close=Callback::new(move |_| close())>
+            <div
+                class="ws-info-body"
+                on:keydown=move |e: ev::KeyboardEvent| {
+                    if e.key() == "Enter" && !e.is_composing() && !on_control(&e) {
+                        e.prevent_default();
+                        open();
                     }
-                        .into_any()
                 }
-                Some(Ok(d)) => {
-                    let s = |k: &str| d[k].as_str().unwrap_or("").to_owned();
-                    let isolated = d["isolated"].as_bool().unwrap_or(false);
-                    let paused = s("status") == "paused";
-                    let kv = |k: &'static str, v: String, mono: bool| {
+            >
+                {move || match detail.get() {
+                    None => view! { <LoadingState text="读取详情…" /> }.into_any(),
+                    Some(Err(e)) => {
                         view! {
-                            <div class="kv">
-                                <span class="k">{k}</span>
-                                <span class="v" class:mono=mono>
-                                    {v}
-                                </span>
-                            </div>
-                        }
-                    };
-                    let sessions: Vec<Value> = d["sessions"]
-                        .as_array()
-                        .cloned()
-                        .unwrap_or_default();
-                    let (d1, d2, d3, d4, d5) = (
-                        d.clone(),
-                        d.clone(),
-                        d.clone(),
-                        d.clone(),
-                        d.clone(),
-                    );
-                    view! {
-                        <h3>{s("name")}</h3>
-                        <div class="insp">
-                            <h4>"工作区信息"</h4>
-                            {kv("机器", s("node"), false)}
-                            {kv("路径", s("path"), true)}
-                            {kv("项目", d["project"].as_str().unwrap_or("—").to_owned(), false)}
-                            {isolated.then(|| kv("分支", s("branch"), true))}
-                            {isolated
-                                .then(|| kv(
-                                    "基线",
-                                    s("base_commit").chars().take(10).collect(),
-                                    true,
-                                ))}
-                            {kv(
-                                "来源",
-                                if s("origin") == "task" {
-                                    "批量派发".into()
-                                } else {
-                                    "手动创建".into()
-                                },
-                                false,
-                            )}
-                            {kv(
-                                "状态",
-                                if paused { "已冻结".into() } else { "活跃".into() },
-                                false,
-                            )}
-                            {kv("创建", fmt::ago(&s("created_at")), false)}
-                        </div>
-                        <div class="insp">
-                            <h4>"操作"</h4>
-                            <div class="row-actions">
-                                {isolated
-                                    .then(|| {
-                                        if paused {
-                                            view! {
-                                                <button
-                                                    class="btn small"
-                                                    disabled=move || busy.get().is_some()
-                                                    on:click=move |_| act(d1.clone(), "resume")
-                                                >
-                                                    "解冻"
-                                                </button>
-                                            }
-                                                .into_any()
-                                        } else {
-                                            view! {
-                                                <button
-                                                    class="btn small"
-                                                    title="提交→删 worktree→保留分支"
-                                                    disabled=move || busy.get().is_some()
-                                                    on:click=move |_| act(d1.clone(), "pause")
-                                                >
-                                                    "冻结"
-                                                </button>
-                                            }
-                                                .into_any()
-                                        }
-                                    })}
-                                {isolated
-                                    .then(|| {
-                                        view! {
-                                            <button
-                                                class="btn small"
-                                                disabled=move || busy.get().is_some()
-                                                on:click=move |_| act(d2.clone(), "commit")
-                                            >
-                                                "提交"
-                                            </button>
-                                        }
-                                    })}
-                                {(isolated && !paused)
-                                    .then(|| {
-                                        view! {
-                                            <button
-                                                class="btn small primary"
-                                                title="先提交没提交的改动，再推到 origin"
-                                                disabled=move || busy.get().is_some()
-                                                on:click=move |_| act(d3.clone(), "push")
-                                            >
-                                                {move || {
-                                                    if busy.get() == Some("push") {
-                                                        "推送中…"
-                                                    } else {
-                                                        "推送分支"
-                                                    }
-                                                }}
-                                            </button>
-                                        }
-                                    })}
-                                <button
-                                    class="btn small danger"
-                                    disabled=move || busy.get().is_some()
-                                    on:click=move |_| act(d4.clone(), "destroy")
-                                >
-                                    {if isolated { "销毁" } else { "移除" }}
+                            <InlineError
+                                message=e.to_string()
+                                retry=Callback::new(move |_| rev.update(|n| *n += 1))
+                            />
+                            <div class="dlg-foot">
+                                <button type="button" class="btn" on:click=move |_| close()>
+                                    "完成"
                                 </button>
                             </div>
-                            {(!isolated)
-                                .then(|| {
-                                    view! {
-                                        <div class="muted small">
-                                            "非隔离工作区：移除只删记录，不动你的目录"
-                                        </div>
-                                    }
-                                })}
-                        </div>
-                        <div class="insp">
-                            <h4>
-                                {format!(
-                                    "会话 {}",
-                                    if sessions.is_empty() {
-                                        String::new()
-                                    } else {
-                                        sessions.len().to_string()
-                                    },
-                                )}
-                            </h4>
-                            {if sessions.is_empty() {
-                                view! { <div class="muted small">"还没有会话"</div> }
-                                    .into_any()
-                            } else {
-                                sessions
-                                    .into_iter()
-                                    .take(8)
-                                    .map(|x| {
+                        }
+                            .into_any()
+                    }
+                    Some(Ok(d)) => {
+                        let s = |k: &str| d[k].as_str().unwrap_or("").to_owned();
+                        let isolated = d["isolated"].as_bool().unwrap_or(false);
+                        let paused = s("status") == "paused";
+                        let (state_label, tone) = state(paused);
+                        let (name, node, path) = (s("name"), s("node"), s("path"));
+                        let project = d["project"].as_str().unwrap_or("—").to_owned();
+                        let branch = s("branch");
+                        let base: String = s("base_commit").chars().take(10).collect();
+                        let origin = if s("origin") == "task" { "批量派发" } else { "手动创建" };
+                        let created = fmt::ago(&s("created_at"));
+                        let sessions: Vec<Value> = d["sessions"]
+                            .as_array()
+                            .cloned()
+                            .unwrap_or_default();
+                        let count = sessions.len();
+                        let href = href.clone();
+                        view! {
+                            <h3>{fmt::ws_title(&name, &node)}</h3>
+                            <PrefGroup title="工作区">
+                                <PrefRow label="机器">
+                                    <span class="pref-text">{fmt::machine(&node)}</span>
+                                </PrefRow>
+                                <PrefRow label="路径">
+                                    <span class="pref-text">
+                                        <code>{path}</code>
+                                    </span>
+                                </PrefRow>
+                                <PrefRow label="项目">
+                                    <span class="pref-text">{project}</span>
+                                </PrefRow>
+                                {isolated
+                                    .then(|| {
                                         view! {
-                                            <div class="kv">
-                                                <span class="k">
-                                                    {x["runtime"].as_str().unwrap_or("").to_owned()}
+                                            <PrefRow label="分支">
+                                                <span class="pref-text">
+                                                    <code>{branch}</code>
                                                 </span>
-                                                <span class="v muted small">
-                                                    {format!(
-                                                        "{} · {} 条事件 · {}",
-                                                        x["status"].as_str().unwrap_or(""),
+                                            </PrefRow>
+                                            <PrefRow label="基线">
+                                                <span class="pref-text">
+                                                    <code>{base}</code>
+                                                </span>
+                                            </PrefRow>
+                                        }
+                                    })}
+                                <PrefRow label="来源">
+                                    <span class="pref-text">{origin}</span>
+                                </PrefRow>
+                                <PrefRow label="状态">
+                                    <Status tone label=state_label />
+                                </PrefRow>
+                                {isolated
+                                    .then(|| {
+                                        view! {
+                                            <PrefRow
+                                                label="工作目录"
+                                                detail=if paused {
+                                                    "已冻结：worktree 已删除，分支保留。"
+                                                } else {
+                                                    "冻结会先提交，再删除 worktree，保留分支。"
+                                                }
+                                            >
+                                                <button
+                                                    type="button"
+                                                    class="btn"
+                                                    disabled=move || busy.get()
+                                                    on:click=move |_| toggle_frozen(paused)
+                                                >
+                                                    {if paused { "解冻" } else { "冻结" }}
+                                                </button>
+                                            </PrefRow>
+                                        }
+                                    })}
+                                <PrefRow label="创建">
+                                    <span class="pref-text">{created}</span>
+                                </PrefRow>
+                            </PrefGroup>
+                            <PrefGroup title=if count == 0 {
+                                "会话".to_owned()
+                            } else {
+                                format!("会话 {count}")
+                            }>
+                                {if sessions.is_empty() {
+                                    view! { <PrefRow label="还没有会话" /> }.into_any()
+                                } else {
+                                    sessions
+                                        .into_iter()
+                                        .take(8)
+                                        .map(|x| {
+                                            let runtime = vocab::term(x["runtime"].as_str().unwrap_or(""))
+                                                .to_owned();
+                                            let title = x["title"]
+                                                .as_str()
+                                                .filter(|t| !t.trim().is_empty())
+                                                .unwrap_or("新对话")
+                                                .to_owned();
+                                            let (status, _) = vocab::state(x["status"].as_str().unwrap_or(""));
+                                            view! {
+                                                <PrefRow
+                                                    label=format!("{runtime} · {title}")
+                                                    detail=format!(
+                                                        "{status} · {} 条事件 · {}",
                                                         x["events"].as_i64().unwrap_or(0),
                                                         fmt::ago(x["created_at"].as_str().unwrap_or("")),
-                                                    )}
-                                                </span>
-                                            </div>
-                                        }
-                                    })
-                                    .collect_view()
-                                    .into_any()
-                            }}
-                        </div>
-                        <div class="dlg-foot">
-                            <a class="btn" href=format!("/w/{}", d5["id"].as_str().unwrap_or(""))>
-                                "打开"
-                            </a>
-                            <button
-                                class="btn"
-                                disabled=move || busy.get().is_some()
-                                on:click=move |_| close()
-                            >
-                                "关闭"
-                            </button>
-                        </div>
+                                                    )
+                                                />
+                                            }
+                                        })
+                                        .collect_view()
+                                        .into_any()
+                                }}
+                            </PrefGroup>
+                            <div class="dlg-foot">
+                                <button
+                                    type="button"
+                                    class="btn"
+                                    disabled=move || busy.get()
+                                    on:click=move |_| close()
+                                >
+                                    "完成"
+                                </button>
+                                <a
+                                    class="btn primary"
+                                    href=href
+                                    data-modal-initial-focus=""
+                                    on:click=move |_| on_close()
+                                >
+                                    "打开"
+                                    <kbd>"↩"</kbd>
+                                </a>
+                            </div>
+                        }
+                            .into_any()
                     }
-                        .into_any()
-                }
-            }}
+                }}
+            </div>
         </Modal>
     }
 }

@@ -314,6 +314,11 @@ b.mk { font: var(--font-weight-semibold) var(--font-size-caption) var(--font-mon
 .gp-op b { color: var(--warn); }
 .gp-op .grow { flex: 1; }
 .gp-acts { display: flex; gap: var(--space-md); flex-wrap: wrap; }
+.ws-info h3 { margin-bottom: var(--space-lg); }
+.ws-info .pref-group + .pref-group { margin-top: var(--space-xl); }
+.ws-info .pref-rows { background: var(--bg-raised); }
+.ws-info .pref-row { min-height: 40px; padding: var(--space-sm) 0; }
+.ws-info .pref-text code { font: var(--font-size-label) var(--font-mono); overflow-wrap: anywhere; }
 .gp-pr { display: flex; align-items: center; gap: var(--space-md); flex-wrap: wrap; padding: var(--space-md) var(--space-lg); border: 1px solid var(--border); border-radius: var(--r-md); background: var(--bg-panel); }
 .gp-pr .grow { flex: 1; }
 .gp-prt { color: var(--fg-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 420px; }

@@ -19,6 +19,8 @@
 .dlg h3 { margin: 0 0 var(--space-md); font-size: var(--font-size-section-title); font-weight: var(--font-weight-semibold); }
 .dlg-body { color: var(--fg-2); overflow-wrap: anywhere; }
 .dlg-foot { display: flex; justify-content: flex-end; gap: var(--space-md); margin-top: var(--space-section); flex-wrap: wrap; }
+.dlg-foot .btn kbd { margin-left: var(--space-xs); font: var(--font-size-caption) var(--font-sans); color: var(--fg-3); }
+.dlg-foot .btn.primary kbd { color: var(--on-accent-muted); }
 .btn.danger:hover:not(:disabled) { background: var(--danger-control-hover); color: var(--err-fg); }
 .dlg-foot .btn.danger { color: var(--err-fg); }
 .status { display: inline-flex; align-items: center; gap: var(--space-sm); font-size: var(--font-size-label); font-weight: var(--font-weight-regular); color: var(--status-fg); white-space: nowrap; }
