@@ -1,5 +1,6 @@
 use super::*;
 use crate::components::prefs::{PrefAdvanced, PrefGroup, PrefRow};
+use blazar_core_types::api::NodeView;
 
 #[component]
 pub fn NodeDetailPage() -> impl IntoView {
@@ -28,6 +29,69 @@ fn kb(n: f64) -> String {
         format!("{:.0} MB", n / 1024.0)
     } else {
         format!("{n} KB")
+    }
+}
+
+struct HwFacts {
+    cpu: String,
+    mem: String,
+    disk: String,
+    gpu: String,
+    egress: Option<bool>,
+    system: String,
+    load: String,
+    endpoints: Vec<(String, i64)>,
+}
+
+impl Default for HwFacts {
+    fn default() -> Self {
+        let dash = || "—".to_owned();
+        Self {
+            cpu: dash(),
+            mem: dash(),
+            disk: dash(),
+            gpu: dash(),
+            egress: None,
+            system: dash(),
+            load: dash(),
+            endpoints: Vec::new(),
+        }
+    }
+}
+
+fn hw_facts(c: &Value) -> HwFacts {
+    let gpus: Vec<String> = c["gpus"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect()
+        })
+        .unwrap_or_default();
+    let mut uniq = gpus.clone();
+    uniq.sort();
+    uniq.dedup();
+    HwFacts {
+        cpu: format!("{} 核", c["cpus"]),
+        mem: format!("{} GB", c["mem_gb"]),
+        disk: format!("{} GB", c["disk_free_gb"]),
+        gpu: if gpus.is_empty() {
+            "无".to_owned()
+        } else {
+            format!("{} 块 · {}", gpus.len(), uniq.join(" / "))
+        },
+        egress: Some(c["has_ai_egress"].as_bool() == Some(true)),
+        system: format!("{} {}", s(c, "os"), s(c, "arch")),
+        load: c["load1"].to_string(),
+        endpoints: c["egress"]
+            .as_object()
+            .map(|o| {
+                o.iter()
+                    .map(|(k, v)| (k.clone(), v.as_i64().unwrap_or(0)))
+                    .collect()
+            })
+            .unwrap_or_default(),
     }
 }
 
@@ -250,6 +314,10 @@ fn NodeDetail(name: String) -> impl IntoView {
             .collect::<Vec<_>>()
     };
     let title = crate::fmt::machine(&name);
+    let pending = move || node.with(|n| n.as_ref().is_some_and(NodeView::is_pending));
+    let confirming = RwSignal::new(false);
+    let offline_note =
+        move || (!online()).then(|| view! { <span class="pref-hint">"上线后可用"</span> });
 
     view! {
         <div class="page nodes-page detail-page">
@@ -258,25 +326,55 @@ fn NodeDetail(name: String) -> impl IntoView {
                 icon=|| view! { <span class="ic" inner_html=icon::svg(icon::NODES)></span> }
                 title=title
                 status=move || {
-                    let on = node.get().is_some_and(|n| n.status == "online");
+                    let on = online();
                     let seen = node
                         .get()
                         .and_then(|n| n.last_seen_at)
                         .filter(|_| !on)
                         .map(|t| format!("最后在线 {}", crate::fmt::ago(&t)));
+                    if pending() {
+                        let note = match seen {
+                            Some(t) => format!("离线 · {t}"),
+                            None if on => "在线".to_owned(),
+                            None => "离线".to_owned(),
+                        };
+                        return view! {
+                            <Status tone=Tone::Attention label="待确认" />
+                            <span class="page-note">{note}</span>
+                        }
+                            .into_any();
+                    }
                     view! {
                         <StateOf state=if on { "online" } else { "offline" } />
                         {seen.map(|t| view! { <span class="page-note">{t}</span> })}
-                        <Checking busy=probing />
                     }
+                        .into_any()
                 }
             >
+                <Show when=pending>
+                    <button
+                        type="button"
+                        class="btn"
+                        aria-haspopup="dialog"
+                        on:click=move |_| confirming.set(true)
+                    >
+                        "确认…"
+                    </button>
+                </Show>
                 <button
                     type="button"
                     class="btn primary"
                     aria-haspopup="dialog"
-                    disabled=move || !online()
-                    title=move || (!online()).then_some("机器离线，恢复在线后才能新建工作区")
+                    disabled=move || !online() || pending()
+                    title=move || {
+                        if pending() {
+                            Some("先确认这台机器是开发机，才能新建工作区")
+                        } else if !online() {
+                            Some("机器离线，恢复在线后才能新建工作区")
+                        } else {
+                            None
+                        }
+                    }
                     on:click=move |_| {
                         app.new_ws_node.set(Some(nm.get_value()));
                         app.new_ws.set(true);
@@ -285,6 +383,20 @@ fn NodeDetail(name: String) -> impl IntoView {
                     "新建工作区"
                 </button>
             </PageHead>
+            {move || {
+                confirming
+                    .get()
+                    .then(|| node.get())
+                    .flatten()
+                    .map(|n| {
+                        view! {
+                            <ConfirmSheet
+                                pending=vec![n]
+                                on_close=Callback::new(move |()| confirming.set(false))
+                            />
+                        }
+                    })
+            }}
             <div class="detail-body">
                 <PrefGroup title="工作区">
                     {move || {
@@ -324,118 +436,90 @@ fn NodeDetail(name: String) -> impl IntoView {
                             .into_any()
                     }}
                 </PrefGroup>
-                <PrefGroup title="机器状态" note="硬件资源和 AI 服务连接，进入页面和回到窗口时自动检查。">
-                    {move || match hw.get() {
-                        None if probing.get() => {
-                            view! { <p class="pref-status">"正在检查机器…"</p> }.into_any()
-                        }
-                        None => {
-                            view! {
-                                <PrefRow
-                                    label="尚未检查"
-                                    detail="机器在线后自动读取 CPU、内存、磁盘、GPU 和 AI 服务连接。"
-                                />
-                            }
-                                .into_any()
-                        }
-                        Some(Err(e)) => {
-                            view! {
-                                <InlineError
-                                    message=format!("检查失败：{e}")
-                                    retry=Callback::new(move |()| probe())
-                                />
-                            }
-                                .into_any()
-                        }
-                        Some(Ok(c)) => {
-                            let gpus: Vec<String> = c["gpus"]
-                                .as_array()
-                                .map(|a| {
-                                    a.iter().filter_map(Value::as_str).map(str::to_owned).collect()
-                                })
-                                .unwrap_or_default();
-                            let mut uniq = gpus.clone();
-                            uniq.sort();
-                            uniq.dedup();
-                            let eg: Vec<(String, i64)> = c["egress"]
-                                .as_object()
-                                .map(|o| {
-                                    o.iter()
-                                        .map(|(k, v)| (k.clone(), v.as_i64().unwrap_or(0)))
-                                        .collect()
-                                })
-                                .unwrap_or_default();
-                            let egress_ok = c["has_ai_egress"].as_bool() == Some(true);
-                            let gpu_text = if gpus.is_empty() {
-                                "无".to_owned()
-                            } else {
-                                format!("{} 块 · {}", gpus.len(), uniq.join(" / "))
-                            };
-                            let system = format!("{} {}", s(&c, "os"), s(&c, "arch"));
-                            let load = c["load1"].to_string();
-                            let cpu = format!("{} 核", c["cpus"]);
-                            let mem = format!("{} GB", c["mem_gb"]);
-                            let disk = format!("{} GB", c["disk_free_gb"]);
-                            view! {
-                                <PrefRow label="CPU">
-                                    <span class="pref-text">{cpu}</span>
-                                </PrefRow>
-                                <PrefRow label="内存">
-                                    <span class="pref-text">{mem}</span>
-                                </PrefRow>
-                                <PrefRow label="可用磁盘">
-                                    <span class="pref-text">{disk}</span>
-                                </PrefRow>
-                                <PrefRow label="GPU">
-                                    <span class="pref-text">{gpu_text}</span>
-                                </PrefRow>
-                                <PrefRow label="AI 服务">
-                                    <span class="pref-text" class:bad=!egress_ok>
-                                        {if egress_ok {
-                                            "能连上"
-                                        } else {
-                                            "连不上，请在运行时的「高级配置」里配置代理。"
-                                        }}
-                                    </span>
-                                </PrefRow>
-                                <PrefAdvanced title="硬件与连接详情">
-                                    {
-                                        let system = system.clone();
-                                        view! {
-                                            <PrefRow label="系统">
-                                                <code>{system}</code>
-                                            </PrefRow>
-                                        }
+                <PrefGroup
+                    title="机器状态"
+                    note="硬件资源和 AI 服务连接，进入页面和回到窗口时自动检查。"
+                    trailing=move || view! { <Checking busy=probing /> }
+                >
+                    {move || {
+                        let facts = hw
+                            .get()
+                            .and_then(Result::ok)
+                            .map_or_else(HwFacts::default, |c| hw_facts(&c));
+                        let egress_bad = facts.egress == Some(false);
+                        let egress = match facts.egress {
+                            Some(true) => "能连上",
+                            Some(false) => "连不上，请在运行时的「高级配置」里配置代理。",
+                            None => "—",
+                        };
+                        let endpoints = facts.endpoints.clone();
+                        view! {
+                            <PrefRow label="CPU">
+                                <span class="pref-text">{facts.cpu}</span>
+                            </PrefRow>
+                            <PrefRow label="内存">
+                                <span class="pref-text">{facts.mem}</span>
+                            </PrefRow>
+                            <PrefRow label="可用磁盘">
+                                <span class="pref-text">{facts.disk}</span>
+                            </PrefRow>
+                            <PrefRow label="GPU">
+                                <span class="pref-text">{facts.gpu}</span>
+                            </PrefRow>
+                            <PrefRow label="AI 服务">
+                                <span class="pref-text" class:bad=egress_bad>
+                                    {egress}
+                                </span>
+                            </PrefRow>
+                            <PrefAdvanced title="硬件与连接详情">
+                                {
+                                    let system = facts.system.clone();
+                                    view! {
+                                        <PrefRow label="系统">
+                                            <code>{system}</code>
+                                        </PrefRow>
                                     }
-                                    {
-                                        let load = load.clone();
-                                        view! {
-                                            <PrefRow label="负载">
-                                                <code>{load}</code>
-                                            </PrefRow>
-                                        }
+                                }
+                                {
+                                    let load = facts.load.clone();
+                                    view! {
+                                        <PrefRow label="负载">
+                                            <code>{load}</code>
+                                        </PrefRow>
                                     }
-                                    {
-                                        let eg = eg.clone();
-                                        eg.into_iter()
-                                            .map(|(k, v)| {
-                                                let ok = (200..300).contains(&v) || v == 401;
-                                                view! {
-                                                    <PrefRow label=k>
-                                                        <span class=if ok {
-                                                            "gchip ok"
-                                                        } else {
-                                                            "gchip bad"
-                                                        }>{format!("HTTP {v}")}</span>
-                                                    </PrefRow>
-                                                }
-                                            })
-                                            .collect_view()
-                                    }
-                                </PrefAdvanced>
-                            }
-                                .into_any()
+                                }
+                                {
+                                    let endpoints = endpoints.clone();
+                                    endpoints
+                                        .into_iter()
+                                        .map(|(k, v)| {
+                                            let ok = (200..300).contains(&v) || v == 401;
+                                            view! {
+                                                <PrefRow label=k>
+                                                    <span class=if ok {
+                                                        "gchip ok"
+                                                    } else {
+                                                        "gchip bad"
+                                                    }>{format!("HTTP {v}")}</span>
+                                                </PrefRow>
+                                            }
+                                        })
+                                        .collect_view()
+                                }
+                            </PrefAdvanced>
                         }
+                    }}
+                    {move || {
+                        hw.get()
+                            .and_then(Result::err)
+                            .map(|e| {
+                                view! {
+                                    <InlineError
+                                        message=format!("检查失败：{e}")
+                                        retry=Callback::new(move |()| probe())
+                                    />
+                                }
+                            })
                     }}
                 </PrefGroup>
                 <PrefGroup title="运行时" note="这台机器上装了哪些运行时，以及登录状态。">
@@ -446,11 +530,11 @@ fn NodeDetail(name: String) -> impl IntoView {
                         None => {
                             view! {
                                 <PrefRow label="尚未检查" detail="读取已安装的运行时及登录状态。">
+                                    {offline_note}
                                     <button
                                         type="button"
                                         class="btn"
                                         disabled=move || !online()
-                                        title=move || (!online()).then_some("机器离线，恢复在线后才能检查")
                                         on:click=move |_| scan()
                                     >
                                         "检查运行时"
@@ -484,6 +568,7 @@ fn NodeDetail(name: String) -> impl IntoView {
                                 .collect();
                             let rescan = view! {
                                 <PrefRow label="重新读取" detail="安装或登录后，重新检查一次。">
+                                    {offline_note}
                                     <button
                                         type="button"
                                         class="btn"
@@ -603,10 +688,11 @@ fn NodeDetail(name: String) -> impl IntoView {
                 </PrefGroup>
                 <PrefGroup title="维护" note="查找已不属于工作区的目录，确认后删除。">
                     <PrefRow label="残留目录" detail="磁盘上未被 Blazar 记录的 worktree 和私有目录。">
+                        {offline_note}
                         <button
                             type="button"
                             class="btn"
-                            disabled=move || listing_left.get() || sweeping.get()
+                            disabled=move || listing_left.get() || sweeping.get() || !online()
                             on:click=move |_| leftovers()
                         >
                             {move || if listing_left.get() { "查找中…" } else { "查找残留" }}

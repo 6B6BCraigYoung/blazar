@@ -125,7 +125,8 @@ select.settings-input, .dlg select, .card.pad select { appearance: none; -webkit
 .settings-page > .page-head, .settings-body { width: min(720px, 100%); margin-inline: auto; }
 .settings-body { display: flex; flex-direction: column; gap: var(--space-3xl); min-width: 0; }
 .pref-group { display: flex; flex-direction: column; min-width: 0; }
-.pref-heading { margin: 0 0 var(--space-xs); font-size: var(--font-size-card-title); font-weight: var(--font-weight-semibold); }
+.pref-heading { display: flex; align-items: baseline; gap: var(--space-md); margin: 0 0 var(--space-xs); font-size: var(--font-size-card-title); font-weight: var(--font-weight-semibold); }
+.pref-heading .page-checking { font-weight: var(--font-weight-regular); }
 .pref-note { margin: 0 0 var(--space-md); color: var(--fg-3); font-size: var(--font-size-label-readable); line-height: var(--line-height-compact); }
 .pref-rows { display: flex; flex-direction: column; padding-left: var(--space-xl); border-radius: var(--r-group); background: var(--bg-group); }
 .pref-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-xl); min-height: 44px; padding: var(--space-md) 0; border-bottom: 1px solid var(--line); }

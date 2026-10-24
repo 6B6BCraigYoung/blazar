@@ -10,11 +10,20 @@ pub fn PrefGroup(
     #[prop(optional, into)] title: Option<String>,
     #[prop(optional, into)] note: Option<String>,
     #[prop(default = false)] guard: bool,
+    #[prop(optional, into)] trailing: Option<ViewFn>,
     children: Children,
 ) -> impl IntoView {
     view! {
         <section class="pref-group" data-ui-guard=guard.then_some("")>
-            {title.map(|t| view! { <h3 class="pref-heading">{t}</h3> })}
+            {title
+                .map(|t| {
+                    view! {
+                        <h3 class="pref-heading">
+                            <span>{t}</span>
+                            {trailing.map(|v| v.run())}
+                        </h3>
+                    }
+                })}
             {note.map(|n| view! { <p class="pref-note">{n}</p> })}
             <div class="pref-rows">{children()}</div>
         </section>
