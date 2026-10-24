@@ -693,8 +693,7 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 .side-status { position: relative; flex: 0 0 auto; }
 .side-dot { all: unset; box-sizing: border-box; cursor: pointer; width: 28px; height: 28px; display: grid; place-items: center; border-radius: var(--r-md); }
 .side-dot:hover { background: var(--bg-hover); }
-.side-dot i { width: 6px; height: 6px; border-radius: 50%; background: transparent; }
-.side-dot:hover i { background: var(--status-other); }
+.side-dot i { width: 6px; height: 6px; border-radius: 50%; background: var(--status-other); }
 .side-dot[data-tone="attention"] i { background: var(--status-attention); }
 .side-dot[data-tone="failed"] i { background: var(--status-failed); }
 .side-pop { position: fixed; left: var(--space-md); bottom: 44px; z-index: var(--layer-menu); width: 200px; padding: var(--space-md) var(--space-lg); border-radius: var(--r-lg); background: var(--material-menu); -webkit-backdrop-filter: var(--blur-material); backdrop-filter: var(--blur-material); box-shadow: var(--shadow-menu); display: flex; flex-direction: column; gap: var(--space-sm); font-size: var(--font-size-label); color: var(--fg); }
