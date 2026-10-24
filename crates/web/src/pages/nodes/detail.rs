@@ -313,7 +313,7 @@ fn NodeDetail(name: String) -> impl IntoView {
                                         label=crate::fmt::ws_title(&w.name, &w.node)
                                         detail=format!("{parent}{}", w.path)
                                     >
-                                        <StateOf state=w.activity.clone() />
+                                        <StateOf state=app.shown_activity(&w) />
                                         <a class="btn" href=format!("/w/{}", w.id)>
                                             "打开"
                                         </a>
