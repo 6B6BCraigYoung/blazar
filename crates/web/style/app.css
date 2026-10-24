@@ -444,6 +444,11 @@ input[type="range"] { accent-color: var(--accent); }
 .shell[data-side="rail"] > .side { width: 52px; padding-inline: var(--space-sm); overflow-x: hidden; }
 .shell[data-side="rail"] > .side :is(.nm, .nav .n, .grp > span, .side-projects, .side-status, .side-fold, .brand .grow) { display: none; }
 .shell[data-side="rail"] > .side :is(.brand, .nav, .nav.search) { justify-content: center; padding-inline: 0; }
+.shell[data-side="rail"] > .side .nav { position: relative; }
+.shell[data-side="rail"] > .side .nav.search { background: transparent; }
+.side .nav .rail-dot { display: none; }
+.shell[data-side="rail"] > .side .nav .rail-dot[data-on="true"] { display: block; position: absolute; top: 3px; right: 8px; width: 6px; height: 6px; border-radius: 50%; background: var(--status-other); }
+.shell[data-side="rail"] > .side .nav .rail-dot[data-urgent="true"] { background: var(--status-attention); }
 .shell[data-side="rail"] > .side .side-unfold { all: unset; display: flex; align-items: center; justify-content: center; height: 26px; border-radius: var(--r-md); color: var(--fg-3); font-size: var(--font-size-body); cursor: pointer; }
 .shell[data-side="rail"] > .side .side-unfold:hover { background: var(--bg-hover); color: var(--fg); }
 .shell[data-side="rail"] > .side .side-unfold:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset-inset); }

@@ -16,11 +16,23 @@ fn rail_tip(label: &'static str) -> impl Fn() -> Option<&'static str> + Copy {
     move || app.side_rail.get().then_some(label)
 }
 
+fn badge(count: Signal<String>, urgent: Signal<bool>) -> impl IntoView {
+    view! {
+        <span
+            class="rail-dot"
+            aria-hidden="true"
+            data-on=move || count.with(|c| !c.is_empty()).to_string()
+            data-urgent=move || urgent.get().to_string()
+        ></span>
+    }
+}
+
 fn nav(
     href: &'static str,
     ic: &'static str,
     label: &'static str,
     count: Signal<String>,
+    urgent: Signal<bool>,
     exact: bool,
 ) -> impl IntoView {
     view! {
@@ -28,6 +40,7 @@ fn nav(
             <span class="ic" inner_html=icon::svg(ic)></span>
             <span class="nm">{label}</span>
             <span class="n">{move || count.get()}</span>
+            {badge(count, urgent)}
         </A>
     }
 }
@@ -37,6 +50,7 @@ fn section(
     ic: &'static str,
     label: &'static str,
     count: Signal<String>,
+    urgent: Signal<bool>,
     paths: &'static [&'static str],
 ) -> impl IntoView {
     let location = use_location();
@@ -52,6 +66,7 @@ fn section(
             <span class="ic" inner_html=icon::svg(ic)></span>
             <span class="nm">{label}</span>
             <span class="n">{move || count.get()}</span>
+            {badge(count, urgent)}
         </a>
     }
 }
@@ -172,6 +187,8 @@ fn MainNav(keys: RwSignal<u32>) -> impl IntoView {
     };
     let top = move || app.top_workspaces();
     let none = Signal::derive(String::new);
+    let calm = Signal::derive(|| false);
+    let waiting = Signal::derive(move || app.attention_count() > 0);
     let projects = move || {
         let mut m: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
         for w in top() {
@@ -203,6 +220,7 @@ fn MainNav(keys: RwSignal<u32>) -> impl IntoView {
                 icon::INBOX,
                 "收件箱",
                 Signal::derive(move || n(usize::try_from(app.inbox_unread.get()).unwrap_or(0))),
+                calm,
                 false,
             )}
             {section(
@@ -210,14 +228,16 @@ fn MainNav(keys: RwSignal<u32>) -> impl IntoView {
                 icon::FOLDER,
                 "工作区",
                 Signal::derive(move || n(app.attention_count())),
-                &["/", "/running", "/waiting", "/workspaces"],
+                waiting,
+                &["/", "/running", "/waiting", "/workspaces", "/w", "/project"],
             )}
-            {section("/bots", icon::BOT, "bot", none, &["/bots"])}
+            {section("/bots", icon::BOT, "bot", none, calm, &["/bots"])}
             {section(
                 "/tasks",
                 icon::TASKS,
                 "任务",
                 Signal::derive(move || n(app.tasks_review.get())),
+                calm,
                 &["/tasks", "/autopilots", "/jobs"],
             )}
         </div>
@@ -256,6 +276,7 @@ fn MainNav(keys: RwSignal<u32>) -> impl IntoView {
                 icon::SPARKLES,
                 "智能体",
                 none,
+                calm,
                 &[
                     "/agents",
                     "/agent",
@@ -266,11 +287,11 @@ fn MainNav(keys: RwSignal<u32>) -> impl IntoView {
                     "/usage",
                 ],
             )}
-            {nav("/apps", icon::APPS, "接入的软件", none, false)}
-            {section("/nodes", icon::NODES, "机器与组网", none, &["/nodes", "/mesh"])}
+            {nav("/apps", icon::APPS, "接入的软件", none, calm, false)}
+            {section("/nodes", icon::NODES, "机器与组网", none, calm, &["/nodes", "/mesh"])}
         </div>
         <div class="foot">
-            {nav("/settings", icon::GEAR, "设置", none, false)}
+            {nav("/settings", icon::GEAR, "设置", none, calm, false)}
             <StatusDot />
         </div>
     }
