@@ -1,3 +1,35 @@
+const DARK = {
+  background: '#101011', foreground: '#c8c8cc', cursor: '#a1a1aa', cursorAccent: '#101011',
+  selectionBackground: '#2f3d52',
+  black: '#1b1b1d', brightBlack: '#5c5c64',
+  red: '#c98a80', brightRed: '#d9a59c',
+  green: '#8fb59a', brightGreen: '#a8c8b0',
+  yellow: '#c9b48a', brightYellow: '#d8c7a3',
+  blue: '#8fa3c2', brightBlue: '#a9badb',
+  magenta: '#a99bbf', brightMagenta: '#bfb3d1',
+  cyan: '#8bb0b3', brightCyan: '#a5c4c6',
+  white: '#c8c8cc', brightWhite: '#e4e4e7',
+};
+
+const LIGHT = {
+  background: '#f0f0f2', foreground: '#1d1d1f', cursor: '#1d1d1f', cursorAccent: '#f0f0f2',
+  selectionBackground: 'rgba(0,122,255,.2)',
+  black: '#24292f', brightBlack: '#57606a',
+  red: '#cf222e', brightRed: '#a40e26',
+  green: '#116329', brightGreen: '#1a7f37',
+  yellow: '#4d2d00', brightYellow: '#633c01',
+  blue: '#0969da', brightBlue: '#218bff',
+  magenta: '#8250df', brightMagenta: '#a475f9',
+  cyan: '#1b7c83', brightCyan: '#3192aa',
+  white: '#6e7781', brightWhite: '#8c959f',
+};
+
+function theme() {
+  const selected = document.documentElement.dataset.theme;
+  const light = selected === 'light' || ((!selected || selected === 'system') && !matchMedia('(prefers-color-scheme: dark)').matches);
+  return light ? LIGHT : DARK;
+}
+
 export class Term {
   constructor(host, url, onState) {
     this.onState = onState;
@@ -5,19 +37,13 @@ export class Term {
       fontSize: 12.5, cursorBlink: true, scrollback: 10000, allowTransparency: true,
       macOptionClickForcesSelection: true,
       fontFamily: '"JetBrains Mono", Menlo, monospace',
-      theme: {
-        background: '#101011', foreground: '#c8c8cc', cursor: '#a1a1aa', cursorAccent: '#101011',
-        selectionBackground: '#2f3d52',
-        black: '#1b1b1d', brightBlack: '#5c5c64',
-        red: '#c98a80', brightRed: '#d9a59c',
-        green: '#8fb59a', brightGreen: '#a8c8b0',
-        yellow: '#c9b48a', brightYellow: '#d8c7a3',
-        blue: '#8fa3c2', brightBlue: '#a9badb',
-        magenta: '#a99bbf', brightMagenta: '#bfb3d1',
-        cyan: '#8bb0b3', brightCyan: '#a5c4c6',
-        white: '#c8c8cc', brightWhite: '#e4e4e7',
-      },
+      theme: theme(),
     });
+    this.retheme = () => { this.term.options.theme = theme(); };
+    this.themeObserver = new MutationObserver(this.retheme);
+    this.themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    this.systemTheme = matchMedia('(prefers-color-scheme: dark)');
+    this.systemTheme.addEventListener('change', this.retheme);
     this.term.parser.registerOscHandler(52, data => {
       const i = data.indexOf(';');
       const b64 = i < 0 ? '' : data.slice(i + 1);
@@ -66,6 +92,8 @@ export class Term {
   dispose() {
     this.disposed = true;
     this.ro.disconnect();
+    this.themeObserver.disconnect();
+    this.systemTheme.removeEventListener('change', this.retheme);
     try { this.sock.close(); } catch (_) {}
     this.term.dispose();
   }
