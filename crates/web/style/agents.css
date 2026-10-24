@@ -2,7 +2,7 @@
 .agent-toolbar, .agent-actions, .agent-save { display: flex; align-items: center; gap: var(--space-toolbar); flex-wrap: wrap; }
 .agent-tabs { align-self: flex-start; flex-wrap: wrap; }
 .agent-toolbar .grow, .agent-save .grow, .agent-run .grow { flex: 1; }
-.agent-page input:not([type=checkbox]):not(.filter), .agent-page select:not(.filter), .agent-page textarea, .agent-modal input:not([type=checkbox]), .agent-modal select, .agent-modal textarea { border: 1px solid var(--border); border-radius: var(--r-md); background: var(--bg-canvas); color: var(--fg); padding: var(--space-md) var(--space-control); font: var(--font-size-body) var(--font-sans); max-width: 100%; box-sizing: border-box; }
+.agent-page input:not([type=checkbox]):not(.filter), .agent-page select:not(.filter), .agent-page textarea, .agent-modal input:not([type=checkbox]), .agent-modal select, .agent-modal textarea { border: var(--field-border); border-radius: var(--r-md); background: var(--bg-canvas); color: var(--fg); padding: var(--space-md) var(--space-control); font: var(--font-size-body) var(--font-sans); max-width: 100%; box-sizing: border-box; }
 .agent-toolbar input { flex: 0 1 var(--measure); min-width: 180px; }
 .agent-page .field, .agent-modal .field { display: flex; flex-direction: column; gap: var(--space-field); margin: var(--space-lg) 0; color: var(--fg-2); font-size: var(--font-size-body); }
 .agent-page .field input, .agent-page .field select, .agent-page .field textarea, .agent-modal .field input, .agent-modal .field select, .agent-modal .field textarea { width: 100%; }

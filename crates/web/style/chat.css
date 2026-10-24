@@ -279,7 +279,7 @@
 .cp-ok { color: var(--accent); }
 .cp-ico { width: 16px; height: 16px; color: var(--fg-3); flex: 0 0 auto; }
 .cp-ico svg { width: 16px; height: 16px; }
-.cp-q { width: calc(100% - 8px); margin: var(--space-xs); height: 28px; padding: 0 var(--space-control); border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--bg-canvas); color: var(--fg); font: var(--font-size-label) var(--font-mono); outline: none; box-sizing: border-box; }
+.cp-q { width: calc(100% - 8px); margin: var(--space-xs); height: 28px; padding: 0 var(--space-control); border: var(--field-border); border-radius: var(--r-sm); background: var(--bg-canvas); color: var(--fg); font: var(--font-size-label) var(--font-mono); outline: none; box-sizing: border-box; }
 .cp-q:focus { border-color: var(--border-strong); }
 .cp-file { font: var(--font-size-label) var(--font-mono); color: var(--fg-2); }
 .cp-none { padding: var(--space-md) var(--space-control); font-size: var(--font-size-caption-readable); color: var(--fg-4); }
@@ -320,7 +320,7 @@
 .aopt[data-sel="true"]::before { content: "❯"; }
 .cc-ask .aopt.primary { background: var(--option-selected-bg); }
 .ak { min-width: 16px; text-align: center; font: var(--font-size-caption) var(--font-mono); color: var(--fg-4); }
-.areject, .askother { margin-top: var(--space-xs); height: 28px; padding: 0 var(--space-control); border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--bg-canvas); color: var(--fg); font: var(--font-size-label-readable) var(--font-sans); outline: none; }
+.areject, .askother { margin-top: var(--space-xs); height: 28px; padding: 0 var(--space-control); border: var(--field-border); border-radius: var(--r-sm); background: var(--bg-canvas); color: var(--fg); font: var(--font-size-label-readable) var(--font-sans); outline: none; }
 .areject:focus, .askother:focus { border-color: var(--border-strong); }
 .ahint { margin-top: var(--space-sm); font-size: var(--font-size-caption); color: var(--fg-4); }
 .atab { all: unset; cursor: pointer; padding: var(--space-2xs) var(--space-md); border-radius: var(--r-sm); font-size: var(--font-size-label); color: var(--fg-3); }

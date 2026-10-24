@@ -71,7 +71,7 @@
 @media (max-width: 620px) { .work-grid { grid-template-columns: 1fr; } .work-inbox-row { flex-direction: column; align-items: stretch; } .work-list .work-task { display: flex; } .work-filters > .input { width: 100%; } .work-filters .work-field { flex: 1; } }
 
 .work-page .row-actions { display: flex; align-items: center; gap: var(--space-md); flex-wrap: wrap; }
-.work-page .input, .work-dialog .input { padding: var(--space-field) var(--space-control); border: 1px solid var(--border); border-radius: var(--r-md); background: var(--bg-canvas); color: var(--fg); font: var(--font-size-body) var(--font-sans); box-sizing: border-box; outline: none; }
+.work-page .input, .work-dialog .input { padding: var(--space-field) var(--space-control); border: var(--field-border); border-radius: var(--r-md); background: var(--bg-canvas); color: var(--fg); font: var(--font-size-body) var(--font-sans); box-sizing: border-box; outline: none; }
 .work-page .input:focus, .work-dialog .input:focus { border-color: var(--border-strong); }
 .work-flow > .pad { padding: var(--space-xl); }
 .work-page .md-body { padding: var(--space-md) 0; margin: 0; font-size: var(--font-size-body); }
@@ -161,6 +161,6 @@
 .inbox-act .btn kbd { font: var(--font-size-caption) var(--font-sans); color: var(--fg-3); }
 .inbox-act a.btn { color: var(--fg); }
 .inbox-cmd { flex: 1 1 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--font-size-caption-readable) var(--font-mono); color: var(--fg-2); }
-.inbox-reply { flex: 1 1 200px; min-width: 160px; height: 26px; padding: 0 var(--space-control); border: 1px solid var(--border); border-radius: var(--r-md); background: var(--bg-canvas); color: var(--fg); font: var(--font-size-label-readable) var(--font-sans); outline: none; }
+.inbox-reply { flex: 1 1 200px; min-width: 160px; height: 26px; padding: 0 var(--space-control); border: var(--field-border); border-radius: var(--r-md); background: var(--bg-canvas); color: var(--fg); font: var(--font-size-label-readable) var(--font-sans); outline: none; }
 .inbox-reply:focus { border-color: var(--border-strong); }
 @media (max-width: 620px) { .inbox-row { flex-wrap: wrap; } .inbox-meta { width: 100%; padding-left: calc(8px + var(--space-xl)); } }

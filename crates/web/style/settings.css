@@ -8,7 +8,7 @@
 .settings-actions { display: flex; gap: var(--space-md); align-items: center; flex-wrap: wrap; }
 .settings-actions .grow { flex: 1; }
 .settings-actions h2, .usage-page h2 { font-size: var(--font-size-section-title); margin: 0 var(--space-md) 0 0; }
-.settings-input { color: var(--fg); background: var(--bg-canvas); border: 1px solid var(--border); box-shadow: var(--shadow-field); border-radius: var(--r-md); padding: var(--space-field) var(--space-control); font: inherit; max-width: 100%; }
+.settings-input { color: var(--fg); background: var(--bg-canvas); border: var(--field-border); box-shadow: var(--shadow-field); border-radius: var(--r-md); padding: var(--space-field) var(--space-control); font: inherit; max-width: 100%; }
 .settings-field { display: flex; flex-direction: column; gap: var(--space-sm); margin-bottom: var(--space-lg); }
 .settings-form { display: flex; flex-direction: column; gap: var(--space-lg); padding-top: var(--space-xl); }
 .settings-form fieldset { display: flex; flex-direction: column; gap: var(--space-lg); border: 0; padding: 0; min-width: 0; }
@@ -121,7 +121,7 @@
 .settings-row input[type="checkbox"]::before, .switch::before { content: ""; position: absolute; top: 2px; left: 2px; width: 15px; height: 15px; border-radius: 50%; background: var(--switch-knob); box-shadow: var(--shadow-switch-knob); transition: transform var(--duration-content-dim) cubic-bezier(.3, .7, .4, 1); }
 .settings-row input[type="checkbox"]:checked, .switch:checked { background: var(--accent); }
 .settings-row input[type="checkbox"]:checked::before, .switch:checked::before { transform: translateX(13px); }
-select.settings-input, .dlg select, .card.pad select { appearance: none; -webkit-appearance: none; padding-right: var(--space-3xl); border: 0; background: var(--control-bg) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='12' viewBox='0 0 8 12'%3E%3Cpath d='M1 4.5 4 1.5l3 3M1 7.5l3 3 3-3' fill='none' stroke='%238e8e93' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") right 10px center / 8px 12px no-repeat; box-shadow: var(--shadow-control); cursor: pointer; }
+select.settings-input, .dlg select, .card.pad select { appearance: none; -webkit-appearance: none; padding-right: var(--space-3xl); border: 0; border-radius: var(--r-control); background: var(--control-bg) var(--chevron-popup) right 10px center / 8px 12px no-repeat; box-shadow: var(--shadow-control); cursor: pointer; }
 @media (max-width: 800px) { .settings-row { align-items: flex-start; flex-wrap: wrap; } .usage-kpis { grid-template-columns: repeat(2,minmax(0,1fr)); } }
 
 .settings-page > .page-head, .settings-body { width: min(720px, 100%); margin-inline: auto; }
@@ -183,8 +183,8 @@ code.pref-item-title { font: var(--font-size-label-readable) var(--font-mono); c
 .pref-bar-btn:disabled { color: var(--fg-disabled); cursor: default; }
 .pref-bar-btn.text { width: auto; padding: 0 var(--space-md); font-size: var(--font-size-label); }
 .pref-bar .sep { width: 1px; height: 14px; background: var(--border); }
-.keycap { all: unset; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; min-width: 104px; height: 26px; padding: 0 var(--space-control); border-radius: var(--r-sm); background: var(--control-bg); box-shadow: var(--shadow-control); color: var(--fg); font-size: var(--font-size-label-readable); font-variant-numeric: tabular-nums; cursor: pointer; white-space: nowrap; }
-.keycap:hover { background: var(--control-bg-hover); }
+.keycap { all: unset; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; min-width: 104px; height: 26px; padding: 0 var(--space-control); border-radius: var(--r-sm); background: var(--keycap-bg); box-shadow: var(--shadow-keycap); color: var(--keycap-fg); font-size: var(--font-size-label-readable); font-variant-numeric: tabular-nums; cursor: pointer; white-space: nowrap; }
+.keycap:hover { background: var(--keycap-bg-hover); }
 .keycap.unset { color: var(--fg-4); }
 .keycap[aria-pressed="true"] { background: var(--bg-selected); box-shadow: inset 0 0 0 1.5px var(--accent); color: var(--accent); }
 @media (max-width: 1000px) {
