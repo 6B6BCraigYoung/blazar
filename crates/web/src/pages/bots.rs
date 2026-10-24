@@ -1,4 +1,5 @@
 use super::work_shared::*;
+use crate::action_gate::ActionGate;
 use crate::components::empty::{self, Action, Blank};
 use crate::components::group::ListGroup;
 use crate::components::icon;
@@ -11,6 +12,7 @@ use crate::components::undo::{self, Request};
 use crate::realtime::use_bus;
 use crate::{api, app_state::use_app, fmt};
 use blazar_core_types::api::{ServerEvent, valid_bot_handle as valid_handle};
+use leptos::ev;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_router::hooks::{use_navigate, use_params_map};
@@ -92,6 +94,11 @@ pub(super) fn archive_bot(id: &str, name: &str, done: impl Fn() + 'static) {
 
 async fn post(path: &str, body: Value) -> Result<Value, api::ApiError> {
     api::send::<Value>("POST", path, &body).await
+}
+
+fn is_question(a: &Value) -> bool {
+    crate::chat_model::tool_name(a["request"]["tool_name"].as_str().unwrap_or(""))
+        == "AskUserQuestion"
 }
 
 #[component]
@@ -336,6 +343,8 @@ pub fn BotsPage() -> impl IntoView {
                                                         "归档于 {}",
                                                         b["archived_at"].as_str().map(fmt::ago).unwrap_or_default(),
                                                     )
+                                                } else if state == "awaiting" {
+                                                    "有工具调用等你批准".into()
                                                 } else if pending > 0 {
                                                     format!("{pending} 封邮件待处理")
                                                 } else {
@@ -681,6 +690,66 @@ pub fn BotPage() -> impl IntoView {
                 .unwrap_or_default()
         }
     });
+    let gate = RwSignal::new(ActionGate::default());
+    let appr_rev = RwSignal::new(0u32);
+    let run_ws_id = Memo::new(move |_| {
+        data.with(|d| match d {
+            Some(Ok(b)) => s(b, "run_ws_id"),
+            _ => String::new(),
+        })
+    });
+    let approvals = LocalResource::new(move || {
+        rev.track();
+        appr_rev.track();
+        let ws = run_ws_id.get();
+        async move {
+            if ws.is_empty() {
+                return Vec::<Value>::new();
+            }
+            api::get::<Vec<Value>>(&format!("/api/approvals?workspace={}", api::enc(&ws)))
+                .await
+                .unwrap_or_default()
+        }
+    });
+    let waiting = Memo::new(move |_| {
+        approvals
+            .get()
+            .unwrap_or_default()
+            .into_iter()
+            .find(|a| !is_question(a))
+    });
+    let after = move || {
+        let _ = appr_rev.try_update(|n| *n += 1);
+        refresh(rev);
+    };
+    let pick = move |key: &str, a: &Value| {
+        let id = s(a, "id");
+        match key {
+            "1" => decide_approval(gate, id, true, None, after),
+            "2" => allow_always(
+                gate,
+                id,
+                a["request"].clone(),
+                run_ws_id.get_untracked(),
+                after,
+            ),
+            _ => decide_approval(gate, id, false, None, after),
+        }
+    };
+    let keys = window_event_listener(ev::keydown, move |e| {
+        if !list_keys_apply(&e) || e.meta_key() || e.ctrl_key() || e.alt_key() {
+            return;
+        }
+        let key = e.key();
+        if !matches!(key.as_str(), "1" | "2" | "3") {
+            return;
+        }
+        if let Some(a) = waiting.get_untracked() {
+            e.prevent_default();
+            pick(&key, &a);
+        }
+    });
+    on_cleanup(move || keys.remove());
     let body = RwSignal::new(String::new());
     let subject = RwSignal::new(String::new());
     let urgent = RwSignal::new(false);
@@ -880,6 +949,58 @@ pub fn BotPage() -> impl IntoView {
                             .then(|| {
                                 view! { <div class="muted bot-line">{s(&b, "status_note")}</div> }
                             })}
+                        {move || {
+                            waiting
+                                .get()
+                                .map(|a| {
+                                    let root = app
+                                        .workspace(&run_ws_id.get())
+                                        .map(|w| w.path)
+                                        .unwrap_or_default();
+                                    let (tool, what) = approval_summary(&a["request"], &root);
+                                    let id = s(&a, "id");
+                                    let (a1, a2, a3) = (a.clone(), a.clone(), a);
+                                    let (i1, i2, i3) = (id.clone(), id.clone(), id);
+                                    view! {
+                                        <section class="card pad bot-approval" data-ui-guard="">
+                                            <h3>"等你批准"</h3>
+                                            <div class="bot-approval-cmd">
+                                                <span class="bot-approval-tool">{tool}</span>
+                                                <code>{what}</code>
+                                            </div>
+                                            <div class="row-actions">
+                                                <button
+                                                    type="button"
+                                                    class="btn small"
+                                                    disabled=move || gate.with(|g| g.busy(&i1))
+                                                    on:click=move |_| pick("1", &a1)
+                                                >
+                                                    "允许"
+                                                    <kbd>{approval_key_hint(0)}</kbd>
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    class="btn small"
+                                                    disabled=move || gate.with(|g| g.busy(&i2))
+                                                    on:click=move |_| pick("2", &a2)
+                                                >
+                                                    "总是允许"
+                                                    <kbd>{approval_key_hint(1)}</kbd>
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    class="btn small"
+                                                    disabled=move || gate.with(|g| g.busy(&i3))
+                                                    on:click=move |_| pick("3", &a3)
+                                                >
+                                                    "拒绝"
+                                                    <kbd>{approval_key_hint(2)}</kbd>
+                                                </button>
+                                            </div>
+                                        </section>
+                                    }
+                                })
+                        }}
                         <div class="work-layout">
                             <div class="work-main">
                                 <section class="card pad">

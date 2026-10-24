@@ -129,14 +129,14 @@ pub async fn bot_status(st: &Shared, bot: &Bot, recent: usize) -> Value {
         .as_ref()
         .is_some_and(|(n, st)| n != "local" && st != "online");
     let latest = latest_session(st, &run_ws).await;
-    let state = if bot.paused() {
+    let state = if activity == "awaiting_approval" {
+        "awaiting"
+    } else if bot.paused() {
         "paused"
     } else if bot.archived_at.is_some() {
         "archived"
     } else if node_offline && bot.brain == "node" {
         "lost"
-    } else if activity == "awaiting_approval" {
-        "awaiting"
     } else if live.is_some() || activity == "running" {
         "running"
     } else {

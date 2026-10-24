@@ -103,6 +103,12 @@
 .bot-card .row-actions, .bot-page .row-actions { display: flex; align-items: center; gap: var(--space-sm); flex-wrap: wrap; }
 .bot-page .card.pad { margin-bottom: var(--space-section); }
 .bot-page .card.pad > h3 { margin: 0 0 var(--space-md); font-size: var(--font-size-body); }
+.bot-approval { display: flex; flex-direction: column; gap: var(--space-md); }
+.bot-approval > h3 { margin: 0; }
+.bot-approval-cmd { display: flex; align-items: baseline; gap: var(--space-md); min-width: 0; }
+.bot-approval-tool { flex: 0 0 auto; color: var(--fg-3); font-size: var(--font-size-label); }
+.bot-approval-cmd code { min-width: 0; overflow-wrap: anywhere; font: var(--font-size-label-readable) var(--font-mono); color: var(--fg); }
+.bot-approval .row-actions .btn kbd { margin-left: var(--space-xs); font: var(--font-size-caption) var(--font-sans); color: var(--fg-3); }
 .bot-mail-body { white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--font-size-body); }
 .bot-steps, .bot-claims { list-style: none; margin: var(--space-md) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-sm); font-size: var(--font-size-label); }
 .bot-steps li { overflow-wrap: anywhere; color: var(--fg-2); }
