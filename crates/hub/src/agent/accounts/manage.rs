@@ -297,7 +297,7 @@ pub async fn remove(State(st): State<Shared>, Path(id): Path<String>) -> Respons
         return fail(StatusCode::NOT_FOUND, "没有这个账号");
     };
     let Some(dir) = a.config_dir.clone() else {
-        return fail(StatusCode::CONFLICT, "默认登录不能删除，可以停用");
+        return fail(StatusCode::CONFLICT, "默认账号不能删除，可以停用");
     };
     if running_of(&st).await.get(&id).copied().unwrap_or(0) > 0 {
         return fail(

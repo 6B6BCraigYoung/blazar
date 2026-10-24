@@ -26,7 +26,7 @@ pub(super) fn GlobalSync(
     };
     let label_of = move |id: Option<&str>| -> String {
         match id {
-            None => "原来的默认登录".into(),
+            None => "原来的默认账号".into(),
             Some(id) => accounts
                 .get()
                 .and_then(Result::ok)

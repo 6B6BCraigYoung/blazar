@@ -297,7 +297,7 @@ fn claude_target(
             let b: Value = std::fs::read_to_string(backup_file(backups, "claude"))
                 .ok()
                 .and_then(|t| serde_json::from_str(&t).ok())
-                .ok_or("没有原来的默认登录的备份，没法切回去")?;
+                .ok_or("没有原来的默认账号的备份，没法切回去")?;
             Ok((
                 b["credential"].as_str().unwrap_or_default().to_owned(),
                 b["oauthAccount"].clone(),
