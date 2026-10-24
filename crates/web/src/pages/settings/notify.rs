@@ -75,64 +75,58 @@ pub(super) fn NotifySettings() -> impl IntoView {
                     }
                 />
             </PrefRow>
-            <PrefRow label="音色" for_id="settings-tone" enabled=sound_on>
-                <select
-                    id="settings-tone"
-                    class="settings-input"
-                    disabled=move || !sound_on.get()
-                    prop:value=move || sound.get().tone
-                    on:change=move |e| {
-                        let mut p = sound.get_untracked();
-                        p.tone = event_target_value(&e);
-                        update_sound(p);
-                        alerts::play("done", true);
-                    }
-                >
-                    <option value="soft" selected=move || sound.get().tone == "soft">
-                        "柔和"
-                    </option>
-                    <option value="bright" selected=move || sound.get().tone == "bright">
-                        "明亮"
-                    </option>
-                    <option value="wood" selected=move || sound.get().tone == "wood">
-                        "木质"
-                    </option>
-                </select>
-            </PrefRow>
-            <PrefRow label="音量" for_id="settings-volume" enabled=sound_on>
-                <input
-                    id="settings-volume"
-                    type="range"
-                    min="0.05"
-                    max="1"
-                    step="0.05"
-                    disabled=move || !sound_on.get()
-                    prop:value=move || sound.get().volume
-                    on:change=move |e| {
-                        let mut p = sound.get_untracked();
-                        p.volume = event_target_value(&e).parse().unwrap_or(0.5);
-                        update_sound(p);
-                    }
-                />
-            </PrefRow>
-            <PrefRow label="试听" enabled=sound_on>
-                <button
-                    type="button"
-                    class="btn small"
-                    disabled=move || !sound_on.get()
-                    on:click=|_| alerts::play("done", true)
-                >
-                    "完成提示"
-                </button>
-                <button
-                    type="button"
-                    class="btn small"
-                    disabled=move || !sound_on.get()
-                    on:click=|_| alerts::play("attention", true)
-                >
-                    "待处理提示"
-                </button>
-            </PrefRow>
+            <Show when=move || sound_on.get()>
+                <PrefRow label="音色" for_id="settings-tone">
+                    <select
+                        id="settings-tone"
+                        class="settings-input"
+                        prop:value=move || sound.get().tone
+                        on:change=move |e| {
+                            let mut p = sound.get_untracked();
+                            p.tone = event_target_value(&e);
+                            update_sound(p);
+                            alerts::play("done", true);
+                        }
+                    >
+                        <option value="soft" selected=move || sound.get().tone == "soft">
+                            "柔和"
+                        </option>
+                        <option value="bright" selected=move || sound.get().tone == "bright">
+                            "明亮"
+                        </option>
+                        <option value="wood" selected=move || sound.get().tone == "wood">
+                            "木质"
+                        </option>
+                    </select>
+                </PrefRow>
+                <PrefRow label="音量" for_id="settings-volume">
+                    <input
+                        id="settings-volume"
+                        type="range"
+                        min="0.05"
+                        max="1"
+                        step="0.05"
+                        prop:value=move || sound.get().volume
+                        on:change=move |e| {
+                            let mut p = sound.get_untracked();
+                            p.volume = event_target_value(&e).parse().unwrap_or(0.5);
+                            update_sound(p);
+                        }
+                    />
+                </PrefRow>
+                <PrefRow label="试听">
+                    <button type="button" class="btn small" on:click=|_| alerts::play("done", true)>
+                        "完成提示"
+                    </button>
+                    <button
+                        type="button"
+                        class="btn small"
+                        on:click=|_| alerts::play("attention", true)
+                    >
+                        "待处理提示"
+                    </button>
+                </PrefRow>
+            </Show>
         </PrefGroup>
         {move || match server.get() {
             None => view! { <LoadingState text="正在加载提醒设置…" /> }.into_any(),

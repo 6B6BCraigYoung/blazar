@@ -1090,102 +1090,104 @@ fn LarkSettings(initial: Value) -> impl IntoView {
                     }
                 />
             </PrefRow>
-            <PrefRow
-                label="接收群或用户"
-                detail="群聊填写群 ID（oc_ 开头），个人填写用户 ID（ou_ 开头）。"
-                for_id="lark-target"
-            >
-                <input
-                    id="lark-target"
-                    class="settings-input"
-                    placeholder="oc_… 或 ou_…"
-                    autocomplete="off"
-                    spellcheck="false"
-                    disabled=move || busy.get()
-                    prop:value=move || target.get()
-                    on:change=move |e| {
-                        let next = event_target_value(&e).trim().to_owned();
-                        let old = target.get_untracked();
-                        if next == old {
-                            return;
+            <Show when=move || enabled.get()>
+                <PrefRow
+                    label="接收群或用户"
+                    detail="群聊填写群 ID（oc_ 开头），个人填写用户 ID（ou_ 开头）。"
+                    for_id="lark-target"
+                >
+                    <input
+                        id="lark-target"
+                        class="settings-input"
+                        placeholder="oc_… 或 ou_…"
+                        autocomplete="off"
+                        spellcheck="false"
+                        disabled=move || busy.get()
+                        prop:value=move || target.get()
+                        on:change=move |e| {
+                            let next = event_target_value(&e).trim().to_owned();
+                            let old = target.get_untracked();
+                            if next == old {
+                                return;
+                            }
+                            target.set(next);
+                            persist(Box::new(move || target.set(old)));
                         }
-                        target.set(next);
-                        persist(Box::new(move || target.set(old)));
-                    }
-                />
-            </PrefRow>
-            <PrefRow label="发送身份" for_id="lark-as">
-                <select
-                    id="lark-as"
-                    class="settings-input"
-                    disabled=move || busy.get()
-                    prop:value=move || identity.get()
-                    on:change=move |e| {
-                        let next = event_target_value(&e);
-                        let old = identity.get_untracked();
-                        identity.set(next);
-                        persist(Box::new(move || identity.set(old)));
-                    }
-                >
-                    <option value="" selected=move || identity.get() == "">
-                        "默认身份"
-                    </option>
-                    <option value="bot" selected=move || identity.get() == "bot">
-                        "机器人"
-                    </option>
-                    <option value="user" selected=move || identity.get() == "user">
-                        "我自己"
-                    </option>
-                </select>
-            </PrefRow>
-            {NOTIFY_KINDS
-                .iter()
-                .map(move |&(kind, label)| {
-                    let id = format!("lark-kind-{kind}");
-                    view! {
-                        <PrefRow label=label for_id=id.clone()>
-                            <Switch
-                                id=id
-                                checked=Signal::derive(move || kinds.get().iter().any(|s| s == kind))
-                                disabled=busy
-                                on_change=move |checked: bool| {
-                                    let old = kinds.get_untracked();
-                                    kinds
-                                        .update(|ks| {
-                                            ks.retain(|s| s != kind);
-                                            if checked {
-                                                ks.push(kind.into());
-                                            }
-                                        });
-                                    persist(Box::new(move || kinds.set(old)));
-                                }
-                            />
-                        </PrefRow>
-                    }
-                })
-                .collect_view()}
-            <PrefRow label="测试" detail="按当前设置预览一条提醒，或真的发一条到接收方。">
-                <button
-                    type="button"
-                    class="btn"
-                    disabled=move || busy.get()
-                    on:click=move |_| test.run(true)
-                >
-                    "预览提醒"
-                </button>
-                <button
-                    type="button"
-                    class="btn"
-                    disabled=move || busy.get()
-                    on:click=move |_| test.run(false)
-                >
-                    "发送测试消息"
-                </button>
-            </PrefRow>
-            <Show when=move || !output.get().is_empty()>
-                <pre class="settings-pre pref-log" aria-live="polite">
-                    {move || output.get()}
-                </pre>
+                    />
+                </PrefRow>
+                <PrefRow label="发送身份" for_id="lark-as">
+                    <select
+                        id="lark-as"
+                        class="settings-input"
+                        disabled=move || busy.get()
+                        prop:value=move || identity.get()
+                        on:change=move |e| {
+                            let next = event_target_value(&e);
+                            let old = identity.get_untracked();
+                            identity.set(next);
+                            persist(Box::new(move || identity.set(old)));
+                        }
+                    >
+                        <option value="" selected=move || identity.get() == "">
+                            "默认身份"
+                        </option>
+                        <option value="bot" selected=move || identity.get() == "bot">
+                            "机器人"
+                        </option>
+                        <option value="user" selected=move || identity.get() == "user">
+                            "我自己"
+                        </option>
+                    </select>
+                </PrefRow>
+                {NOTIFY_KINDS
+                    .iter()
+                    .map(move |&(kind, label)| {
+                        let id = format!("lark-kind-{kind}");
+                        view! {
+                            <PrefRow label=label for_id=id.clone()>
+                                <Switch
+                                    id=id
+                                    checked=Signal::derive(move || kinds.get().iter().any(|s| s == kind))
+                                    disabled=busy
+                                    on_change=move |checked: bool| {
+                                        let old = kinds.get_untracked();
+                                        kinds
+                                            .update(|ks| {
+                                                ks.retain(|s| s != kind);
+                                                if checked {
+                                                    ks.push(kind.into());
+                                                }
+                                            });
+                                        persist(Box::new(move || kinds.set(old)));
+                                    }
+                                />
+                            </PrefRow>
+                        }
+                    })
+                    .collect_view()}
+                <PrefRow label="测试" detail="按当前设置预览一条提醒，或真的发一条到接收方。">
+                    <button
+                        type="button"
+                        class="btn"
+                        disabled=move || busy.get()
+                        on:click=move |_| test.run(true)
+                    >
+                        "预览提醒"
+                    </button>
+                    <button
+                        type="button"
+                        class="btn"
+                        disabled=move || busy.get()
+                        on:click=move |_| test.run(false)
+                    >
+                        "发送测试消息"
+                    </button>
+                </PrefRow>
+                <Show when=move || !output.get().is_empty()>
+                    <pre class="settings-pre pref-log" aria-live="polite">
+                        {move || output.get()}
+                    </pre>
+                </Show>
             </Show>
         </PrefGroup>
     }
