@@ -1499,7 +1499,9 @@ fn Obsidian(initial: Value, rev: RwSignal<u32>, checking: Signal<bool>) -> impl 
                                                 "测试笔记已保存到 "
                                                 <code>{text(&v, "path")}</code>
                                                 "。"
-                                                <a href=text(&v, "open")>"在 Obsidian 打开"</a>
+                                                <a class="linkbtn" href=text(&v, "open")>
+                                                    "在 Obsidian 打开"
+                                                </a>
                                             </p>
                                         }
                                     })

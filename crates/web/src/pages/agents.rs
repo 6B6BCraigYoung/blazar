@@ -14,7 +14,7 @@ use crate::components::group::ListGroup;
 use crate::components::icon;
 use crate::components::modal::Modal;
 use crate::components::page_head::{MenuItem, MoreMenu, PageHead};
-use crate::components::rows::{RowAction, RowKey, RowMenu, Rows};
+use crate::components::rows::{RowAction, RowKey, RowMenu, Rows, open_row};
 use crate::components::status::{EmptyState, InlineError, LoadingState, StateOf};
 use crate::components::toast::toast;
 use crate::components::undo::{self, Request};
@@ -560,13 +560,14 @@ pub fn AgentsPage() -> impl IntoView {
                                                 let status = availability(&a, &rts);
                                                 view! {
                                                     <tr
-                                                        class="agent-row"
+                                                        class="agent-row link-row"
                                                         tabindex="-1"
                                                         data-index=i.to_string()
                                                         data-sel=move || rows.selected(i).to_string()
                                                         data-menu=move || rows.menu_on(i).to_string()
                                                         on:focusin=move |_| rows.sel.set(Some(i))
                                                         on:contextmenu=move |e| rows.open_menu(&e, i)
+                                                        on:click=move |e: ev::MouseEvent| open_row(&e, "a.agent-name")
                                                     >
                                                         <td>
                                                             <input
@@ -822,7 +823,7 @@ pub fn AgentProfilePage() -> impl IntoView {
                                 </span>
                             </div>
                         </div>
-                        <div class="agent-tabs" role="group" aria-label="角色档案内容">
+                        <div class="seg agent-tabs" role="group" aria-label="角色档案内容">
                             {[
                                 ("overview", "概览"),
                                 ("work", "工作记录"),
@@ -835,9 +836,9 @@ pub fn AgentProfilePage() -> impl IntoView {
                                 .map(|(key, label)| {
                                     view! {
                                         <button
-                                            class="btn"
+                                            type="button"
                                             aria-pressed=move || tab.get() == key
-                                            class:active=move || tab.get() == key
+                                            data-on=move || (tab.get() == key).to_string()
                                             on:click=move |_| {
                                                 if tab.get_untracked() == key {
                                                     return;
@@ -1304,11 +1305,12 @@ fn AgentCapabilities(agent: Value, kind: &'static str) -> impl IntoView {
         <div class="card pad">
             <div class="agent-toolbar">
                 <h3>{if kind == "skills" { "技能" } else { "MCP 服务器" }}</h3>
-                <a href=if kind == "skills" {
-                    "/skills"
-                } else {
-                    "/skills?tab=mcp"
-                }>"管理能力库 →"</a>
+                <a
+                    class="linkbtn"
+                    href=if kind == "skills" { "/skills" } else { "/skills?tab=mcp" }
+                >
+                    "管理能力库 →"
+                </a>
             </div>
             <p class="muted">
                 {if kind == "skills" {

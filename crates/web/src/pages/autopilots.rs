@@ -433,10 +433,7 @@ fn AutopilotDetail(id: String, ui: ApUi) -> impl IntoView {
                                         <dl class="work-kv">
                                             <dt>"工作区"</dt>
                                             <dd>
-                                                <a href=format!(
-                                                    "/w/{}",
-                                                    api::enc(&ws),
-                                                )>
+                                                <a class="cell-link" href=format!("/w/{}", api::enc(&ws))>
                                                     {if s(&a, "workspace_name").is_empty() {
                                                         "工作区已删除".into()
                                                     } else {
@@ -672,17 +669,19 @@ fn AutopilotDetail(id: String, ui: ApUi) -> impl IntoView {
                                                             </div>
                                                             {if !task.is_empty() {
                                                                 view! {
-                                                                    <a href=format!(
-                                                                        "/tasks?task={}",
-                                                                        api::enc(&task),
-                                                                    )>
+                                                                    <a
+                                                                        class="cell-link"
+                                                                        href=format!("/tasks?task={}", api::enc(&task))
+                                                                    >
                                                                         {format!("{} {}", s(&r, "task_key"), s(&r, "task_title"))}
                                                                     </a>
                                                                 }
                                                                     .into_any()
                                                             } else if !thread.is_empty() {
                                                                 view! {
-                                                                    <a href=thread_link(&ws, &thread)>"打开对话"</a>
+                                                                    <a class="linkbtn" href=thread_link(&ws, &thread)>
+                                                                        "打开对话"
+                                                                    </a>
                                                                 }
                                                                     .into_any()
                                                             } else {

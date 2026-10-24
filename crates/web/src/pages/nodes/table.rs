@@ -1,5 +1,6 @@
 use super::*;
 use crate::components::menu::menu_keydown;
+use crate::components::rows::open_row;
 use crate::fmt;
 use blazar_core_types::api::NodeView;
 use leptos::ev;
@@ -124,31 +125,13 @@ fn row_view(i: usize, n: NodeView, menu: RwSignal<Option<MenuAt>>) -> impl IntoV
     } else {
         None
     };
-    let open = move |e: ev::MouseEvent| {
-        let on_control = e
-            .target()
-            .and_then(|t| t.dyn_into::<web_sys::Element>().ok())
-            .and_then(|el| el.closest("a, button").ok().flatten())
-            .is_some();
-        if on_control {
-            return;
-        }
-        if let Some(link) = e
-            .current_target()
-            .and_then(|t| t.dyn_into::<web_sys::Element>().ok())
-            .and_then(|row| row.query_selector("a.node-name").ok().flatten())
-            .and_then(|a| a.dyn_into::<web_sys::HtmlElement>().ok())
-        {
-            link.click();
-        }
-    };
     view! {
         <tr
             class="node-row"
             data-index=i.to_string()
             data-off=(!online).to_string()
             data-menu=move || menu.with(|m| m.is_some_and(|m| m.index == i)).to_string()
-            on:click=open
+            on:click=move |e: ev::MouseEvent| open_row(&e, "a.node-name")
             on:contextmenu=move |e: ev::MouseEvent| {
                 e.prevent_default();
                 menu.set(

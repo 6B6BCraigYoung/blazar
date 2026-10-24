@@ -327,7 +327,7 @@ pub fn BotsPage() -> impl IntoView {
                                             on:contextmenu=move |e| rows.open_menu(&e, i)
                                         >
                                             <div class="bot-head">
-                                                <a href=href.clone()>
+                                                <a class="cell-link" href=href.clone()>
                                                     <strong>{s(&b, "display_name")}</strong>
                                                 </a>
                                                 <span class="mono muted">{s(&b, "handle")}</span>
@@ -1184,7 +1184,9 @@ pub fn BotPage() -> impl IntoView {
                                             </span>
                                             <span class="muted">"家工作区"</span>
                                             <span>
-                                                <a href=format!("/w/{}", api::enc(&home))>"打开"</a>
+                                                <a class="cell-link" href=format!("/w/{}", api::enc(&home))>
+                                                    "打开"
+                                                </a>
                                             </span>
                                             <span class="muted">"待处理"</span>
                                             <span>

@@ -159,8 +159,8 @@ select.settings-input, .dlg select, .card.pad select { appearance: none; -webkit
 .pref-rows > .pref-log { margin: var(--space-md) var(--space-xl) var(--space-lg) 0; }
 .pref-rows > .ui-state { padding: var(--space-lg) var(--space-xl) var(--space-lg) 0; }
 .pref-more { justify-content: flex-end; min-height: 36px; padding: var(--space-xs) 0; }
-.pref-more-btn { all: unset; cursor: pointer; padding: var(--space-xs) var(--space-md); border-radius: var(--r-sm); color: var(--accent); font-size: var(--font-size-label-readable); }
-.pref-more-btn:hover { background: var(--bg-hover); }
+.pref-more-btn { all: unset; cursor: pointer; padding: var(--space-xs) var(--space-md); border-radius: var(--r-sm); color: var(--fg-3); font-size: var(--font-size-label-readable); }
+.pref-more-btn:hover { background: var(--bg-hover); color: var(--fg); }
 .pref-list { display: flex; flex-direction: column; border: 0; border-radius: 0; background: transparent; overflow: hidden; }
 .pref-items { display: flex; flex-direction: column; max-height: 360px; overflow-y: auto; overscroll-behavior: contain; outline: none; }
 .pref-items:focus-visible { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 50%, transparent); }

@@ -226,7 +226,7 @@ pub fn Start() -> impl IntoView {
                                             .action
                                             .map(|action| match action {
                                                 LineAction::Link(label, href) => {
-                                                    view! { <a href=href>{label}</a> }.into_any()
+                                                    view! { <a class="linkbtn" href=href>{label}</a> }.into_any()
                                                 }
                                                 LineAction::Login(a) => {
                                                     view! {

@@ -5,7 +5,7 @@ use crate::components::group::ListGroup;
 use crate::components::icon;
 use crate::components::modal::Modal;
 use crate::components::page_head::PageHead;
-use crate::components::rows::{RowAction, RowKey, RowMenu, Rows};
+use crate::components::rows::{RowAction, RowKey, RowMenu, Rows, open_row};
 use crate::components::status::{EmptyState, InlineError, LoadingState};
 use crate::components::toast::toast;
 use crate::components::undo::{self, Request};
@@ -198,15 +198,15 @@ pub fn SkillsPage() -> impl IntoView {
     view! {
         <div class="page wide agent-page skills-page">
             <PageHead title="智能体" nav=|| crate::components::section::agents("/skills") />
-            <div class="agent-tabs" role="group" aria-label="技能内容">
+            <div class="seg agent-tabs" role="group" aria-label="技能内容">
                 {[("skills", "已安装"), ("market", "发现"), ("mcp", "MCP 服务器")]
                     .into_iter()
                     .map(|(k, l)| {
                         view! {
                             <button
-                                class="btn"
+                                type="button"
                                 aria-pressed=move || tab.get() == k
-                                class:active=move || tab.get() == k
+                                data-on=move || (tab.get() == k).to_string()
                                 on:click=move |_| {
                                     if tab.get_untracked() != k {
                                         tab.set(k.into());
@@ -349,13 +349,16 @@ pub fn SkillsPage() -> impl IntoView {
                                                             let v = StoredValue::new(item.clone());
                                                             view! {
                                                                 <tr
-                                                                    class="skill-row"
+                                                                    class="skill-row link-row"
                                                                     tabindex="-1"
                                                                     data-index=i.to_string()
                                                                     data-sel=move || list_rows.selected(i).to_string()
                                                                     data-menu=move || list_rows.menu_on(i).to_string()
                                                                     on:focusin=move |_| list_rows.sel.set(Some(i))
                                                                     on:contextmenu=move |e| list_rows.open_menu(&e, i)
+                                                                    on:click=move |e: leptos::ev::MouseEvent| {
+                                                                        open_row(&e, "button.agent-link")
+                                                                    }
                                                                 >
                                                                     <td>
                                                                         <button

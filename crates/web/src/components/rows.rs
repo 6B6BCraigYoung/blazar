@@ -67,6 +67,29 @@ pub fn list_keys_apply(e: &ev::KeyboardEvent) -> bool {
     !e.default_prevented() && !e.is_composing() && !in_field(e) && !overlay_open()
 }
 
+pub fn open_row(e: &ev::MouseEvent, target: &str) {
+    let on_control = e
+        .target()
+        .and_then(|t| t.dyn_into::<web_sys::Element>().ok())
+        .and_then(|el| {
+            el.closest("a, button, input, label, select, textarea")
+                .ok()
+                .flatten()
+        })
+        .is_some();
+    if on_control {
+        return;
+    }
+    if let Some(el) = e
+        .current_target()
+        .and_then(|t| t.dyn_into::<web_sys::Element>().ok())
+        .and_then(|row| row.query_selector(target).ok().flatten())
+        .and_then(|el| el.dyn_into::<web_sys::HtmlElement>().ok())
+    {
+        el.click();
+    }
+}
+
 fn row_element(row: &str, i: usize) -> Option<web_sys::Element> {
     document()
         .query_selector(&format!("{row}[data-index=\"{i}\"]"))

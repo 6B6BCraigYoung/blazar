@@ -4,6 +4,7 @@ use serde_json::{Value, json};
 use crate::components::empty::{self, Action, Blank};
 use crate::components::icon;
 use crate::components::page_head::PageHead;
+use crate::components::rows::open_row;
 use crate::components::status::{EmptyState, InlineError, LoadingState};
 use crate::{api, storage, vocab};
 
@@ -512,15 +513,20 @@ fn Analytics(data: Value, days: u32, widen: Callback<()>) -> impl IntoView {
                                         let fin = n(&b, "done") + n(&b, "failed");
                                         let runtime = vocab::term(&s(&b, "runtime")).to_owned();
                                         view! {
-                                            <tr>
+                                            <tr
+                                                class="link-row"
+                                                on:click=move |e: leptos::ev::MouseEvent| open_row(&e, "a.cell-link")
+                                            >
                                                 <td>
                                                     {match b["agent_id"].as_str() {
                                                         Some(id) => {
                                                             view! {
-                                                                <a href=format!(
-                                                                    "/agent/{}",
-                                                                    api::enc(id),
-                                                                )>{s(&b, "who")}</a>
+                                                                <a
+                                                                    class="cell-link"
+                                                                    href=format!("/agent/{}", api::enc(id))
+                                                                >
+                                                                    {s(&b, "who")}
+                                                                </a>
                                                                 <span class="muted">{format!(" {runtime}")}</span>
                                                             }
                                                                 .into_any()

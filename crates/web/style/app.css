@@ -2,7 +2,11 @@
 html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none; }
 body { background: var(--bg-canvas); color: var(--fg); font: var(--font-weight-regular) var(--font-size-body)/var(--line-height-body) var(--font-sans); -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; text-rendering: optimizeLegibility; }
 * { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--fg) 22%, transparent) transparent; }
-a { color: var(--accent); text-decoration: none; }
+a { color: inherit; text-decoration: none; }
+a:not([class]) { color: var(--fg-2); text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 2px; }
+a:not([class]):hover { color: var(--fg); text-decoration-color: currentColor; }
+.cell-link { color: var(--fg); }
+.cell-link:hover { text-decoration: underline; }
 button { font: inherit; color: inherit; }
 ::selection { background: var(--selection-bg); }
 
@@ -201,8 +205,10 @@ body.drag-y, body.drag-y * { cursor: row-resize !important; user-select: none; }
 .edbar .crumbs i { font-style: normal; color: var(--decoration-muted); }
 .edbar .crumbs .cur { color: var(--fg-2); }
 .edbar .grow { flex: 1; }
-.linkbtn { all: unset; cursor: pointer; color: var(--accent); }
-.linkbtn:hover { text-decoration: underline; }
+.linkbtn { all: unset; cursor: pointer; color: var(--fg-3); }
+.linkbtn:hover { color: var(--fg); text-decoration: underline; }
+.side .side-fold { color: var(--fg-3); font-size: var(--font-size-body); padding: 0 var(--space-xs); }
+.side .side-fold:hover { color: var(--fg); text-decoration: none; }
 
 .editor-stack { position: relative; flex: 1; min-height: 0; }
 .editor-host, .mdview, .welcome { position: absolute; inset: 0; }
@@ -271,7 +277,7 @@ b.mk { font: var(--font-weight-semibold) var(--font-size-caption) var(--font-mon
 .df-head .st { font: var(--font-size-caption) var(--font-mono); white-space: nowrap; }
 .df-head .grow { flex: 1; }
 .df-note { padding: var(--space-control) var(--space-card); color: var(--fg-3); font-family: var(--font-sans); font-size: var(--font-size-label); }
-.df-more { all: unset; cursor: pointer; display: block; width: 100%; padding: var(--space-lg); text-align: center; color: var(--accent); font-family: var(--font-sans); font-size: var(--font-size-label); }
+.df-more { all: unset; cursor: pointer; display: block; width: 100%; padding: var(--space-lg); text-align: center; color: var(--fg-3); font-family: var(--font-sans); font-size: var(--font-size-label); }
 .df-more:hover { background: var(--bg-hover); }
 .dh { padding: var(--space-2xs) var(--space-lg); background: var(--diff-hunk-bg); color: var(--diff-hunk-fg); }
 .dh span { color: var(--fg-4); }
@@ -323,7 +329,7 @@ b.mk { font: var(--font-weight-semibold) var(--font-size-caption) var(--font-mon
 .gp-file:hover { background: var(--bg-hover); color: var(--fg); }
 .gp-file span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gp-commit { display: grid; grid-template-columns: 70px minmax(0, 1fr) auto; gap: var(--space-control); align-items: baseline; padding: var(--space-label) 0; }
-.gp-commit code { font: var(--font-size-caption-readable) var(--font-mono); color: var(--accent); }
+.gp-commit code { font: var(--font-size-caption-readable) var(--font-mono); color: var(--fg-3); }
 .gp-commit .sj { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gp-out summary { cursor: pointer; color: var(--fg-3); font-size: var(--font-size-caption-readable); }
 .gp-out pre { margin: var(--space-sm) 0 0; padding: var(--space-control) var(--space-lg); max-height: 260px; overflow: auto; background: var(--bg-code); border: 1px solid var(--line); border-radius: var(--r-md); font: var(--font-size-caption-readable)/var(--line-height-code) var(--font-mono); color: var(--fg-2); white-space: pre-wrap; }

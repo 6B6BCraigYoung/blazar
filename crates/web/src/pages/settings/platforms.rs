@@ -143,7 +143,12 @@ fn ProviderList(list: Vec<Value>, rev: RwSignal<i32>) -> impl IntoView {
                                 let status = status.clone();
                                 view! {
                                     <span>{status}</span>
-                                    <a href=home.clone() target="_blank" rel="noopener noreferrer">
+                                    <a
+                                        class="linkbtn"
+                                        href=home.clone()
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                    >
                                         "打开 ↗"
                                     </a>
                                 }

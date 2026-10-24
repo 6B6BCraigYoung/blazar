@@ -45,7 +45,8 @@
 .cc-user[data-stuck]::before { content: ""; position: absolute; z-index: -1; inset: -14px -100vw 0; background: var(--bg-canvas); border-bottom: 1px solid var(--line); }
 .cc-user .cc-ut { white-space: pre-wrap; word-break: break-word; color: var(--fg); }
 .cc-user[data-long="true"]:not([data-expanded="true"]) .cc-ut { max-height: 7.5em; overflow: hidden; -webkit-mask-image: linear-gradient(var(--mask-opaque) 60%, transparent); mask-image: linear-gradient(var(--mask-opaque) 60%, transparent); }
-.cc-xp { all: unset; cursor: pointer; font-size: var(--font-size-caption-readable); color: var(--accent); }
+.cc-xp { all: unset; cursor: pointer; font-size: var(--font-size-caption-readable); color: var(--fg-3); }
+.cc-xp:hover { color: var(--fg); }
 .cc-uline { display: flex; align-items: flex-end; gap: var(--space-lg); }
 .cc-uline .cc-ut { flex: 1; min-width: 0; }
 .cc-acts { display: flex; flex: none; gap: var(--space-control); line-height: 1.6; }
@@ -108,7 +109,7 @@
 .cc-cnt i { font-style: normal; }
 .cc-cnt .ok { color: var(--ok-fg); }
 .cc-cnt .bad { color: var(--err-fg); }
-.cc-arg[data-open]:hover { color: var(--accent); text-decoration: underline; }
+.cc-arg[data-open]:hover { color: var(--fg); text-decoration: underline; }
 .cc-tool .cc-diff { cursor: pointer; }
 .cc-tool .cc-diff:hover { border-color: var(--border-strong); }
 .cc-ws { flex: 0 0 auto; display: inline-flex; align-items: center; gap: var(--space-xs); max-width: 60%; padding: 0 var(--space-md); border-radius: var(--radius-pill); background: var(--control-track); color: var(--fg); font-size: var(--font-size-caption-readable); line-height: 1.6; text-decoration: none; align-self: center; }
@@ -124,7 +125,7 @@
 .cc-out.sum .cc-pre { color: var(--fg-3); }
 .cc-more { all: unset; cursor: pointer; display: block; color: var(--fg-4); font-size: var(--font-size-caption-readable); }
 .cc-earlier { width: fit-content; margin: var(--space-sm) auto var(--space-md); }
-.cc-more:hover { color: var(--accent); }
+.cc-more:hover { color: var(--fg); }
 .cc-diff { margin-top: var(--space-xs); border: 1px solid var(--line); border-radius: var(--r-md); background: var(--bg-code); font: var(--font-size-label)/var(--line-height-code) var(--font-mono); overflow: hidden; }
 .cc-diff > div { padding: 0 var(--space-md) 0 calc(var(--space-md) + 14px); text-indent: -14px; white-space: pre-wrap; word-break: normal; overflow-wrap: anywhere; }
 .cc-diff .dm { display: inline-block; width: 14px; color: var(--fg-4); }
@@ -142,7 +143,8 @@
 .cc-sub { margin-top: var(--space-xs); }
 .cc-subl { margin: var(--space-sm) 0 0 var(--space-xs); padding-left: var(--space-control); border-left: 1px solid var(--line); }
 .cc-subwait { display: flex; align-items: center; gap: var(--space-sm); height: 1.85em; overflow: hidden; white-space: nowrap; color: var(--fg-3); font-size: var(--font-size-label-readable); }
-.cc-subretry { all: unset; cursor: pointer; color: var(--accent); }
+.cc-subretry { all: unset; cursor: pointer; color: var(--fg-3); }
+.cc-subretry:hover { color: var(--fg); }
 .cc-meta { margin: var(--margin-chat-meta); font-size: var(--font-size-caption-readable); color: var(--fg-4); }
 .cc-retry { display: flex; align-items: center; gap: var(--space-sm); color: var(--fg-3); }
 .cc-retry .dot { width: 6px; height: 6px; flex: 0 0 auto; border-radius: 50%; background: var(--status-run); }
@@ -218,7 +220,7 @@
 .cb-changes .bad { color: var(--err-fg); }
 .cb-changes .sep { color: var(--fg-4); }
 .cb-changes .go { color: var(--fg-3); }
-.cb-changes:hover .go { color: var(--accent); }
+.cb-changes:hover .go { color: var(--fg); }
 .cb-offline { box-sizing: border-box; display: flex; align-items: center; gap: var(--space-sm); min-height: 32px; margin: 0 var(--space-md) calc(-1 * var(--space-sm)); padding: var(--space-xs) var(--space-control); border: 1px solid var(--border); border-bottom: 0; border-radius: var(--r-md) var(--r-md) 0 0; background: var(--bg-raised); font-size: var(--font-size-label); color: var(--fg-2); }
 .cb-offline .dot { width: 6px; height: 6px; flex: 0 0 auto; border-radius: 50%; background: var(--status-failed); }
 .cb-offline .sep { color: var(--fg-4); }
@@ -242,11 +244,10 @@
 .cb-bar > .cb-model { height: 18px; margin: 0 4px; padding: 0 8px; border-radius: 999px; background: color-mix(in srgb, var(--fg) 10%, transparent); color: var(--fg); line-height: 18px; }
 .cb-bar > .cb-model:hover { background: color-mix(in srgb, var(--fg) 18%, transparent); }
 .cb-bar > .cb-model .muted { margin-left: 2px; color: var(--fg-3); }
-.cb-fresh { color: var(--accent); }
+.cb-fresh { color: var(--fg-2); }
 .cb-grow { flex: 1 1 0; min-width: 0; }
 .cb-right { display: contents; }
 .cb-right > .cb-agent .muted { color: var(--fg-4); }
-.cb-mode[data-mode="plan"] { color: var(--accent); }
 .rt-ic { width: 12px; height: 12px; flex: 0 0 auto; display: inline-grid; place-items: center; color: var(--fg-3); }
 .rt-ic svg { width: 12px; height: 12px; }
 .cb-send { all: unset; cursor: pointer; width: 26px; height: 26px; flex: 0 0 auto; margin-left: 2px; display: grid; place-items: center; border-radius: 5px; background: var(--control-track); color: var(--fg-3); transition: background-color var(--duration-control), color var(--duration-control), filter var(--duration-control); }
@@ -292,7 +293,8 @@
 .mcp-dot[data-s="failed"] { background: var(--status-failed); }
 .mcp-dot[data-s="needs-auth"] { background: var(--status-attention); }
 .mcp-st { font-size: var(--font-size-caption); color: var(--fg-4); }
-.mcp-act { all: unset; cursor: pointer; font-size: var(--font-size-caption); color: var(--accent); }
+.mcp-act { all: unset; cursor: pointer; font-size: var(--font-size-caption); color: var(--fg-3); }
+.mcp-act:hover { color: var(--fg); }
 
 .cc-appr { padding: var(--space-control) var(--space-lg); border: 1px solid var(--border); border-radius: var(--r-md); box-shadow: var(--shadow-composer); background: var(--bg-panel); outline: none; animation: ccfade var(--duration-approval-enter); }
 .astat { display: flex; align-items: center; gap: var(--space-sm); margin-bottom: var(--space-xs); font-size: var(--font-size-caption-readable); font-weight: var(--font-weight-medium); color: var(--status-fg); }

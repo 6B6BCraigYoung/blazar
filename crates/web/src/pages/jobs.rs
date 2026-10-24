@@ -102,7 +102,11 @@ fn waits(j: &Value) -> String {
 fn owner(j: &Value) -> AnyView {
     match s(j, "owner_kind").as_str() {
         "bot" if !s(j, "bot_handle").is_empty() => view! {
-            <a href=format!("/bots/{}", api::enc(&s(j, "bot_id"))) title=s(j, "bot_handle")>
+            <a
+                class="cell-link"
+                href=format!("/bots/{}", api::enc(&s(j, "bot_id")))
+                title=s(j, "bot_handle")
+            >
                 {Some(s(j, "bot_name")).filter(|n| !n.is_empty()).unwrap_or_else(|| s(j, "bot_handle"))}
             </a>
         }
