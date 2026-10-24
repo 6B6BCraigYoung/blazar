@@ -669,8 +669,8 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 .start-title { margin: 0; font-size: var(--font-size-heading); font-weight: var(--font-weight-semibold); line-height: var(--line-height-heading); text-align: center; }
 .start-lead { margin: var(--space-sm) 0 var(--space-3xl); text-align: center; color: var(--fg-3); }
 .start-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-md); }
-.start-step { display: flex; align-items: flex-start; gap: var(--space-lg); padding: var(--space-xl); border-radius: var(--r-lg); background: var(--bg-panel); box-shadow: var(--shadow-card); transition: box-shadow var(--duration-control); }
-.start-step[data-over="true"] { box-shadow: var(--shadow-card), 0 0 0 2px var(--accent); }
+.start-step { display: flex; align-items: flex-start; gap: var(--space-lg); padding: var(--space-xl); border-radius: var(--r-group); background: var(--bg-group); box-shadow: var(--shadow-tile); transition: box-shadow var(--duration-control); }
+.start-step[data-over="true"] { box-shadow: var(--shadow-tile), 0 0 0 2px var(--accent); }
 .start-mark { flex: 0 0 auto; width: 24px; height: 24px; display: grid; place-items: center; border-radius: 50%; background: var(--control-track); color: var(--fg-3); font-size: var(--font-size-label); font-weight: var(--font-weight-semibold); }
 .start-step[data-done="true"] .start-mark { background: transparent; color: var(--fg-3); }
 .start-mark svg { width: 16px; height: 16px; }
