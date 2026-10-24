@@ -1,45 +1,114 @@
 use leptos::prelude::*;
 use serde::{Deserialize, Serialize};
 
+use crate::chat_model::Todo;
 use crate::storage;
 
 use super::super::log::todo_list;
 use super::super::state::Chat;
 
+pub(super) const TRAY_MIN_LOG: f64 = 360.0;
+pub(super) const TRAY_LIST: f64 = 66.0;
+
 #[component]
-pub(super) fn Todos(chat: Chat) -> impl IntoView {
-    let open = RwSignal::new(storage::load_raw("blazar.todosOpen").as_deref() != Some("0"));
-    move || {
-        let todos = chat
+pub(super) fn Tray(chat: Chat, log_h: RwSignal<f64>) -> impl IntoView {
+    let manual = RwSignal::new(None::<bool>);
+    Effect::new(move |_| {
+        chat.running.track();
+        manual.set(None);
+    });
+    let todos = Memo::new(move |_| {
+        let list: Vec<Todo> = chat
             .transcript
             .with(|t| t.todos.clone())
             .unwrap_or_default();
-        let done = todos.iter().filter(|t| t.status == "completed").count();
-        if todos.is_empty() || (done == todos.len() && !chat.running.get()) {
+        let done = list.iter().filter(|t| t.status == "completed").count();
+        (!list.is_empty() && (done < list.len() || chat.running.get())).then_some((list, done))
+    });
+    let changes = Memo::new(move |_| {
+        chat.diff.files.with(|f| {
+            (
+                f.len(),
+                f.iter().map(|x| x.added).sum::<u32>(),
+                f.iter().map(|x| x.removed).sum::<u32>(),
+            )
+        })
+    });
+    let shown = Memo::new(move |prev: Option<&(bool, bool)>| {
+        let was_open = prev.is_some_and(|p| p.1);
+        let room = log_h.get() + if was_open { TRAY_LIST } else { 0.0 };
+        let fits = room >= TRAY_MIN_LOG + TRAY_LIST;
+        let want =
+            todos.with(Option::is_some) && manual.get().unwrap_or_else(|| chat.running.get());
+        (fits, fits && want)
+    });
+    let fits = Memo::new(move |_| shown.get().0);
+    let open = Memo::new(move |_| shown.get().1);
+    move || {
+        let (n, added, removed) = changes.get();
+        let todos = todos.get();
+        if todos.is_none() && n == 0 {
             return None;
         }
-        let cur = todos
-            .iter()
-            .find(|t| t.status == "in_progress")
-            .map(|t| t.content.clone());
+        let list = todos.as_ref().map(|(l, _)| l.clone()).unwrap_or_default();
         Some(view! {
-            <div class="cc-todobar">
-                <button
-                    class="td-h"
-                    aria-expanded=move || open.get().to_string()
-                    on:click=move |_| {
-                        open.update(|o| *o = !*o);
-                        storage::save_raw(
-                            "blazar.todosOpen",
-                            if open.get_untracked() { "1" } else { "0" },
-                        );
-                    }
-                >
-                    <span class="chev" aria-hidden="true"></span>
-                    <b>{format!("待办 {done}/{}", todos.len())}</b>
-                    {cur.map(|c| view! { <span class="td-cur">{c}</span> })}
-                </button>
-                {move || open.get().then(|| todo_list(&todos))}
+            <div class="cb-tray" data-open=move || open.get().to_string()>
+                <div class="cb-todos" hidden=move || !open.get()>
+                    {todo_list(&list)}
+                </div>
+                <div class="cb-tray-row">
+                    {todos
+                        .map(|(list, done)| {
+                            let cur = list
+                                .iter()
+                                .find(|t| t.status == "in_progress")
+                                .map(|t| t.content.clone());
+                            let all = done == list.len();
+                            view! {
+                                <button
+                                    type="button"
+                                    class="cb-todo"
+                                    aria-expanded=move || open.get().to_string()
+                                    disabled=move || !fits.get()
+                                    title="待办"
+                                    on:click=move |_| {
+                                        manual.set(Some(!open.get_untracked()));
+                                    }
+                                >
+                                    <span class="ck" aria-hidden="true">
+                                        {if all { "☒" } else { "☐" }}
+                                    </span>
+                                    <b>{format!("待办 {done}/{}", list.len())}</b>
+                                    {cur
+                                        .map(|c| {
+                                            view! {
+                                                <span class="sep">"·"</span>
+                                                <span class="cur">{c}</span>
+                                            }
+                                        })}
+                                    <span class="chev" aria-hidden="true"></span>
+                                </button>
+                            }
+                        })}
+                    <span class="grow"></span>
+                    {(n > 0)
+                        .then(|| {
+                            view! {
+                                <button
+                                    type="button"
+                                    class="cb-review"
+                                    title="在检查器里审阅更改"
+                                    on:click=move |_| chat.show_diff.run(())
+                                >
+                                    <span class="n">{format!("{n} 个文件")}</span>
+                                    <span class="ok">{format!("+{added}")}</span>
+                                    <span class="bad">{format!("−{removed}")}</span>
+                                    <span class="sep">"·"</span>
+                                    <span class="go">"审阅"</span>
+                                </button>
+                            }
+                        })}
+                </div>
             </div>
         })
     }

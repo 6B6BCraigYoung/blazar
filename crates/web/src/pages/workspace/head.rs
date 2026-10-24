@@ -2,7 +2,6 @@ use leptos::html;
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
 
-use super::diff_panel::DiffState;
 use super::git_panel::Git;
 use super::layout::{Changes, LayoutState, Tab};
 use crate::api::{self, WorkspaceDetail};
@@ -236,7 +235,6 @@ pub fn WsHead(
     id: String,
     detail: LocalResource<Result<WorkspaceDetail, api::ApiError>>,
     state: LayoutState,
-    diff: DiffState,
     git: Git,
     props: RwSignal<bool>,
     kids_open: RwSignal<bool>,
@@ -294,15 +292,6 @@ pub fn WsHead(
     let changes_on = move || {
         let l = lay();
         l.inspect && l.tab == Tab::Changes
-    };
-    let sums = move || {
-        diff.files.with(|f| {
-            (
-                f.len(),
-                f.iter().map(|x| x.added).sum::<u32>(),
-                f.iter().map(|x| x.removed).sum::<u32>(),
-            )
-        })
     };
     let kids_label = Signal::derive(move || match kids.get() {
         0 => "添加子工作区…".to_owned(),
@@ -381,18 +370,6 @@ pub fn WsHead(
                 }
             >
                 "更改"
-                {move || {
-                    let (n, a, r) = sums();
-                    (n > 0)
-                        .then(|| {
-                            view! {
-                                <span class="ws-delta">
-                                    <b class="ok">{format!("+{a}")}</b>
-                                    <b class="bad">{format!("−{r}")}</b>
-                                </span>
-                            }
-                        })
-                }}
             </button>
             <WsMenu groups />
         </header>

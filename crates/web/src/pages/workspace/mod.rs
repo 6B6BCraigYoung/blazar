@@ -415,7 +415,7 @@ fn Workspace(id: String) -> impl IntoView {
                     </a>
                 </div>
             </Show>
-            <WsHead id=id.clone() detail state diff git props kids_open gone />
+            <WsHead id=id.clone() detail state git props kids_open gone />
             {
                 let id = id.clone();
                 move || {

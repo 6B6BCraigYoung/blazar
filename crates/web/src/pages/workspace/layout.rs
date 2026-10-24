@@ -46,7 +46,7 @@ impl Default for Layout {
         Self {
             ex: 260.0,
             insp: 0.618,
-            panel: 0.382,
+            panel: 0.3,
             files: false,
             inspect: false,
             tab: Tab::Editor,

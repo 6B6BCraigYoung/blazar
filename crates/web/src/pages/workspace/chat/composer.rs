@@ -23,7 +23,7 @@ mod status;
 use pickers::{FilesPop, agent_pop, mcp_pop, mode_pop, model_pop, plus_pop, slash_pop, style_pop};
 use presentation::{eff_label, fmt_dur, fmt_k, icon, svg};
 use queue::{FailedEditor, QueueBand, QueueEditor};
-use status::{RateBanner, Todos};
+use status::{RateBanner, Tray};
 
 #[wasm_bindgen(module = "/js/files.js")]
 extern "C" {
@@ -186,7 +186,12 @@ fn FailedCard(
 }
 
 #[component]
-pub fn Composer(chat: Chat, tick: RwSignal<u32>, tree_files: Signal<Vec<String>>) -> impl IntoView {
+pub fn Composer(
+    chat: Chat,
+    tick: RwSignal<u32>,
+    tree_files: Signal<Vec<String>>,
+    log_h: RwSignal<f64>,
+) -> impl IntoView {
     let pop = RwSignal::new(None::<Pop>);
     let sel = RwSignal::new(0usize);
     let ta = NodeRef::<html::Textarea>::new();
@@ -783,7 +788,6 @@ pub fn Composer(chat: Chat, tick: RwSignal<u32>, tree_files: Signal<Vec<String>>
                     }}
                 </div>
             </Show>
-            <Todos chat />
             <RateBanner chat />
             {move || {
                 (review_n() > 0)
@@ -979,35 +983,6 @@ pub fn Composer(chat: Chat, tick: RwSignal<u32>, tree_files: Signal<Vec<String>>
                     })
             }}
             {move || {
-                let (n, added, removed) = chat
-                    .diff
-                    .files
-                    .with(|f| {
-                        (
-                            f.len(),
-                            f.iter().map(|x| x.added).sum::<u32>(),
-                            f.iter().map(|x| x.removed).sum::<u32>(),
-                        )
-                    });
-                (n > 0 && !deciding.get() && !unreachable.get())
-                    .then(|| {
-                        view! {
-                            <button
-                                type="button"
-                                class="cb-changes"
-                                title="在检查器里查看更改"
-                                on:click=move |_| chat.show_diff.run(())
-                            >
-                                <span class="n">{format!("{n} 个文件")}</span>
-                                <span class="ok">{format!("+{added}")}</span>
-                                <span class="bad">{format!("−{removed}")}</span>
-                                <span class="sep">"·"</span>
-                                <span class="go">"查看更改"</span>
-                            </button>
-                        }
-                    })
-            }}
-            {move || {
                 unreachable
                     .get()
                     .then(|| {
@@ -1064,6 +1039,7 @@ pub fn Composer(chat: Chat, tick: RwSignal<u32>, tree_files: Signal<Vec<String>>
                     }
                 }
             >
+                <Tray chat log_h />
                 {move || {
                     let ctx = chat.ctx_file();
                     let list = chat.attach.get();

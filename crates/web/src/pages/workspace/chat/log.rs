@@ -5,6 +5,7 @@ use leptos::prelude::*;
 
 use crate::components::status::{InlineError, LoadingState};
 use wasm_bindgen::JsCast;
+use wasm_bindgen::closure::Closure;
 
 use crate::chat_model::{
     Body, Extra, Fold, Group, Item, Res, St, Step, Tool, fmt_tokens, group_sig, group_steps,
@@ -1275,13 +1276,39 @@ fn mark_stuck(log: &web_sys::HtmlElement) {
 }
 
 #[component]
-pub fn Log(chat: Chat, tick: RwSignal<u32>) -> impl IntoView {
+pub fn Log(chat: Chat, tick: RwSignal<u32>, log_h: RwSignal<f64>) -> impl IntoView {
     let opened = Opened(RwSignal::new(HashSet::new()));
     let el = NodeRef::<html::Div>::new();
     let at_bottom = StoredValue::new(true);
     let last_top = StoredValue::new(0i32);
     let frozen = RwSignal::new(None::<usize>);
     let ws = chat.ws_id();
+    let sizer = StoredValue::new_local(None::<(web_sys::ResizeObserver, Closure<dyn FnMut()>)>);
+    Effect::new(move |done: Option<bool>| {
+        if done == Some(true) {
+            return true;
+        }
+        let Some(e) = el.get() else { return false };
+        let target: web_sys::HtmlElement = e.clone().into();
+        let measure = Closure::<dyn FnMut()>::new(move || {
+            let target = target.clone();
+            request_animation_frame(move || {
+                let _ = log_h.try_set(f64::from(target.client_height()));
+            });
+        });
+        if let Ok(o) = web_sys::ResizeObserver::new(measure.as_ref().unchecked_ref()) {
+            o.observe(&e);
+            sizer.set_value(Some((o, measure)));
+        }
+        true
+    });
+    on_cleanup(move || {
+        sizer.try_update_value(|s| {
+            if let Some((o, _)) = s.take() {
+                o.disconnect();
+            }
+        });
+    });
     Effect::new(move |_| {
         chat.view.track();
         opened.0.set(HashSet::new());

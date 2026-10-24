@@ -121,6 +121,7 @@ pub fn ChatPane(
     });
     on_cleanup(move || iv.set_value(None));
 
+    let log_h = RwSignal::new(0.0f64);
     let hist = RwSignal::new(false);
     let history_menu = NodeRef::<html::Div>::new();
     let history_trigger = NodeRef::<html::Button>::new();
@@ -310,8 +311,8 @@ pub fn ChatPane(
         </div>
         <div class="chat-body">
             <super::children::ChildrenPanel id=chat.ws_id() />
-            <Log chat tick />
-            <Composer chat tick tree_files />
+            <Log chat tick log_h />
+            <Composer chat tick tree_files log_h />
         </div>
     }
 }
