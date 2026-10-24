@@ -52,6 +52,8 @@ button { font: inherit; color: inherit; }
 .acc-row .name b { font-weight: var(--font-weight-medium); }
 .acc-row.on .name b { font-weight: var(--font-weight-semibold); }
 .acc-row .last { color: var(--fg-2); }
+.acc-row .acc-sub { margin-top: var(--space-2xs); color: var(--fg-3); font-size: var(--font-size-caption-readable); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acc-state { display: flex; align-items: center; gap: var(--space-md); min-width: 0; }
 .acc-row .act { display: flex; justify-content: flex-end; align-items: center; gap: var(--space-md); }
 .quota { display: flex; flex-direction: column; gap: var(--space-sm); padding-right: var(--space-2xl); }
 .qbar { display: grid; grid-template-columns: 50px minmax(0, 1fr) 40px 96px; align-items: center; gap: var(--space-control); font-size: var(--font-size-label); }
@@ -472,7 +474,7 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 
 
 .runtimes-page .page-head { flex-wrap: wrap; }
-.runtimes-page .acc-row { grid-template-columns: 1.25rem minmax(9rem, 1fr) 5rem minmax(10rem, 1.618fr) 6rem 8rem; gap: var(--space-lg); }
+.runtimes-page .acc-row { grid-template-columns: 1.25rem minmax(9rem, 1fr) 9.5rem minmax(10rem, 1.618fr) 6rem 8rem; gap: var(--space-lg); }
 .runtimes-page .acc-row .name { min-width: 0; overflow-wrap: anywhere; }
 .runtimes-page .runtime-details summary { cursor: pointer; }
 .runtimes-page .runtime-details summary .status { margin-left: var(--space-lg); }
@@ -490,7 +492,7 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
   .runtimes-page .acc-row .acc-check { grid-column: 1; grid-row: 1; }
   .runtimes-page .acc-row .name { grid-column: 2; grid-row: 1; }
   .runtimes-page .acc-row .act { grid-column: 3; grid-row: 1; }
-  .runtimes-page .acc-row > .status { grid-column: 2; grid-row: 2; }
+  .runtimes-page .acc-row > .acc-state { grid-column: 2; grid-row: 2; }
   .runtimes-page .acc-row .last { grid-column: 3; grid-row: 2; text-align: right; }
   .runtimes-page .acc-row .quota { grid-column: 2 / -1; grid-row: 3; }
   .runtimes-page .acc-row.head { display: flex; justify-content: flex-end; }

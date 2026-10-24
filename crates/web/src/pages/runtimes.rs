@@ -269,7 +269,7 @@ pub fn login(a: &Account) {
             if a.config_dir.is_some() {
                 "（独立配置目录）"
             } else {
-                "（默认登录）"
+                "（默认账号）"
             }
         ),
         path: format!("/api/accounts/{}/login/ws", api::enc(&a.id)),

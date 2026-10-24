@@ -168,6 +168,22 @@ pub(super) fn RuntimeDetail(id: String) -> impl IntoView {
             let _ = saving.try_set(false);
         });
     };
+    let current = move || {
+        accounts
+            .get()
+            .and_then(Result::ok)
+            .and_then(|a| active_account(&a, &id_s.get_value()))
+    };
+    let signed_out = move || current().is_some_and(|a| !a.disabled && a.status == "logged_out");
+    let sign_in = move |_| {
+        if let Some(a) = current() {
+            if a.kind == "token" {
+                form.set(Some(Form::Token(a)));
+            } else {
+                super::login(&a);
+            }
+        }
+    };
     let modes = crate::pages::workspace::chat::state::modes_for(&id);
     let node_options = move || {
         nodes()
@@ -213,9 +229,20 @@ pub(super) fn RuntimeDetail(id: String) -> impl IntoView {
                 {multi
                     .then(|| {
                         view! {
+                            <Show when=signed_out>
+                                <button
+                                    type="button"
+                                    class="btn primary"
+                                    aria-haspopup="dialog"
+                                    on:click=sign_in
+                                >
+                                    "登录…"
+                                </button>
+                            </Show>
                             <button
                                 type="button"
-                                class="btn primary"
+                                class="btn"
+                                class:primary=move || !signed_out()
                                 aria-haspopup="dialog"
                                 on:click=move |_| form.set(Some(Form::Add))
                             >
@@ -242,7 +269,7 @@ pub(super) fn RuntimeDetail(id: String) -> impl IntoView {
                         view! {
                             <PrefGroup
                                 title="账号"
-                                note="每个账号是一个独立的 CLI 配置目录。点「使用」切换这个运行时用的账号；对话里也可以从运行时选择器单独换。"
+                                note="每个账号是一个独立的 CLI 配置目录。有多个账号时，可以在这里切换这个运行时用哪一个；对话里也可以从运行时选择器单独换。"
                             >
                                 <div class="pref-list acc-list">
                                     <AccountsSection

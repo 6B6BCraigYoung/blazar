@@ -275,6 +275,19 @@ pub(super) fn AccountRow(
     };
     let blocks = a.model_blocks.clone();
     let aid = a.id.clone();
+    let email = a.email.clone().filter(|e| !e.is_empty());
+    let signed_out = !a.disabled && a.status == "logged_out";
+    let a_login = a.clone();
+    let sign_in = move |_| {
+        if busy.get_untracked() {
+            return;
+        }
+        if a_login.kind == "token" {
+            form.set(Some(Form::Token(a_login.clone())));
+        } else {
+            login(&a_login);
+        }
+    };
     view! {
         <div class="acc-row" class:on=active>
             <span class="acc-check">
@@ -289,6 +302,7 @@ pub(super) fn AccountRow(
             </span>
             <span class="name">
                 <b title=title>{a.label.clone()}</b>
+                {email.map(|e| view! { <div class="acc-sub">{e}</div> })}
                 {(!blocks.is_empty())
                     .then(|| {
                         view! {
@@ -343,7 +357,17 @@ pub(super) fn AccountRow(
                         }
                     })}
             </span>
-            {status(&a)}
+            <span class="acc-state">
+                {status(&a)}
+                {signed_out
+                    .then(|| {
+                        view! {
+                            <button class="btn small" disabled=move || busy.get() on:click=sign_in>
+                                "登录…"
+                            </button>
+                        }
+                    })}
+            </span>
             <div class="quota">{quota(&a)}</div>
             <span class="last">
                 {a.last_used_at.as_deref().map_or_else(|| "—".to_owned(), fmt::ago)}
