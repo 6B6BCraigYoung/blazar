@@ -42,7 +42,6 @@
   --shadow-switch-track: inset 0 0 0 .5px rgba(0,0,0,.2);
   --shadow-switch-knob: 0 1px 2px rgba(0,0,0,.3), 0 0 0 .5px rgba(0,0,0,.08);
   --clay-fg: #fff;
-  --ok: #30d158;
   --ok-fg: #4cd471;
   --warn: #ff9f0a;
   --err: #ff453a;
@@ -279,7 +278,6 @@
   --primary: #007aff;
   --primary-hover: #0a84ff;
   --clay: #d97757;
-  --ok: #34c759;
   --ok-fg: #248a3d;
   --warn: #c77700;
   --err: #ff3b30;
@@ -373,7 +371,6 @@
     --primary: #007aff;
     --primary-hover: #0a84ff;
     --clay: #d97757;
-    --ok: #34c759;
     --ok-fg: #248a3d;
     --warn: #c77700;
     --err: #ff3b30;

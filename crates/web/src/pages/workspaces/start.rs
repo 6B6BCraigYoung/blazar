@@ -6,6 +6,7 @@ use serde_json::{Value, json};
 
 use crate::api;
 use crate::app_state::use_app;
+use crate::components::icon;
 use crate::components::status::InlineError;
 use crate::components::toast::toast;
 use crate::pages::runtimes::{active_account, login, runtime_status};
@@ -258,9 +259,17 @@ pub fn Start() -> impl IntoView {
                 {move || {
                     let (done, body) = runtime_step();
                     view! {
-                        <li class="start-step" data-done=done.to_string()>
+                        <li
+                            class="start-step"
+                            data-done=done.to_string()
+                            data-current=(!done).to_string()
+                        >
                             <span class="start-mark" aria-hidden="true">
-                                {if done { "✓" } else { "1" }}
+                                {if done {
+                                    view! { <span inner_html=icon::svg(icon::TICK)></span> }.into_any()
+                                } else {
+                                    "1".into_any()
+                                }}
                             </span>
                             <div class="start-body">
                                 <b>"运行时"</b>
@@ -270,9 +279,7 @@ pub fn Start() -> impl IntoView {
                     }
                 }}
                 <li class="start-step" data-done="true">
-                    <span class="start-mark" aria-hidden="true">
-                        "✓"
-                    </span>
+                    <span class="start-mark" aria-hidden="true" inner_html=icon::svg(icon::TICK)></span>
                     <div class="start-body">
                         <b>"机器"</b>
                         <p class="start-note">"本机已就绪。组网里的其他机器以后再分类。"</p>
@@ -281,6 +288,7 @@ pub fn Start() -> impl IntoView {
                 <li
                     class="start-step"
                     data-done="false"
+                    data-current=move || runtime_step().0.to_string()
                     data-over=move || over.get().to_string()
                     on:dragenter=move |e: ev::DragEvent| {
                         e.prevent_default();

@@ -10,6 +10,7 @@ use crate::components::toast::toast;
 use crate::fmt;
 
 use super::dialog::{self, Choice};
+use super::icon;
 use super::menu::menu_keydown;
 use super::modal::Modal;
 use super::status::{EmptyState, InlineError, LoadingState};
@@ -592,7 +593,6 @@ fn Dialog() -> impl IntoView {
                                         <button
                                             type="button"
                                             class="brow"
-                                            class:repo=e.is_repo
                                             title=e.path.clone()
                                             aria-label=if e.is_repo {
                                                 format!("{}，Git 仓库", e.name)
@@ -607,11 +607,13 @@ fn Dialog() -> impl IntoView {
                                         >
                                             <span
                                                 class="mk"
-                                                title=if e.is_repo { "Git 仓库" } else { "目录" }
-                                            >
-                                                {if e.is_repo { "◆" } else { "▸" }}
+                                                aria-hidden="true"
+                                                inner_html=icon::svg(icon::FOLDER)
+                                            ></span>
+                                            <span class="nm">
+                                                {e.name.clone()}
+                                                {e.is_repo.then(|| view! { <span class="tag">"Git"</span> })}
                                             </span>
-                                            <span class="nm">{e.name.clone()}</span>
                                             {e
                                                 .children
                                                 .map(|c| view! { <span class="muted small">{c}</span> })}

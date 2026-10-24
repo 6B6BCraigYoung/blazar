@@ -85,9 +85,9 @@ fn quota(a: &Account) -> AnyView {
         .iter()
         .map(|w| {
             let pct = (w.utilization * 100.0).round().clamp(0.0, 100.0);
-            let lvl = if pct >= 90.0 {
+            let lvl = if pct >= 100.0 {
                 "bad"
-            } else if pct >= 70.0 {
+            } else if pct >= 90.0 {
                 "warn"
             } else {
                 "ok"

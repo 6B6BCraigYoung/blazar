@@ -290,6 +290,10 @@ fn StatusDot() -> impl IntoView {
         let total = usable.count();
         (on, total - on)
     };
+    let notify_ready = move || {
+        app.alerts_rev.track();
+        !alerts::notify_supported() || (alerts::notify_on() && alerts::notify_granted())
+    };
     let notify = move || {
         app.alerts_rev.track();
         if !alerts::notify_supported() {
@@ -303,7 +307,7 @@ fn StatusDot() -> impl IntoView {
     let tone = move || {
         if !bus.connected.get() {
             "failed"
-        } else if machines().1 > 0 {
+        } else if !notify_ready() {
             "attention"
         } else {
             "ok"
@@ -382,8 +386,13 @@ fn StatusDot() -> impl IntoView {
                 <div class="side-pop" role="dialog" aria-label="状态">
                     <div class="row">
                         <span class="k">"连接"</span>
-                        <span class="v" data-up=move || bus.connected.get().to_string()>
-                            {move || if bus.connected.get() { "已连接" } else { "正在重新连接…" }}
+                        <span class="v">
+                            <span
+                                class="status"
+                                data-tone=move || if bus.connected.get() { "other" } else { "failed" }
+                            >
+                                {move || if bus.connected.get() { "已连接" } else { "正在重新连接…" }}
+                            </span>
                         </span>
                     </div>
                     <div class="row">

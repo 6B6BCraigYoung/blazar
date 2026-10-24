@@ -158,12 +158,7 @@ fn row_view(i: usize, n: NodeView, menu: RwSignal<Option<MenuAt>>) -> impl IntoV
             }
         >
             <td>
-                <span
-                    class="dot"
-                    class:node-up=online
-                    role="img"
-                    aria-label=if online { "在线" } else { "离线" }
-                ></span>
+                <span class="dot" role="img" aria-label=if online { "在线" } else { "离线" }></span>
             </td>
             <td>
                 <a class="node-name" href=href>

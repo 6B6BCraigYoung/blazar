@@ -81,7 +81,7 @@ pub(super) fn ConfirmSheet(pending: Vec<NodeView>, on_close: Callback<()>) -> im
                                             });
                                     }
                                 />
-                                <span class="dot" class:node-up=online aria-hidden="true"></span>
+                                <span class="dot" data-off=(!online).to_string() aria-hidden="true"></span>
                                 <span class="confirm-name">{n.name.clone()}</span>
                                 <span class="confirm-addr">{n.ipv4.clone().unwrap_or_default()}</span>
                             </label>

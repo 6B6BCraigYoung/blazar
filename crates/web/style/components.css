@@ -59,11 +59,7 @@
 .dlg-foot .grow { flex: 1; }
 .gchip, .badge, .pill-note { padding: var(--space-hairline) var(--space-md); border-radius: var(--radius-pill); background: var(--control-track); color: var(--fg-2); font-size: var(--font-size-caption); font-weight: var(--font-weight-medium); }
 .gchip, .badge, .pill-note { white-space: nowrap; }
-.gchip.warn, .badge.warn { color: var(--warn); }
 .gchip.bad, .badge.bad { color: var(--err-fg); }
-.gchip.ok, .badge.ok { color: var(--ok-fg); }
-.gchip.info, .badge.info { color: var(--accent); }
-.pill-note { background: var(--badge-info-bg); color: var(--badge-info-fg); }
 .btn, .seg button, .seg a { white-space: nowrap; }
 .dlg .row-actions { display: flex; align-items: center; gap: var(--space-sm); flex-wrap: wrap; margin-top: var(--space-lg); }
 .dlg .sub-h { margin: var(--space-card) 0 var(--space-sm); font-size: var(--font-size-label); font-weight: var(--font-weight-medium); color: var(--fg-3); }
@@ -117,9 +113,10 @@
 .browser.short { height: auto; max-height: 190px; }
 .brow { display: flex; align-items: center; gap: var(--space-md); min-height: 30px; padding: 0 var(--space-control); cursor: pointer; font: var(--font-size-label-readable) var(--font-mono); color: var(--fg-2); }
 .brow:hover { background: var(--bg-hover); }
-.brow .mk { width: 14px; color: var(--fg-4); }
-.brow.repo, .brow.repo .mk { color: var(--ok-fg); }
-.brow .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; align-items: center; gap: var(--space-sm); }
+.brow .mk { width: 14px; height: 14px; flex: 0 0 auto; display: inline-grid; place-items: center; color: var(--fg-4); }
+.brow .mk svg { width: 14px; height: 14px; }
+.brow .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; align-items: center; gap: var(--space-sm); color: var(--fg); }
+.brow .tag { flex: 0 0 auto; padding: 0 var(--space-sm); border-radius: var(--radius-pill); background: var(--control-track); color: var(--fg-3); font: var(--font-size-caption) var(--font-sans); line-height: 16px; }
 .brow.br { flex-direction: column; align-items: stretch; gap: var(--space-hairline); padding: var(--space-icon) var(--space-control); font-family: var(--font-sans); }
 .brow.br[data-sel="true"] { background: var(--option-selected-bg); }
 .brow.br[data-dis="true"] { opacity: .5; }

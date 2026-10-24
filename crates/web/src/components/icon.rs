@@ -44,3 +44,4 @@ pub const TRASH: &str =
     r#"<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/><path d="M10 11v6M14 11v6"/>"#;
 pub const EYE: &str = r#"<path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="2.5"/>"#;
 pub const PLUS: &str = r#"<path d="M12 5v14M5 12h14"/>"#;
+pub const TICK: &str = r#"<path d="m5 12.5 4.5 4.5L19 7"/>"#;
