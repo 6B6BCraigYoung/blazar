@@ -14,9 +14,17 @@ function guard(el) {
   return el;
 }
 
+function pumpFrames() {
+  const raf = window.requestAnimationFrame.bind(window);
+  const caf = window.cancelAnimationFrame.bind(window);
+  window.requestAnimationFrame = cb => (document.hidden ? -setTimeout(() => cb(performance.now()), 16) : raf(cb));
+  window.cancelAnimationFrame = id => (id < 0 ? clearTimeout(-id) : caf(id));
+}
+
 function install() {
   if (state.installed) return;
   state.installed = true;
+  pumpFrames();
   const trace = (text, cause) => (cause?.stack && !String(cause.stack).startsWith(text) ? `${text}\n${cause.stack}` : text);
   window.addEventListener('error', e => state.errors.push(trace(`error: ${e.message}`, e.error)));
   window.addEventListener('unhandledrejection', e => {
