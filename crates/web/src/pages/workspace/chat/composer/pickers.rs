@@ -540,7 +540,7 @@ pub(super) fn agent_pop(chat: Chat, pop: RwSignal<Option<Pop>>) -> impl IntoView
                 let v2 = v.clone();
                 view! {
                     <button class="cp-row" on:click=move |_| pick(v2.clone(), None)>
-                        <span class="rt-dot" data-rt=p.runtime.clone()></span>
+                        <span class="rt-ic" inner_html=crate::rt_logo::glyph(&p.runtime)></span>
                         <span class="cp-t">
                             <b>{format!("{} · {}", p.name, p.runtime_label)}</b>
                         </span>
@@ -559,7 +559,7 @@ pub(super) fn agent_pop(chat: Chat, pop: RwSignal<Option<Pop>>) -> impl IntoView
                 let v2 = v.clone();
                 view! {
                     <button class="cp-row" on:click=move |_| pick(v2.clone(), None)>
-                        <span class="rt-dot" data-rt=r.id.clone()></span>
+                        <span class="rt-ic" inner_html=crate::rt_logo::glyph(&r.id)></span>
                         <span class="cp-t">
                             <b>{r.label.clone()}</b>
                         </span>

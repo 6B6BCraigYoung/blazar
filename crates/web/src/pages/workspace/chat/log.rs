@@ -1506,10 +1506,7 @@ fn Empty(chat: Chat) -> impl IntoView {
                             .to_owned();
                         view! {
                             <div class="cc-hero">
-                                <span
-                                    class="cc-hero-mark"
-                                    inner_html=crate::rt_logo::mark(&rt)
-                                ></span>
+                                <span class="cc-hero-mark" inner_html=crate::rt_logo::glyph(&rt)></span>
                                 <span>{name}</span>
                             </div>
                             <div class="cc-tip">

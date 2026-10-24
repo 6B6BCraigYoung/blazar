@@ -1276,7 +1276,10 @@ pub fn Composer(chat: Chat, tick: RwSignal<u32>, tree_files: Signal<Vec<String>>
                                 })
                             }
                         >
-                            <span class="rt-dot" data-rt=move || chat.runtime()></span>
+                            <span
+                                class="rt-ic"
+                                inner_html=move || crate::rt_logo::glyph(&chat.runtime())
+                            ></span>
                             <span class="cb-tx">
                                 {move || chat.agent_label()}
                                 {move || {

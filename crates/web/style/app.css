@@ -77,7 +77,6 @@ button { font: inherit; color: inherit; }
 
 
 .rt-mark { width: 22px; height: 22px; border-radius: var(--r-md); background: var(--bg-hover); color: var(--runtime-neutral-fg); display: grid; place-items: center; font-weight: var(--font-weight-semibold); font-size: var(--font-size-label); }
-.rt-mark[data-rt="claude"] { background: var(--runtime-claude-bg); color: var(--runtime-claude-fg); }
 
 .main:has(.ws) { overflow: hidden; background: var(--bg-canvas); }
 .ws { position: relative; height: 100%; display: flex; flex-direction: column; min-width: 0; }

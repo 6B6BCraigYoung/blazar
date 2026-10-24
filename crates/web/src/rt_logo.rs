@@ -22,6 +22,17 @@ const LOGOS: &[(&str, &str, &str)] = &[
     ),
 ];
 
+pub fn glyph(id: &str) -> String {
+    let id = if id == "claude_cli" { "claude" } else { id };
+    let d = LOGOS
+        .iter()
+        .find(|l| l.0 == id)
+        .map_or("M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10z", |l| l.1);
+    format!(
+        r#"<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="{d}"/></svg>"#
+    )
+}
+
 pub fn mark(id: &str) -> String {
     let id = if id == "claude_cli" { "claude" } else { id };
     match LOGOS.iter().find(|l| l.0 == id) {

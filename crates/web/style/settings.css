@@ -84,7 +84,7 @@
 .detail-page .page-actions .btn { display: inline-flex; align-items: center; min-width: 64px; justify-content: center; }
 .pref-text { color: var(--fg-3); font-size: var(--font-size-label-readable); text-align: right; overflow-wrap: anywhere; }
 .pref-text.bad { color: var(--err-fg); }
-.pref-text code { color: var(--code-fg); font-size: var(--font-size-label); }
+.pref-text code { color: var(--fg); font-size: var(--font-size-label); }
 .pref-control .status { flex: 0 0 auto; }
 .pref-control .settings-checks { justify-content: flex-end; }
 .pref-row-detail code { font: var(--font-size-caption-readable) var(--font-mono); }
@@ -171,7 +171,7 @@ select.settings-input, .dlg select, .card.pad select { appearance: none; -webkit
 .pref-items:focus-within .pref-item[aria-selected="true"] :is(.pref-item-detail, .pref-item-trailing, code) { color: var(--on-accent-muted); }
 .pref-item-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--space-2xs); }
 .pref-item-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-code.pref-item-title { font: var(--font-size-label-readable) var(--font-mono); color: var(--code-fg); }
+code.pref-item-title { font: var(--font-size-label-readable) var(--font-mono); color: var(--fg); }
 .pref-item-detail { color: var(--fg-3); font-size: var(--font-size-label); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pref-item-trailing { display: flex; align-items: center; gap: var(--space-lg); flex: 0 0 auto; color: var(--fg-3); font-size: var(--font-size-label); }
 .pref-empty { padding: var(--space-2xl) var(--space-lg); text-align: center; color: var(--fg-3); font-size: var(--font-size-label-readable); }
