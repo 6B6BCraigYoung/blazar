@@ -1,5 +1,5 @@
 .empty { padding: var(--space-4xl) 0; text-align: center; color: var(--fg-3); }
-.err-line { color: var(--err-fg); }
+.err-line { color: var(--fg-3); }
 .btn { height: 28px; padding: 0 var(--space-lg); border-radius: var(--r-md); border: 0; background: var(--control-bg); box-shadow: var(--shadow-control); color: var(--fg); font-weight: var(--font-weight-medium); font-size: var(--font-size-label); cursor: pointer; transition: background-color var(--duration-control), filter var(--duration-control), transform var(--duration-control); }
 .btn:hover { background: var(--control-bg-hover); }
 .btn:active:not(:disabled) { filter: brightness(.94); }
@@ -135,7 +135,8 @@
 .btn.secondary { background: var(--control-bg); color: var(--fg); }
 .btn.secondary:hover { background: var(--control-bg-hover); }
 .ui-state-detail { margin-top: var(--space-xs); color: var(--fg-3); font-size: var(--font-size-label); text-wrap: balance; }
-.ui-error { color: var(--err-fg); }
+.ui-error { color: var(--fg-2); }
+.ui-error > span:first-child::before { content: ""; display: inline-block; width: 6px; height: 6px; margin-right: var(--space-md); border-radius: 50%; background: var(--status-failed); vertical-align: middle; }
 .ui-error .btn { margin-left: var(--space-md); }
 .ui-detail { margin-top: var(--space-xs); color: var(--fg-3); font-size: var(--font-size-caption-readable); }
 .ui-detail > summary { width: fit-content; cursor: pointer; color: var(--fg-3); }
