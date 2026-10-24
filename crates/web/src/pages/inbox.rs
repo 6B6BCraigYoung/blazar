@@ -92,7 +92,11 @@ fn item_of(it: &Value) -> Item {
     let ws = s(it, "workspace_id");
     let thread = s(it, "thread_id");
     let raw = s(it, "body");
-    let human = crate::vocab::error(&raw, None);
+    let human = if k == "run_failed" {
+        crate::vocab::cause(&raw)
+    } else {
+        crate::vocab::error(&raw, None)
+    };
     Item {
         id: s(it, "id"),
         label: KINDS

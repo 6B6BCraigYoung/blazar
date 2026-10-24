@@ -52,7 +52,7 @@ pub fn human_error(message: &str) -> String {
     }
 }
 
-fn retry_text(attempt: u32, max: u32, delay_ms: u64, status: Option<u16>, error: &str) -> String {
+pub fn retry_why(status: Option<u16>, error: &str) -> String {
     let why = match (status, error) {
         (Some(529), _) | (_, "overloaded_error") => "服务繁忙",
         (Some(429), _) | (_, "rate_limit") => "请求太频繁",
@@ -62,17 +62,10 @@ fn retry_text(attempt: u32, max: u32, delay_ms: u64, status: Option<u16>, error:
         (_, "server_error") => "服务出错了",
         _ => "请求没有成功",
     };
-    let when = if delay_ms >= 1000 {
-        format!("{} 秒后自动重试", delay_ms.div_ceil(1000))
-    } else {
-        "正在自动重试".to_owned()
-    };
-    let round = if max > 0 {
-        format!("第 {attempt}/{max} 次")
-    } else {
-        format!("第 {attempt} 次")
-    };
-    format!("{why}，{when} · {round}")
+    match status {
+        Some(code) => format!("{why}（{code}）"),
+        None => why.to_owned(),
+    }
 }
 
 pub(super) enum BStep {
@@ -114,7 +107,10 @@ pub(super) enum BBody {
         bad: bool,
     },
     Retry {
-        text: String,
+        why: String,
+        attempt: u32,
+        max: u32,
+        until: i64,
     },
     Rewound {
         turns: usize,
@@ -566,7 +562,10 @@ impl<'a> Builder<'a> {
             } => self.push(
                 key,
                 BBody::Retry {
-                    text: retry_text(*attempt, *max_retries, *delay_ms, *status, error),
+                    why: retry_why(*status, error),
+                    attempt: *attempt,
+                    max: *max_retries,
+                    until: r.ts + i64::try_from(*delay_ms).unwrap_or(0),
                 },
             ),
             EntryKind::BackgroundTask {

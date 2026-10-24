@@ -204,7 +204,10 @@ pub enum Body {
         bad: bool,
     },
     Retry {
-        text: String,
+        why: String,
+        attempt: u32,
+        max: u32,
+        until: i64,
     },
     Rewound {
         turns: usize,

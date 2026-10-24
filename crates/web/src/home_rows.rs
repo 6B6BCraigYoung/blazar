@@ -1,5 +1,27 @@
 use blazar_core_types::api::{WorkspaceStep, WorkspaceView};
 
+use crate::vocab::{self, Tone};
+
+#[must_use]
+pub fn retrying(step: Option<&WorkspaceStep>) -> Option<(u64, u64)> {
+    let s = step.filter(|s| s.kind == "retry")?;
+    Some((
+        s.input["attempt"].as_u64().unwrap_or(0),
+        s.input["max_retries"].as_u64().unwrap_or(0),
+    ))
+}
+
+#[must_use]
+pub fn status(activity: &str, step: Option<&WorkspaceStep>) -> (String, Tone) {
+    if matches!(activity, "running" | "starting")
+        && let Some((n, max)) = retrying(step)
+    {
+        return (format!("重试中 {}", vocab::retry_round(n, max)), Tone::Run);
+    }
+    let (label, tone) = vocab::state(activity);
+    (label.to_owned(), tone)
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Group {
     Needs,
@@ -172,7 +194,7 @@ pub fn step_text(step: Option<&WorkspaceStep>, state: &str, root: &str) -> StepT
     let Some(step) = step else {
         return match state {
             "running" | "starting" => StepText::plain("正在开始…"),
-            "errored" => StepText::plain("出错了"),
+            "errored" => StepText::plain("失败"),
             _ => StepText::default(),
         };
     };
@@ -185,8 +207,11 @@ pub fn step_text(step: Option<&WorkspaceStep>, state: &str, root: &str) -> StepT
             label: "正在开始".into(),
             code: step.text.clone(),
         },
-        "retry" => StepText::plain(crate::vocab::retrying(&step.text)),
-        "error" => StepText::plain(crate::vocab::error(&step.text, None)),
+        "retry" => StepText::plain(match retrying(Some(step)) {
+            Some((n, _)) if n > 0 => format!("重试中（第 {n} 次）"),
+            _ => "重试中".to_owned(),
+        }),
+        "error" => StepText::plain(format!("失败：{}", vocab::cause(&step.text))),
         _ => StepText::plain(step.text.clone()),
     }
 }
@@ -306,7 +331,7 @@ mod tests {
     }
 
     #[test]
-    fn seen_failures_sink_to_recent() {
+    fn rows_follow_the_state_they_are_shown_with() {
         let all = vec![ws(
             "quiet",
             "errored",
@@ -316,6 +341,35 @@ mod tests {
         let rows = group_rows(all.clone(), &all, |_| "idle".to_owned());
         assert_eq!(rows[0].group, Group::Recent);
         assert_eq!(rows[0].state, "idle");
+    }
+
+    #[test]
+    fn retries_read_as_running_and_failures_name_their_cause() {
+        let retry = WorkspaceStep {
+            kind: "retry".into(),
+            text: "server_error".into(),
+            input: serde_json::json!({ "attempt": 2, "max_retries": 10, "status": 529 }),
+            ..WorkspaceStep::default()
+        };
+        assert_eq!(
+            status("running", Some(&retry)),
+            ("重试中 2/10".to_owned(), Tone::Run)
+        );
+        assert_eq!(status("errored", Some(&retry)).1, Tone::Failed);
+        assert_eq!(status("idle", None), ("空闲".to_owned(), Tone::Other));
+        assert_eq!(
+            step_text(Some(&retry), "running", "").label,
+            "重试中（第 2 次）"
+        );
+        let failed = WorkspaceStep {
+            kind: "error".into(),
+            text: "API Error: 529 Overloaded".into(),
+            ..WorkspaceStep::default()
+        };
+        assert_eq!(
+            step_text(Some(&failed), "errored", "").label,
+            "失败：服务繁忙（529）"
+        );
     }
 
     #[test]
@@ -343,24 +397,13 @@ mod tests {
             step_text(Some(&edit), "running", "/srv/app").code,
             "src/main.rs"
         );
-        let failed = WorkspaceStep {
-            kind: "error".into(),
-            text: "API Error: 529 Overloaded".into(),
-            ..WorkspaceStep::default()
-        };
-        assert_eq!(
-            step_text(Some(&failed), "errored", "").label,
-            "服务繁忙，稍后再试"
-        );
         let retry = WorkspaceStep {
             kind: "retry".into(),
             text: "server_error".into(),
             ..WorkspaceStep::default()
         };
-        assert_eq!(
-            step_text(Some(&retry), "running", "").label,
-            "服务出错了，正在重试"
-        );
+        assert_eq!(step_text(Some(&retry), "running", "").label, "重试中");
+        assert_eq!(step_text(None, "errored", "").label, "失败");
         assert_eq!(step_text(None, "running", "").label, "正在开始…");
         assert_eq!(step_text(None, "idle", ""), StepText::default());
         let said = WorkspaceStep {

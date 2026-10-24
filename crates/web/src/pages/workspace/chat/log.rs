@@ -1001,6 +1001,52 @@ fn error_view(chat: Chat, text: String, by_account: bool) -> AnyView {
     .into_any()
 }
 
+fn retry_view(chat: Chat, why: String, attempt: u32, max: u32, until: i64) -> AnyView {
+    let now = RwSignal::new(js_sys::Date::now() as i64);
+    let ticker = StoredValue::new_local(Some(gloo_timers::callback::Interval::new(
+        1000,
+        move || {
+            let _ = now.try_set(js_sys::Date::now() as i64);
+        },
+    )));
+    on_cleanup(move || ticker.set_value(None));
+    let when = move || {
+        let left = ((until - now.get()).max(0) + 999) / 1000;
+        if left > 0 {
+            format!("{left:>2} 秒后自动重试")
+        } else {
+            "正在重试".to_owned()
+        }
+    };
+    let round = format!(
+        "第 {} 次",
+        crate::vocab::retry_round(attempt.into(), max.into())
+    );
+    view! {
+        <div class="cc-meta cc-retry" role="status">
+            <span class="dot" aria-hidden="true"></span>
+            <span>{why}</span>
+            <span class="sep">"·"</span>
+            <span class="cc-countdown">{when}</span>
+            <span class="sep">"·"</span>
+            <span>{round}</span>
+            {move || {
+                chat.running
+                    .get()
+                    .then(|| {
+                        view! {
+                            <span class="sep">"·"</span>
+                            <button type="button" class="linkbtn" on:click=move |_| chat.stop()>
+                                "停止"
+                            </button>
+                        }
+                    })
+            }}
+        </div>
+    }
+    .into_any()
+}
+
 fn item_view(it: Item, chat: Chat, opened: Opened, ws: String) -> AnyView {
     let key = it.key.clone();
     match it.body {
@@ -1058,13 +1104,12 @@ fn item_view(it: Item, chat: Chat, opened: Opened, ws: String) -> AnyView {
             </div>
         }
         .into_any(),
-        Body::Retry { text } => view! {
-            <div class="cc-meta cc-retry" role="status">
-                <span class="dot" aria-hidden="true"></span>
-                {text}
-            </div>
-        }
-        .into_any(),
+        Body::Retry {
+            why,
+            attempt,
+            max,
+            until,
+        } => retry_view(chat, why, attempt, max, until),
         Body::Rewound { turns, items } => details(
             opened,
             format!("rw:{key}"),

@@ -205,10 +205,10 @@ impl AppData {
     }
 
     pub fn shown_activity(self, w: &WorkspaceView) -> String {
-        if self.unseen(w) || !matches!(w.activity.as_str(), "completed" | "errored") {
-            w.activity.clone()
-        } else {
+        if w.activity == "completed" && !self.unseen(w) {
             "idle".into()
+        } else {
+            w.activity.clone()
         }
     }
 

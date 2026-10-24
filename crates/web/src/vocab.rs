@@ -174,18 +174,43 @@ pub fn error(raw: &str, status: Option<u16>) -> String {
     }
 }
 
+fn http_code(raw: &str) -> Option<u16> {
+    raw.split(|c: char| !c.is_ascii_digit())
+        .filter_map(|t| t.parse::<u16>().ok())
+        .find(|n| (400..600).contains(n))
+}
+
 #[must_use]
-pub fn retrying(raw: &str) -> String {
+pub fn cause(raw: &str) -> String {
+    let raw = raw.trim();
     if raw.is_empty() {
-        return "正在重试".into();
+        return "请求没有成功".into();
     }
-    let why = error(raw, None);
-    let cause = if why == raw {
-        "请求没有成功"
+    let code = http_code(raw);
+    let mut why = error(raw, None);
+    if why == raw
+        && let Some(c) = code
+    {
+        why = error("", Some(c));
+    }
+    let head: String = if why == raw || why.is_empty() {
+        raw.lines().next().unwrap_or(raw).chars().take(60).collect()
     } else {
-        why.split('，').next().unwrap_or(&why)
+        why.split('，').next().unwrap_or(&why).to_owned()
     };
-    format!("{cause}，正在重试")
+    match code {
+        Some(code) => format!("{head}（{code}）"),
+        None => head,
+    }
+}
+
+#[must_use]
+pub fn retry_round(attempt: u64, max: u64) -> String {
+    if max > 0 {
+        format!("{attempt}/{max}")
+    } else {
+        format!("第 {attempt} 次")
+    }
 }
 
 #[cfg(test)]
@@ -260,12 +285,14 @@ mod tests {
     }
 
     #[test]
-    fn retries_name_the_cause_in_plain_words() {
-        assert_eq!(retrying("server_error"), "服务出错了，正在重试");
-        assert_eq!(retrying("overloaded_error"), "服务繁忙，正在重试");
-        assert_eq!(retrying("rate_limit"), "请求太频繁，正在重试");
-        assert_eq!(retrying("authentication_failed"), "登录已失效，正在重试");
-        assert_eq!(retrying("ECONNRESET"), "请求没有成功，正在重试");
-        assert_eq!(retrying(""), "正在重试");
+    fn causes_keep_the_status_code_and_drop_the_advice() {
+        assert_eq!(cause("API Error: 529 overloaded"), "服务繁忙（529）");
+        assert_eq!(cause("server_error"), "服务出错了");
+        assert_eq!(cause("rate_limit"), "请求太频繁");
+        assert_eq!(cause("HTTP 502"), "服务出错了（502）");
+        assert_eq!(cause("ECONNRESET"), "ECONNRESET");
+        assert_eq!(cause(""), "请求没有成功");
+        assert_eq!(retry_round(2, 10), "2/10");
+        assert_eq!(retry_round(3, 0), "第 3 次");
     }
 }

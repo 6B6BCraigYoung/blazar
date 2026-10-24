@@ -76,10 +76,12 @@ fn WsStatus(id: String, failed: Signal<bool>) -> impl IntoView {
         let w = app.workspace(&id);
         let offline = w.as_ref().is_some_and(|w| app.node_unreachable(&w.node));
         if failed.get() || offline {
-            return ("连不上", Tone::Failed, Some(Jump::Error));
+            return ("连不上".to_owned(), Tone::Failed, Some(Jump::Error));
         }
-        let activity = w.map(|w| w.activity).unwrap_or_default();
-        let (label, tone) = crate::vocab::state(&activity);
+        let (label, tone) = w
+            .as_ref()
+            .map(|w| crate::home_rows::status(&w.activity, w.step.as_ref()))
+            .unwrap_or_else(|| crate::home_rows::status("", None));
         let jump = match tone {
             Tone::Run => Some(Jump::Bottom),
             Tone::Attention => Some(Jump::Approval),

@@ -431,7 +431,7 @@ fn api_retries_show_once_and_clear_when_the_turn_moves_on() {
     assert_eq!(t.items.len(), 2);
     assert!(matches!(
         &t.items[1].body,
-        Body::Retry { text } if text == "服务繁忙，4 秒后自动重试 · 第 2/10 次"
+        Body::Retry { why, attempt: 2, max: 10, until: 4000 } if why == "服务繁忙（529）"
     ));
     rows.push(row(
         "s",

@@ -7,6 +7,7 @@ use serde_json::{Value, json};
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
 
+use crate::chat_model::Body;
 use crate::components::dialog::{self, Choice};
 use crate::components::toast::toast;
 use crate::storage;
@@ -105,6 +106,84 @@ const CODEX_LOCAL: &[(&str, &str)] = &[
     ("new", "start a new chat during a conversation"),
     ("permissions", "choose what Codex is allowed to do"),
 ];
+
+#[component]
+fn FailedCard(
+    chat: Chat,
+    key: String,
+    text: String,
+    sid: String,
+    dismissed: RwSignal<Option<String>>,
+) -> impl IntoView {
+    let (head, raw) = match text.split_once('\n') {
+        Some((h, d)) => (
+            h.to_owned(),
+            Some(d.trim().to_owned()).filter(|d| !d.is_empty()),
+        ),
+        None => (text.clone(), None),
+    };
+    let reason = crate::vocab::cause(raw.as_deref().unwrap_or(&head));
+    let retry_btn = NodeRef::<html::Button>::new();
+    let retry = move || chat.retry(sid.clone(), None, 0);
+    let retry2 = retry.clone();
+    gloo_timers::callback::Timeout::new(300, move || {
+        let typing = document().active_element().is_some_and(|a| {
+            a.closest("input, textarea, [contenteditable]")
+                .ok()
+                .flatten()
+                .is_some()
+        });
+        if !typing && let Some(b) = retry_btn.try_get_untracked().flatten() {
+            let _ = b.focus();
+        }
+    })
+    .forget();
+    view! {
+        <div
+            class="cc-failed"
+            role="alert"
+            on:keydown=move |e: ev::KeyboardEvent| {
+                if e.key() == "Enter" && !e.is_composing() {
+                    e.prevent_default();
+                    retry2();
+                }
+            }
+        >
+            <div class="cf-head">
+                <span class="dot" aria-hidden="true"></span>
+                <span>{reason}</span>
+            </div>
+            {raw
+                .map(|d| {
+                    view! {
+                        <details class="ui-detail">
+                            <summary>"错误详情"</summary>
+                            <pre>{d}</pre>
+                        </details>
+                    }
+                })}
+            <div class="cf-acts">
+                <button
+                    type="button"
+                    class="linkbtn"
+                    on:click=move |_| dismissed.set(Some(key.clone()))
+                >
+                    "继续对话"
+                </button>
+                <span class="grow"></span>
+                <button
+                    type="button"
+                    class="btn primary"
+                    node_ref=retry_btn
+                    on:click=move |_| retry()
+                >
+                    "重试"
+                    <kbd>"↩"</kbd>
+                </button>
+            </div>
+        </div>
+    }
+}
 
 #[component]
 pub fn Composer(chat: Chat, tick: RwSignal<u32>, tree_files: Signal<Vec<String>>) -> impl IntoView {
@@ -654,6 +733,26 @@ pub fn Composer(chat: Chat, tick: RwSignal<u32>, tree_files: Signal<Vec<String>>
                 .with(|d| crate::chat_model::first_open(&t.pending, |id| d.contains(id)).is_some())
         })
     });
+    let dismissed = RwSignal::new(None::<String>);
+    let failed = Memo::new(move |_| {
+        if chat.running.get() || chat.pending.with(|p| !p.is_empty()) {
+            return None;
+        }
+        chat.transcript.with(|t| {
+            let last = t.items.last()?;
+            let Body::Error { text, .. } = &last.body else {
+                return None;
+            };
+            if dismissed.get().as_deref() == Some(last.key.as_str()) {
+                return None;
+            }
+            let sid = t.items.iter().rev().find_map(|i| match &i.body {
+                Body::User { sid, .. } => Some(sid.clone()),
+                _ => None,
+            })?;
+            Some((last.key.clone(), text.clone(), sid))
+        })
+    });
     let failed_edit = RwSignal::new(None::<(u32, Value)>);
 
     view! {
@@ -931,9 +1030,14 @@ pub fn Composer(chat: Chat, tick: RwSignal<u32>, tree_files: Signal<Vec<String>>
                     })
             }}
             <Dock chat />
+            {move || {
+                failed
+                    .get()
+                    .map(|(key, text, sid)| view! { <FailedCard chat key text sid dismissed /> })
+            }}
             <div
                 class="cc-box"
-                hidden=move || deciding.get()
+                hidden=move || deciding.get() || failed.with(Option::is_some)
                 data-off=move || unreachable.get().to_string()
                 data-bash=move || chat.prompt.with(|p| p.trim_start().starts_with('!')).to_string()
                 on:dragover=move |e: ev::DragEvent| {

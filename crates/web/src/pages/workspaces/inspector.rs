@@ -93,6 +93,39 @@ pub fn rename_workspace(app: AppData, id: String) {
     });
 }
 
+pub fn retry_workspace(app: AppData, id: String, session: String) {
+    spawn_local(async move {
+        let ok = dialog::ask(
+            "重试这一轮？",
+            "· 文件会还原到这条消息之前（当前状态会先备份）\n· 用同一条消息重新开始",
+            vec![Choice::plain("取消"), Choice::danger("重试")],
+        )
+        .await;
+        if ok != Some(1) {
+            return;
+        }
+        match api::send::<Value>(
+            "POST",
+            &format!("/api/workspaces/{id}/retry"),
+            &json!({ "session_id": session, "options": {} }),
+        )
+        .await
+        {
+            Ok(r) if r["admitted"] == json!(false) => toast(
+                r["reason"]
+                    .as_str()
+                    .unwrap_or("工作区正忙着别的操作")
+                    .to_owned(),
+            ),
+            Ok(_) => {
+                toast("已重新开始");
+                app.load_state();
+            }
+            Err(e) => toast(format!("没能重试：{e}")),
+        }
+    });
+}
+
 pub fn remove_workspace(app: AppData, id: String) {
     spawn_local(async move {
         let d = match api::get::<Value>(&format!("/api/workspaces/{id}/detail")).await {

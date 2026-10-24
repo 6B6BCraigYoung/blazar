@@ -22,7 +22,9 @@ use crate::fmt;
 use crate::home_rows::{self, Group, Row, StepText};
 
 use super::work_shared::{approval_summary, decide_approval, list_keys_apply};
-pub use inspector::{Inspector, InspectorHost, remove_workspace, rename_workspace};
+pub use inspector::{
+    Inspector, InspectorHost, remove_workspace, rename_workspace, retry_workspace,
+};
 use start::Start;
 
 pub fn diff_badge(w: &blazar_core_types::api::WorkspaceView) -> AnyView {
@@ -550,8 +552,19 @@ fn home_menu(ctx: Ctx, row: &Row, pending: Option<Value>) -> Vec<Vec<RowAction>>
     let approval = pending
         .filter(|a| !is_question(a))
         .map(|a| a["id"].as_str().unwrap_or("").to_owned());
+    let failed = (row.state == "errored")
+        .then(|| row.subject().session_id.clone())
+        .flatten()
+        .map(|session| (row.subject().id.clone(), session));
     let (id_detail, id_rename, id_remove) = (id.clone(), id.clone(), id);
     vec![
+        failed
+            .map(|(ws, session)| {
+                vec![RowAction::new("重试", move || {
+                    retry_workspace(app, ws.clone(), session.clone())
+                })]
+            })
+            .unwrap_or_default(),
         approval
             .map(|aid| {
                 let (a1, a2) = (aid.clone(), aid);
