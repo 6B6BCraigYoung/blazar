@@ -2,10 +2,12 @@ const offset = (el, n) => n.getBoundingClientRect().top - el.getBoundingClientRe
 
 export function keepScroll(el) {
   let width = el.clientWidth;
+  let height = el.clientHeight;
   let bottom = true;
   let anchor = null;
   let queued = false;
   const sticky = n => getComputedStyle(n).position === 'sticky';
+  const atBottom = () => el.scrollHeight - el.scrollTop - el.clientHeight < 80;
   const firstVisible = (nodes, top) => {
     for (const n of nodes) {
       const r = n.getBoundingClientRect();
@@ -15,7 +17,7 @@ export function keepScroll(el) {
   };
   const record = () => {
     queued = false;
-    bottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    bottom = atBottom();
     anchor = null;
     if (bottom) return;
     const top = el.getBoundingClientRect().top;
@@ -26,13 +28,16 @@ export function keepScroll(el) {
     anchor = firstVisible(row[0].querySelectorAll('.cc-md > *'), top) || row;
   };
   el.addEventListener('scroll', () => {
-    if (el.clientWidth !== width || queued) return;
+    if (el.clientWidth !== width || el.clientHeight !== height) return;
+    bottom = atBottom();
+    if (queued) return;
     queued = true;
     requestAnimationFrame(record);
   }, { passive: true });
   new ResizeObserver(() => {
-    if (el.clientWidth === width) return;
+    if (el.clientWidth === width && el.clientHeight === height) return;
     width = el.clientWidth;
+    height = el.clientHeight;
     if (bottom) el.scrollTop = el.scrollHeight;
     else if (anchor && anchor[0].isConnected) el.scrollTop += offset(el, anchor[0]) - anchor[1];
   }).observe(el);
