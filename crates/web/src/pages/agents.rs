@@ -516,7 +516,7 @@ pub fn AgentsPage() -> impl IntoView {
                         } else if archived_scope {
                             view! {
                                 <Blank
-                                    icon=icon::AGENT
+                                    icon=icon::ID_CARD
                                     title=empty::never("归档的角色档案")
                                     detail="归档的角色档案会保留在这里，随时可以恢复。"
                                     action=Action::new("看在用的", move || scope.set("all".into()))
@@ -526,7 +526,7 @@ pub fn AgentsPage() -> impl IntoView {
                         } else {
                             view! {
                                 <Blank
-                                    icon=icon::AGENT
+                                    icon=icon::ID_CARD
                                     title=empty::never("角色档案")
                                     detail="角色档案保存一个智能体的指令、运行时和模型，之后可以直接拿来对话或派活。"
                                     action=Action::new("新建角色档案", move || create.run(()))

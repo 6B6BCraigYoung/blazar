@@ -8,7 +8,9 @@ pub const INBOX: &str = r#"<path d="M3 13l2.5-7.5A2 2 0 0 1 7.4 4h9.2a2 2 0 0 1 
 pub const FOLDER: &str =
     r#"<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>"#;
 pub const TASKS: &str = r#"<rect x="3" y="4" width="5" height="16" rx="1.5"/><rect x="9.5" y="4" width="5" height="10" rx="1.5"/><rect x="16" y="4" width="5" height="13" rx="1.5"/>"#;
-pub const AGENT: &str = r#"<rect x="4" y="7" width="16" height="12" rx="2"/><path d="M12 7V4M9 12h.01M15 12h.01M9 16h6"/>"#;
+pub const SPARKLES: &str = r#"<path d="M10 6l1.56 5.44L17 13l-5.44 1.56L10 20l-1.56-5.44L3 13l5.44-1.56z"/><path d="M18.5 2.5l.7 2.3 2.3.7-2.3.7-.7 2.3-.7-2.3-2.3-.7 2.3-.7z"/><path d="M18 15.5l.5 2 2 .5-2 .5-.5 2-.5-2-2-.5 2-.5z"/>"#;
+pub const ID_CARD: &str = r#"<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="11" r="2"/><path d="M5.5 16c.6-1.5 1.7-2.2 3-2.2s2.4.7 3 2.2M14 9.5h4.5M14 12.5h4.5M14 15.5h3"/>"#;
+pub const WAND: &str = r#"<path d="M3.5 20.5 13.5 10.5"/><path d="M17 2.5l1.1 3.4 3.4 1.1-3.4 1.1L17 11.5l-1.1-3.4L12.5 7l3.4-1.1z"/><path d="M6 3.5v3M4.5 5h3M20 13.5v3M18.5 15h3"/>"#;
 pub const APPS: &str = r#"<rect x="3" y="3" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="2"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="2"/><path d="M17.25 14v6.5M14 17.25h6.5"/>"#;
 pub const NODES: &str = r#"<circle cx="12" cy="5" r="2.2"/><circle cx="5" cy="18" r="2.2"/><circle cx="19" cy="18" r="2.2"/><path d="M10.9 6.9 6.1 16M13.1 6.9l4.8 9.1M7.2 18h9.6"/>"#;
 pub const GEAR: &str = r#"<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/>"#;
@@ -19,7 +21,6 @@ pub const BOT: &str = r#"<rect x="5" y="8" width="14" height="11" rx="3"/><path 
 pub const CLOCK: &str = r#"<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>"#;
 pub const TERMINAL: &str =
     r#"<rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M12.5 15H17"/>"#;
-pub const SPARK: &str = r#"<path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M5.6 18.4l2.8-2.8M15.6 8.4l2.8-2.8"/>"#;
 pub const CHART: &str = r#"<path d="M4 20V4M4 20h16"/><path d="M8 16v-4M12 16V8M16 16v-6"/>"#;
 pub const CHAT: &str = r#"<path d="M5 5h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-7l-4 3.5V17H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z"/>"#;
 pub const MAIL: &str =

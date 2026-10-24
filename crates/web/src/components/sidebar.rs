@@ -253,7 +253,7 @@ fn MainNav(keys: RwSignal<u32>) -> impl IntoView {
             <span>"管理"</span>
             {section(
                 "/agents",
-                icon::AGENT,
+                icon::SPARKLES,
                 "智能体",
                 none,
                 &[

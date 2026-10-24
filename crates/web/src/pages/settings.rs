@@ -44,7 +44,7 @@ pub(crate) const SECTIONS: &[(&str, &str, &str)] = &[
     ("snippets", "片段", icon::LINES),
     ("hooks", "自动执行脚本", icon::TERMINAL),
     ("git", "Git 与 PR", icon::BRANCH),
-    ("platforms", "技能来源", icon::SPARK),
+    ("platforms", "技能来源", icon::WAND),
     ("about", "数据与关于", icon::INFO),
 ];
 

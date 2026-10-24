@@ -319,7 +319,7 @@ pub fn SkillsPage() -> impl IntoView {
                                     } else {
                                         view! {
                                             <Blank
-                                                icon=icon::SPARK
+                                                icon=icon::WAND
                                                 title=empty::never("技能")
                                                 detail="技能是一组说明和脚本，启用后智能体会按需使用。可以新建、从本机导入，或去「发现」里安装。"
                                                 action=Action::new("从本机导入", move || importing.set(true))

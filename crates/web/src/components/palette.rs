@@ -57,14 +57,14 @@ const PAGES: &[(&str, &str, &str, &str, Option<&str>)] = &[
     (
         "角色档案",
         "/agents",
-        icon::AGENT,
+        icon::ID_CARD,
         "agents jsda juesedangan 智能体",
         None,
     ),
     (
         "技能",
         "/skills",
-        icon::SPARK,
+        icon::WAND,
         "skills jn jineng mcp 技能库",
         None,
     ),
