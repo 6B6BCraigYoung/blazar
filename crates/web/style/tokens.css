@@ -108,6 +108,7 @@
   --diff-empty-stripe: rgba(255,255,255,.02);
   --preview-canvas: #fff;
   --option-selected-bg: rgba(10,132,255,.16);
+  --option-focus-bg: rgba(255,255,255,.08);
   --terminal-bg: #19191b;
   --mask-opaque: #000;
   --inline-code-bg: rgba(255,255,255,.07);
@@ -305,6 +306,7 @@
   --diff-removed-bg: rgba(255,59,48,.1);
   --diff-empty-stripe: rgba(0,0,0,.03);
   --option-selected-bg: rgba(0,122,255,.1);
+  --option-focus-bg: rgba(0,0,0,.05);
   --terminal-bg: #f6f6f8;
   --inline-code-bg: rgba(0,0,0,.05);
   --chat-diff-added-bg: rgba(52,199,89,.12);
@@ -406,6 +408,7 @@
     --diff-removed-bg: rgba(255,59,48,.1);
     --diff-empty-stripe: rgba(0,0,0,.03);
     --option-selected-bg: rgba(0,122,255,.1);
+    --option-focus-bg: rgba(0,0,0,.05);
     --terminal-bg: #f6f6f8;
     --inline-code-bg: rgba(0,0,0,.05);
     --chat-diff-added-bg: rgba(52,199,89,.12);

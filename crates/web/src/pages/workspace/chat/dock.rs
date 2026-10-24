@@ -290,10 +290,6 @@ fn ApprovalCard(chat: Chat, p: Pending) -> impl IntoView {
             data-folded=move || folded.get().to_string()
             on:keydown=move |e| keys.with_value(|k| k(e))
         >
-            <div class="astat" role="status">
-                <span class="dot" aria-hidden="true"></span>
-                "等你批准"
-            </div>
             <div class="ahd">
                 <span class="ah">{title}</span>
                 <button
@@ -335,7 +331,7 @@ fn ApprovalCard(chat: Chat, p: Pending) -> impl IntoView {
                     on:input=move |e| reject.set(event_target_value(&e))
                 />
             </div>
-            <div class="ahint">"按 1–3 选择 · ↑↓ 移动 · Enter 确认 · Esc 拒绝"</div>
+            <div class="ahint">"按 1–3 选择 · ↑↓ 移动 · ↩ 确认 · Esc 拒绝"</div>
         </div>
     }
 }
@@ -559,10 +555,6 @@ fn AskCard(chat: Chat, p: Pending) -> impl IntoView {
             data-folded=move || folded.get().to_string()
             on:keydown=keys
         >
-            <div class="astat" role="status">
-                <span class="dot" aria-hidden="true"></span>
-                "等你回答"
-            </div>
             <div class="anav">
                 {(0..n)
                     .map(|qi| {
@@ -671,7 +663,7 @@ fn AskCard(chat: Chat, p: Pending) -> impl IntoView {
                 </button>
             </div>
             <div class="ahint">
-                "←→ 切换问题 · 数字键选择 · Enter 提交 · Esc 跳过"
+                "←→ 切换问题 · 数字键选择 · ↩ 提交 · Esc 跳过"
             </div>
         </div>
     }

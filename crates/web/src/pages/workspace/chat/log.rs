@@ -436,8 +436,22 @@ fn tool_view(t: Tool, chat: Chat, opened: Opened, ws: String) -> AnyView {
     .then(|| t.arg.clone())
     .filter(|a| !a.is_empty() && !a.starts_with('/') && !a.starts_with('~'));
     let open_tip = open.as_ref().map(|_| "在检查器里打开");
+    let tid = t.id.clone();
+    let waiting = Memo::new(move |_| {
+        chat.transcript.with(|tr| {
+            tr.pending.iter().any(|p| {
+                p.request["tool_use_id"].as_str() == Some(tid.as_str())
+                    && !chat.decided.with(|d| d.contains(&p.id))
+            })
+        })
+    });
     view! {
-        <div class="cc-row cc-tool" data-st=t.state.as_str() data-name=t.name.clone()>
+        <div
+            class="cc-row cc-tool"
+            data-st=t.state.as_str()
+            data-name=t.name.clone()
+            data-wait=move || waiting.get().to_string()
+        >
             <span class="cc-dot"></span>
             <div class="cc-main">
                 <div class="cc-head">
