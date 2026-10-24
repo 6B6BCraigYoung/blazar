@@ -142,15 +142,24 @@ pub fn AppsPage() -> impl IntoView {
 #[component]
 fn AppCard(id: &'static str, name: &'static str, desc: &'static str) -> impl IntoView {
     let rev = RwSignal::new(0u32);
+    let key = format!("blazar.apps.{id}");
+    let cached = RwSignal::new(crate::storage::load::<Value>(&key));
     let data = LocalResource::new(move || {
         rev.get();
         async move { api::get::<Value>(&format!("/api/office/{id}")).await }
     });
-    let step = move || {
-        data.get()
-            .and_then(Result::ok)
-            .map_or("打开", |v| next_step(id, &v))
-    };
+    Effect::new(move |_| {
+        if let Some(Ok(v)) = data.get() {
+            crate::storage::save(&key, &v);
+            cached.set(Some(v));
+        }
+    });
+    let shown = Memo::new(move |_| match data.get() {
+        Some(Ok(v)) => Some(v),
+        None => cached.get(),
+        Some(Err(_)) => None,
+    });
+    let step = move || shown.get().map_or("打开", |v| next_step(id, &v));
     view! {
         <article class="card apps-card">
             <div class="apps-card-head">
@@ -160,7 +169,13 @@ fn AppCard(id: &'static str, name: &'static str, desc: &'static str) -> impl Int
             <p class="muted">{desc}</p>
             <div class="apps-card-status" aria-live="polite">
                 {move || match data.get() {
-                    None => view! { <AppStatus label="读取中…" tone="neutral" /> }.into_any(),
+                    None => match shown.get() {
+                        Some(value) => {
+                            view! { <AppStatus label=state(id, &value) tone=state_tone(id, &value) /> }
+                                .into_any()
+                        }
+                        None => view! { <AppStatus label="读取中…" tone="neutral" /> }.into_any(),
+                    },
                     Some(Err(error)) => {
                         view! {
                             <span title=error.to_string()>
