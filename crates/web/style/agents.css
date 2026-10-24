@@ -57,8 +57,16 @@
 @media (max-width:760px) { .agent-overview, .agent-form-grid { grid-template-columns: 1fr; } .agent-toolbar input { min-width: 130px; } .skill-editor { grid-template-columns: 1fr; } .skill-editor>nav { max-height: 180px; border-right: 0; border-bottom: 1px solid var(--border); } .agent-run { flex-wrap: wrap; } .agent-stats { gap: var(--space-md); } .agent-stats b { font-size: var(--font-size-detail-title); } }
 
 .agent-page .page-head { flex-wrap: wrap; }
+.agent-page .agent-table table { table-layout: fixed; min-width: 720px; }
+.agent-page .agent-table th:nth-child(1) { width: 44px; }
+.agent-page .agent-table th:nth-child(3) { width: 104px; }
+.agent-page .agent-table th:nth-child(4) { width: 168px; }
+.agent-page .agent-table th:nth-child(5) { width: 96px; }
+.agent-page .agent-table th:nth-child(6) { width: 112px; }
 .agent-page .agent-table td { overflow-wrap: anywhere; }
+.agent-page .agent-table td .mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .agent-page .agent-table .agent-name { min-width: 0; }
+.agent-page .agent-table .agent-name b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .agent-page .agent-tabs { flex-wrap: wrap; }
 .agent-page .agent-summary p { margin-top: 0; }
 @media (max-width: 1000px) {
@@ -70,8 +78,17 @@
 
 .skills-page .page-head { flex-wrap: wrap; }
 .skills-page .agent-toolbar { align-items: center; }
+.skills-page .agent-table table { table-layout: fixed; min-width: 720px; }
 .skills-page .agent-table td { vertical-align: top; overflow-wrap: anywhere; }
-.skills-page .agent-table td:nth-child(2) { max-width: 30rem; }
+.skills-page .agent-table td:first-child { overflow: hidden; text-overflow: ellipsis; }
+.skills-page .skills-lib th:nth-child(1) { width: 24%; }
+.skills-page .skills-lib th:nth-child(3) { width: 72px; }
+.skills-page .skills-lib th:nth-child(4) { width: 140px; }
+.skills-page .skills-lib th:nth-child(5) { width: 96px; }
+.skills-page .skills-market th:nth-child(1) { width: 24%; }
+.skills-page .skills-market th:nth-child(3) { width: 120px; }
+.skills-page .skills-market th:nth-child(4) { width: 64px; }
+.skills-page .skills-market th:nth-child(5) { width: 128px; }
 .skill-source-details summary { cursor: pointer; }
 .skill-modal .skill-editor { min-width: 0; }
 .skill-modal .skill-content { min-width: 0; }

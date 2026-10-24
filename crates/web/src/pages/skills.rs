@@ -330,7 +330,7 @@ pub fn SkillsPage() -> impl IntoView {
                                 }
                                 view! {
                                     <ListGroup>
-                                        <div class="agent-table">
+                                        <div class="agent-table skills-lib">
                                             <table>
                                                 <thead>
                                                     <tr>
@@ -1584,7 +1584,7 @@ fn SkillMarket(preview: RwSignal<Option<(Value, bool)>>, refresh: RwSignal<u32>)
                     }
                     view! {
                         <ListGroup>
-                            <div class="agent-table">
+                            <div class="agent-table skills-market">
                                 <table>
                                     <thead>
                                         <tr>

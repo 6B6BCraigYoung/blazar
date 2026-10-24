@@ -264,10 +264,10 @@ pub fn JobsPage() -> impl IntoView {
                                         <th>"标签"</th>
                                         <th>"机器"</th>
                                         <th>"发起方"</th>
-                                        <th>"开始"</th>
-                                        <th>"已运行"</th>
-                                        <th>"截止"</th>
-                                        <th>"退出码"</th>
+                                        <th class="num">"开始"</th>
+                                        <th class="num">"已运行"</th>
+                                        <th class="num">"截止"</th>
+                                        <th class="num">"退出码"</th>
                                         <th class="jobs-actions-head">"操作"</th>
                                     </tr>
                                 </thead>

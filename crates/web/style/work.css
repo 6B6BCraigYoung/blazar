@@ -113,9 +113,18 @@
 .bot-claim-form .input { height: 28px; }
 .jobs-page .page-head { flex-wrap: wrap; }
 .jobs-table { max-width: 100%; overflow-x: auto; }
-.jobs-table .tb { min-width: 860px; margin-top: 0; }
-.jobs-table td.num { font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--fg-2); }
-.jobs-table .jobs-label { max-width: 280px; }
+.jobs-table .tb { table-layout: fixed; min-width: 900px; margin-top: 0; }
+.jobs-table .tb td { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jobs-table .tb th:nth-child(1) { width: 92px; }
+.jobs-table .tb th:nth-child(3) { width: 112px; }
+.jobs-table .tb th:nth-child(4) { width: 120px; }
+.jobs-table .tb th:nth-child(5) { width: 92px; }
+.jobs-table .tb th:nth-child(6) { width: 104px; }
+.jobs-table .tb th:nth-child(7) { width: 120px; }
+.jobs-table .tb th:nth-child(8) { width: 64px; }
+.jobs-table .tb th:nth-child(9) { width: 72px; }
+.jobs-table :is(th, td).num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.jobs-table td.num { color: var(--fg-2); }
 .jobs-table .jobs-label > div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .jobs-table .jobs-waits { height: 1.5em; line-height: 1.5em; font-size: var(--font-size-caption); }
 .jobs-table .jobs-actions, .jobs-table .jobs-actions-head { white-space: nowrap; text-align: right; }
