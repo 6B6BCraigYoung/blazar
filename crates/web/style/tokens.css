@@ -180,6 +180,11 @@
 
   --shadow-brand-edge: 0 0 0 .5px rgba(255,255,255,.12), 0 1px 2px rgba(0,0,0,.35);
   --shadow-toast: 0 0 0 .5px rgba(0,0,0,.5), 0 10px 30px rgba(0,0,0,.4);
+  --toast-bg: var(--material-menu);
+  --toast-fg: var(--fg);
+  --toast-fg-muted: var(--fg-2);
+  --toast-sep: var(--fg-4);
+  --toast-action: var(--accent);
   --shadow-device-edge: 0 0 0 1px var(--border-strong);
   --shadow-palette: 0 0 0 .5px rgba(0,0,0,.6), 0 24px 70px rgba(0, 0, 0, .5);
   --shadow-composer-popover: 0 0 0 .5px rgba(0,0,0,.5), 0 12px 32px rgba(0, 0, 0, .45);
@@ -290,7 +295,12 @@
   --composer-focus-border: rgba(0,122,255,.5);
   --option-selected-border: rgba(0,122,255,.45);
   --shadow-brand-edge: 0 0 0 .5px rgba(0,0,0,.15), 0 1px 2px rgba(0,0,0,.12);
-  --shadow-toast: 0 0 0 .5px rgba(0,0,0,.12), 0 10px 30px rgba(0,0,0,.15);
+  --shadow-toast: 0 10px 30px rgba(0,0,0,.25), 0 2px 6px rgba(0,0,0,.12);
+  --toast-bg: rgba(29,29,31,.9);
+  --toast-fg: #fff;
+  --toast-fg-muted: rgba(255,255,255,.75);
+  --toast-sep: rgba(255,255,255,.4);
+  --toast-action: #0a84ff;
   --shadow-palette: 0 0 0 .5px rgba(0,0,0,.12), 0 10px 30px rgba(0,0,0,.18), 0 2px 6px rgba(0,0,0,.08);
   --shadow-composer-popover: 0 0 0 .5px rgba(0,0,0,.12), 0 10px 30px rgba(0,0,0,.18), 0 2px 6px rgba(0,0,0,.08);
   --shadow-card: 0 0 0 .5px rgba(0,0,0,.08), 0 1px 3px rgba(0,0,0,.06);
@@ -368,7 +378,12 @@
     --composer-focus-border: rgba(0,122,255,.5);
     --option-selected-border: rgba(0,122,255,.45);
     --shadow-brand-edge: 0 0 0 .5px rgba(0,0,0,.15), 0 1px 2px rgba(0,0,0,.12);
-    --shadow-toast: 0 0 0 .5px rgba(0,0,0,.12), 0 10px 30px rgba(0,0,0,.15);
+    --shadow-toast: 0 10px 30px rgba(0,0,0,.25), 0 2px 6px rgba(0,0,0,.12);
+    --toast-bg: rgba(29,29,31,.9);
+    --toast-fg: #fff;
+    --toast-fg-muted: rgba(255,255,255,.75);
+    --toast-sep: rgba(255,255,255,.4);
+    --toast-action: #0a84ff;
     --shadow-palette: 0 0 0 .5px rgba(0,0,0,.12), 0 10px 30px rgba(0,0,0,.18), 0 2px 6px rgba(0,0,0,.08);
     --shadow-composer-popover: 0 0 0 .5px rgba(0,0,0,.12), 0 10px 30px rgba(0,0,0,.18), 0 2px 6px rgba(0,0,0,.08);
     --shadow-card: 0 0 0 .5px rgba(0,0,0,.08), 0 1px 3px rgba(0,0,0,.06);
