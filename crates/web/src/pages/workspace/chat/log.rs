@@ -552,12 +552,12 @@ fn step_view(s: Step, chat: Chat, opened: Opened, ws: String) -> AnyView {
     match s {
         Step::Thinking { text, secs } => {
             let head = if secs > 0 {
-                format!("✻ 思考了 {secs} 秒")
+                format!("思考了 {secs} 秒")
             } else {
-                "✻ 思考中".to_owned()
+                "思考中".to_owned()
             };
-            if text.trim().is_empty() {
-                view! { <div class="cc-thinkmark">{head}</div> }.into_any()
+            let body = if text.trim().is_empty() {
+                view! { <span class="cc-fl">{head}</span> }.into_any()
             } else {
                 let key = format!(
                     "think:{secs}:{}:{}",
@@ -567,12 +567,25 @@ fn step_view(s: Step, chat: Chat, opened: Opened, ws: String) -> AnyView {
                 details(
                     opened,
                     key,
-                    "cc-think",
-                    view! { {head} }.into_any(),
+                    "cc-fd cc-think",
+                    view! {
+                        <span class="cc-fl">{head}</span>
+                        <span inner_html=CHEVRON></span>
+                    }
+                    .into_any(),
                     move || view! { <Md text ws /> }.into_any(),
                 )
                 .into_any()
+            };
+            view! {
+                <div class="cc-row cc-thought">
+                    <span class="cc-dot" aria-hidden="true">
+                        "✻"
+                    </span>
+                    <div class="cc-main">{body}</div>
+                </div>
             }
+            .into_any()
         }
         Step::Tool(t) => tool_view(*t, chat, opened, ws),
         Step::Text(t) => view! {

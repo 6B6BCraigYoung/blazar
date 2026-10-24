@@ -137,9 +137,11 @@
 .cc-todo { display: flex; gap: var(--space-sm); color: var(--fg-2); }
 .cc-todo.completed { color: var(--fg-4); text-decoration: line-through; }
 .cc-todo.in_progress { color: var(--fg); font-weight: var(--font-weight-medium); }
-.cc-think > summary, .cc-sub > summary, .cc-planbody > summary, .cc-rewound > summary { cursor: pointer; color: var(--fg-3); font-size: var(--font-size-label-readable); }
+.cc-sub > summary, .cc-planbody > summary, .cc-rewound > summary { cursor: pointer; color: var(--fg-3); font-size: var(--font-size-label-readable); }
 .cc-think .cc-md { color: var(--fg-3); font-style: italic; margin: var(--space-xs) 0 var(--space-md); }
-.cc-thinkmark { color: var(--fg-3); font-size: var(--font-size-label-readable); margin-bottom: var(--space-md); }
+.cc-thought > .cc-dot { font-size: var(--font-size-label-readable); line-height: 1; }
+.cc-thought > .cc-dot::before { content: none; }
+.cc-thought > .cc-main { color: var(--fg-3); font-size: var(--font-size-label-readable); }
 .cc-sub { margin-top: var(--space-xs); }
 .cc-subl { margin: var(--space-sm) 0 0 var(--space-xs); padding-left: var(--space-control); border-left: 1px solid var(--line); }
 .cc-subwait { display: flex; align-items: center; gap: var(--space-sm); height: 1.85em; overflow: hidden; white-space: nowrap; color: var(--fg-3); font-size: var(--font-size-label-readable); }
