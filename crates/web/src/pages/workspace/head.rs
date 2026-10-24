@@ -343,6 +343,7 @@ pub fn WsHead(
                 aria-label="文件"
                 title=crate::shortcuts::titled("文件", "explorer")
                 aria-pressed=move || lay().files_shown().to_string()
+                on:mousedown=|e: leptos::ev::MouseEvent| e.prevent_default()
                 on:click=move |_| state.toggle_files()
                 inner_html=super::ICON_FILES
             ></button>

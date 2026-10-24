@@ -160,8 +160,10 @@ fn dispatch(app: &AppHandle, id: &str) {
         let _ = w.eval(format!(
             "window.dispatchEvent(new CustomEvent('blazar-menu', {{ detail: {detail} }}))"
         ));
-        let _ = w.show();
-        let _ = w.set_focus();
+        if !w.is_focused().unwrap_or(false) {
+            let _ = w.show();
+            let _ = w.set_focus();
+        }
     }
 }
 
