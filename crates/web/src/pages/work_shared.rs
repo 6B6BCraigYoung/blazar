@@ -36,6 +36,49 @@ pub fn decide_approval(
     });
 }
 
+pub fn allow_always(
+    gate: RwSignal<ActionGate>,
+    id: String,
+    request: Value,
+    workspace: String,
+    done: impl Fn() + 'static,
+) {
+    spawn_local(async move {
+        let (tool, pattern) = crate::chat_model::always_rule(&request);
+        let what = if pattern.is_empty() {
+            tool.clone()
+        } else {
+            format!("{tool} {pattern}…")
+        };
+        let ok = crate::components::dialog::ask(
+            "不再询问",
+            &format!("在这个工作区里总是允许「{what}」？\n\n之后可以在设置里关掉。"),
+            vec![
+                crate::components::dialog::Choice::plain("取消"),
+                crate::components::dialog::Choice::plain("总是允许"),
+            ],
+        )
+        .await;
+        if ok != Some(1) {
+            return;
+        }
+        match api::send::<Value>(
+            "POST",
+            "/api/approval-rules",
+            &json!({ "tool": tool, "pattern": pattern, "workspace_id": workspace }),
+        )
+        .await
+        {
+            Ok(_) => decide_approval(gate, id, true, None, done),
+            Err(e) => toast(e.to_string()),
+        }
+    });
+}
+
+pub fn approval_key_hint(i: usize) -> String {
+    (i + 1).to_string()
+}
+
 pub use crate::components::rows::{in_field, list_keys_apply, overlay_open};
 
 pub fn approval_summary(request: &Value, root: &str) -> (String, String) {

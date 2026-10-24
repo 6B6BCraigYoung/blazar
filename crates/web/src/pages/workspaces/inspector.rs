@@ -12,6 +12,7 @@ use crate::components::modal::Modal;
 use crate::components::prefs::{PrefGroup, PrefRow};
 use crate::components::status::{InlineError, LoadingState, Status};
 use crate::components::toast::toast;
+use crate::components::undo::{self, Request};
 use crate::fmt;
 use crate::vocab::{self, Tone};
 
@@ -146,6 +147,17 @@ pub fn remove_workspace(app: AppData, id: String) {
             "running" | "starting" | "awaiting_approval"
         );
         let path = format!("/api/workspaces/{id}/destroy");
+        if !(isolated || busy || kids > 0) {
+            undo::remove_row(
+                format!("已移除「{label}」"),
+                id,
+                Request::post(path),
+                move || {
+                    app.load_state();
+                },
+            );
+            return;
+        }
         if !confirm_remove(&label, isolated, kids, busy).await {
             return;
         }

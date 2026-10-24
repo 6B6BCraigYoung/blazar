@@ -18,10 +18,13 @@ use crate::components::page_head::PageHead;
 use crate::components::prefs::{PrefGroup, PrefRow};
 use crate::components::rows::{MenuAt, RowAction, RowMenu};
 use crate::components::status::{InlineError, LoadingState, StateOf, Status, Tone};
+use crate::components::undo;
 use crate::fmt;
 use crate::home_rows::{self, Group, Row, StepText};
 
-use super::work_shared::{approval_summary, decide_approval, list_keys_apply};
+use super::work_shared::{
+    allow_always, approval_key_hint, approval_summary, decide_approval, list_keys_apply,
+};
 pub use inspector::{
     Inspector, InspectorHost, remove_workspace, rename_workspace, retry_workspace,
 };
@@ -196,6 +199,27 @@ fn decide(ctx: Ctx, id: String, allow: bool) {
     });
 }
 
+fn always(ctx: Ctx, a: &Value, workspace: String) {
+    allow_always(
+        ctx.gate,
+        a["id"].as_str().unwrap_or("").to_owned(),
+        a["request"].clone(),
+        workspace,
+        move || {
+            let _ = ctx.appr_rev.try_update(|n| *n += 1);
+        },
+    );
+}
+
+fn pick_approval(ctx: Ctx, key: &str, a: &Value, workspace: String) {
+    let id = a["id"].as_str().unwrap_or("").to_owned();
+    match key {
+        "1" => decide(ctx, id, true),
+        "2" => always(ctx, a, workspace),
+        _ => decide(ctx, id, false),
+    }
+}
+
 fn is_question(a: &Value) -> bool {
     crate::chat_model::tool_name(a["request"]["tool_name"].as_str().unwrap_or(""))
         == "AskUserQuestion"
@@ -220,7 +244,12 @@ fn Home() -> impl IntoView {
     let list_el = NodeRef::<html::Div>::new();
     let rows = Memo::new(move |_| {
         let all = app.workspaces();
-        home_rows::group_rows(app.top_workspaces(), &all, |w| app.shown_activity(w))
+        let top = app
+            .top_workspaces()
+            .into_iter()
+            .filter(|w| undo::shows(&w.id))
+            .collect();
+        home_rows::group_rows(top, &all, |w| app.shown_activity(w))
     });
     let approvals = LocalResource::new(move || {
         ctx.appr_rev.track();
@@ -294,21 +323,15 @@ fn Home() -> impl IntoView {
                 ctx.sel.set(Some(next));
                 focus_row(next);
             }
-            "Enter" | "Backspace"
-                if meta
-                    && selected()
-                        .and_then(|row| pending_of(&row))
-                        .is_some_and(|a| !is_question(&a)) =>
-            {
-                let Some(a) = selected().and_then(|row| pending_of(&row)) else {
+            "1" | "2" | "3" if !meta && !e.alt_key() && !e.shift_key() => {
+                let Some(row) = selected() else {
+                    return;
+                };
+                let Some(a) = pending_of(&row).filter(|a| !is_question(a)) else {
                     return;
                 };
                 e.prevent_default();
-                decide(
-                    ctx,
-                    a["id"].as_str().unwrap_or("").to_owned(),
-                    key == "Enter",
-                );
+                pick_approval(ctx, &key, &a, row.subject().id.clone());
             }
             _ => match crate::shortcuts::action(&e) {
                 Some("inspect") => {
@@ -483,7 +506,7 @@ fn row_view(ctx: Ctx, i: usize, row: Row, pending: Option<Value>) -> impl IntoVi
                         on:click=move |_| decide(ctx, i2.clone(), true)
                     >
                         "允许"
-                        <kbd>{crate::shortcuts::label("Mod+Enter")}</kbd>
+                        <kbd>{approval_key_hint(0)}</kbd>
                     </button>
                     <button
                         type="button"
@@ -492,6 +515,7 @@ fn row_view(ctx: Ctx, i: usize, row: Row, pending: Option<Value>) -> impl IntoVi
                         on:click=move |_| decide(ctx, i4.clone(), false)
                     >
                         "拒绝"
+                        <kbd>{approval_key_hint(2)}</kbd>
                     </button>
                 </div>
             }
@@ -549,9 +573,8 @@ fn home_menu(ctx: Ctx, row: &Row, pending: Option<Value>) -> Vec<Vec<RowAction>>
     let app = use_app();
     let id = row.ws.id.clone();
     let href = format!("/w/{}", row.subject().id);
-    let approval = pending
-        .filter(|a| !is_question(a))
-        .map(|a| a["id"].as_str().unwrap_or("").to_owned());
+    let approval = pending.filter(|a| !is_question(a));
+    let subject = row.subject().id.clone();
     let failed = (row.state == "errored")
         .then(|| row.subject().session_id.clone())
         .flatten()
@@ -566,13 +589,18 @@ fn home_menu(ctx: Ctx, row: &Row, pending: Option<Value>) -> Vec<Vec<RowAction>>
             })
             .unwrap_or_default(),
         approval
-            .map(|aid| {
-                let (a1, a2) = (aid.clone(), aid);
+            .map(|a| {
+                let (a1, a2, a3) = (a.clone(), a.clone(), a);
+                let (s1, s2, s3) = (subject.clone(), subject.clone(), subject);
                 vec![
-                    RowAction::new("允许", move || decide(ctx, a1.clone(), true))
-                        .hint(crate::shortcuts::label("Mod+Enter")),
-                    RowAction::new("拒绝", move || decide(ctx, a2.clone(), false))
-                        .hint(crate::shortcuts::label("Mod+Backspace")),
+                    RowAction::new("允许", move || pick_approval(ctx, "1", &a1, s1.clone()))
+                        .hint(approval_key_hint(0)),
+                    RowAction::new("总是允许", move || {
+                        pick_approval(ctx, "2", &a2, s2.clone())
+                    })
+                    .hint(approval_key_hint(1)),
+                    RowAction::new("拒绝", move || pick_approval(ctx, "3", &a3, s3.clone()))
+                        .hint(approval_key_hint(2)),
                 ]
             })
             .unwrap_or_default(),

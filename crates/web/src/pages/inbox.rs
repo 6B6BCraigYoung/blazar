@@ -33,6 +33,7 @@ const KINDS: &[(&str, &str)] = &[
 struct Item {
     id: String,
     kind: String,
+    workspace: String,
     label: String,
     title: String,
     body: String,
@@ -99,6 +100,7 @@ fn item_of(it: &Value) -> Item {
     };
     Item {
         id: s(it, "id"),
+        workspace: ws.clone(),
         label: KINDS
             .iter()
             .find(|(key, _)| *key == k)
@@ -133,6 +135,23 @@ fn decide(ctx: Ctx, id: String, allow: bool, answers: Option<Value>) {
         let _ = ctx.appr_rev.try_update(|n| *n += 1);
         refresh(ctx.rev);
     });
+}
+
+fn is_question(a: &Value) -> bool {
+    crate::chat_model::tool_name(a["request"]["tool_name"].as_str().unwrap_or(""))
+        == "AskUserQuestion"
+}
+
+fn pick_approval(ctx: Ctx, key: &str, a: &Value, workspace: String) {
+    let id = a["id"].as_str().unwrap_or("").to_owned();
+    match key {
+        "1" => decide(ctx, id, true, None),
+        "2" => allow_always(ctx.gate, id, a["request"].clone(), workspace, move || {
+            let _ = ctx.appr_rev.try_update(|n| *n += 1);
+            refresh(ctx.rev);
+        }),
+        _ => decide(ctx, id, false, None),
+    }
 }
 
 #[component]
@@ -278,22 +297,15 @@ pub fn InboxPage() -> impl IntoView {
                     open(it);
                 }
             }
-            "Enter" | "Backspace" if meta && !typing => {
-                let Some(a) = selected().and_then(|it| pending_of(&it)) else {
+            "1" | "2" | "3" if !typing && !meta && !e.alt_key() && !e.shift_key() => {
+                let Some(it) = selected() else {
                     return;
                 };
-                if crate::chat_model::tool_name(a["request"]["tool_name"].as_str().unwrap_or(""))
-                    == "AskUserQuestion"
-                {
+                let Some(a) = pending_of(&it).filter(|a| !is_question(a)) else {
                     return;
-                }
+                };
                 e.prevent_default();
-                decide(
-                    ctx,
-                    a["id"].as_str().unwrap_or("").to_owned(),
-                    key == "Enter",
-                    None,
-                );
+                pick_approval(ctx, &key, &a, it.workspace.clone());
             }
             "e" | "E" if !typing && !meta => {
                 if let Some(it) = selected() {
@@ -420,11 +432,12 @@ pub fn InboxPage() -> impl IntoView {
                         items
                             .with(|it| it.get(at.index).cloned())
                             .map(|it| {
+                                let pending = pending_of(&it);
                                 view! {
                                     <RowMenu
                                         at
                                         label="通知的操作"
-                                        groups=inbox_menu(ctx, it)
+                                        groups=inbox_menu(ctx, it, pending)
                                         on_close=Callback::new(move |()| ctx.menu.set(None))
                                     />
                                 }
@@ -515,9 +528,7 @@ fn row_view(ctx: Ctx, i: usize, it: Item, pending: Option<Value>) -> impl IntoVi
     let body_in_panel = pending.is_some() && it.kind == "approval";
     let panel = pending.map(|a| {
         let aid = a["id"].as_str().unwrap_or("").to_owned();
-        if crate::chat_model::tool_name(a["request"]["tool_name"].as_str().unwrap_or(""))
-            == "AskUserQuestion"
-        {
+        if is_question(&a) {
             question_panel(ctx, aid, &a, href.clone())
         } else {
             let (label, what) = approval_summary(&a["request"], "");
@@ -534,7 +545,7 @@ fn row_view(ctx: Ctx, i: usize, it: Item, pending: Option<Value>) -> impl IntoVi
                         on:click=move |_| decide(ctx, a2.clone(), true, None)
                     >
                         "允许"
-                        <kbd>{crate::shortcuts::label("Mod+Enter")}</kbd>
+                        <kbd>{approval_key_hint(0)}</kbd>
                     </button>
                     <button
                         type="button"
@@ -543,6 +554,7 @@ fn row_view(ctx: Ctx, i: usize, it: Item, pending: Option<Value>) -> impl IntoVi
                         on:click=move |_| decide(ctx, a4.clone(), false, None)
                     >
                         "拒绝"
+                        <kbd>{approval_key_hint(2)}</kbd>
                     </button>
                 </div>
             }
@@ -603,10 +615,28 @@ fn row_view(ctx: Ctx, i: usize, it: Item, pending: Option<Value>) -> impl IntoVi
     }
 }
 
-fn inbox_menu(ctx: Ctx, item: Item) -> Vec<Vec<RowAction>> {
+fn inbox_menu(ctx: Ctx, item: Item, pending: Option<Value>) -> Vec<Vec<RowAction>> {
     let (id_read, id_arch) = (item.id.clone(), item.id.clone());
     let (read, archived) = (item.read, item.archived);
+    let approval = pending.filter(|a| !is_question(a));
+    let ws = item.workspace.clone();
     vec![
+        approval
+            .map(|a| {
+                let (a1, a2, a3) = (a.clone(), a.clone(), a);
+                let (w1, w2, w3) = (ws.clone(), ws.clone(), ws);
+                vec![
+                    RowAction::new("允许", move || pick_approval(ctx, "1", &a1, w1.clone()))
+                        .hint(approval_key_hint(0)),
+                    RowAction::new("总是允许", move || {
+                        pick_approval(ctx, "2", &a2, w2.clone())
+                    })
+                    .hint(approval_key_hint(1)),
+                    RowAction::new("拒绝", move || pick_approval(ctx, "3", &a3, w3.clone()))
+                        .hint(approval_key_hint(2)),
+                ]
+            })
+            .unwrap_or_default(),
         vec![RowAction::open(item.href.clone())],
         vec![
             RowAction::new(
