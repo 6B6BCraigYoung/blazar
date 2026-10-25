@@ -7,5 +7,6 @@ pub mod codex_proxy;
 pub mod global_login;
 pub mod proxy;
 pub mod remote_cli;
+pub mod resume;
 pub mod run;
 pub mod titles;

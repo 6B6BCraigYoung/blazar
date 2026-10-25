@@ -694,6 +694,11 @@ async fn finalize(ctx: &Ctx, code: Option<i32>, p: &mut Progress) -> Result<(), 
         ctx.sid,
         status,
     ));
+    ctx.st.services.spawn(crate::resume::on_run_finished(
+        ctx.st.clone(),
+        ctx.sid,
+        status,
+    ));
 
     if code.is_some()
         && let Err(e) = ctx.live.run.remove().await

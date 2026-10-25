@@ -14,6 +14,7 @@ struct FakeTransport {
     block_launch: AtomicBool,
     launch_entered: tokio::sync::Notify,
     release_launch: tokio::sync::Notify,
+    stdin: std::sync::Mutex<Vec<String>>,
 }
 
 impl NodeTransport for FakeTransport {
@@ -40,6 +41,12 @@ impl NodeTransport for FakeTransport {
                 (2, "test hook denied startup".into())
             } else if script.contains("__BLAZAR_LAUNCHED__") {
                 self.launched.store(true, Ordering::SeqCst);
+                if let Some(payload) = &spec.stdin {
+                    self.stdin
+                        .lock()
+                        .unwrap()
+                        .push(String::from_utf8_lossy(payload).into_owned());
+                }
                 if self.block_launch.load(Ordering::SeqCst) {
                     self.launch_entered.notify_one();
                     self.release_launch.notified().await;
@@ -145,8 +152,62 @@ async fn fixture() -> (tempfile::TempDir, Shared, WorkspaceId, Arc<FakeTransport
         block_launch: AtomicBool::new(false),
         launch_entered: tokio::sync::Notify::new(),
         release_launch: tokio::sync::Notify::new(),
+        stdin: std::sync::Mutex::new(Vec::new()),
     });
     (dir, st, ws, fake)
+}
+
+fn launched_command(fake: &FakeTransport) -> String {
+    use base64::prelude::*;
+    let payload = fake
+        .stdin
+        .lock()
+        .unwrap()
+        .last()
+        .cloned()
+        .unwrap_or_default();
+    let cmd = payload.lines().nth(1).unwrap_or_default();
+    String::from_utf8(BASE64_STANDARD.decode(cmd).unwrap()).unwrap()
+}
+
+async fn resumable_prior(st: &Shared, ws: WorkspaceId) {
+    let prior = SessionId::new();
+    sqlx::query(
+        "INSERT INTO sessions (id, workspace_id, runtime_kind, status, created_at, node, provider_session_id, last_uuid)
+         VALUES (?1, ?2, 'claude', 'done', '1', 'local', 'p1', '0b9d2c5e-1a2b-4c3d-9e8f-001122334455')",
+    )
+    .bind(prior.to_string()).bind(ws.to_string()).execute(st.db.pool()).await.unwrap();
+    sqlx::query(
+        "INSERT INTO events (session_id, seq, ts, payload) VALUES (?1, 1, '1', '{\"type\":\"session_started\",\"provider_session_id\":\"p1\"}')",
+    )
+    .bind(prior.to_string()).execute(st.db.pool()).await.unwrap();
+}
+
+#[tokio::test]
+async fn resuming_at_the_last_message_is_opt_in() {
+    for anchored in [true, false] {
+        let (_dir, st, ws, fake) = fixture().await;
+        resumable_prior(&st, ws).await;
+        let req = serde_json::from_value(serde_json::json!({
+            "text": "继续", "agent": "claude", "resume": true, "resume_at_last": anchored,
+        }))
+        .unwrap();
+        let transport = fake.clone();
+        let _ = prompt_using(st.clone(), ws.to_string(), req, move |_| transport.clone())
+            .await
+            .unwrap_or_else(|error| panic!("{}", error.message()));
+        let cmd = launched_command(&fake).replace('\'', "");
+        let exec = cmd
+            .lines()
+            .find(|l| l.starts_with("exec "))
+            .unwrap_or_default();
+        assert!(exec.contains("--resume p1"), "{exec}");
+        assert_eq!(
+            exec.contains("--resume-session-at 0b9d2c5e-1a2b-4c3d-9e8f-001122334455"),
+            anchored,
+            "{exec}"
+        );
+    }
 }
 
 async fn prompt_fake(

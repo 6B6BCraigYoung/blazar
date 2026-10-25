@@ -398,10 +398,8 @@ async fn prompt_inner(
         }
         None => None,
     };
-    let stored_request = account
-        .as_ref()
-        .filter(|a| a.auto)
-        .and_then(|_| serde_json::to_string(&req).ok())
+    let stored_request = serde_json::to_string(&req)
+        .ok()
         .filter(|s| s.len() <= MAX_STORED_REQUEST);
 
     let session_id = SessionId::new();
