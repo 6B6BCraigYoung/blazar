@@ -7,7 +7,10 @@ use crate::components::page_head::PageHead;
 use crate::components::rows::{MenuAt, RowAction, RowMenu};
 use crate::components::status::{InlineError, LoadingState, Status, Tone};
 use crate::components::toast::toast;
+use crate::failure::{self, Failure};
+use crate::pages::workspaces::retry_workspace;
 use crate::{api, app_state::use_app, fmt, storage};
+use blazar_core_types::failure::FailureCause;
 use leptos::ev;
 use leptos::html;
 use leptos::prelude::*;
@@ -44,6 +47,8 @@ struct Item {
     resolved: String,
     ref_id: String,
     created: String,
+    failure: Option<Failure>,
+    handled: bool,
 }
 
 impl Item {
@@ -93,10 +98,21 @@ fn item_of(it: &Value) -> Item {
     let ws = s(it, "workspace_id");
     let thread = s(it, "thread_id");
     let raw = s(it, "body");
-    let human = if k == "run_failed" {
-        crate::vocab::cause(&raw)
-    } else {
-        crate::vocab::error(&raw, None)
+    let failure = (k == "run_failed").then(|| Failure {
+        cause: FailureCause::parse(&s(it, "cause")).unwrap_or_else(|| FailureCause::of(&raw, true)),
+        message: raw.lines().next().unwrap_or_default().to_owned(),
+        workspace: ws.clone(),
+        session: s(it, "session_id"),
+        thread: thread.clone(),
+        node: s(it, "node"),
+        runtime: s(it, "runtime"),
+        account: Some(s(it, "account")).filter(|a| !a.is_empty()),
+        resets_at: Some(s(it, "resets_at")).filter(|r| !r.is_empty()),
+    });
+    let handled = it["handled"].as_bool() == Some(true) || !s(it, "resolved_at").is_empty();
+    let human = match &failure {
+        Some(f) => f.headline(),
+        None => crate::vocab::error(&raw, None),
     };
     Item {
         id: s(it, "id"),
@@ -117,7 +133,52 @@ fn item_of(it: &Value) -> Item {
         ref_id: s(it, "ref_id"),
         created: s(it, "created_at"),
         kind: k,
+        failure,
+        handled,
     }
+}
+
+fn failure_actions(it: &Item) -> Option<Failure> {
+    (it.kind == "run_failed" && !it.handled && !it.archived)
+        .then(|| it.failure.clone())
+        .flatten()
+}
+
+fn failure_panel(f: Failure) -> AnyView {
+    let app = use_app();
+    let primary = f.primary();
+    let href = f.node_href();
+    let (ws, session) = (f.workspace.clone(), f.session.clone());
+    let act = move |_| {
+        let (ws, session) = (f.workspace.clone(), f.session.clone());
+        failure::act(app, &f, move || retry_workspace(app, ws, session));
+    };
+    let done = move |_| {
+        failure::mark_handled(
+            app,
+            ws.clone(),
+            Some(session.clone()).filter(|s| !s.is_empty()),
+        );
+    };
+    view! {
+        <div class="inbox-act">
+            <button type="button" class="btn small primary" on:click=act>
+                {primary}
+            </button>
+            {href
+                .map(|h| {
+                    view! {
+                        <a class="btn small" href=h>
+                            "打开机器页"
+                        </a>
+                    }
+                })}
+            <button type="button" class="btn small" on:click=done>
+                "标为已处理"
+            </button>
+        </div>
+    }
+    .into_any()
 }
 
 #[derive(Clone, Copy)]
@@ -527,6 +588,12 @@ fn row_view(ctx: Ctx, i: usize, it: Item, pending: Option<Value>) -> impl IntoVi
     let read = it.read;
     let id_read = it.id.clone();
     let body_in_panel = pending.is_some() && it.kind == "approval";
+    let acts = failure_actions(&it).map(failure_panel);
+    let resolved_label = if it.kind == "run_failed" {
+        "已处理"
+    } else {
+        "已解决"
+    };
     let panel = pending.map(|a| {
         let aid = a["id"].as_str().unwrap_or("").to_owned();
         if is_question(&a) {
@@ -599,6 +666,7 @@ fn row_view(ctx: Ctx, i: usize, it: Item, pending: Option<Value>) -> impl IntoVi
                         .then(|| view! { <small class="inbox-raw">{it.raw.clone()}</small> })}
                 </a>
                 {panel}
+                {acts}
             </div>
             <small class="inbox-meta">
                 {format!("{} · {}", it.label, fmt::ago(&it.created))}
@@ -607,7 +675,7 @@ fn row_view(ctx: Ctx, i: usize, it: Item, pending: Option<Value>) -> impl IntoVi
                         view! {
                             <Status
                                 tone=Tone::Other
-                                label=format!("已解决 · {}", fmt::ago(&it.resolved))
+                                label=format!("{resolved_label} · {}", fmt::ago(&it.resolved))
                             />
                         }
                     })}
@@ -621,7 +689,38 @@ fn inbox_menu(ctx: Ctx, item: Item, pending: Option<Value>) -> Vec<Vec<RowAction
     let (read, archived) = (item.read, item.archived);
     let approval = pending.filter(|a| !is_question(a));
     let ws = item.workspace.clone();
+    let app = use_app();
+    let failing = failure_actions(&item)
+        .map(|f| {
+            let (fws, session) = (f.workspace.clone(), f.session.clone());
+            let href = f.node_href();
+            let label = f.primary();
+            let mut acts = vec![RowAction::new(label, move || {
+                let (ws, session) = (f.workspace.clone(), f.session.clone());
+                failure::act(app, &f, move || retry_workspace(app, ws, session));
+            })];
+            if let Some(href) = href {
+                acts.push(RowAction {
+                    label: "打开机器页".into(),
+                    hint: None,
+                    danger: false,
+                    disabled: false,
+                    href: Some(href),
+                    run: None,
+                });
+            }
+            acts.push(RowAction::new("标为已处理", move || {
+                failure::mark_handled(
+                    app,
+                    fws.clone(),
+                    Some(session.clone()).filter(|s| !s.is_empty()),
+                );
+            }));
+            acts
+        })
+        .unwrap_or_default();
     vec![
+        failing,
         approval
             .map(|a| {
                 let (a1, a2, a3) = (a.clone(), a.clone(), a);
