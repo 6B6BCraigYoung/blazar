@@ -925,11 +925,19 @@ class Shooter:
         print(f"{name}\t溢出 {len(over)}\t错误 {len(errors)}" + ("\t演练，没截图" if self.rehearse else ""))
 
     def check(self, name, step):
-        got = db_rows(step["sql"], step.get("args", ()))[0][0]
-        if got == step["want"]:
+        if step["action"] == "check_ui":
+            found = ui({"action": "text", "selector": step["selector"]})
+            got = found["texts"][0]["text"].strip() if "text" in step and found["texts"] else found["matches"]
+            want = step.get("text", step.get("want"))
+            kind = "画面不对"
+        else:
+            got = db_rows(step["sql"], step.get("args", ()))[0][0]
+            want = step["want"]
+            kind = "数据没复原"
+        if got == want:
             return
-        print(f"  ! {name}：{step['what']}应为 {step['want']}，实际 {got}", file=sys.stderr)
-        self.issues.append(f"{name}\t数据没复原\t{step['what']}应为 {step['want']}，实际 {got}")
+        print(f"  ! {name}：{step['what']}应为 {want!r}，实际 {got!r}", file=sys.stderr)
+        self.issues.append(f"{name}\t{kind}\t{step['what']}应为 {want!r}，实际 {got!r}")
         self.broken += 1
 
     def page(self, no, slug, theme, route, expect, state, steps=(), scroll=True, settle=900):
@@ -959,7 +967,7 @@ class Shooter:
             print(f"  ! {slug}：{warning}", file=sys.stderr)
         self.shoot(no, slug, theme, route, expect, state, warning)
         for step in after:
-            if step["action"] == "check_db":
+            if step["action"] in ("check_db", "check_ui"):
                 self.check(f"{no:02d}-{slug}-{theme}.png", step)
             else:
                 try_ui(step)
@@ -1222,16 +1230,30 @@ def chat_parts():
     down = {"action": "key", "key": "ArrowDown", "code": "ArrowDown", "selector": ".chats-page"}
     chats_left = {"action": "check_db", "sql": "SELECT count(*) FROM sessions WHERE id LIKE ?", "args": (PREFIX + "%",),
                   "want": None, "what": "对话数"}
+    listed = '.chat-room .cc-tool[data-name="list_workspaces"]'
+
+    def shown(selector, want, what):
+        return {"action": "check_ui", "selector": selector, "want": want, "what": what, "after": True}
+
+    def says(selector, text, what):
+        return {"action": "check_ui", "selector": selector, "text": text, "what": what, "after": True}
+
     return [
         ("chats-row-menu", "/chats", "对话行的右键菜单（打开 ↩ / 重命名… / 删除 ⌘⌫）",
          ({"action": "wait", "selector": f"{row}[data-index=\"0\"]", "timeout_ms": 8000},
           {"action": "context_menu", "selector": f"{row}[data-index=\"0\"]"}), False),
-        ("chat-done", f"/chats/{CHATS['status']}", "对话页：页头「对话 · 标题 ⌄ · 已完成」，720 居中的对话（用调度工具看了三个工作区），没有检查器和文件树",
-         ({"action": "wait", "selector": ".chat-room .cc-log", "timeout_ms": 8000}, {"action": "wait", "ms": 800}), False),
-        ("chat-approval", f"/chats/{CHATS['handoff']}", "等你批准的对话页：页头状态橙色「等你批准」，审批卡是要给 nebula-web 派活的 send_prompt",
-         ({"action": "wait", "selector": ".chat-room .cc-appr", "timeout_ms": 8000}, {"action": "wait", "ms": 800}), False),
+        ("chat-done", f"/chats/{CHATS['status']}", "对话页：页头「对话 · 标题 ⌄ · 已完成」，720 居中的对话（「列出了 3 个工作区」带三个工作区小标签和「详情」），没有进度行和停止键",
+         ({"action": "wait", "selector": ".chat-room .cc-log", "timeout_ms": 8000}, {"action": "wait", "ms": 800},
+          says(".chat-room-head .status", "已完成", "页头状态"), shown(".chat-room .cc-spin", 0, "进度行"),
+          shown('.chat-room .cb-send[data-mode="stop"]', 0, "停止键"), shown(f"{listed} .cc-wss .cc-ws", 3, "工作区小标签"),
+          shown(f"{listed} .cc-raw", 1, "「详情」")), False),
+        ("chat-approval", f"/chats/{CHATS['handoff']}", "等你批准的对话页：页头状态橙色「等你批准」，审批卡标题「允许派活给 nebula-web？」，正文是引用的话加目标工作区小标签",
+         ({"action": "wait", "selector": ".chat-room .cc-appr", "timeout_ms": 8000}, {"action": "wait", "ms": 800},
+          says(".chat-room-head .status", "等你批准", "页头状态"), says(".chat-room .cc-appr .ah", "允许派活给 nebula-web？", "审批卡标题"),
+          shown(".chat-room .cc-appr .aquote", 1, "引用的话"), shown(".chat-room .cc-appr .abody .cc-ws", 1, "目标工作区小标签")), False),
         ("chat-failed", f"/chats/{CHATS['gpu']}", "失败的对话页：输入框换成失败卡（断网）",
-         ({"action": "wait", "selector": ".chat-room .cc-log", "timeout_ms": 8000}, {"action": "wait", "ms": 800}), False),
+         ({"action": "wait", "selector": ".chat-room .cc-log", "timeout_ms": 8000}, {"action": "wait", "ms": 800},
+          says(".chat-room-head .status", "失败", "页头状态"), shown(".chat-room .cc-spin", 0, "进度行")), False),
         ("chat-picker", f"/chats/{CHATS['status']}", "页头标题的下拉：新对话 ⌘T、重命名对话…，下面是全部对话",
          ({"action": "wait", "selector": ".chat-pick .ws-thread-btn", "timeout_ms": 8000},
           {"action": "click", "selector": ".chat-pick .ws-thread-btn", "settle_ms": 300},
