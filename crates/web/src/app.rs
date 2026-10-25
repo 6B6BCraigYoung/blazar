@@ -60,6 +60,7 @@ pub fn App() -> impl IntoView {
                         <Route path=path!("/nodes") view=NodesPage />
                         <Route path=path!("/nodes/:name") view=NodeDetailPage />
                         <Route path=path!("/chats") view=ChatsPage />
+                        <Route path=path!("/chats/:thread") view=ChatPage />
                         <Route path=path!("/inbox") view=InboxPage />
                         <Route path=path!("/tasks") view=TasksPage />
                         <Route path=path!("/autopilots") view=AutopilotsPage />

@@ -7,7 +7,7 @@ use crate::components::menu::menu_keydown;
 
 use super::state::Chat;
 
-const CHEVRON: &str = r#"<svg viewBox="0 0 16 16"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>"#;
+pub(crate) const CHEVRON: &str = r#"<svg viewBox="0 0 16 16"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>"#;
 
 pub fn cycle(chat: Chat, step: i32) {
     let tabs = chat.tabs.get_untracked();

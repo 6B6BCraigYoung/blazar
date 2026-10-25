@@ -1,3 +1,5 @@
+mod room;
+
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_router::hooks::use_navigate;
@@ -13,6 +15,8 @@ use crate::components::rows::{RowAction, RowKey, RowMenu, Rows};
 use crate::components::toast::toast;
 use crate::components::undo::{self, Request};
 use crate::{fmt, vocab};
+
+pub use room::ChatPage;
 
 pub(crate) const NEW: &str = "/chats/new";
 

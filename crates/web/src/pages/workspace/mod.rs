@@ -1,9 +1,9 @@
 pub mod chat;
 mod children;
-mod diff_panel;
+pub(crate) mod diff_panel;
 mod editor;
-mod files;
-mod git_panel;
+pub(crate) mod files;
+pub(crate) mod git_panel;
 mod head;
 mod inspector;
 mod layout;
@@ -46,6 +46,12 @@ pub fn WorkspacePage() -> impl IntoView {
     on_cleanup(move || app.side_rail.set(false));
     let params = use_params_map();
     let id = move || params.read().get("id").unwrap_or_default();
+    let navigate = StoredValue::new_local(leptos_router::hooks::use_navigate());
+    Effect::new(move |_| {
+        if app.is_assistant(&id()) {
+            navigate.with_value(|n| n("/chats", Default::default()));
+        }
+    });
     move || {
         let id = id();
         view! { <Workspace id /> }
@@ -88,7 +94,9 @@ fn Workspace(id: String) -> impl IntoView {
     {
         let id = id.clone();
         on_cleanup(move || {
-            app.current_ws.set(None);
+            if app.current_ws.get_untracked().as_deref() == Some(id.as_str()) {
+                app.current_ws.set(None);
+            }
             app.mark_seen(&id);
         });
     }

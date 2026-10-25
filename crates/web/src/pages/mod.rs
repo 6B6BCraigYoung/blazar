@@ -41,6 +41,6 @@ pub use agents::{AgentCreatePage, AgentProfilePage, AgentsPage};
 pub use apps::{AppDetailPage, AppsPage};
 pub use autopilots::AutopilotsPage;
 pub use bots::{BotPage, BotsPage};
-pub use chats::ChatsPage;
+pub use chats::{ChatPage, ChatsPage};
 pub use inbox::InboxPage;
 pub use jobs::JobsPage;

@@ -15,6 +15,7 @@ use crate::realtime::use_bus;
 use composer::Composer;
 use log::Log;
 pub use state::Chat;
+pub(crate) use threads::CHEVRON;
 pub use threads::ThreadPicker;
 
 #[component]
@@ -23,12 +24,16 @@ pub fn ChatPane(
     tree_files: Signal<Vec<String>>,
     draft: RwSignal<Option<String>>,
     mention: RwSignal<Option<String>>,
+    #[prop(optional)] thread: Option<Signal<Option<String>>>,
+    #[prop(optional)] ready: Option<RwSignal<bool>>,
 ) -> impl IntoView {
     let bus = use_bus();
     chat.wire(bus);
     let query = leptos_router::hooks::use_query_map();
-    let requested = Signal::derive(move || query.read().get("thread").filter(|s| !s.is_empty()));
-    let ready = RwSignal::new(false);
+    let requested = thread.unwrap_or_else(|| {
+        Signal::derive(move || query.read().get("thread").filter(|s| !s.is_empty()))
+    });
+    let ready = ready.unwrap_or_else(|| RwSignal::new(false));
     chat.init(requested, ready);
     Effect::new(move |_| {
         let target = requested.get();

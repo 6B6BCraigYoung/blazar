@@ -120,6 +120,14 @@ button { font: inherit; color: inherit; }
 .ws-error { display: flex; align-items: center; gap: var(--space-md); padding: var(--space-sm) var(--space-section); background: var(--bg-raised); color: var(--fg-2); font-size: var(--font-size-label); border-bottom: 1px solid var(--line); }
 .ws-error .btn { margin-left: auto; height: 22px; }
 
+.chat-room-head { gap: var(--space-sm); padding-inline: max(var(--space-card), calc((100% - var(--chat-measure)) / 2)); }
+.chat-room-head .chat-up { flex: 0 0 auto; font-size: var(--font-size-label); color: var(--fg-3); }
+.chat-room-head .chat-up:hover { color: var(--fg); }
+.chat-room-head .chat-sep { flex: 0 0 auto; color: var(--fg-4); font-size: var(--font-size-label); }
+.chat-room-head .ws-thread-btn { margin-left: calc(var(--space-md) * -1); }
+.chat-room-head .ws-thread-btn .t { font-size: var(--font-size-label-readable); font-weight: var(--font-weight-medium); color: var(--fg); }
+.chat-room .ws-chat { min-width: 0; }
+
 .laybtn { width: 28px; height: 26px; padding: 0; display: inline-grid; place-items: center; border: 0; border-radius: 6px; background: transparent; color: var(--fg-3); cursor: pointer; font-size: var(--font-size-body); }
 .laybtn:hover { background: var(--bg-hover); color: var(--fg); }
 .laybtn svg { width: 15px; height: 15px; }
