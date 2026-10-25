@@ -24,7 +24,7 @@ pub use agent::{
     accounts, agents, catalog, chat, checkpoint, codex_proxy, proxy, remote_cli, run, titles,
 };
 pub use skills::{library, skillhub};
-pub use work::{analytics, autopilot, inbox, rules, scripts, snippets, tasks};
+pub use work::{analytics, autopilot, failures, inbox, rules, scripts, snippets, tasks};
 pub mod events;
 pub mod services;
 pub mod state;

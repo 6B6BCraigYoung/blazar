@@ -124,6 +124,12 @@ pub async fn on_run_finished(st: Shared, sid: blazar_core_types::SessionId, stat
     if status == "interrupted" {
         return;
     }
+    if status == "failed"
+        && crate::failures::cause_of(&st, &sid.to_string()).await
+            == Some(blazar_core_types::failure::FailureCause::Resume)
+    {
+        return;
+    }
     let row = sqlx::query(
         "SELECT s.workspace_id, COALESCE(s.thread_id, s.id) AS thread, w.name AS ws, n.name AS node,
                 w.parent_id,
@@ -229,8 +235,13 @@ pub async fn list(State(st): State<Shared>, Query(q): Query<ListQuery>) -> Respo
         _ => "i.archived_at IS NULL",
     };
     let kind = Some(q.kind.as_str()).filter(|k| KINDS.contains(k));
+    let resets = crate::failures::RESETS_AT;
     let rows = sqlx::query(&format!(
-        "SELECT i.*, w.name AS workspace_name FROM inbox i LEFT JOIN workspaces w ON w.id = i.workspace_id
+        "SELECT i.*, w.name AS workspace_name, n.name AS node, s.runtime_kind, s.account_id,
+                s.failure_cause, s.handled_at, {resets} AS resets_at
+         FROM inbox i LEFT JOIN workspaces w ON w.id = i.workspace_id
+         LEFT JOIN nodes n ON n.id = w.node_id
+         LEFT JOIN sessions s ON s.id = i.session_id
          WHERE {cond} AND (?1 IS NULL OR i.kind = ?1) ORDER BY i.created_at DESC LIMIT 200"
     ))
     .bind(kind)
@@ -257,6 +268,9 @@ pub async fn list(State(st): State<Shared>, Query(q): Query<ListQuery>) -> Respo
                 "thread_id": s("thread_id"), "session_id": s("session_id"), "ref_id": s("ref_id"),
                 "read": s("read_at").is_some(), "archived": s("archived_at").is_some(),
                 "resolved_at": s("resolved_at"), "created_at": s("created_at"),
+                "node": s("node"), "runtime": s("runtime_kind"), "account": s("account_id"),
+                "cause": s("failure_cause"), "handled": s("handled_at").is_some(),
+                "resets_at": s("resets_at"),
             })
         })
         .collect();

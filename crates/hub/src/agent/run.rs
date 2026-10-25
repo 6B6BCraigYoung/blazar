@@ -640,6 +640,9 @@ async fn finalize(ctx: &Ctx, code: Option<i32>, p: &mut Progress) -> Result<(), 
         .await
         .map_err(|e| e.to_string())?;
     tx.commit().await.map_err(|e| e.to_string())?;
+    if status == "failed" {
+        crate::failures::record(&ctx.st, ctx.sid).await;
+    }
     crate::inbox::resolve_session(&ctx.st, ctx.sid).await;
     ctx.st
         .services

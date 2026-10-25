@@ -133,7 +133,7 @@ async fn latest_step(st: &AppState, session_id: &str) -> Option<WorkspaceStep> {
 }
 
 pub(crate) async fn snapshot(st: &AppState) -> anyhow::Result<StateSnapshot> {
-    let nodes = sqlx::query(
+    let nodes: Vec<NodeView> = sqlx::query(
         "SELECT n.name, n.transport, n.endpoint, n.status, n.labels, n.network, n.role, n.last_seen_at,
                 (SELECT COUNT(*) FROM workspaces w WHERE w.node_id = n.id) AS wc
          FROM nodes n ORDER BY n.name",
@@ -204,12 +204,18 @@ pub(crate) async fn snapshot(st: &AppState) -> anyhow::Result<StateSnapshot> {
     })
     .collect();
 
+    let online = |node: &str| {
+        node == "local" || nodes.iter().any(|n| n.name == node && n.status == "online")
+    };
     for w in &mut workspaces {
         if !wants_step(&w.activity) {
             continue;
         }
         if let Some(sid) = w.session_id.as_deref() {
             w.step = latest_step(st, sid).await;
+        }
+        if w.activity == "errored" {
+            w.failure = crate::failures::of_workspace(st, &w.id, online(&w.node)).await;
         }
     }
 

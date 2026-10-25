@@ -311,6 +311,9 @@ pub async fn probe_ssh_nodes(st: &Shared) {
             .is_ok_and(|r| r.rows_affected() > 0)
         {
             changed = true;
+            if ok {
+                crate::failures::node_back(st, &name).await;
+            }
         }
     }
     if changed {

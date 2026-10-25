@@ -26,6 +26,12 @@ async fn record_peers(
         .collect();
     let now = Utc::now().to_rfc3339();
     let mut added = 0usize;
+    let was_down: Vec<String> = sqlx::query_scalar(
+        "SELECT name FROM nodes WHERE network = 'easytier' AND status != 'online'",
+    )
+    .fetch_all(st.db.pool())
+    .await
+    .unwrap_or_default();
 
     for p in &peers {
         let meta = serde_json::json!({
@@ -54,6 +60,9 @@ async fn record_peers(
         .execute(st.db.pool())
         .await?;
         added += res.rows_affected() as usize;
+        if was_down.contains(&p.hostname) {
+            crate::failures::node_back(st, &p.hostname).await;
+        }
     }
 
     let names: Vec<String> = peers.iter().map(|p| p.hostname.clone()).collect();

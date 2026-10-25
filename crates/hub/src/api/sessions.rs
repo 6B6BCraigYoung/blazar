@@ -850,6 +850,7 @@ async fn fail_start(st: &Shared, sid: SessionId, ws: WorkspaceId, message: &str)
         }),
     };
     st.db.append_event(sid, ws, &entry).await?;
+    crate::failures::record(st, sid).await;
     st.emit(ServerEvent::Entry {
         workspace_id: ws,
         session_id: sid,
