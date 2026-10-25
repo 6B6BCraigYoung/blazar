@@ -11,7 +11,7 @@ use wasm_bindgen::prelude::Closure;
 
 use crate::action_gate::ActionGate;
 use crate::api;
-use crate::app_state::use_app;
+use crate::app_state::{AppData, use_app};
 use crate::components::empty::{self, Blank};
 use crate::components::group::ListGroup;
 use crate::components::icon;
@@ -20,6 +20,7 @@ use crate::components::prefs::{PrefGroup, PrefRow};
 use crate::components::rows::{MenuAt, RowAction, RowMenu};
 use crate::components::status::{InlineError, LoadingState, StateOf, Status, Tone};
 use crate::components::undo;
+use crate::failure::{self, Failure};
 use crate::fmt;
 use crate::home_rows::{self, Group, Move, Row, StepText};
 
@@ -373,6 +374,18 @@ fn Home() -> impl IntoView {
                 e.prevent_default();
                 pick_approval(ctx, &key, &a, row.subject().id.clone());
             }
+            "e" | "E" if !meta && !e.alt_key() && !e.shift_key() => {
+                let Some(row) = selected().filter(|r| r.state == "errored") else {
+                    return;
+                };
+                e.prevent_default();
+                let subject = row.subject();
+                failure::mark_handled(
+                    app,
+                    subject.id.clone(),
+                    Failure::of_workspace(subject).map(|f| f.session),
+                );
+            }
             _ => match crate::shortcuts::action(&e) {
                 Some("inspect") => {
                     if let Some(row) = selected() {
@@ -575,7 +588,10 @@ fn card_view(ctx: Ctx, i: usize, row: Row, pending: Option<Value>) -> impl IntoV
             (StepText { label, code }, Some(is_question(a)))
         }
         None => (
-            home_rows::step_text(subject.step.as_ref(), &row.state, &subject.path),
+            match Failure::of_workspace(&subject).filter(|_| row.state == "errored") {
+                Some(f) => StepText::plain(f.headline()),
+                None => home_rows::step_text(subject.step.as_ref(), &row.state, &subject.path),
+            },
             None,
         ),
     };
@@ -597,8 +613,16 @@ fn card_view(ctx: Ctx, i: usize, row: Row, pending: Option<Value>) -> impl IntoV
     };
     let location = format!("{}:{}", fmt::machine(&subject.node), subject.path);
     let selected = move || ctx.sel.get() == Some(i);
+    let failed = row.state == "errored" && ask.is_none();
     let trailing = move || match ask {
         Some(ask) if selected() => key_hint(ask),
+        None if failed && selected() => view! {
+            <span class="home-keys">
+                <kbd>"E"</kbd>
+                "标为已处理"
+            </span>
+        }
+        .into_any(),
         _ => diff
             .map(|d| {
                 view! {
@@ -650,25 +674,62 @@ fn card_view(ctx: Ctx, i: usize, row: Row, pending: Option<Value>) -> impl IntoV
     }
 }
 
+fn failure_menu(app: AppData, row: &Row) -> Vec<Vec<RowAction>> {
+    if row.state != "errored" {
+        return Vec::new();
+    }
+    let subject = row.subject();
+    let ws = subject.id.clone();
+    let session = subject.session_id.clone().unwrap_or_default();
+    let mut first = Vec::new();
+    match Failure::of_workspace(subject) {
+        Some(f) => {
+            let (ws, session) = (ws.clone(), session.clone());
+            let href = f.node_href();
+            let label = f.primary();
+            first.push(RowAction::new(label, move || {
+                let (ws, session) = (ws.clone(), session.clone());
+                failure::act(app, &f, move || retry_workspace(app, ws, session));
+            }));
+            if let Some(href) = href {
+                first.push(RowAction {
+                    label: "打开机器页".into(),
+                    hint: None,
+                    danger: false,
+                    disabled: false,
+                    href: Some(href),
+                    run: None,
+                });
+            }
+        }
+        None if !session.is_empty() => {
+            let (ws, session) = (ws.clone(), session.clone());
+            first.push(RowAction::new("重试", move || {
+                retry_workspace(app, ws.clone(), session.clone())
+            }));
+        }
+        None => {}
+    }
+    let handled = RowAction::new("标为已处理", move || {
+        failure::mark_handled(
+            app,
+            ws.clone(),
+            Some(session.clone()).filter(|s| !s.is_empty()),
+        );
+    })
+    .hint("E");
+    vec![first, vec![handled]]
+}
+
 fn home_menu(ctx: Ctx, row: &Row, pending: Option<Value>) -> Vec<Vec<RowAction>> {
     let app = use_app();
     let id = row.ws.id.clone();
     let href = format!("/w/{}", row.subject().id);
     let approval = pending.filter(|a| !is_question(a));
     let subject = row.subject().id.clone();
-    let failed = (row.state == "errored")
-        .then(|| row.subject().session_id.clone())
-        .flatten()
-        .map(|session| (row.subject().id.clone(), session));
     let (id_detail, id_rename, id_remove) = (id.clone(), id.clone(), id);
-    vec![
-        failed
-            .map(|(ws, session)| {
-                vec![RowAction::new("重试", move || {
-                    retry_workspace(app, ws.clone(), session.clone())
-                })]
-            })
-            .unwrap_or_default(),
+    let mut groups = failure_menu(app, row);
+    groups.extend([
         approval
             .map(|a| {
                 let (a1, a2, a3) = (a.clone(), a.clone(), a);
@@ -695,5 +756,6 @@ fn home_menu(ctx: Ctx, row: &Row, pending: Option<Value>) -> Vec<Vec<RowAction>>
         vec![RowAction::delete("移除…", move || {
             remove_workspace(app, id_remove.clone())
         })],
-    ]
+    ]);
+    groups
 }

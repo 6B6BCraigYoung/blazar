@@ -457,3 +457,58 @@ fn api_retries_show_once_and_clear_when_the_turn_moves_on() {
         Body::Error { text, .. } if text == "服务繁忙，稍后再试\nAPI Error: 529 Overloaded"
     ));
 }
+
+#[test]
+fn lost_resume_points_read_as_a_note_and_other_failures_carry_their_cause() {
+    use blazar_core_types::failure::FailureCause;
+    let lost = build(
+        &[row(
+            "s",
+            1,
+            0,
+            json!({"type":"finished","status":"failed","message":"agent 异常退出（退出码 1）。stderr: No message found with message.uuid of: 9b915e37-5c1e-4a7e-9d3b-2f1c0a8e7b6d"}),
+        )],
+        "",
+        false,
+    );
+    assert!(
+        matches!(&lost.items[0].body, Body::Meta { bad: false, text } if text.contains("自动重新接上")),
+        "{:?}",
+        lost.items[0].body
+    );
+    let asleep = build(
+        &[row(
+            "s",
+            1,
+            0,
+            json!({"type":"finished","status":"failed","message":"API Error: Connection lost while your computer was asleep"}),
+        )],
+        "",
+        false,
+    );
+    assert!(matches!(
+        &asleep.items[0].body,
+        Body::Error {
+            cause: FailureCause::Network,
+            ..
+        }
+    ));
+    let signed_out = build(
+        &[row(
+            "s",
+            1,
+            0,
+            json!({"type":"error","message":"authentication_failed：Not logged in · Please run /login"}),
+        )],
+        "",
+        false,
+    );
+    assert!(matches!(
+        &signed_out.items[0].body,
+        Body::Error {
+            cause: FailureCause::Login,
+            by_account: true,
+            ..
+        }
+    ));
+}

@@ -59,7 +59,11 @@ fn sig_body(b: &Body) -> u64 {
                 sig_step(s, &mut h);
             }
         }
-        Body::Error { text, by_account } => (3u8, text, by_account).hash(&mut h),
+        Body::Error {
+            text,
+            by_account,
+            cause,
+        } => (3u8, text, by_account, cause.as_str()).hash(&mut h),
         Body::Warn { denied } => (4u8, denied).hash(&mut h),
         Body::Meta { text, bad } => (5u8, text, bad).hash(&mut h),
         Body::Retry {
@@ -103,7 +107,15 @@ pub(super) fn finish_items(
                     long,
                 },
                 BBody::Assistant { text } => Body::Assistant { text },
-                BBody::Error { text, by_account } => Body::Error { text, by_account },
+                BBody::Error {
+                    text,
+                    by_account,
+                    cause,
+                } => Body::Error {
+                    text,
+                    by_account,
+                    cause,
+                },
                 BBody::Warn { denied } => Body::Warn { denied },
                 BBody::Meta { text, bad } => Body::Meta { text, bad },
                 BBody::Retry {

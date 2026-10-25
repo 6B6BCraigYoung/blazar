@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
+use blazar_core_types::failure::FailureCause;
 use blazar_core_types::{EntryKind, McpServerStatus, Outcome, RateLimitWindow};
 use serde_json::Value;
 
@@ -98,6 +99,7 @@ pub(super) enum BBody {
     Error {
         text: String,
         by_account: bool,
+        cause: FailureCause,
     },
     Warn {
         denied: Vec<String>,
@@ -342,6 +344,28 @@ impl<'a> Builder<'a> {
         );
     }
 
+    fn push_error(&mut self, key: String, message: &str) {
+        let cause = FailureCause::of(message, true);
+        if cause == FailureCause::Resume {
+            self.push(
+                key,
+                BBody::Meta {
+                    text: "原来的会话记录找不到了，Blazar 已自动重新接上".into(),
+                    bad: false,
+                },
+            );
+            return;
+        }
+        self.push(
+            key,
+            BBody::Error {
+                text: human_error(message),
+                by_account: looks_like_account_problem(message),
+                cause,
+            },
+        );
+    }
+
     fn push(&mut self, key: String, body: BBody) {
         self.fold_open = false;
         self.container().push(BItem { key, body });
@@ -539,13 +563,7 @@ impl<'a> Builder<'a> {
                     bad: false,
                 },
             ),
-            EntryKind::Error { message } => self.push(
-                key,
-                BBody::Error {
-                    text: human_error(message),
-                    by_account: looks_like_account_problem(message),
-                },
-            ),
+            EntryKind::Error { message } => self.push_error(key, message),
             EntryKind::ApiRetry {
                 attempt,
                 max_retries,
@@ -722,16 +740,7 @@ impl<'a> Builder<'a> {
                     bad: false,
                 },
             ),
-            Outcome::Failed { message } => {
-                let by_account = looks_like_account_problem(message);
-                self.push(
-                    key,
-                    BBody::Error {
-                        text: human_error(message),
-                        by_account,
-                    },
-                );
-            }
+            Outcome::Failed { message } => self.push_error(key, message),
             Outcome::Success { text, denied, .. } => {
                 if let Some(t) = text
                     .as_ref()

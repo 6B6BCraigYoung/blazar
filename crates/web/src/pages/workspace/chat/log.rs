@@ -1109,7 +1109,9 @@ fn item_view(it: Item, chat: Chat, opened: Opened, ws: String) -> AnyView {
             .into_any()
         }
         Body::Fold(f) => fold_view(f, chat, opened, ws),
-        Body::Error { text, by_account } => error_view(chat, text, by_account),
+        Body::Error {
+            text, by_account, ..
+        } => error_view(chat, text, by_account),
         Body::Warn { denied } => view! {
             <div class="cc-row cc-warn">
                 <span class="cc-dot"></span>

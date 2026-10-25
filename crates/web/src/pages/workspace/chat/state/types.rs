@@ -1,8 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub const CONTINUE_TEXT: &str =
-    "(Switched accounts.) Please continue from where you left off and finish the remaining work.";
+pub const CONTINUE_TEXT: &str = crate::failure::SWITCHED;
 pub const ACC_RUNTIMES: [&str; 2] = ["claude", "codex"];
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -22,6 +21,10 @@ pub struct Thread {
     pub created_at: String,
     #[serde(default)]
     pub last_at: Option<String>,
+    #[serde(default)]
+    pub cause: Option<blazar_core_types::failure::FailureCause>,
+    #[serde(default)]
+    pub handled: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

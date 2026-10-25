@@ -205,6 +205,44 @@ pub fn cause(raw: &str) -> String {
 }
 
 #[must_use]
+pub fn failure(
+    cause: blazar_core_types::failure::FailureCause,
+    machine: &str,
+    runtime: &str,
+    resets: Option<&str>,
+    message: &str,
+) -> String {
+    use blazar_core_types::failure::FailureCause;
+    match cause {
+        FailureCause::Network => "网络断了，没做完".into(),
+        FailureCause::Busy => "服务繁忙，没做完".into(),
+        FailureCause::Node => format!("{machine} 连不上"),
+        FailureCause::Login => format!("{} 未登录", term(runtime)),
+        FailureCause::Quota => match resets.filter(|r| !r.is_empty()) {
+            Some(at) => format!("额度用完了，{at} 重置"),
+            None => "额度用完了".into(),
+        },
+        FailureCause::Resume | FailureCause::Other => cause_of(message),
+    }
+}
+
+fn cause_of(message: &str) -> String {
+    cause(message)
+}
+
+#[must_use]
+pub const fn next_step(cause: blazar_core_types::failure::FailureCause) -> &'static str {
+    use blazar_core_types::failure::FailureCause;
+    match cause {
+        FailureCause::Network | FailureCause::Busy => "继续",
+        FailureCause::Node => "重试连接",
+        FailureCause::Login => "登录…",
+        FailureCause::Quota => "换账号…",
+        FailureCause::Resume | FailureCause::Other => "重试",
+    }
+}
+
+#[must_use]
 pub fn retry_round(attempt: u64, max: u64) -> String {
     if max > 0 {
         format!("{attempt}/{max}")
@@ -282,6 +320,62 @@ mod tests {
         assert_eq!(term("codex_app_server"), "Codex");
         assert_eq!(term("codex"), "Codex");
         assert_eq!(term("local"), "本机");
+    }
+
+    #[test]
+    fn every_failure_cause_reads_as_one_line_and_one_next_step() {
+        use blazar_core_types::failure::FailureCause;
+        let line = |c, machine, rt, resets, msg| failure(c, machine, rt, resets, msg);
+        assert_eq!(
+            line(FailureCause::Network, "本机", "claude", None, "ENOTFOUND"),
+            "网络断了，没做完"
+        );
+        assert_eq!(
+            line(FailureCause::Busy, "本机", "claude", None, "529"),
+            "服务繁忙，没做完"
+        );
+        assert_eq!(
+            line(FailureCause::Node, "gpu-x", "claude", None, "ssh"),
+            "gpu-x 连不上"
+        );
+        assert_eq!(
+            line(FailureCause::Login, "本机", "claude", None, "401"),
+            "Claude Code 未登录"
+        );
+        assert_eq!(
+            line(FailureCause::Login, "本机", "codex", None, "401"),
+            "Codex 未登录"
+        );
+        assert_eq!(
+            line(FailureCause::Quota, "本机", "claude", None, "429"),
+            "额度用完了"
+        );
+        assert_eq!(
+            line(
+                FailureCause::Quota,
+                "本机",
+                "claude",
+                Some("周日 08:00"),
+                "429"
+            ),
+            "额度用完了，周日 08:00 重置"
+        );
+        assert_eq!(
+            line(
+                FailureCause::Other,
+                "本机",
+                "claude",
+                None,
+                "API Error: 400 bad request"
+            ),
+            "API Error: 400 bad request（400）"
+        );
+        assert_eq!(next_step(FailureCause::Network), "继续");
+        assert_eq!(next_step(FailureCause::Busy), "继续");
+        assert_eq!(next_step(FailureCause::Node), "重试连接");
+        assert_eq!(next_step(FailureCause::Login), "登录…");
+        assert_eq!(next_step(FailureCause::Quota), "换账号…");
+        assert_eq!(next_step(FailureCause::Other), "重试");
     }
 
     #[test]

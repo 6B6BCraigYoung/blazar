@@ -17,6 +17,8 @@ mod desktop;
 #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 mod diff;
 #[cfg(target_arch = "wasm32")]
+mod failure;
+#[cfg(target_arch = "wasm32")]
 mod files_js;
 #[cfg(target_arch = "wasm32")]
 mod fmt;

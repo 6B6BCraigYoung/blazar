@@ -195,6 +195,7 @@ pub enum Body {
     Error {
         text: String,
         by_account: bool,
+        cause: blazar_core_types::failure::FailureCause,
     },
     Warn {
         denied: Vec<String>,
