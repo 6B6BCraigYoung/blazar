@@ -214,19 +214,25 @@ pub struct Ctx {
     pub hook: blazar_hooks::HookContext,
 }
 
-async fn note_chain_uuid(ctx: &Ctx, line: &str) {
+#[must_use]
+pub fn chain_uuid(line: &str) -> Option<String> {
     if !line.contains(r#""uuid""#) {
-        return;
+        return None;
     }
-    let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else {
-        return;
-    };
+    let v = serde_json::from_str::<serde_json::Value>(line).ok()?;
     if !matches!(v["type"].as_str(), Some("assistant" | "user"))
         || !v["parent_tool_use_id"].is_null()
+        || !v["error"].is_null()
+        || v["message"]["model"] == "<synthetic>"
+        || v["isApiErrorMessage"] == true
     {
-        return;
+        return None;
     }
-    if let Some(uuid) = v["uuid"].as_str() {
+    v["uuid"].as_str().map(str::to_owned)
+}
+
+async fn note_chain_uuid(ctx: &Ctx, line: &str) {
+    if let Some(uuid) = chain_uuid(line) {
         let _ = sqlx::query("UPDATE sessions SET last_uuid = ?2 WHERE id = ?1")
             .bind(ctx.sid.to_string())
             .bind(uuid)

@@ -669,3 +669,25 @@ async fn a_prompt_with_interject_joins_the_running_turn() {
     assert_eq!(inputs.len(), 1);
     assert!(inputs[0].1.contains("顺手把检查点存一下"));
 }
+
+#[test]
+fn chain_uuid_skips_messages_the_cli_never_persists() {
+    let said = r#"{"type":"assistant","message":{"id":"msg_1","model":"claude-opus-5-5","content":[{"type":"text","text":"好"}]},"parent_tool_use_id":null,"uuid":"0b9d2c5e-1a2b-4c3d-9e8f-001122334455","session_id":"s"}"#;
+    assert_eq!(
+        chain_uuid(said).as_deref(),
+        Some("0b9d2c5e-1a2b-4c3d-9e8f-001122334455")
+    );
+    let typed = r#"{"type":"user","message":{"role":"user","content":[{"type":"text","text":"继续"}]},"parent_tool_use_id":null,"uuid":"1b9d2c5e-1a2b-4c3d-9e8f-001122334455","session_id":"s"}"#;
+    assert_eq!(
+        chain_uuid(typed).as_deref(),
+        Some("1b9d2c5e-1a2b-4c3d-9e8f-001122334455")
+    );
+    let api_error = r#"{"type":"assistant","message":{"id":"err","model":"<synthetic>","content":[{"type":"text","text":"API Error: Can't reach the API server — check your internet or DNS (ENOTFOUND)"}]},"parent_tool_use_id":null,"uuid":"9b915e37-5c1e-4a7e-9d3b-2f1c0a8e7b6d","session_id":"s"}"#;
+    assert_eq!(chain_uuid(api_error), None, "合成的错误消息不进会话链");
+    let flagged = r#"{"type":"assistant","error":"authentication_failed","message":{"content":[{"type":"text","text":"Not logged in · Please run /login"}]},"parent_tool_use_id":null,"uuid":"2b9d2c5e-1a2b-4c3d-9e8f-001122334455"}"#;
+    assert_eq!(chain_uuid(flagged), None);
+    let sub = r#"{"type":"assistant","message":{"content":[]},"parent_tool_use_id":"toolu_1","uuid":"3b9d2c5e-1a2b-4c3d-9e8f-001122334455"}"#;
+    assert_eq!(chain_uuid(sub), None, "子智能体的消息在另一条链上");
+    assert_eq!(chain_uuid(r#"{"type":"result","uuid":"x"}"#), None);
+    assert_eq!(chain_uuid("not json \"uuid\""), None);
+}
