@@ -7,9 +7,12 @@ use serde_json::{Value, json};
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
 
+use blazar_core_types::failure::FailureCause;
+
 use crate::chat_model::Body;
 use crate::components::dialog::{self, Choice};
 use crate::components::toast::toast;
+use crate::failure::Failure;
 use crate::storage;
 
 use super::dock::Dock;
@@ -112,20 +115,42 @@ fn FailedCard(
     chat: Chat,
     key: String,
     text: String,
-    sid: String,
+    failure: Failure,
     dismissed: RwSignal<Option<String>>,
 ) -> impl IntoView {
-    let (head, raw) = match text.split_once('\n') {
-        Some((h, d)) => (
-            h.to_owned(),
-            Some(d.trim().to_owned()).filter(|d| !d.is_empty()),
-        ),
-        None => (text.clone(), None),
+    let app = crate::app_state::use_app();
+    let headline = failure.headline();
+    let primary = failure.primary();
+    let node_href = failure.node_href();
+    let cause = failure.cause.as_str();
+    let raw = text
+        .split_once('\n')
+        .map_or(text.clone(), |(_, d)| d.trim().to_owned());
+    let detail = Some(raw).filter(|r| !r.is_empty() && *r != headline);
+    let f = StoredValue::new(failure);
+    let primary_btn = NodeRef::<html::Button>::new();
+    let act = move || {
+        let f = f.get_value();
+        match f.cause {
+            FailureCause::Network | FailureCause::Busy => chat.continue_thread(),
+            FailureCause::Node => crate::failure::probe_node(app, f.node),
+            FailureCause::Login => crate::failure::login(f.runtime, f.account),
+            FailureCause::Quota => chat.spawn(async move {
+                if let Some(id) =
+                    crate::failure::pick_other_account(&f.runtime, f.account.as_deref()).await
+                {
+                    chat.continue_on_another(id);
+                }
+            }),
+            FailureCause::Resume | FailureCause::Other => chat.retry(f.session, None, 0),
+        }
     };
-    let reason = crate::vocab::cause(raw.as_deref().unwrap_or(&head));
-    let retry_btn = NodeRef::<html::Button>::new();
-    let retry = move || chat.retry(sid.clone(), None, 0);
-    let retry2 = retry.clone();
+    let handled = move || {
+        let f = f.get_value();
+        dismissed.set(Some(key.clone()));
+        crate::failure::mark_handled(app, f.workspace, Some(f.session));
+        chat.spawn(async move { chat.load_threads().await });
+    };
     gloo_timers::callback::Timeout::new(300, move || {
         let typing = document().active_element().is_some_and(|a| {
             a.closest("input, textarea, [contenteditable]")
@@ -133,7 +158,7 @@ fn FailedCard(
                 .flatten()
                 .is_some()
         });
-        if !typing && let Some(b) = retry_btn.try_get_untracked().flatten() {
+        if !typing && let Some(b) = primary_btn.try_get_untracked().flatten() {
             let _ = b.focus();
         }
     })
@@ -142,18 +167,19 @@ fn FailedCard(
         <div
             class="cc-failed"
             role="alert"
+            data-cause=cause
             on:keydown=move |e: ev::KeyboardEvent| {
                 if e.key() == "Enter" && !e.is_composing() {
                     e.prevent_default();
-                    retry2();
+                    act();
                 }
             }
         >
             <div class="cf-head">
                 <span class="dot" aria-hidden="true"></span>
-                <span>{reason}</span>
+                <span>{headline}</span>
             </div>
-            {raw
+            {detail
                 .map(|d| {
                     view! {
                         <details class="ui-detail">
@@ -163,21 +189,25 @@ fn FailedCard(
                     }
                 })}
             <div class="cf-acts">
-                <button
-                    type="button"
-                    class="linkbtn"
-                    on:click=move |_| dismissed.set(Some(key.clone()))
-                >
-                    "继续对话"
+                <button type="button" class="linkbtn" on:click=move |_| handled()>
+                    "标为已处理"
                 </button>
                 <span class="grow"></span>
+                {node_href
+                    .map(|href| {
+                        view! {
+                            <a class="btn" href=href>
+                                "打开机器页"
+                            </a>
+                        }
+                    })}
                 <button
                     type="button"
                     class="btn primary"
-                    node_ref=retry_btn
-                    on:click=move |_| retry()
+                    node_ref=primary_btn
+                    on:click=move |_| act()
                 >
-                    "重试"
+                    {primary}
                     <kbd>"↩"</kbd>
                 </button>
             </div>
@@ -672,12 +702,21 @@ pub fn Composer(
     });
     let dismissed = RwSignal::new(None::<String>);
     let failed = Memo::new(move |_| {
-        if chat.running.get() || chat.pending.with(|p| !p.is_empty()) {
+        if chat.running.get() || chat.pending.with(|p| !p.is_empty()) || unreachable.get() {
+            return None;
+        }
+        let view = chat.view.get();
+        let thread_meta = chat.threads.with(|t| {
+            t.iter()
+                .find(|x| Some(&x.id) == view.as_ref())
+                .map(|x| (x.handled, x.account.clone()))
+        });
+        if thread_meta.as_ref().is_some_and(|(handled, _)| *handled) {
             return None;
         }
         chat.transcript.with(|t| {
             let last = t.items.last()?;
-            let Body::Error { text, .. } = &last.body else {
+            let Body::Error { text, cause, .. } = &last.body else {
                 return None;
             };
             if dismissed.get().as_deref() == Some(last.key.as_str()) {
@@ -687,7 +726,26 @@ pub fn Composer(
                 Body::User { sid, .. } => Some(sid.clone()),
                 _ => None,
             })?;
-            Some((last.key.clone(), text.clone(), sid))
+            let ws = chat.ws_id();
+            let thread = view.clone().unwrap_or_else(|| sid.clone());
+            let failure = app
+                .workspace(&ws)
+                .and_then(|w| Failure::of_workspace(&w))
+                .filter(|f| f.thread == thread)
+                .unwrap_or_else(|| Failure {
+                    cause: *cause,
+                    message: text
+                        .split_once('\n')
+                        .map_or(text.clone(), |(_, d)| d.trim().to_owned()),
+                    workspace: ws,
+                    session: sid,
+                    thread,
+                    node: chat.node.get_value(),
+                    runtime: chat.runtime(),
+                    account: thread_meta.and_then(|(_, a)| a),
+                    resets_at: None,
+                });
+            Some((last.key.clone(), text.clone(), failure))
         })
     });
     let failed_edit = RwSignal::new(None::<(u32, Value)>);
@@ -918,7 +976,9 @@ pub fn Composer(
             {move || {
                 failed
                     .get()
-                    .map(|(key, text, sid)| view! { <FailedCard chat key text sid dismissed /> })
+                    .map(|(key, text, failure)| {
+                        view! { <FailedCard chat key text failure dismissed /> }
+                    })
             }}
             <div
                 class="cc-box"

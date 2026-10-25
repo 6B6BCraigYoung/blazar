@@ -445,6 +445,38 @@ impl Chat {
         });
     }
 
+    pub fn continue_thread(self) {
+        let mut body = self.send_options();
+        body.insert("text".into(), json!(crate::failure::CONTINUE));
+        body.insert("resume".into(), json!(true));
+        body.insert("resume_session".into(), json!(self.view.get_untracked()));
+        body.insert("wait_secs".into(), json!(20));
+        let context = self.send_context(self.view.get_untracked());
+        let ws = context.workspace.clone();
+        self.spawn(async move {
+            match api::send::<Value>(
+                "POST",
+                &format!("/api/workspaces/{ws}/prompt"),
+                &Value::Object(body),
+            )
+            .await
+            {
+                Ok(r) if r["admitted"] == json!(false) => toast(
+                    r["reason"]
+                        .as_str()
+                        .unwrap_or("工作区正忙着别的操作")
+                        .to_owned(),
+                ),
+                Ok(r) => self.note_sent_in(
+                    &context,
+                    r["session_id"].as_str().map(str::to_owned),
+                    r["thread_id"].as_str().map(str::to_owned),
+                ),
+                Err(e) => toast(format!("没能继续：{e}")),
+            }
+        });
+    }
+
     pub fn continue_on_another(self, pick: String) {
         self.set_acc_sel(&pick, self.view.get_untracked().as_deref());
         let mut body = self.send_options();
