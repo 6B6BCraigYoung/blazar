@@ -49,6 +49,9 @@ NODE_ID = did(7, 1)
 THREAD = did(10, 1)
 APPROVAL = did(9, 1)
 QUESTION = did(9, 2)
+CHAT_APPROVAL = did(9, 3)
+ASSISTANT = did(26, 1)
+CHATS = {name: did(27, i) for i, name in enumerate(["status", "handoff", "gpu"], 1)}
 
 
 def iso(t):
@@ -476,6 +479,68 @@ def seed():
     print(f"临时仓库：{DEMO}")
 
 
+def fleet_listing():
+    rows = [("atlas-api", "completed", "local", "demo-orbit"), ("nebula-web", "running", "local", "demo-orbit"),
+            ("quasar-ml", "awaiting_approval", "local", "demo-quasar")]
+    return json.dumps([{"id": WS[n], "name": n, "node": node, "project": p, "activity": a, "path": str(DEMO / n)}
+                       for n, a, node, p in rows], ensure_ascii=False, indent=1)
+
+
+def seed_chats(db, local):
+    path = str(DATA / "assistant")
+    Path(path).mkdir(parents=True, exist_ok=True)
+    row = db.execute("SELECT id FROM workspaces WHERE kind = 'assistant'").fetchone()
+    ws = row[0] if row else ASSISTANT
+    if not row:
+        db.execute("INSERT INTO workspaces (id, node_id, name, path, kind, activity, status, created_at) VALUES (?,?,?,?,?,?,?,?)",
+                   (ws, local, "对话", path, "assistant", "idle", "active", iso(ago(days=9))))
+    db.execute("UPDATE workspaces SET activity = 'awaiting_approval', last_active_at = ? WHERE id = ?", (iso(ago(minutes=2)), ws))
+    model = {"type": "session_started", "model": "claude-opus-5-5", "cwd": path, "permission_mode": "default",
+             "mcp_servers": [{"name": "blazar-fleet", "status": "connected"}]}
+    summary = ("三个都看了：\n\n| 工作区 | 状态 | 在做什么 |\n| --- | --- | --- |\n| atlas-api | 已完成 | 分页改动已提交，没有推送 |\n"
+               "| nebula-web | 运行中 | 正在调暗色模式的按钮对比度 |\n| quasar-ml | 等你批准 | 要跑 200 步冒烟训练，等你点允许 |\n\n只有 quasar-ml 在等你。")
+    c = Clock(ago(hours=1))
+    status = [
+        (c.tick(0), dict(model, provider_session_id="demo-chat-status"), None),
+        (c.tick(1), {"type": "user_message", "text": "看看 atlas-api、nebula-web、quasar-ml 现在都在干什么，有没有在等我的"}, None),
+        (c.tick(3), {"type": "tool_use", "id": "toolu_demo_chat1", "name": "mcp__blazar-fleet__list_workspaces", "input": {}}, None),
+        (c.tick(2), {"type": "tool_result", "id": "toolu_demo_chat1", "ok": True, "content": fleet_listing()}, None),
+        (c.tick(6), {"type": "assistant_message", "text": summary}, None),
+        (c.tick(1), usage(6200, 480, 0.09), None),
+        (c.tick(1), {"type": "finished", "status": "success", "text": summary}, None),
+    ]
+    add_session(db, CHATS["status"], ws, ago(hours=1), "claude", "看三个工作区的状态", CHATS["status"], "done", status)
+    req = {"tool_name": "mcp__blazar-fleet__send_prompt", "tool_use_id": "toolu_demo_chat2",
+           "input": {"workspace_id": WS["nebula-web"], "resume": True, "wait_secs": 15,
+                     "text": "暗色模式收尾后，把主题切换按钮放到顶栏右侧，顺手在 README 里补一张截图。"}}
+    c = Clock(ago(minutes=4))
+    handoff = [
+        (c.tick(0), dict(model, provider_session_id="demo-chat-handoff"), None),
+        (c.tick(1), {"type": "user_message", "text": "让 nebula-web 接着把暗色模式做完，然后把主题切换按钮放到顶栏右侧"}, None),
+        (c.tick(3), {"type": "thinking", "text": "先看 nebula-web 这一轮做到哪了，再决定怎么派。"}, None),
+        (c.tick(2), {"type": "tool_use", "id": "toolu_demo_chat2a", "name": "mcp__blazar-fleet__get_history",
+                     "input": {"workspace_id": WS["nebula-web"], "limit": 5, "mode": "summary"}}, None),
+        (c.tick(2), {"type": "tool_result", "id": "toolu_demo_chat2a", "ok": True,
+                     "content": "[user_message] 暗色模式下按钮对比度不够，调一下 src/theme.ts 里的颜色\n[tool_use] Read src/theme.ts\n（这一轮还在进行）"}, None),
+        (c.tick(3), {"type": "assistant_message", "text": "nebula-web 正在调 src/theme.ts 的对比度，快收尾了。我准备给它派下一步：做完暗色模式后把切换按钮放到顶栏右侧，并在 README 里补截图。这会改 nebula-web 的文件，要你点允许。"}, None),
+        (c.tick(2), {"type": "tool_use", "id": "toolu_demo_chat2", "name": "mcp__blazar-fleet__send_prompt", "input": req["input"]}, None),
+        (c.tick(1), {"type": "approval", "id": CHAT_APPROVAL, "request": req}, None),
+    ]
+    add_session(db, CHATS["handoff"], ws, ago(minutes=4), "claude", "让 nebula-web 接着做暗色模式", CHATS["handoff"], "done", handoff)
+    db.execute("INSERT INTO approvals (id, session_id, request, created_at, provider_request_id, workspace_id) VALUES (?,?,?,?,?,?)",
+               (CHAT_APPROVAL, CHATS["handoff"], json.dumps(req, ensure_ascii=False), iso(ago(minutes=2)), "demo-chat-appr", ws))
+    c = Clock(ago(hours=5))
+    gpu = [
+        (c.tick(0), dict(model, provider_session_id="demo-chat-gpu"), None),
+        (c.tick(1), {"type": "user_message", "text": "汇总一下所有机器现在的 GPU 占用"}, None),
+        (c.tick(3), {"type": "tool_use", "id": "toolu_demo_chat3", "name": "mcp__blazar-fleet__probe_node", "input": {"node": NODE}}, None),
+        (c.tick(4), {"type": "tool_result", "id": "toolu_demo_chat3", "ok": False, "content": f"机器 {NODE} 不在线，上次在线 5 小时前"}, None),
+        (c.tick(2), {"type": "finished", "status": "failed", "message": "API Error: Can't reach the API server — check your internet or DNS (ENOTFOUND)"}, None),
+    ]
+    add_session(db, CHATS["gpu"], ws, ago(hours=5), "claude", "汇总所有机器的 GPU 占用", CHATS["gpu"], "failed", gpu)
+    return ws
+
+
 def seed_rows(db):
     now = datetime.now(timezone.utc)
     local = db.execute("SELECT id FROM nodes WHERE name = 'local'").fetchone()[0]
@@ -506,6 +571,7 @@ def seed_rows(db):
                     a, r, f, iso(last) if diff else None))
     db.execute("INSERT INTO workspace_scripts (workspace_id, dev, updated_at, preview_port) VALUES (?,?,?,?)",
                (WS["atlas-api"], "python3 -u -m http.server 18731 --bind localhost --directory public", iso(ago(days=3)), 18731))
+    assistant = seed_chats(db, local)
 
     agents = [
         ("backend", "后端助手", "claude", "写和改 Python 服务端代码，先读再改，改完跑测试。", "claude-opus-5-5", "#3b82f6", "🛠"),
@@ -745,11 +811,14 @@ def seed_rows(db):
         ("autopilot_paused", "自动化「夜间评测汇总」已暂停", "连续失败 3 次。", None, None, AUTOPILOTS[1], ago(hours=9), True, False),
         ("job", "后台任务「演示：导出评测表」失败了", "退出码 1", None, None, None, ago(hours=4), True, False),
         ("alert", "后台任务「演示：远程评测」失联", "它在等的机器 gpu-a.invalid 不在线。", None, None, "rule:job_orphan:demo", ago(hours=19), True, True),
+        ("approval", "对话 · 等你批准：send_prompt", "给 nebula-web 派活：暗色模式收尾后，把主题切换按钮放到顶栏右侧", "对话", CHATS["handoff"], CHAT_APPROVAL, ago(minutes=2), False, False),
+        ("run_failed", "对话 · 没跑成：汇总一下所有机器现在的 GPU 占用", "API Error: Can't reach the API server — check your internet or DNS (ENOTFOUND)", "对话", CHATS["gpu"], None, ago(hours=5), False, False),
     ]
     for i, (kind, title, body, ws, thread, ref, when, read, archived) in enumerate(inbox):
         db.execute("INSERT INTO inbox (id, kind, title, body, workspace_id, thread_id, session_id, ref_id, read_at, archived_at, created_at)"
                    " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                   (did(21, i + 1), kind, title, body, WS.get(ws), thread, thread if kind.startswith("run_") else None, ref,
+                   (did(21, i + 1), kind, title, body, assistant if ws == "对话" else WS.get(ws), thread,
+                    thread if kind.startswith("run_") else None, ref,
                     iso(when) if read else None, iso(when) if archived else None, iso(when)))
     snippets = [
         ("验收清单", "- 单元测试全部通过\n- 没有新的 clippy 警告\n- 改动的接口在 README 里有说明"),
@@ -856,7 +925,7 @@ class Shooter:
         print(f"{name}\t溢出 {len(over)}\t错误 {len(errors)}" + ("\t演练，没截图" if self.rehearse else ""))
 
     def check(self, name, step):
-        got = db_rows(step["sql"])[0][0]
+        got = db_rows(step["sql"], step.get("args", ()))[0][0]
         if got == step["want"]:
             return
         print(f"  ! {name}：{step['what']}应为 {step['want']}，实际 {got}", file=sys.stderr)
@@ -934,7 +1003,7 @@ def theme(value):
     ui({"action": "type", "selector": "#settings-theme", "value": value, "settle_ms": 300})
 
 
-TITLES = {"/": "工作区", "/inbox": "收件箱", "/tasks": "任务", "/autopilots": "任务",
+TITLES = {"/": "工作区", "/chats": "对话", "/inbox": "收件箱", "/tasks": "任务", "/autopilots": "任务",
           "/jobs": "任务", "/bots": "bot", "/agents": "智能体", "/agents/new": "新建角色档案", "/skills": "智能体",
           "/apps": "接入的软件", "/runtimes": "智能体", "/nodes": "机器与组网", "/usage": "智能体"}
 
@@ -984,6 +1053,8 @@ def calm(*after):
 
 ROUTES = [
     ("home", "/", "首页：需要你处理 / 运行中 / 最近 三组两行短卡，「最近」超过两行时折叠并在标题右侧给出「显示全部（N）」"),
+    ("chats", "/chats", "对话列表：侧栏最上面是「对话」；每行是状态点、标题、最后一句的灰字摘要、时间，页头右侧「新对话」；没有对话时是统一的空状态"),
+    ("chat-new", "/chats/new", "新对话页：页头「对话 · 新对话 ⌄」，720 居中的空对话区和输入框，没有检查器、文件树和终端"),
     ("inbox", "/inbox", "收件箱（无框列表，未读蓝点）"),
     ("tasks", "/tasks", "任务看板"),
     ("autopilots", "/autopilots", "自动化列表"),
@@ -1057,7 +1128,7 @@ PALETTE_OPEN = ({"action": "key", "key": "k", "code": "KeyK", "meta": True, "sel
 
 
 def ws_rows_exist():
-    return bool(db_rows("SELECT id FROM workspaces LIMIT 1"))
+    return bool(db_rows("SELECT id FROM workspaces WHERE kind = 'project' LIMIT 1"))
 
 
 def palette_parts(with_workspace):
@@ -1144,6 +1215,37 @@ def stress(rounds):
         sys.exit(1)
 
 
+def chat_parts():
+    if not db_rows("SELECT 1 FROM sessions WHERE id = ?", (CHATS["status"],)):
+        return []
+    row = ".chat-row"
+    down = {"action": "key", "key": "ArrowDown", "code": "ArrowDown", "selector": ".chats-page"}
+    chats_left = {"action": "check_db", "sql": "SELECT count(*) FROM sessions WHERE id LIKE ?", "args": (PREFIX + "%",),
+                  "want": None, "what": "对话数"}
+    return [
+        ("chats-row-menu", "/chats", "对话行的右键菜单（打开 ↩ / 重命名… / 删除 ⌘⌫）",
+         ({"action": "wait", "selector": f"{row}[data-index=\"0\"]", "timeout_ms": 8000},
+          {"action": "context_menu", "selector": f"{row}[data-index=\"0\"]"}), False),
+        ("chat-done", f"/chats/{CHATS['status']}", "对话页：页头「对话 · 标题 ⌄ · 已完成」，720 居中的对话（用调度工具看了三个工作区），没有检查器和文件树",
+         ({"action": "wait", "selector": ".chat-room .cc-log", "timeout_ms": 8000}, {"action": "wait", "ms": 800}), False),
+        ("chat-approval", f"/chats/{CHATS['handoff']}", "等你批准的对话页：页头状态橙色「等你批准」，审批卡是要给 nebula-web 派活的 send_prompt",
+         ({"action": "wait", "selector": ".chat-room .cc-appr", "timeout_ms": 8000}, {"action": "wait", "ms": 800}), False),
+        ("chat-failed", f"/chats/{CHATS['gpu']}", "失败的对话页：输入框换成失败卡（断网）",
+         ({"action": "wait", "selector": ".chat-room .cc-log", "timeout_ms": 8000}, {"action": "wait", "ms": 800}), False),
+        ("chat-picker", f"/chats/{CHATS['status']}", "页头标题的下拉：新对话 ⌘T、重命名对话…，下面是全部对话",
+         ({"action": "wait", "selector": ".chat-pick .ws-thread-btn", "timeout_ms": 8000},
+          {"action": "click", "selector": ".chat-pick .ws-thread-btn", "settle_ms": 300},
+          {"action": "wait", "selector": ".ws-threads", "timeout_ms": 4000}, dict(ESC, after=True)), False),
+        ("chats-undo-toast", "/chats", "⌘⌫ 删除一个对话：行立即消失，底部出现带「撤销」的提示",
+         ({"action": "wait", "selector": f"{row}[data-index=\"2\"]", "timeout_ms": 8000}, down, down, down,
+          {"action": "key", "key": "Backspace", "code": "Backspace", "meta": True, "selector": f"{row}[data-sel=\"true\"]"},
+          {"action": "wait", "selector": ".toast.act", "timeout_ms": 4000},
+          dict({"action": "click", "text": "撤销"}, after=True),
+          dict(TOAST_GONE, after=True), dict({"action": "wait", "ms": 1500}, after=True),
+          dict(chats_left, want=db_rows(chats_left["sql"], chats_left["args"])[0][0], after=True)), False),
+    ]
+
+
 def undo_parts():
     item = ".pref-item"
     restored = {"action": "check_db", "sql": "SELECT count(*) FROM snippets", "want": 2, "what": "片段数"}
@@ -1184,8 +1286,8 @@ def plan(round_name):
                    {"action": "wait", "selector": "nav.side .side-back", "timeout_ms": 4000},
                    {"action": "key", "key": "Escape", "code": "Escape", "selector": "body"},
                    {"action": "wait", "selector": ".inbox-page", "timeout_ms": 4000}), False))
-    ws_rows = db_rows("SELECT id, name, activity FROM workspaces WHERE coalesce(project_id, '') != ? ORDER BY created_at",
-                      (PROJECTS["demo-legacy"],))
+    ws_rows = db_rows("SELECT id, name, activity FROM workspaces WHERE kind = 'project' AND coalesce(project_id, '') != ?"
+                      " ORDER BY created_at", (PROJECTS["demo-legacy"],))
     if not ws_rows:
         TITLES["/"] = "开始"
         items.append(("start", "/", "首次打开的「开始」清单：运行时、机器、第一个工作区", (), False))
@@ -1224,6 +1326,7 @@ def plan(round_name):
     items.append(("inbox-row-menu", "/inbox", "收件箱一条通知的右键菜单（打开、标为已读 U、归档 E）",
                   ({"action": "wait", "selector": ".inbox-row", "timeout_ms": 8000},
                    {"action": "context_menu", "selector": ".inbox-row[data-index=\"0\"]"}), False))
+    items += chat_parts()
     failed = {name: label for name, _, label, _, _, _ in FAILED}
     for wid, name, activity in ws_rows:
         card = f"，输入框换成失败卡：第一行是原因，右下是这一类的下一步，左下「标为已处理」" if activity == "errored" else ""

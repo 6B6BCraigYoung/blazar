@@ -10,7 +10,7 @@ case "${1:-}" in
   index) exec python3 -I "$ROOT/scripts/ui_audit.py" index "${2:?用法：ui-audit.sh index <目录>}" ;;
   stress) exec python3 -I "$ROOT/scripts/ui_audit.py" stress "${@:2}" ;;
 esac
-read -r -a ROUTES <<<"${BLAZAR_AUDIT_ROUTES:-/ /inbox /tasks /autopilots /runtimes /agents /skills /apps /nodes /usage /settings}"
+read -r -a ROUTES <<<"${BLAZAR_AUDIT_ROUTES:-/ /chats /inbox /tasks /autopilots /runtimes /agents /skills /apps /nodes /usage /settings}"
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
