@@ -51,6 +51,7 @@ pub struct Chat {
     view_revision: StoredValue<u64>,
     history_requests: StoredValue<HistoryRequests>,
     refresh_pending: StoredValue<bool>,
+    threads_pending: StoredValue<bool>,
     pub threads: RwSignal<Vec<Thread>>,
     pub rows: RwSignal<Vec<Row>>,
     rows_epoch: StoredValue<u64>,
@@ -95,6 +96,10 @@ pub struct Chat {
     pub snippets: RwSignal<Vec<Snippet>>,
 }
 
+pub fn thread_live(status: Option<&str>) -> bool {
+    matches!(status, Some("running" | "awaiting_approval"))
+}
+
 impl Chat {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -104,10 +109,21 @@ impl Chat {
         files: Files,
         diff: DiffState,
         git: Git,
-        running: Signal<bool>,
         show_aux: Callback<()>,
         show_diff: Callback<()>,
     ) -> Self {
+        let view = RwSignal::new(None::<String>);
+        let threads = RwSignal::new(Vec::<Thread>::new());
+        let running = Signal::derive(move || {
+            let Some(id) = view.get() else {
+                return false;
+            };
+            threads.with(|t| {
+                t.iter()
+                    .find(|x| x.id == id)
+                    .is_some_and(|x| thread_live(x.status.as_deref()))
+            })
+        });
         Self {
             ws: StoredValue::new(ws.to_owned()),
             root: StoredValue::new(root.to_owned()),
@@ -119,11 +135,12 @@ impl Chat {
             show_aux,
             show_diff,
             tabs: RwSignal::new(Vec::new()),
-            view: RwSignal::new(None),
+            view,
             view_revision: StoredValue::new(0),
             history_requests: StoredValue::new(HistoryRequests::default()),
             refresh_pending: StoredValue::new(false),
-            threads: RwSignal::new(Vec::new()),
+            threads_pending: StoredValue::new(false),
+            threads,
             rows: RwSignal::new(Vec::new()),
             rows_epoch: StoredValue::new(0),
             model: StoredValue::new_local(Model::new(root)),

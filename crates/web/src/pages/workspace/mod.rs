@@ -237,13 +237,6 @@ fn Workspace(id: String) -> impl IntoView {
         }
     });
 
-    let running = Signal::derive(move || {
-        detail.with(|d| {
-            d.as_ref()
-                .and_then(|d| d.as_ref().ok())
-                .is_some_and(|d| matches!(d.activity.as_str(), "running" | "awaiting_approval"))
-        })
-    });
     let tree_files = Signal::derive(move || {
         tree.with(|t| {
             t.as_ref()
@@ -342,7 +335,7 @@ fn Workspace(id: String) -> impl IntoView {
             })
             .map(|(path, node)| {
                 let c = chat::Chat::new(
-                    &chat_id, &path, &node, files, diff, git, running, show_aux, show_diff,
+                    &chat_id, &path, &node, files, diff, git, show_aux, show_diff,
                 );
                 chat_slot.set(Some(c));
                 view! { <chat::ChatPane chat=c tree_files draft mention /> }

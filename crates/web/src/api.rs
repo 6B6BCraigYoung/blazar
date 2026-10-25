@@ -262,6 +262,8 @@ pub struct ChatThread {
     #[serde(default)]
     pub title: String,
     #[serde(default)]
+    pub latest: Option<String>,
+    #[serde(default)]
     pub status: Option<String>,
     #[serde(default)]
     pub summary: String,

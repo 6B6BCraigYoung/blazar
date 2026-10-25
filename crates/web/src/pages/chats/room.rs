@@ -56,15 +56,11 @@ fn Room(id: String, path: String, thread: Signal<Option<String>>) -> impl IntoVi
             app.mark_seen(&id);
         });
     }
-    let running = Signal::derive(move || {
-        app.assistant()
-            .is_some_and(|w| matches!(w.activity.as_str(), "running" | "awaiting_approval"))
-    });
     let files = crate::pages::workspace::files::Files::new(id.clone());
     let diff = crate::pages::workspace::diff_panel::DiffState::new(&id);
     let git = crate::pages::workspace::git_panel::Git::new(&id);
     let noop = Callback::new(|()| {});
-    let chat = Chat::new(&id, &path, "local", files, diff, git, running, noop, noop);
+    let chat = Chat::new(&id, &path, "local", files, diff, git, noop, noop);
     let draft = RwSignal::new(None::<String>);
     let mention = RwSignal::new(None::<String>);
     let tree_files = Signal::derive(Vec::new);
@@ -98,16 +94,26 @@ fn Room(id: String, path: String, thread: Signal<Option<String>>) -> impl IntoVi
     });
     let status = Memo::new(move |_| {
         let id = chat.view.get()?;
-        let state = app.chats.with(|a| {
+        let live = chat
+            .threads
+            .with(|t| t.iter().find(|x| x.id == id).and_then(|x| x.status.clone()));
+        let (state, latest) = app.chats.with(|a| {
             a.threads
                 .iter()
                 .find(|x| x.id == id)
-                .map(|t| t.state().to_owned())
+                .map(|t| (t.state().to_owned(), t.latest.clone()))
         })?;
+        let state = live.unwrap_or(state);
         if state == "running"
             && let Some(w) = app.assistant()
+            && w.session_id.is_some()
+            && w.session_id == latest
+            && let Some((n, max)) = crate::home_rows::retrying(w.step.as_ref())
         {
-            return Some(crate::home_rows::status(&w.activity, w.step.as_ref()));
+            return Some((
+                format!("重试中 {}", vocab::retry_round(n, max)),
+                crate::vocab::Tone::Run,
+            ));
         }
         let (label, tone) = vocab::state(&state);
         Some((label.to_owned(), tone))

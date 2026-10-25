@@ -60,6 +60,9 @@ impl Chat {
             || self.orphans.with_value(|o| o.contains_key(&sid));
         self.adopt(&sid);
         let view = self.view.get_untracked();
+        if let Some(t) = thread_id.as_ref().or(view.as_ref()) {
+            self.set_thread_status(t, "running");
+        }
         let changed = thread_id
             .as_ref()
             .is_some_and(|thread| Some(thread) != view.as_ref());

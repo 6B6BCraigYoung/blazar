@@ -28,6 +28,7 @@ pub struct AppData {
     pub runtimes_n: RwSignal<usize>,
     pub bots: RwSignal<Vec<Value>>,
     pub chats: RwSignal<api::Assistant>,
+    chats_refresh: StoredValue<bool>,
     pub seen: RwSignal<HashMap<String, String>>,
     pub current_ws: RwSignal<Option<String>>,
     pub selected_ws: RwSignal<Option<String>>,
@@ -189,10 +190,12 @@ impl AppData {
     }
 
     pub fn chats_waiting(self) -> usize {
-        usize::from(
-            self.assistant()
-                .is_some_and(|w| w.activity == "awaiting_approval"),
-        )
+        self.chats.with(|a| {
+            a.threads
+                .iter()
+                .filter(|t| t.state() == "awaiting_approval")
+                .count()
+        })
     }
 
     pub fn load_chats(self) {
@@ -201,6 +204,18 @@ impl AppData {
                 let _ = self.chats.try_set(a);
             }
         });
+    }
+
+    fn load_chats_soon(self) {
+        if self.chats_refresh.get_value() {
+            return;
+        }
+        self.chats_refresh.set_value(true);
+        gloo_timers::callback::Timeout::new(400, move || {
+            let _ = self.chats_refresh.try_set_value(false);
+            self.load_chats();
+        })
+        .forget();
     }
 
     pub fn node_unreachable(self, node: &str) -> bool {
@@ -429,6 +444,7 @@ pub fn provide(bus: Bus) -> AppData {
         runtimes_n: RwSignal::new(0),
         bots: RwSignal::new(Vec::new()),
         chats: RwSignal::new(api::Assistant::default()),
+        chats_refresh: StoredValue::new(false),
         seen: RwSignal::new(storage::load(SEEN_KEY).unwrap_or_default()),
         current_ws: RwSignal::new(None),
         selected_ws: RwSignal::new(None),
@@ -491,6 +507,21 @@ pub fn provide(bus: Bus) -> AppData {
             if app.is_assistant(&workspace_id.to_string()) =>
         {
             app.load_chats()
+        }
+        ServerEvent::Entry {
+            workspace_id,
+            entry,
+            ..
+        } if app.is_assistant(&workspace_id.to_string())
+            && matches!(
+                entry.kind,
+                blazar_core_types::EntryKind::SessionStarted { .. }
+                    | blazar_core_types::EntryKind::Approval { .. }
+                    | blazar_core_types::EntryKind::ApprovalResolved { .. }
+                    | blazar_core_types::EntryKind::Finished(_)
+            ) =>
+        {
+            app.load_chats_soon()
         }
         ServerEvent::InboxChanged => app.load_counts("inbox"),
         ServerEvent::TasksChanged => app.load_counts("tasks"),

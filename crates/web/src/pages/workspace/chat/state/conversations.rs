@@ -29,9 +29,24 @@ fn tabs_key(ws: &str) -> String {
 impl Chat {
     pub async fn load_threads(self) {
         let ws = self.ws_id();
-        if let Ok(t) = api::get::<Vec<Thread>>(&format!("/api/workspaces/{ws}/sessions")).await {
+        let view = self.view.get_untracked();
+        let before = view.as_deref().and_then(|v| self.status_of(v));
+        if let Ok(mut t) = api::get::<Vec<Thread>>(&format!("/api/workspaces/{ws}/sessions")).await
+        {
+            if let Some(v) = view.as_deref()
+                && let Some(now) = self.status_of(v)
+                && before.as_ref() != Some(&now)
+                && let Some(x) = t.iter_mut().find(|x| x.id == v)
+            {
+                x.status = Some(now);
+            }
             let _ = self.threads.try_set(t);
         }
+    }
+
+    fn status_of(self, id: &str) -> Option<String> {
+        self.threads
+            .try_with_untracked(|t| t.iter().find(|x| x.id == id).and_then(|x| x.status.clone()))?
     }
 
     pub fn thread_title(self, id: Option<&str>) -> String {
@@ -46,11 +61,47 @@ impl Chat {
     }
 
     pub fn thread_running(self, id: &str) -> bool {
-        self.running.get()
-            && self.threads.with(|t| {
-                t.iter()
-                    .any(|x| x.id == id && x.status.as_deref() == Some("running"))
-            })
+        self.threads.with(|t| {
+            t.iter()
+                .any(|x| x.id == id && super::thread_live(x.status.as_deref()))
+        })
+    }
+
+    pub(super) fn set_thread_status(self, id: &str, status: &str) {
+        let changed = self.threads.with_untracked(|t| {
+            t.iter()
+                .any(|x| x.id == id && x.status.as_deref() != Some(status))
+        });
+        if changed {
+            self.threads.update(|t| {
+                if let Some(x) = t.iter_mut().find(|x| x.id == id) {
+                    x.status = Some(status.to_owned());
+                }
+            });
+        }
+    }
+
+    fn note_live_entry(self, kind: &blazar_core_types::EntryKind) {
+        use blazar_core_types::{EntryKind, Outcome};
+        let Some(view) = self.view.get_untracked() else {
+            return;
+        };
+        let status = match kind {
+            EntryKind::Approval { .. } => "awaiting_approval",
+            EntryKind::Finished(Outcome::Success { .. }) => "done",
+            EntryKind::Finished(Outcome::Failed { .. }) => "failed",
+            EntryKind::Finished(Outcome::Interrupted) => "interrupted",
+            EntryKind::ApprovalResolved { .. }
+            | EntryKind::InputConsumed { .. }
+            | EntryKind::SessionStarted { .. }
+            | EntryKind::UserMessage { .. }
+            | EntryKind::AssistantMessage { .. }
+            | EntryKind::Thinking { .. }
+            | EntryKind::ToolUse { .. }
+            | EntryKind::ToolResult { .. } => "running",
+            _ => return,
+        };
+        self.set_thread_status(&view, status);
     }
 
     pub(super) fn save_tabs(self) {
@@ -339,6 +390,7 @@ impl Chat {
                 }
                 let row = Row::from_live(sid.clone(), (**entry).clone());
                 if self.sessions.with_value(|s| s.contains(&sid)) {
+                    self.note_live_entry(&row.kind);
                     self.push_row(row);
                 } else if self.pending.with_untracked(|p| !p.is_empty()) {
                     let mine = matches!(&row.kind, blazar_core_types::EntryKind::UserMessage { text } if self.matches_pending(text));
@@ -346,6 +398,11 @@ impl Chat {
                         .update_value(|o| o.entry(sid.clone()).or_default().push(row));
                     if mine {
                         self.adopt(&sid);
+                        if let Some(view) = self.view.get_untracked() {
+                            self.set_thread_status(&view, "running");
+                        }
+                    } else {
+                        self.refresh_threads_soon();
                     }
                 } else {
                     self.refresh_threads_soon();
@@ -386,8 +443,23 @@ impl Chat {
                 }
             }
             ServerEvent::AccountsChanged => self.load_accounts(),
+            ServerEvent::WorkspacesChanged => self.threads_soon(),
             _ => {}
         }
+    }
+
+    fn threads_soon(self) {
+        if self.threads_pending.get_value() {
+            return;
+        }
+        self.threads_pending.set_value(true);
+        gloo_timers::callback::Timeout::new(500, move || {
+            let _ = self.threads_pending.try_set_value(false);
+            if self.alive() {
+                self.spawn(async move { self.load_threads().await });
+            }
+        })
+        .forget();
     }
 
     fn fs_changed_soon(self) {
