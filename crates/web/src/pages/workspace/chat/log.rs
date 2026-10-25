@@ -191,6 +191,7 @@ fn result_view(r: Res, key: String, opened: Opened) -> impl IntoView {
         full: all,
         more,
         cls,
+        wss,
     } = r;
     view! {
         <div class=format!("cc-out {cls}")>
@@ -214,6 +215,12 @@ fn result_view(r: Res, key: String, opened: Opened) -> impl IntoView {
                             }
                         })
                 }}
+                {(!wss.is_empty())
+                    .then(|| {
+                        view! {
+                            <div class="cc-wss">{wss.into_iter().map(ws_chip).collect_view()}</div>
+                        }
+                    })}
             </div>
         </div>
     }
@@ -304,7 +311,7 @@ fn extra_view(e: &Extra, opened: Opened, key: &str, ws: &str) -> AnyView {
     }
 }
 
-fn ws_chip(id: String) -> impl IntoView {
+pub(super) fn ws_chip(id: String) -> impl IntoView {
     let app = crate::app_state::use_app();
     let wid = id.clone();
     let w = Memo::new(move |_| app.workspace(&wid));
@@ -457,6 +464,8 @@ fn tool_view(t: Tool, chat: Chat, opened: Opened, ws: String) -> AnyView {
                 <div class="cc-head">
                     <b>{t.label.clone()}</b>
                     {fleet.map(ws_chip)}
+                    {(!t.tail.is_empty())
+                        .then(|| view! { <span class="cc-tail">{t.tail.clone()}</span> })}
                     {(!t.arg.is_empty())
                         .then(|| {
                             view! {
@@ -480,6 +489,18 @@ fn tool_view(t: Tool, chat: Chat, opened: Opened, ws: String) -> AnyView {
                 <div class="cc-res">
                     {t.result.map(|r| result_view(r, format!("res:{}", t.id), opened))}
                 </div>
+                {t
+                    .raw
+                    .clone()
+                    .map(|raw| {
+                        details(
+                            opened,
+                            format!("raw:{}", t.id),
+                            "ui-detail cc-raw",
+                            view! { "详情" }.into_any(),
+                            move || view! { <pre>{raw}</pre> }.into_any(),
+                        )
+                    })}
             </div>
         </div>
     }

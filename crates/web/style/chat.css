@@ -103,6 +103,10 @@
 .cc-ws .ws-machine { padding: 0; background: none; color: var(--fg-3); }
 .cc-ws .dot { flex: 0 0 auto; }
 .cc-ws.gone { color: var(--fg-3); font-family: var(--font-mono); }
+.cc-tail { flex: 0 0 auto; color: var(--fg-2); }
+.cc-wss { display: flex; flex-wrap: wrap; gap: var(--space-xs); margin-top: var(--space-xs); font-family: var(--font-sans); white-space: normal; }
+.cc-wss .cc-ws { max-width: 100%; }
+.cc-raw { margin-top: var(--space-xs); }
 .cc-io, .cc-out { display: flex; gap: var(--space-md); margin-top: var(--space-label); }
 .cc-io { padding: var(--space-sm) var(--space-md); border: 1px solid var(--line); border-radius: var(--r-md); background: var(--bg-code); }
 .cc-pre { flex: 1; min-width: 0; font: var(--font-size-label)/var(--line-height-code) var(--font-mono); white-space: pre-wrap; word-break: break-word; color: var(--fg-2); }

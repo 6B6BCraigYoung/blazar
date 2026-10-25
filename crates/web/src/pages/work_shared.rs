@@ -94,6 +94,8 @@ pub fn approval_summary(request: &Value, root: &str) -> (String, String) {
         "Bash".to_owned()
     } else if tool.is_empty() {
         "工具".to_owned()
+    } else if crate::chat_model::is_fleet(request["tool_name"].as_str().unwrap_or("")) {
+        crate::chat_model::plain_label(&tool).to_owned()
     } else {
         tool
     };

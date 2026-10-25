@@ -8,8 +8,9 @@ use serde_json::Value;
 use super::approvals::{appr_kind_label, decision_text};
 use super::finish::finish_items;
 use super::tools::{
-    SHELL_TOOLS, command_of, edit_diff, fleet_target, result_of, s, shell_display, shell_result,
-    short, todos_of, tool_name, tool_title, write_preview,
+    SHELL_TOOLS, command_of, edit_diff, fleet_target, fleet_words, is_fleet, raw_input, raw_output,
+    result_of, s, shell_display, shell_result, short, todos_of, tool_name, tool_title,
+    write_preview,
 };
 use super::{Extra, Item, Pending, Res, Row, St, Todo, Tool, Transcript};
 
@@ -621,6 +622,8 @@ impl<'a> Builder<'a> {
     fn new_tool(&mut self, id: String, raw_name: &str, input: Value, ts: i64) -> usize {
         let name = tool_name(raw_name);
         let (label, arg) = tool_title(&name, &input, self.root);
+        let tail = fleet_words(&name, &input).map_or_else(String::new, |(_, t)| t.to_owned());
+        let raw = is_fleet(raw_name).then(|| raw_input(&input));
         let extra = if SHELL_TOOLS.contains(&name.as_str()) {
             let c = command_of(&input);
             if c.trim().contains('\n') {
@@ -645,10 +648,12 @@ impl<'a> Builder<'a> {
             id: id.clone(),
             name,
             label,
+            tail,
             arg,
             state: St::Run,
             extra,
             result: None,
+            raw,
             ms: None,
             sub: Vec::new(),
             sub_calls: 0,
@@ -677,6 +682,11 @@ impl<'a> Builder<'a> {
         self.set_state(t, if ok { St::Ok } else { St::Err });
         self.tools[t].tool.result = res;
         self.tools[t].tool.ms = ms;
+        if let Some(raw) = self.tools[t].tool.raw.as_mut()
+            && !raw.contains("\n输出\n")
+        {
+            raw.push_str(&raw_output(content));
+        }
     }
 
     fn sub_row(&mut self, parent: usize, r: &Row) {

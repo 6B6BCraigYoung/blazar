@@ -20,7 +20,10 @@ pub use builder::Model;
 pub use builder::build;
 pub use finish::step_sig;
 pub use groups::{Group, group_sig, group_steps};
-pub use tools::{SHELL_TOOLS, edit_diff, rel_path, tool_name, tool_title, write_preview};
+pub use tools::{
+    SHELL_TOOLS, edit_diff, is_fleet, plain_label, rel_path, tool_name, tool_title,
+    write_preview,
+};
 
 #[derive(Debug, Clone)]
 pub struct Row {
@@ -140,6 +143,8 @@ pub struct Res {
     pub more: usize,
 
     pub cls: &'static str,
+
+    pub wss: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -147,10 +152,12 @@ pub struct Tool {
     pub id: String,
     pub name: String,
     pub label: String,
+    pub tail: String,
     pub arg: String,
     pub state: St,
     pub extra: Extra,
     pub result: Option<Res>,
+    pub raw: Option<String>,
     pub ms: Option<u64>,
 
     pub sub: Vec<Step>,

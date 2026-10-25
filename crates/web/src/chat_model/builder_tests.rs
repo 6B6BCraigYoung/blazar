@@ -129,15 +129,29 @@ fn fleet_calls_name_the_child_and_summarise_the_result() {
         })
         .collect();
     assert_eq!(
-        (tools[0].label.as_str(), tools[0].arg.as_str()),
-        ("派活", "run the third pass")
+        (
+            tools[0].label.as_str(),
+            tools[0].tail.as_str(),
+            tools[0].arg.as_str()
+        ),
+        ("派活给", "", "run the third pass")
     );
     assert_eq!(tools[0].extra, Extra::Fleet("w1".into()));
     assert_eq!(
         tools[0].result.as_ref().map(|r| r.shown.as_str()),
         Some("已派出")
     );
-    assert_eq!(tools[1].label, "等待");
+    let raw = tools[0].raw.as_deref().unwrap_or_default();
+    assert!(
+        raw.starts_with("输入\n{")
+            && raw.contains("\"workspace_id\": \"w1\"")
+            && raw.contains("\n输出\n{\n  \"session_id\": \"x\"\n}"),
+        "{raw}"
+    );
+    assert_eq!(
+        (tools[1].label.as_str(), tools[1].tail.as_str()),
+        ("等", "停下")
+    );
     assert_eq!(tools[1].extra, Extra::Fleet("w1".into()));
     assert_eq!(
         tools[1].result.as_ref().map(|r| r.shown.as_str()),
