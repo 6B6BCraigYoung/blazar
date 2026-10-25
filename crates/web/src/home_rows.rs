@@ -317,6 +317,7 @@ mod tests {
             diff_at: None,
             parent: parent.map(str::to_owned),
             step: None,
+            failure: None,
         }
     }
 

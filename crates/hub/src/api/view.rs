@@ -200,6 +200,7 @@ pub(crate) async fn snapshot(st: &AppState) -> anyhow::Result<StateSnapshot> {
         diff_at: r.try_get("diff_at").unwrap_or(None),
         parent: r.try_get("parent_id").unwrap_or(None),
         step: None,
+        failure: None,
     })
     .collect();
 

@@ -157,6 +157,19 @@ pub struct WorkspaceStep {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WorkspaceFailure {
+    pub cause: crate::failure::FailureCause,
+    pub message: String,
+    pub session_id: String,
+    pub thread_id: String,
+    pub runtime: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resets_at: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WorkspaceView {
     pub id: String,
     pub name: String,
@@ -176,6 +189,9 @@ pub struct WorkspaceView {
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub step: Option<WorkspaceStep>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure: Option<WorkspaceFailure>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

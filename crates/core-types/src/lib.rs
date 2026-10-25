@@ -1,6 +1,7 @@
 pub mod api;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod connection;
+pub mod failure;
 pub mod http;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod private_storage;
