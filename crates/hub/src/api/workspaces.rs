@@ -9,7 +9,7 @@ pub struct CreateWorkspace {
     pub project: Option<String>,
 }
 
-async fn ensure_node(st: &AppState, node: &str, now: &str) -> ApiResult<String> {
+pub(crate) async fn ensure_node(st: &AppState, node: &str, now: &str) -> ApiResult<String> {
     let pool = st.db.pool();
     sqlx::query(
         "INSERT INTO nodes (id, name, transport, status, created_at)

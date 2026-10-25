@@ -205,3 +205,64 @@ pub async fn workspace_sessions(
             .collect::<Vec<_>>(),
     ))
 }
+
+pub async fn delete_thread(
+    State(st): State<Shared>,
+    Path((id, thread)): Path<(String, String)>,
+) -> ApiResult<StatusCode> {
+    super::workspaces::locate(&st, &id).await?;
+    let running: Option<String> = sqlx::query_scalar(
+        "SELECT id FROM sessions WHERE workspace_id = ?1 AND COALESCE(thread_id, id) = ?2
+           AND status = 'running' LIMIT 1",
+    )
+    .bind(&id)
+    .bind(&thread)
+    .fetch_optional(st.db.pool())
+    .await?;
+    if running.is_some() {
+        return Err(ApiError::bad_request("这个对话还在运行，先停下它再删"));
+    }
+    let mut tx = st.db.pool().begin().await?;
+    let removed = sqlx::query(
+        "DELETE FROM sessions WHERE workspace_id = ?1 AND COALESCE(thread_id, id) = ?2",
+    )
+    .bind(&id)
+    .bind(&thread)
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+    if removed == 0 {
+        return Err(ApiError(anyhow::Error::new(NotFound(
+            "这个对话不存在，可能已被删除".into(),
+        ))));
+    }
+    sqlx::query("DELETE FROM inbox WHERE workspace_id = ?1 AND thread_id = ?2")
+        .bind(&id)
+        .bind(&thread)
+        .execute(&mut *tx)
+        .await?;
+    let latest: Option<String> = sqlx::query_scalar(
+        "SELECT status FROM sessions WHERE workspace_id = ?1 ORDER BY created_at DESC LIMIT 1",
+    )
+    .bind(&id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let activity = match latest.as_deref() {
+        Some("running") => "running",
+        Some("failed") => "errored",
+        Some("done") => "completed",
+        _ => "idle",
+    };
+    sqlx::query(
+        "UPDATE workspaces SET activity = ?2
+         WHERE id = ?1 AND activity NOT IN ('running', 'awaiting_approval')",
+    )
+    .bind(&id)
+    .bind(activity)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    st.emit(ServerEvent::WorkspacesChanged);
+    st.emit(ServerEvent::InboxChanged);
+    Ok(StatusCode::NO_CONTENT)
+}

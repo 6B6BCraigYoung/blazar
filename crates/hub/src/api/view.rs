@@ -135,7 +135,7 @@ async fn latest_step(st: &AppState, session_id: &str) -> Option<WorkspaceStep> {
 pub(crate) async fn snapshot(st: &AppState) -> anyhow::Result<StateSnapshot> {
     let nodes: Vec<NodeView> = sqlx::query(
         "SELECT n.name, n.transport, n.endpoint, n.status, n.labels, n.network, n.role, n.last_seen_at,
-                (SELECT COUNT(*) FROM workspaces w WHERE w.node_id = n.id) AS wc
+                (SELECT COUNT(*) FROM workspaces w WHERE w.node_id = n.id AND w.kind = 'project') AS wc
          FROM nodes n ORDER BY n.name",
     )
     .fetch_all(st.db.pool())
@@ -162,8 +162,8 @@ pub(crate) async fn snapshot(st: &AppState) -> anyhow::Result<StateSnapshot> {
     })
     .collect();
 
-    let mut workspaces: Vec<WorkspaceView> = sqlx::query(
-        "SELECT w.id, w.name, w.path, w.activity, w.last_active_at, w.parent_id,
+    let rows = sqlx::query(
+        "SELECT w.id, w.name, w.path, w.activity, w.last_active_at, w.parent_id, w.kind,
                 w.diff_added, w.diff_removed, w.diff_files, w.diff_at,
                 n.name AS node, p.name AS project,
                 (SELECT s.id FROM sessions s WHERE s.workspace_id = w.id
@@ -174,40 +174,47 @@ pub(crate) async fn snapshot(st: &AppState) -> anyhow::Result<StateSnapshot> {
          ORDER BY p.name IS NULL, p.name, n.name, w.name",
     )
     .fetch_all(st.db.pool())
-    .await?
-    .into_iter()
-    .map(|r| WorkspaceView {
-        id: r.try_get("id").unwrap_or_default(),
-        name: r.try_get("name").unwrap_or_default(),
-        node: r.try_get("node").unwrap_or_default(),
-        path: r.try_get("path").unwrap_or_default(),
-        project: r.try_get("project").unwrap_or(None),
-        activity: r.try_get("activity").unwrap_or_else(|_| "idle".into()),
-        last_active_at: r.try_get("last_active_at").unwrap_or(None),
-        session_id: r.try_get("session_id").unwrap_or(None),
-        diff: match (
-            r.try_get::<Option<i64>, _>("diff_added").unwrap_or(None),
-            r.try_get::<Option<i64>, _>("diff_removed").unwrap_or(None),
-            r.try_get::<Option<i64>, _>("diff_files").unwrap_or(None),
-        ) {
-            (Some(a), Some(d), Some(f)) => Some(blazar_core_types::api::DiffStat {
-                added: u64::try_from(a).unwrap_or(0),
-                removed: u64::try_from(d).unwrap_or(0),
-                files: u64::try_from(f).unwrap_or(0),
-            }),
-            _ => None,
-        },
-        diff_at: r.try_get("diff_at").unwrap_or(None),
-        parent: r.try_get("parent_id").unwrap_or(None),
-        step: None,
-        failure: None,
-    })
-    .collect();
+    .await?;
+    let mut assistant = None;
+    let mut workspaces: Vec<WorkspaceView> = Vec::with_capacity(rows.len());
+    for r in rows {
+        let view = WorkspaceView {
+            id: r.try_get("id").unwrap_or_default(),
+            name: r.try_get("name").unwrap_or_default(),
+            node: r.try_get("node").unwrap_or_default(),
+            path: r.try_get("path").unwrap_or_default(),
+            project: r.try_get("project").unwrap_or(None),
+            activity: r.try_get("activity").unwrap_or_else(|_| "idle".into()),
+            last_active_at: r.try_get("last_active_at").unwrap_or(None),
+            session_id: r.try_get("session_id").unwrap_or(None),
+            diff: match (
+                r.try_get::<Option<i64>, _>("diff_added").unwrap_or(None),
+                r.try_get::<Option<i64>, _>("diff_removed").unwrap_or(None),
+                r.try_get::<Option<i64>, _>("diff_files").unwrap_or(None),
+            ) {
+                (Some(a), Some(d), Some(f)) => Some(blazar_core_types::api::DiffStat {
+                    added: u64::try_from(a).unwrap_or(0),
+                    removed: u64::try_from(d).unwrap_or(0),
+                    files: u64::try_from(f).unwrap_or(0),
+                }),
+                _ => None,
+            },
+            diff_at: r.try_get("diff_at").unwrap_or(None),
+            parent: r.try_get("parent_id").unwrap_or(None),
+            step: None,
+            failure: None,
+        };
+        if r.try_get::<String, _>("kind").unwrap_or_default() == super::assistant::KIND {
+            assistant.get_or_insert(view);
+        } else {
+            workspaces.push(view);
+        }
+    }
 
     let online = |node: &str| {
         node == "local" || nodes.iter().any(|n| n.name == node && n.status == "online")
     };
-    for w in &mut workspaces {
+    for w in workspaces.iter_mut().chain(assistant.as_mut()) {
         if !wants_step(&w.activity) {
             continue;
         }
@@ -219,7 +226,11 @@ pub(crate) async fn snapshot(st: &AppState) -> anyhow::Result<StateSnapshot> {
         }
     }
 
-    Ok(StateSnapshot { nodes, workspaces })
+    Ok(StateSnapshot {
+        nodes,
+        workspaces,
+        assistant,
+    })
 }
 
 #[cfg(test)]

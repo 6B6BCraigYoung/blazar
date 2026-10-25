@@ -103,6 +103,10 @@ pub fn build_router(st: Arc<AppState>) -> Router {
             get(api::list_workspaces).post(api::create_workspace),
         )
         .route("/api/nodes", get(api::list_nodes))
+        .route(
+            "/api/assistant",
+            get(api::get_assistant).post(api::open_assistant),
+        )
         .route("/api/workspaces/isolated", post(api::create_isolated))
         .route("/api/workspaces/clone", post(api::clone_workspace))
         .route("/api/workspaces/{id}/push", post(api::push_workspace))
@@ -116,6 +120,10 @@ pub fn build_router(st: Arc<AppState>) -> Router {
         .route(
             "/api/workspaces/{id}/sessions",
             get(api::workspace_sessions),
+        )
+        .route(
+            "/api/workspaces/{id}/sessions/{thread}",
+            delete(api::delete_thread),
         )
         .route("/api/sessions/{id}/title", put(titles::rename))
         .route("/api/tasks", get(tasks::list).post(tasks::create))
