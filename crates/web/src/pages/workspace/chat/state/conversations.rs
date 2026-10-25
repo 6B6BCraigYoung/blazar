@@ -95,6 +95,7 @@ impl Chat {
                 ids[0].clone()
             };
             let _ = self.tabs.try_set(ids);
+            let _ = self.fresh.try_set(active.is_none());
             let _ = self.view.try_set(active);
             self.load_history();
             let _ = ready.try_set(true);
