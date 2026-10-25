@@ -1,4 +1,5 @@
 use super::*;
+use blazar_core_types::api::{StateSnapshot, WorkspaceStep};
 
 pub const KIND: &str = "assistant";
 pub const NAME: &str = "对话";
@@ -111,9 +112,92 @@ async fn summary(st: &AppState, thread: &str) -> String {
         .unwrap_or_default()
 }
 
+pub(crate) async fn briefing(st: &AppState) -> String {
+    match super::view::snapshot(st).await {
+        Ok(snap) => brief(&snap),
+        Err(_) => String::new(),
+    }
+}
+
+#[must_use]
+pub fn brief(snap: &StateSnapshot) -> String {
+    let dir = snap
+        .assistant
+        .as_ref()
+        .map(|w| w.path.clone())
+        .unwrap_or_default();
+    let mut out = format!(
+        "你是用户的助手，不属于任何项目。这个目录（{dir}）只是你的工作目录，用户的项目都在下面列出的工作区里。\n\
+         用 blazar-fleet 的工具看和管它们：list_workspaces、get_history、get_diff、read_file 看情况，probe_node 看机器；\
+         send_prompt 给某个工作区派活（立即返回），wait_workspace 等它停下并拿到最后一句回复，copy_files 在工作区之间搬文件。\n\
+         动别的工作区之前，先用一两句话说清楚要对哪个工作区做什么，再动手。\n"
+    );
+    if snap.workspaces.is_empty() {
+        out.push_str("现在还没有工作区。\n");
+    } else {
+        out.push_str("现在的工作区：\n");
+        for w in &snap.workspaces {
+            let step = w
+                .step
+                .as_ref()
+                .map(step_line)
+                .filter(|s| !s.is_empty())
+                .map(|s| format!("，{s}"))
+                .unwrap_or_default();
+            out.push_str(&format!(
+                "- {}：机器 {}，{}{step}；工作区 id {}\n",
+                w.name,
+                w.node,
+                state_label(&w.activity),
+                w.id
+            ));
+        }
+    }
+    out.push_str("机器：\n");
+    for n in &snap.nodes {
+        let online = n.name == "local" || n.status == "online";
+        out.push_str(&format!(
+            "- {}：{}\n",
+            n.name,
+            if online { "在线" } else { "离线" }
+        ));
+    }
+    out
+}
+
+fn state_label(activity: &str) -> &'static str {
+    match activity {
+        "running" | "starting" => "运行中",
+        "awaiting_approval" => "等用户批准",
+        "errored" => "上一轮失败了",
+        "completed" => "刚跑完",
+        _ => "空闲",
+    }
+}
+
+fn step_line(step: &WorkspaceStep) -> String {
+    match step.kind.as_str() {
+        "tool" => {
+            let arg = ["command", "file_path", "description", "pattern"]
+                .iter()
+                .find_map(|k| step.input.get(*k).and_then(serde_json::Value::as_str))
+                .unwrap_or_default();
+            if arg.is_empty() {
+                format!("正在用 {}", step.tool)
+            } else {
+                format!("正在用 {} {arg}", step.tool)
+            }
+        }
+        "retry" => "正在重试".into(),
+        "error" => format!("失败：{}", step.text),
+        _ => step.text.clone(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use blazar_core_types::api::{NodeView, WorkspaceView};
 
     fn ok<T>(result: ApiResult<T>) -> T {
         result.unwrap_or_else(|error| panic!("{}", error.message()))
@@ -299,5 +383,68 @@ mod tests {
         let described = ok(get_assistant(State(st.clone())).await).0;
         assert!(described["id"].is_null());
         assert_eq!(described["threads"], serde_json::json!([]));
+    }
+
+    #[test]
+    fn the_briefing_names_every_workspace_and_machine() {
+        let node = |name: &str, status: &str| NodeView {
+            name: name.into(),
+            transport: "ssh".into(),
+            ipv4: None,
+            status: status.into(),
+            latency_ms: None,
+            cost: None,
+            workspace_count: 1,
+            network: None,
+            role: None,
+            last_seen_at: None,
+        };
+        let ws =
+            |id: &str, node: &str, activity: &str, step: Option<WorkspaceStep>| WorkspaceView {
+                id: id.into(),
+                name: id.into(),
+                node: node.into(),
+                path: format!("/srv/{id}"),
+                project: None,
+                activity: activity.into(),
+                last_active_at: None,
+                session_id: None,
+                diff: None,
+                diff_at: None,
+                parent: None,
+                step,
+                failure: None,
+            };
+        let snap = StateSnapshot {
+            nodes: vec![node("local", "offline"), node("gpu-a", "offline")],
+            workspaces: vec![
+                ws(
+                    "atlas-api",
+                    "local",
+                    "running",
+                    Some(WorkspaceStep {
+                        kind: "tool".into(),
+                        tool: "Bash".into(),
+                        input: serde_json::json!({ "command": "pytest -q" }),
+                        text: String::new(),
+                    }),
+                ),
+                ws("quasar-train", "gpu-a", "awaiting_approval", None),
+            ],
+            assistant: Some(ws("helper", "local", "idle", None)),
+        };
+        let text = brief(&snap);
+        assert!(text.contains("/srv/helper"), "{text}");
+        assert!(
+            text.contains("atlas-api")
+                && text.contains("运行中")
+                && text.contains("Bash pytest -q")
+        );
+        assert!(text.contains("quasar-train") && text.contains("等用户批准"));
+        assert!(text.contains("- local：在线") && text.contains("- gpu-a：离线"));
+        assert!(text.contains("send_prompt") && text.contains("wait_workspace"));
+        assert!(!text.contains("helper：机器"));
+        let empty = brief(&StateSnapshot::default());
+        assert!(empty.contains("还没有工作区"));
     }
 }

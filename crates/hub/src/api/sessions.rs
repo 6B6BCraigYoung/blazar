@@ -207,6 +207,7 @@ async fn prompt_inner(
     }
     let (node, path) = locate(&st, &id).await?;
     let workspace_id = WorkspaceId(id.parse()?);
+    let assistant = super::assistant::is_assistant(&st, &id).await;
     if let Err(e) = check_images(&req.images) {
         return Err(ApiError(anyhow::anyhow!(e)));
     }
@@ -547,7 +548,7 @@ async fn prompt_inner(
             &st,
             session_id,
             &run_node,
-            !children.is_empty() || bot.is_some(),
+            assistant || !children.is_empty() || bot.is_some(),
             caller,
         )
         .await
@@ -567,7 +568,18 @@ async fn prompt_inner(
         if let Some(c) = &cfg {
             apply_runtime_config(&mut spec, c);
         }
-        let mut brief = crate::fleet::briefing(&id, &children);
+        let mut brief = if assistant {
+            super::assistant::briefing(&st).await
+        } else {
+            String::new()
+        };
+        let kids = crate::fleet::briefing(&id, &children);
+        if !kids.is_empty() {
+            if !brief.is_empty() {
+                brief.push_str("\n\n");
+            }
+            brief.push_str(&kids);
+        }
         if let Some(b) = &bot {
             let block = crate::bots::briefing(&st, b).await;
             if !brief.is_empty() {

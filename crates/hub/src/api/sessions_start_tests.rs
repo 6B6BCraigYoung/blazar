@@ -228,6 +228,29 @@ async fn running_rows(st: &Shared) -> i64 {
 }
 
 #[tokio::test]
+async fn assistant_sessions_always_carry_the_fleet_tools_and_briefing() {
+    let (_dir, st, ws, fake) = fixture().await;
+    let _ = crate::office::HUB_URL.set("http://127.0.0.1:7777".into());
+    let _ = prompt_fake(st.clone(), ws, fake.clone(), "claude")
+        .await
+        .unwrap_or_else(|error| panic!("{}", error.message()));
+    let plain = launched_command(&fake);
+    assert!(!plain.contains("blazar-fleet"), "{plain}");
+    let assistant = crate::api::assistant::ensure(&st)
+        .await
+        .unwrap_or_else(|error| panic!("{}", error.message()));
+    let req = serde_json::from_value(serde_json::json!({"text":"看看", "agent":"claude"})).unwrap();
+    let transport = fake.clone();
+    let _ = prompt_using(st.clone(), assistant, req, move |_| transport.clone())
+        .await
+        .unwrap_or_else(|error| panic!("{}", error.message()));
+    let cmd = launched_command(&fake);
+    assert!(cmd.contains("blazar-fleet"), "{cmd}");
+    assert!(cmd.contains("你是用户的助手"), "{cmd}");
+    assert!(cmd.contains("repo"), "{cmd}");
+}
+
+#[tokio::test]
 async fn unknown_runtime_does_not_leave_a_running_session() {
     let (_dir, st, ws, fake) = fixture().await;
     assert!(
