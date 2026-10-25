@@ -24,8 +24,22 @@ def did(kind, n):
 
 
 LEGACY = ["comet-cli", "pulsar-bot", "meteor-ui", "nova-infra", "lyra-sdk", "vega-tests", "halo-docs"]
+FAILED = [
+    ("comet-sync", "network", "断网", "API Error: Can't reach the API server — check your internet or DNS (ENOTFOUND)",
+     "把 docs 目录同步到对象存储，结束后把链接发我", "同步文档到对象存储"),
+    ("orbit-site", "busy", "服务繁忙", "API Error: 529 overloaded",
+     "把首页的英雄区文案改成三句话，突出离线可用", "改首页文案"),
+    ("quasar-eval", "node", "机器连不上", "agent 进程已经不在了（机器重启、被整组杀掉或目录被删），可以续接上一段对话重来",
+     "在 v2 评测集上跑一遍 baseline，把分数写进 eval.md", "跑 v2 评测"),
+    ("atlas-worker", "quota", "额度用完", "You've hit your usage limit · resets 8am (Asia/Shanghai)",
+     "给任务队列加上重试和指数退避", "队列重试与退避"),
+    ("lyra-build", "other", "其他原因", "agent 异常退出（退出码 1）。stderr: Error: ENOSPC: no space left on device, write",
+     "把三步打包脚本合成一条命令", "一条命令打包"),
+]
 WS = {name: did(1, i) for i, name in enumerate(
-    ["atlas-api", "nebula-web", "quasar-ml", "orbit-docs", "quasar-train", "orbit-site", *LEGACY], 1)}
+    ["atlas-api", "nebula-web", "quasar-ml", "orbit-docs", "quasar-train", "orbit-site",
+     "comet-sync", "quasar-eval", "atlas-worker", "lyra-build", *LEGACY], 1)}
+ACCOUNT = did(25, 1)
 AGENTS = {name: did(2, i) for i, name in enumerate(["backend", "reviewer", "writer"], 1)}
 BOTS = {name: did(3, i) for i, name in enumerate(["demo-trainer", "demo-reviewer"], 1)}
 PROJECTS = {name: did(4, i) for i, name in enumerate(["demo-orbit", "demo-quasar", "demo-legacy"], 1)}
@@ -43,6 +57,13 @@ def iso(t):
 
 def ago(**kw):
     return datetime.now(timezone.utc) - timedelta(**kw)
+
+
+def next_sunday_eight():
+    local = datetime.now().astimezone()
+    days = (6 - local.weekday()) % 7 or 7
+    at = (local + timedelta(days=days)).replace(hour=8, minute=0, second=0, microsecond=0)
+    return at.astimezone(timezone.utc)
 
 
 def git(repo, *args):
@@ -238,6 +259,21 @@ def make_repos():
         write(site, "styles.css", "body { font-family: sans-serif; margin: 40px; }\n")
         git(site, "add", "-A")
         git(site, "commit", "-q", "-m", "feat: landing page")
+    small = {
+        "comet-sync": ("sync.sh", "#!/usr/bin/env bash\nset -e\naws s3 sync docs/ s3://demo-bucket/docs/\n"),
+        "atlas-worker": ("worker.py", "import queue\n\n\ndef run(q: queue.Queue):\n    while job := q.get():\n        job()\n"),
+        "lyra-build": ("build.sh", "#!/usr/bin/env bash\nset -e\nnpm run clean\nnpm run compile\nnpm run bundle\n"),
+    }
+    for name, (rel, text) in small.items():
+        repo = DEMO / name
+        if (repo / ".git").exists():
+            continue
+        repo.mkdir(parents=True, exist_ok=True)
+        git(repo, "init", "-q", "-b", "main")
+        write(repo, "README.md", f"# {name}\n\n演示仓库，内容是假的。\n")
+        write(repo, rel, text)
+        git(repo, "add", "-A")
+        git(repo, "commit", "-q", "-m", "feat: scaffold")
 
 
 class Clock:
@@ -364,9 +400,9 @@ def usage(inp, out, cost):
     return {"type": "token_usage", "input": inp, "output": out, "cache_read": inp * 3, "cache_creation": inp // 5, "cost_usd": cost}
 
 
-def add_session(db, sid, ws, when, runtime, title, thread, status, events, agent=None):
-    db.execute("INSERT INTO sessions (id, workspace_id, runtime_kind, provider_session_id, status, created_at, title, thread_id, agent_profile)"
-               " VALUES (?,?,?,?,?,?,?,?,?)", (sid, ws, runtime, f"demo-{sid[-8:]}", status, iso(when), title, thread, agent))
+def add_session(db, sid, ws, when, runtime, title, thread, status, events, agent=None, account=None):
+    db.execute("INSERT INTO sessions (id, workspace_id, runtime_kind, provider_session_id, status, created_at, title, thread_id, agent_profile, account_id)"
+               " VALUES (?,?,?,?,?,?,?,?,?,?)", (sid, ws, runtime, f"demo-{sid[-8:]}", status, iso(when), title, thread, agent, account))
     for seq, (ts, payload, parent) in enumerate(events, 1):
         db.execute("INSERT INTO events (session_id, seq, ts, payload, parent_tool_id) VALUES (?,?,?,?,?)",
                    (sid, seq, ts, json.dumps(payload, ensure_ascii=False, separators=(",", ":")), parent))
@@ -393,6 +429,7 @@ def short_session(db, sid, ws, when, runtime, title, ask, reply, status, cost, c
 def clean(db):
     like = PREFIX + "%"
     for table, col in [("approvals", "id"), ("events", "session_id"), ("sessions", "id"), ("task_comments", "task_id"),
+                       ("rate_limit_snapshots", "account_id"), ("accounts", "id"),
                        ("tasks", "id"), ("autopilot_runs", "autopilot_id"), ("autopilots", "id"), ("claims", "id"),
                        ("bot_mail", "to_bot"), ("bot_threads", "bot_id"), ("bots", "id"), ("agents", "id"),
                        ("skill_files", "skill_id"), ("skills", "id"), ("memories", "id"), ("inbox", "id"),
@@ -455,6 +492,10 @@ def seed_rows(db):
         ("orbit-docs", local, str(DEMO / "orbit-docs"), None, "running", ago(minutes=2), (0, 0, 0)),
         ("quasar-train", NODE_ID, "/home/demo/quasar-train", PROJECTS["demo-quasar"], "idle", ago(days=2), None),
         ("orbit-site", local, str(DEMO / "orbit-site"), PROJECTS["demo-orbit"], "errored", ago(hours=3), (0, 0, 0)),
+        ("comet-sync", local, str(DEMO / "comet-sync"), PROJECTS["demo-orbit"], "errored", ago(hours=1), (0, 0, 0)),
+        ("quasar-eval", NODE_ID, "/home/demo/quasar-eval", PROJECTS["demo-quasar"], "errored", ago(hours=5), None),
+        ("atlas-worker", local, str(DEMO / "atlas-worker"), PROJECTS["demo-orbit"], "errored", ago(minutes=40), (0, 0, 0)),
+        ("lyra-build", local, str(DEMO / "lyra-build"), None, "errored", ago(hours=2), (0, 0, 0)),
     ] + [(name, NODE_ID, f"/home/demo/{name}", PROJECTS["demo-legacy"], "completed" if i % 3 == 0 else "idle",
           ago(days=3 + i, hours=i * 5), None) for i, name in enumerate(LEGACY)]
     for name, node, path, proj, act, last, diff in wss:
@@ -552,6 +593,24 @@ def seed_rows(db):
     site += [(c.tick(2 + n), dict(retry, attempt=n, delay_ms=min(1000 * 2 ** (n - 1), 32000)), None) for n in range(1, 11)]
     site.append((c.tick(5), {"type": "finished", "status": "failed", "message": "API Error: 529 overloaded"}, None))
     add_session(db, did(12, 4), WS["orbit-site"], ago(hours=3, minutes=2), "claude_cli", "改首页文案", did(12, 4), "failed", site, AGENTS["writer"])
+
+    db.execute("INSERT INTO accounts (id, provider, display_name, auth_mode, status, created_at) VALUES (?,?,?,?,?,?)",
+               (ACCOUNT, "claude", "演示账号", "cli", "active", iso(ago(days=30))))
+    db.execute("INSERT INTO rate_limit_snapshots (account_id, window_name, utilization, resets_at, observed_at) VALUES (?,?,?,?,?)",
+               (ACCOUNT, "five_hour", 1.0, iso(next_sunday_eight()), iso(ago(minutes=40))))
+    for n, (name, cause, _, message, ask, title) in enumerate(FAILED, 5):
+        if name == "orbit-site":
+            continue
+        when = next(last for ws, _, _, _, _, last, _ in wss if ws == name)
+        c = Clock(when - timedelta(minutes=2))
+        cwd = f"/home/demo/{name}" if cause == "node" else str(DEMO / name)
+        evs = [
+            (c.tick(0), {"type": "session_started", "provider_session_id": f"demo-{cause}", "model": "claude-opus-5-5", "cwd": cwd, "permission_mode": "default"}, None),
+            (c.tick(1), {"type": "user_message", "text": ask}, None),
+            (c.tick(90), {"type": "finished", "status": "failed", "message": message}, None),
+        ]
+        add_session(db, did(12, n), WS[name], when - timedelta(minutes=2), "claude", title, did(12, n), "failed", evs,
+                    AGENTS["backend"], ACCOUNT if cause == "quota" else None)
 
     c = Clock(ago(minutes=6))
     req = {"tool_name": "Bash", "input": {"command": "python train.py --config configs/base.yaml --steps 200", "description": "冒烟训练 200 步"}, "tool_use_id": "toolu_demo_appr"}
@@ -678,15 +737,20 @@ def seed_rows(db):
         ("approval", "quasar-ml · 等你批准：Bash", "python train.py --config configs/base.yaml --steps 200", "quasar-ml", did(12, 2), APPROVAL, ago(minutes=4), False, False),
         ("question", "quasar-ml · 智能体在问你", "lr=3e-4 那组的节点离线了，要不要换到本机重跑？", "quasar-ml", did(12, 2), QUESTION, ago(minutes=3), False, False),
         ("run_failed", "orbit-site · 没跑成：把首页的英雄区文案改成三句话，突出离线可用", "API Error: 529 overloaded", "orbit-site", did(12, 4), None, ago(hours=3), False, False),
+    ] + [
+        ("run_failed", f"{name}{'（' + NODE + '）' if cause == 'node' else ''} · 没跑成：{title}", message, name, did(12, n), None,
+         next(last for ws, _, _, _, _, last, _ in wss if ws == name), False, False)
+        for n, (name, cause, _, message, _, title) in enumerate(FAILED, 5) if name != "orbit-site"
+    ] + [
         ("autopilot_paused", "自动化「夜间评测汇总」已暂停", "连续失败 3 次。", None, None, AUTOPILOTS[1], ago(hours=9), True, False),
         ("job", "后台任务「演示：导出评测表」失败了", "退出码 1", None, None, None, ago(hours=4), True, False),
         ("alert", "后台任务「演示：远程评测」失联", "它在等的机器 gpu-a.invalid 不在线。", None, None, "rule:job_orphan:demo", ago(hours=19), True, True),
     ]
     for i, (kind, title, body, ws, thread, ref, when, read, archived) in enumerate(inbox):
-        db.execute("INSERT INTO inbox (id, kind, title, body, workspace_id, thread_id, ref_id, read_at, archived_at, created_at)"
-                   " VALUES (?,?,?,?,?,?,?,?,?,?)",
-                   (did(21, i + 1), kind, title, body, WS.get(ws), thread, ref, iso(when) if read else None,
-                    iso(when) if archived else None, iso(when)))
+        db.execute("INSERT INTO inbox (id, kind, title, body, workspace_id, thread_id, session_id, ref_id, read_at, archived_at, created_at)"
+                   " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                   (did(21, i + 1), kind, title, body, WS.get(ws), thread, thread if kind.startswith("run_") else None, ref,
+                    iso(when) if read else None, iso(when) if archived else None, iso(when)))
     snippets = [
         ("验收清单", "- 单元测试全部通过\n- 没有新的 clippy 警告\n- 改动的接口在 README 里有说明"),
         ("提交规范", "Conventional Commits，英文小写祈使句，标题不超过 72 个字符，细节写进正文。"),
@@ -1120,7 +1184,7 @@ def plan(round_name):
                    {"action": "wait", "selector": "nav.side .side-back", "timeout_ms": 4000},
                    {"action": "key", "key": "Escape", "code": "Escape", "selector": "body"},
                    {"action": "wait", "selector": ".inbox-page", "timeout_ms": 4000}), False))
-    ws_rows = db_rows("SELECT id, name FROM workspaces WHERE coalesce(project_id, '') != ? ORDER BY created_at",
+    ws_rows = db_rows("SELECT id, name, activity FROM workspaces WHERE coalesce(project_id, '') != ? ORDER BY created_at",
                       (PROJECTS["demo-legacy"],))
     if not ws_rows:
         TITLES["/"] = "开始"
@@ -1160,10 +1224,17 @@ def plan(round_name):
     items.append(("inbox-row-menu", "/inbox", "收件箱一条通知的右键菜单（打开、标为已读 U、归档 E）",
                   ({"action": "wait", "selector": ".inbox-row", "timeout_ms": 8000},
                    {"action": "context_menu", "selector": ".inbox-row[data-index=\"0\"]"}), False))
-    for wid, name in ws_rows:
-        items.append((f"workspace-{slugify(name)}", f"/w/{wid}", f"工作区页：{name}",
+    failed = {name: label for name, _, label, _, _, _ in FAILED}
+    for wid, name, activity in ws_rows:
+        card = f"，输入框换成失败卡：第一行是原因，右下是这一类的下一步，左下「标为已处理」" if activity == "errored" else ""
+        items.append((f"workspace-{slugify(name)}", f"/w/{wid}", f"工作区页：{name}{card}",
                       ({"action": "wait", "ms": 800}, *calm()), False))
     if round_name == "data":
+        for name, cause, label, _, _, _ in FAILED:
+            card = f".home-card[href=\"/w/{WS[name]}\"]"
+            items.append((f"home-failed-{cause}", "/", f"首页「需要你处理」里{label}的卡片（第二行是原因）及其右键菜单：第一项是这一类的下一步，然后是「标为已处理 E」",
+                          ({"action": "wait", "selector": card, "timeout_ms": 8000},
+                           {"action": "context_menu", "selector": card}), False))
         items += detail_pages()
         items += workspace_parts()
         items += row_menu_parts()
