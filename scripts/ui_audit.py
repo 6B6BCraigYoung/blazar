@@ -828,7 +828,7 @@ def seed_rows(db):
         db.execute("INSERT INTO snippets (id, name, body, created_at, updated_at) VALUES (?,?,?,?,?)",
                    (did(22, i + 1), name, body, iso(ago(days=3)), iso(ago(days=1))))
     hooks = [
-        ("turn_start", "hub", "scripts/check-disk.sh", 1, 20),
+        ("turn_start", "hub", "scripts/check-disk.sh", 0, 20),
         ("session_end", "node", "git status --short > /tmp/blazar-last-status", 0, 30),
     ]
     for i, (event, target, command, blocking, timeout) in enumerate(hooks):
