@@ -646,6 +646,7 @@ async fn finalize(ctx: &Ctx, code: Option<i32>, p: &mut Progress) -> Result<(), 
         .await
         .map_err(|e| e.to_string())?;
     tx.commit().await.map_err(|e| e.to_string())?;
+    ctx.st.emit(ServerEvent::WorkspacesChanged);
     if status == "failed" {
         crate::failures::record(&ctx.st, ctx.sid).await;
     }

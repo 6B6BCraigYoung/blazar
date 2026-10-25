@@ -73,26 +73,16 @@ pub async fn open_assistant(State(st): State<Shared>) -> ApiResult<Json<serde_js
 }
 
 async fn describe(st: &Shared, id: &str) -> ApiResult<serde_json::Value> {
-    let (activity, path, current): (String, String, Option<String>) = sqlx::query_as(
-        "SELECT w.activity, w.path,
-                (SELECT s.id FROM sessions s WHERE s.workspace_id = w.id
-                 ORDER BY s.created_at DESC LIMIT 1)
-         FROM workspaces w WHERE w.id = ?1",
-    )
-    .bind(id)
-    .fetch_one(st.db.pool())
-    .await?;
+    let path: String = sqlx::query_scalar("SELECT path FROM workspaces WHERE id = ?1")
+        .bind(id)
+        .fetch_one(st.db.pool())
+        .await?;
     let mut threads = super::workspace_sessions(State(st.clone()), Path(id.to_owned()))
         .await?
         .0;
     for t in &mut threads {
         let thread = t["id"].as_str().unwrap_or_default().to_owned();
         t["summary"] = serde_json::Value::String(summary(st, &thread).await);
-        if matches!(activity.as_str(), "running" | "awaiting_approval")
-            && t["latest"].as_str() == current.as_deref()
-        {
-            t["status"] = serde_json::Value::String(activity.clone());
-        }
     }
     Ok(serde_json::json!({ "id": id, "path": path, "threads": threads }))
 }
@@ -433,6 +423,63 @@ mod tests {
         assert_eq!(cut.chars().count(), SUMMARY_MAX);
         assert!(cut.ends_with('…'));
         assert_eq!(last_sentence("not json"), "");
+    }
+
+    #[tokio::test]
+    async fn each_chat_reports_its_own_state() {
+        let (_dir, st) = state().await;
+        let id = ok(ensure(&st).await);
+        for (sid, status, at) in [("done", "done", "1"), ("waiting", "running", "2")] {
+            sqlx::query(
+                "INSERT INTO sessions (id, workspace_id, runtime_kind, status, created_at, thread_id)
+                 VALUES (?1, ?2, 'claude', ?3, ?4, ?1)",
+            )
+            .bind(sid)
+            .bind(&id)
+            .bind(status)
+            .bind(at)
+            .execute(st.db.pool())
+            .await
+            .unwrap();
+        }
+        sqlx::query(
+            "INSERT INTO approvals (id, session_id, workspace_id, request, created_at)
+             VALUES ('a1', 'waiting', ?1, '{\"tool_name\":\"Bash\"}', '3')",
+        )
+        .bind(&id)
+        .execute(st.db.pool())
+        .await
+        .unwrap();
+        sqlx::query("UPDATE workspaces SET activity = 'awaiting_approval' WHERE id = ?1")
+            .bind(&id)
+            .execute(st.db.pool())
+            .await
+            .unwrap();
+        let described = ok(get_assistant(State(st.clone())).await).0;
+        let state_of = |thread: &str| {
+            described["threads"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|t| t["id"] == thread)
+                .map(|t| t["status"].as_str().unwrap_or_default().to_owned())
+                .unwrap()
+        };
+        assert_eq!(state_of("waiting"), "awaiting_approval");
+        assert_eq!(state_of("done"), "done");
+        sqlx::query("UPDATE approvals SET decision = 'allow' WHERE id = 'a1'")
+            .execute(st.db.pool())
+            .await
+            .unwrap();
+        let described = ok(get_assistant(State(st.clone())).await).0;
+        let running = described["threads"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["id"] == "waiting")
+            .unwrap();
+        assert_eq!(running["status"], "running");
+        assert_eq!(running["latest"], "waiting");
     }
 
     #[tokio::test]

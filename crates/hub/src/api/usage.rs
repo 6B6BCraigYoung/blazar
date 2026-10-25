@@ -153,6 +153,8 @@ pub async fn workspace_sessions(
                    ORDER BY x.created_at DESC LIMIT 1) AS cause,
                 (SELECT x.handled_at IS NOT NULL FROM sessions x WHERE COALESCE(x.thread_id, x.id) = t.thread
                    ORDER BY x.created_at DESC LIMIT 1) AS handled,
+                (SELECT COUNT(*) FROM approvals a JOIN sessions x ON x.id = a.session_id
+                   WHERE COALESCE(x.thread_id, x.id) = t.thread AND a.decision IS NULL) AS waiting,
                 (SELECT COUNT(*) FROM events e JOIN sessions x ON x.id = e.session_id
                    WHERE COALESCE(x.thread_id, x.id) = t.thread) AS events,
                 (SELECT e.payload FROM events e WHERE e.session_id = t.thread
@@ -185,12 +187,22 @@ pub async fn workspace_sessions(
                     .try_get::<Option<String>, _>("title")
                     .unwrap_or(None)
                     .filter(|t| !t.is_empty());
+                let status = r
+                    .try_get::<Option<String>, _>("status")
+                    .unwrap_or(None)
+                    .map(|s| {
+                        if r.try_get::<i64, _>("waiting").unwrap_or(0) > 0 {
+                            "awaiting_approval".to_owned()
+                        } else {
+                            s
+                        }
+                    });
                 serde_json::json!({
                     "id": r.try_get::<String, _>("thread").unwrap_or_default(),
                     "latest": r.try_get::<Option<String>, _>("latest").unwrap_or(None),
                     "account": r.try_get::<Option<String>, _>("account").unwrap_or(None),
                     "runtime": r.try_get::<String, _>("runtime_kind").unwrap_or_default(),
-                    "status": r.try_get::<Option<String>, _>("status").unwrap_or(None),
+                    "status": status,
                     "cause": r.try_get::<Option<String>, _>("cause").unwrap_or(None),
                     "handled": r.try_get::<Option<bool>, _>("handled").unwrap_or(None) == Some(true),
                     "profile": r.try_get::<Option<String>, _>("agent_profile").unwrap_or(None),
