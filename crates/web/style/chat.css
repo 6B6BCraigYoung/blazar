@@ -310,6 +310,9 @@
 .abody .cc-diff { max-height: 240px; overflow: auto; }
 .acmd { margin: 0; padding: var(--space-field) var(--space-control); max-height: 200px; overflow: auto; background: var(--bg-code); border: 1px solid var(--line); border-radius: var(--r-sm); font: var(--font-size-label)/var(--line-height-code) var(--font-mono); white-space: pre-wrap; word-break: normal; overflow-wrap: anywhere; color: var(--fg); }
 .adesc { margin-top: var(--space-sm); color: var(--fg-2); font-size: var(--font-size-label); }
+.aquote { margin: 0 0 var(--space-sm); padding: var(--space-xs) var(--space-md); max-height: 200px; overflow: auto; border-left: 2px solid var(--border-strong); color: var(--fg); font-size: var(--font-size-label-readable); white-space: pre-wrap; overflow-wrap: anywhere; }
+.abody > .cc-ws { max-width: 100%; }
+.abody > .ui-detail { margin-top: var(--space-sm); }
 .aplan { max-height: 300px; overflow: auto; padding: var(--space-xs) var(--space-2xs); }
 .aopts { display: flex; flex-direction: column; gap: var(--space-label); }
 .aopt { all: unset; cursor: pointer; box-sizing: border-box; display: flex; align-items: center; gap: var(--space-md); padding: var(--space-icon) var(--space-md); border-radius: var(--r-sm); font-size: var(--font-size-label-readable); color: var(--fg); }

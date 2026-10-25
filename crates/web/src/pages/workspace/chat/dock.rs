@@ -9,7 +9,7 @@ use wasm_bindgen::JsCast;
 use crate::chat_model::{self, ApprovalKey, Extra, Pending};
 use crate::components::toast::toast;
 
-use super::log::Md;
+use super::log::{Md, ws_chip};
 use super::state::Chat;
 
 const CHEVRON: &str = r#"<svg viewBox="0 0 16 16"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>"#;
@@ -81,8 +81,19 @@ fn ApprovalCard(chat: Chat, p: Pending) -> impl IntoView {
     let plan = tn == "ExitPlanMode";
     let root_path = chat.root.get_value();
     let remote = chat.remote().then(|| chat.node.get_value());
+    let app = crate::app_state::use_app();
+    let fleet = chat_model::fleet_ask(&r, None).and_then(|first| {
+        let name = first
+            .ws
+            .as_deref()
+            .and_then(|id| untrack(|| app.workspace(id)))
+            .map(|w| crate::fmt::ws_title(&w.name, &w.node));
+        chat_model::fleet_ask(&r, name.as_deref())
+    });
     let title = if plan {
         "要按这个计划继续吗？".to_owned()
+    } else if let Some(f) = &fleet {
+        f.title.clone()
     } else {
         chat_model::approval_title(&r, &root_path, remote.as_deref())
     };
@@ -224,6 +235,18 @@ fn ApprovalCard(chat: Chat, p: Pending) -> impl IntoView {
             <div class="aplan">
                 <Md text=plan_text ws />
             </div>
+        }
+        .into_any()
+    } else if let Some(f) = fleet {
+        let raw = chat_model::raw_input(&input);
+        view! {
+            {(!f.quote.is_empty())
+                .then(|| view! { <blockquote class="aquote">{f.quote.clone()}</blockquote> })}
+            {f.ws.clone().map(ws_chip)}
+            <details class="ui-detail">
+                <summary>"详情"</summary>
+                <pre>{raw}</pre>
+            </details>
         }
         .into_any()
     } else {

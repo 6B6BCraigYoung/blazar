@@ -1,7 +1,114 @@
 use blazar_core_types::ApprovalDecision;
 use serde_json::Value;
 
-use super::tools::{SHELL_TOOLS, command_of, rel_path, s, tool_name};
+use super::tools::{
+    SHELL_TOOLS, command_of, fleet_target, is_fleet, rel_path, s, tool_name, tool_title,
+};
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FleetAsk {
+    pub title: String,
+    pub quote: String,
+    pub ws: Option<String>,
+}
+
+pub fn fleet_ask(request: &Value, ws_name: Option<&str>) -> Option<FleetAsk> {
+    let raw = s(request, "tool_name");
+    if !is_fleet(raw) {
+        return None;
+    }
+    let tn = tool_name(raw);
+    let input = request.get("input").cloned().unwrap_or(Value::Null);
+    let ws = fleet_target(&tn, &input);
+    let name = ws_name
+        .filter(|n| !n.is_empty())
+        .map(str::to_owned)
+        .or_else(|| {
+            ws.as_ref()
+                .map(|id| format!("工作区 {}…", id.chars().take(8).collect::<String>()))
+        })
+        .unwrap_or_else(|| "这个工作区".to_owned());
+    let machine = blazar_core_types::api::machine_label(s(&input, "node")).to_owned();
+    let lines = |key: &str| {
+        input[key]
+            .as_array()
+            .map(|p| {
+                p.iter()
+                    .filter_map(Value::as_str)
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            })
+            .unwrap_or_default()
+    };
+    let (title, quote) = match tn.as_str() {
+        "send_prompt" => (
+            format!("允许派活给 {name}？"),
+            s(&input, "text").trim().to_owned(),
+        ),
+        "copy_files" => {
+            let dest = s(&input, "dest").trim_matches('/');
+            let paths = lines("paths");
+            (
+                format!("允许把文件复制到 {name}？"),
+                if dest.is_empty() {
+                    paths
+                } else {
+                    format!("{paths}\n→ {dest}/")
+                },
+            )
+        }
+        "job_spawn" => (
+            format!("允许在 {name} 上启动后台任务？"),
+            [s(&input, "label"), s(&input, "command")]
+                .into_iter()
+                .filter(|x| !x.is_empty())
+                .collect::<Vec<_>>()
+                .join("\n"),
+        ),
+        "job_register" => (
+            "允许登记后台任务？".to_owned(),
+            [
+                s(&input, "label").to_owned(),
+                input["pid"]
+                    .as_u64()
+                    .map(|p| format!("进程 {p}"))
+                    .unwrap_or_default(),
+            ]
+            .into_iter()
+            .filter(|x| !x.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n"),
+        ),
+        "job_kill" => (
+            "允许结束后台任务？".to_owned(),
+            s(&input, "job_id").to_owned(),
+        ),
+        "create_workspace" => (
+            format!("允许在 {machine} 上新建工作区？"),
+            s(&input, "path").to_owned(),
+        ),
+        "wait_workspace" => (format!("允许等 {name} 停下？"), String::new()),
+        "get_history" => (format!("允许读 {name} 的记录？"), String::new()),
+        "get_diff" => (format!("允许看 {name} 的改动？"), String::new()),
+        "read_file" => (
+            format!("允许读 {name} 的文件？"),
+            s(&input, "path").to_owned(),
+        ),
+        "list_files" => (
+            format!("允许列出 {name} 的文件？"),
+            s(&input, "path").to_owned(),
+        ),
+        "search_code" => ("允许搜索代码？".to_owned(), s(&input, "query").to_owned()),
+        "probe_node" => (format!("允许体检 {machine}？"), String::new()),
+        "list_workspaces" => ("允许列出工作区？".to_owned(), String::new()),
+        "list_nodes" => ("允许列出机器？".to_owned(), String::new()),
+        other => {
+            let (label, arg) = tool_title(other, &input, "");
+            (format!("允许{label}？"), arg)
+        }
+    };
+    Some(FleetAsk { title, quote, ws })
+}
 
 pub fn decision_text(d: &ApprovalDecision) -> String {
     match d {
@@ -62,6 +169,11 @@ pub fn approval_title(request: &Value, root: &str, remote_node: Option<&str>) ->
 }
 
 pub fn approval_what(request: &Value, root: &str) -> String {
+    if let Some(ask) = fleet_ask(request, None)
+        && !ask.quote.is_empty()
+    {
+        return ask.quote;
+    }
     let input = request.get("input").cloned().unwrap_or(Value::Null);
     let cmd = command_of(&input);
     if !cmd.is_empty() {
@@ -140,6 +252,49 @@ pub fn first_open(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn fleet_approvals_say_what_will_happen() {
+        let send = json!({
+            "tool_name": "mcp__blazar-fleet__send_prompt",
+            "input": {"workspace_id": "w1", "text": " 收尾后把按钮放到顶栏 \n"}
+        });
+        let ask = fleet_ask(&send, Some("nebula-web")).unwrap();
+        assert_eq!(ask.title, "允许派活给 nebula-web？");
+        assert_eq!(ask.quote, "收尾后把按钮放到顶栏");
+        assert_eq!(ask.ws.as_deref(), Some("w1"));
+        assert_eq!(
+            fleet_ask(&send, None).unwrap().title,
+            "允许派活给 工作区 w1…？"
+        );
+        assert_eq!(approval_what(&send, "/w"), "收尾后把按钮放到顶栏");
+        let copy = json!({
+            "tool_name": "mcp__blazar-fleet__copy_files",
+            "input": {"from_workspace_id": "a", "to_workspace_id": "b", "paths": ["x.md", "docs"], "dest": "in/"}
+        });
+        let ask = fleet_ask(&copy, Some("orbit-docs")).unwrap();
+        assert_eq!(ask.title, "允许把文件复制到 orbit-docs？");
+        assert_eq!(ask.quote, "x.md\ndocs\n→ in/");
+        let kill = json!({ "tool_name": "mcp__blazar-fleet__job_kill", "input": {"job_id": "j1"} });
+        let ask = fleet_ask(&kill, None).unwrap();
+        assert_eq!(
+            (ask.title.as_str(), ask.quote.as_str(), ask.ws),
+            ("允许结束后台任务？", "j1", None)
+        );
+        let spawn = json!({
+            "tool_name": "mcp__blazar-fleet__job_spawn",
+            "input": {"workspace_id": "w1", "label": "跑评测", "command": "make eval"}
+        });
+        let ask = fleet_ask(&spawn, Some("quasar-ml")).unwrap();
+        assert_eq!(ask.title, "允许在 quasar-ml 上启动后台任务？");
+        assert_eq!(ask.quote, "跑评测\nmake eval");
+        assert!(fleet_ask(&json!({"tool_name": "Bash", "input": {}}), None).is_none());
+        assert_eq!(
+            approval_title(&json!({"tool_name": "WebSearch", "input": {}}), "", None),
+            "允许使用 WebSearch？"
+        );
+    }
 
     #[test]
     fn approval_keys_follow_the_cli() {

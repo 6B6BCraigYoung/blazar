@@ -13,7 +13,7 @@ mod tools;
 
 pub use approvals::{
     ApprovalKey, always_rule, approval_choices, approval_key, approval_title, approval_what,
-    first_open,
+    first_open, fleet_ask,
 };
 pub use builder::Model;
 #[cfg(test)]
@@ -21,7 +21,7 @@ pub use builder::build;
 pub use finish::step_sig;
 pub use groups::{Group, group_sig, group_steps};
 pub use tools::{
-    SHELL_TOOLS, edit_diff, is_fleet, plain_label, rel_path, tool_name, tool_title,
+    SHELL_TOOLS, edit_diff, is_fleet, plain_label, raw_input, rel_path, tool_name, tool_title,
     write_preview,
 };
 
