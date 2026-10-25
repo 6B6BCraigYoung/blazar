@@ -661,6 +661,7 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 .home-time { flex: 0 0 auto; font-size: var(--font-size-label); color: var(--fg-4); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .home-step { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: var(--space-sm); overflow: hidden; font-size: var(--font-size-label); color: var(--fg-3); white-space: nowrap; }
 .home-step-label { flex: 0 0 auto; }
+.home-step-label:only-child { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .home-step code { min-width: 0; overflow: hidden; text-overflow: ellipsis; font: var(--font-size-caption-readable) var(--font-mono); color: var(--fg-2); }
 .home-diff { flex: 0 0 auto; display: inline-flex; gap: var(--space-xs); font: var(--font-size-caption) var(--font-mono); }
 .home-diff .ok { color: var(--ok-fg); font-style: normal; }

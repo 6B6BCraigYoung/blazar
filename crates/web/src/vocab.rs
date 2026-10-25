@@ -194,7 +194,19 @@ pub fn cause(raw: &str) -> String {
         why = error("", Some(c));
     }
     let head: String = if why == raw || why.is_empty() {
-        raw.lines().next().unwrap_or(raw).chars().take(60).collect()
+        let line = raw
+            .rsplit("stderr: ")
+            .next()
+            .unwrap_or(raw)
+            .lines()
+            .find(|l| !l.trim().is_empty())
+            .unwrap_or("")
+            .trim();
+        let mut cut: String = line.chars().take(60).collect();
+        if line.chars().count() > 60 {
+            cut.push('…');
+        }
+        cut
     } else {
         why.split('，').next().unwrap_or(&why).to_owned()
     };
@@ -386,6 +398,13 @@ mod tests {
         assert_eq!(cause("HTTP 502"), "服务出错了（502）");
         assert_eq!(cause("ECONNRESET"), "ECONNRESET");
         assert_eq!(cause(""), "请求没有成功");
+        assert_eq!(
+            cause(
+                "agent 异常退出（退出码 1）。stderr: Error: ENOSPC: no space left on device, write"
+            ),
+            "Error: ENOSPC: no space left on device, write"
+        );
+        assert_eq!(cause(&"x".repeat(70)), format!("{}…", "x".repeat(60)));
         assert_eq!(retry_round(2, 10), "2/10");
         assert_eq!(retry_round(3, 0), "第 3 次");
     }
