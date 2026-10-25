@@ -60,7 +60,14 @@ impl Item {
     }
 }
 
-fn href_of(it: &Value, k: &str, ws: &str, thread: &str) -> String {
+fn href_of(it: &Value, k: &str, ws: &str, thread: &str, chats: bool) -> String {
+    if chats {
+        return if thread.is_empty() {
+            "/chats".into()
+        } else {
+            format!("/chats/{}", api::enc(thread))
+        };
+    }
     let rule_ref = s(it, "ref_id");
     let rule = rule_ref
         .strip_prefix("rule:")
@@ -93,10 +100,11 @@ fn href_of(it: &Value, k: &str, ws: &str, thread: &str) -> String {
     }
 }
 
-fn item_of(it: &Value) -> Item {
+fn item_of(it: &Value, assistant: Option<&str>) -> Item {
     let k = s(it, "kind");
     let ws = s(it, "workspace_id");
     let thread = s(it, "thread_id");
+    let chats = !ws.is_empty() && assistant == Some(ws.as_str());
     let raw = s(it, "body");
     let failure = (k == "run_failed").then(|| Failure {
         cause: FailureCause::parse(&s(it, "cause")).unwrap_or_else(|| FailureCause::of(&raw, true)),
@@ -126,7 +134,7 @@ fn item_of(it: &Value) -> Item {
         title: s(it, "title"),
         body: human.clone(),
         raw: if human == raw { String::new() } else { raw },
-        href: href_of(it, &k, &ws, &thread),
+        href: href_of(it, &k, &ws, &thread, chats),
         read: it["read"].as_bool() == Some(true),
         archived: it["archived"].as_bool() == Some(true),
         resolved: s(it, "resolved_at"),
@@ -244,9 +252,15 @@ pub fn InboxPage() -> impl IntoView {
         }
     });
     let items = Memo::new(move |_| {
+        let assistant = app.assistant().map(|w| w.id);
         data.get()
             .and_then(|r| r.ok())
-            .map(|r| arr(&r, "items").iter().map(item_of).collect::<Vec<Item>>())
+            .map(|r| {
+                arr(&r, "items")
+                    .iter()
+                    .map(|it| item_of(it, assistant.as_deref()))
+                    .collect::<Vec<Item>>()
+            })
             .unwrap_or_default()
     });
     let mark = Callback::new(move |(action, ids): (String, Vec<String>)| {
