@@ -257,6 +257,49 @@ pub struct WorkspaceDetail {
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct ChatThread {
+    pub id: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub status: Option<String>,
+    #[serde(default)]
+    pub summary: String,
+    #[serde(default)]
+    pub created_at: String,
+    #[serde(default)]
+    pub last_at: Option<String>,
+    #[serde(default)]
+    pub handled: bool,
+}
+
+impl ChatThread {
+    pub fn when(&self) -> &str {
+        self.last_at
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .unwrap_or(&self.created_at)
+    }
+
+    pub fn state(&self) -> &str {
+        match self.status.as_deref().unwrap_or_default() {
+            "failed" if self.handled => "done",
+            s => s,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Deserialize)]
+pub struct Assistant {
+    #[serde(default)]
+    pub id: Option<String>,
+    #[serde(default)]
+    pub path: String,
+    #[serde(default)]
+    pub threads: Vec<ChatThread>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct Tree {
     pub entries: Vec<TreeEntry>,
     #[serde(default)]

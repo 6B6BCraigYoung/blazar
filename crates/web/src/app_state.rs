@@ -27,6 +27,7 @@ pub struct AppData {
     pub skills_n: RwSignal<usize>,
     pub runtimes_n: RwSignal<usize>,
     pub bots: RwSignal<Vec<Value>>,
+    pub chats: RwSignal<api::Assistant>,
     pub seen: RwSignal<HashMap<String, String>>,
     pub current_ws: RwSignal<Option<String>>,
     pub selected_ws: RwSignal<Option<String>>,
@@ -164,9 +165,42 @@ impl AppData {
 
     pub fn workspace(self, id: &str) -> Option<WorkspaceView> {
         self.state.with(|s| {
-            s.as_ref()
-                .and_then(|s| s.workspaces.iter().find(|w| w.id == id).cloned())
+            s.as_ref().and_then(|s| {
+                s.workspaces
+                    .iter()
+                    .chain(s.assistant.as_ref())
+                    .find(|w| w.id == id)
+                    .cloned()
+            })
         })
+    }
+
+    pub fn assistant(self) -> Option<WorkspaceView> {
+        self.state
+            .with(|s| s.as_ref().and_then(|s| s.assistant.clone()))
+    }
+
+    pub fn is_assistant(self, id: &str) -> bool {
+        self.state.with(|s| {
+            s.as_ref()
+                .and_then(|s| s.assistant.as_ref())
+                .is_some_and(|w| w.id == id)
+        })
+    }
+
+    pub fn chats_waiting(self) -> usize {
+        usize::from(
+            self.assistant()
+                .is_some_and(|w| w.activity == "awaiting_approval"),
+        )
+    }
+
+    pub fn load_chats(self) {
+        spawn_local(async move {
+            if let Ok(a) = api::get::<api::Assistant>("/api/assistant").await {
+                let _ = self.chats.try_set(a);
+            }
+        });
     }
 
     pub fn node_unreachable(self, node: &str) -> bool {
@@ -365,14 +399,18 @@ async fn notify_changes(app: AppData, fresh: Vec<WorkspaceView>) {
             "question" => "在等你回答",
             _ => "在等你批准",
         };
-        let id = w.id.clone();
+        let href = if app.is_assistant(&w.id) {
+            "/chats".to_owned()
+        } else {
+            format!("/w/{}", w.id)
+        };
         alerts::notify(
             &format!("{} {what}", fmt::ws_label(&w.name, &w.node)),
             &w.path,
             &format!("blazar-{}", w.id),
             w.activity == "awaiting_approval",
             move || {
-                let _ = window().location().set_href(&format!("/w/{id}"));
+                let _ = window().location().set_href(&href);
             },
         );
     }
@@ -390,6 +428,7 @@ pub fn provide(bus: Bus) -> AppData {
         skills_n: RwSignal::new(0),
         runtimes_n: RwSignal::new(0),
         bots: RwSignal::new(Vec::new()),
+        chats: RwSignal::new(api::Assistant::default()),
         seen: RwSignal::new(storage::load(SEEN_KEY).unwrap_or_default()),
         current_ws: RwSignal::new(None),
         selected_ws: RwSignal::new(None),
@@ -427,6 +466,11 @@ pub fn provide(bus: Bus) -> AppData {
         app.load_state();
     });
     Effect::new(move |_| {
+        bus.workspaces.track();
+        bus.resyncs.track();
+        app.load_chats();
+    });
+    Effect::new(move |_| {
         bus.resyncs.track();
         for k in [
             "inbox",
@@ -443,6 +487,11 @@ pub fn provide(bus: Bus) -> AppData {
     });
     bus.subscribe(move |ev| match ev {
         ServerEvent::BotsChanged => app.load_bots(),
+        ServerEvent::SessionTitled { workspace_id, .. }
+            if app.is_assistant(&workspace_id.to_string()) =>
+        {
+            app.load_chats()
+        }
         ServerEvent::InboxChanged => app.load_counts("inbox"),
         ServerEvent::TasksChanged => app.load_counts("tasks"),
         ServerEvent::AutopilotsChanged => app.load_counts("autopilots"),

@@ -189,6 +189,7 @@ fn MainNav(keys: RwSignal<u32>) -> impl IntoView {
     let none = Signal::derive(String::new);
     let calm = Signal::derive(|| false);
     let waiting = Signal::derive(move || app.attention_count() > 0);
+    let chats_waiting = Signal::derive(move || app.chats_waiting() > 0);
     let projects = move || {
         let mut m: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
         for w in top() {
@@ -215,6 +216,14 @@ fn MainNav(keys: RwSignal<u32>) -> impl IntoView {
             <span class="n">{palette_key}</span>
         </button>
         <div class="grp">
+            {section(
+                "/chats",
+                icon::CHAT,
+                "对话",
+                Signal::derive(move || n(app.chats_waiting())),
+                chats_waiting,
+                &["/chats"],
+            )}
             {nav(
                 "/inbox",
                 icon::INBOX,

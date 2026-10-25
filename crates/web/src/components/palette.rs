@@ -26,6 +26,13 @@ const PAGES: &[(&str, &str, &str, &str, Option<&str>)] = &[
         Some("inbox"),
     ),
     (
+        "对话",
+        "/chats",
+        icon::CHAT,
+        "chats dh duihua 助手 assistant 聊天",
+        None,
+    ),
+    (
         "工作区",
         "/",
         icon::FOLDER,
@@ -141,6 +148,7 @@ enum Group {
     Recent,
     Suggested,
     Workspace,
+    Chat,
     Page,
     Command,
     Node,
@@ -152,6 +160,7 @@ impl Group {
             Self::Recent => "最近",
             Self::Suggested => "建议",
             Self::Workspace => "工作区",
+            Self::Chat => "对话",
             Self::Page => "页面",
             Self::Command => "命令",
             Self::Node => "机器",
@@ -164,6 +173,7 @@ enum Act {
     Go(String),
     Cmd(&'static str),
     Ws(String),
+    Chat(String),
     Node(String),
 }
 
@@ -220,6 +230,27 @@ impl Item {
         }
     }
 
+    fn chat(t: &api::ChatThread) -> Self {
+        let title = if t.title.trim().is_empty() {
+            "新对话".to_owned()
+        } else {
+            t.title.clone()
+        };
+        let sub = if t.summary.is_empty() {
+            fmt::ago(t.when())
+        } else {
+            t.summary.clone()
+        };
+        Self {
+            icon: icon::CHAT,
+            title,
+            sub,
+            keys: format!("{} chat 对话", t.summary),
+            key: None,
+            act: Act::Chat(t.id.clone()),
+        }
+    }
+
     fn node(n: &blazar_core_types::api::NodeView) -> Self {
         let status = if n.status == "online" {
             "在线"
@@ -250,6 +281,7 @@ impl Item {
             Act::Go(_) => Group::Page.title(),
             Act::Cmd(_) => Group::Command.title(),
             Act::Ws(_) => Group::Workspace.title(),
+            Act::Chat(_) => Group::Chat.title(),
             Act::Node(_) => Group::Node.title(),
         }
     }
@@ -384,14 +416,7 @@ pub fn Palette() -> impl IntoView {
             }
             return;
         }
-        let target = recent()
-            .into_iter()
-            .find(|h| h.starts_with("/w/"))
-            .or_else(|| app.top_workspaces().first().map(|w| format!("/w/{}", w.id)));
-        match target {
-            Some(href) => go(&format!("{href}?new=1")),
-            None => app.new_ws.set(true),
-        }
+        go("/chats/new");
     };
     let run_cmd = move |action: &str| -> bool {
         match action {
@@ -488,8 +513,12 @@ pub fn Palette() -> impl IntoView {
             .as_ref()
             .map(|s| s.nodes.iter().map(Item::node).collect())
             .unwrap_or_default();
+        let chats = app
+            .chats
+            .with(|a| a.threads.iter().map(Item::chat).collect());
         vec![
             (Group::Workspace, rank(workspaces)),
+            (Group::Chat, rank(chats)),
             (Group::Page, rank(PAGES.iter().map(Item::page).collect())),
             (
                 Group::Command,
@@ -591,6 +620,7 @@ pub fn Palette() -> impl IntoView {
         match &it.act {
             Act::Go(href) => go(href),
             Act::Ws(id) => go(&format!("/w/{id}")),
+            Act::Chat(id) => go(&format!("/chats/{id}")),
             Act::Node(name) => go(&format!("/nodes/{}", api::enc(name))),
             Act::Cmd("newchat") => new_chat(),
             Act::Cmd(action) => {
@@ -707,11 +737,11 @@ pub fn Palette() -> impl IntoView {
                         <input
                             node_ref=input_el
                             data-modal-initial-focus=""
-                            aria-label="搜索工作区、页面、命令和机器"
+                            aria-label="搜索工作区、对话、页面、命令和机器"
                             placeholder=move || {
                                 match focus.get() {
                                     Some(it) => format!("「{}」的操作…", it.title),
-                                    None => "搜索工作区、页面、命令和机器…".to_owned(),
+                                    None => "搜索工作区、对话、页面、命令和机器…".to_owned(),
                                 }
                             }
                             autocomplete="off"
