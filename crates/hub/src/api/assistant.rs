@@ -73,19 +73,25 @@ pub async fn open_assistant(State(st): State<Shared>) -> ApiResult<Json<serde_js
 }
 
 async fn describe(st: &Shared, id: &str) -> ApiResult<serde_json::Value> {
-    let (activity, path): (String, String) =
-        sqlx::query_as("SELECT activity, path FROM workspaces WHERE id = ?1")
-            .bind(id)
-            .fetch_one(st.db.pool())
-            .await?;
+    let (activity, path, current): (String, String, Option<String>) = sqlx::query_as(
+        "SELECT w.activity, w.path,
+                (SELECT s.id FROM sessions s WHERE s.workspace_id = w.id
+                 ORDER BY s.created_at DESC LIMIT 1)
+         FROM workspaces w WHERE w.id = ?1",
+    )
+    .bind(id)
+    .fetch_one(st.db.pool())
+    .await?;
     let mut threads = super::workspace_sessions(State(st.clone()), Path(id.to_owned()))
         .await?
         .0;
     for t in &mut threads {
         let thread = t["id"].as_str().unwrap_or_default().to_owned();
         t["summary"] = serde_json::Value::String(summary(st, &thread).await);
-        if t["status"].as_str() == Some("running") && activity == "awaiting_approval" {
-            t["status"] = serde_json::Value::String("awaiting_approval".into());
+        if matches!(activity.as_str(), "running" | "awaiting_approval")
+            && t["latest"].as_str() == current.as_deref()
+        {
+            t["status"] = serde_json::Value::String(activity.clone());
         }
     }
     Ok(serde_json::json!({ "id": id, "path": path, "threads": threads }))
@@ -105,11 +111,43 @@ async fn summary(st: &AppState, thread: &str) -> String {
     .await
     .ok()
     .flatten();
-    payload
-        .as_deref()
-        .and_then(super::view::step_of)
-        .map(|s| s.text)
+    payload.as_deref().map(last_sentence).unwrap_or_default()
+}
+
+const SUMMARY_MAX: usize = 160;
+
+#[must_use]
+pub fn last_sentence(payload: &str) -> String {
+    let v: serde_json::Value = serde_json::from_str(payload).unwrap_or_default();
+    let text = match v["type"].as_str() {
+        Some("finished") if v["status"] == "failed" => v["message"].as_str(),
+        _ => v["text"].as_str(),
+    }
+    .unwrap_or_default();
+    let prose = |line: &str| {
+        let l = line.trim();
+        !l.is_empty()
+            && !l.starts_with('|')
+            && !l.starts_with('#')
+            && !l.starts_with("```")
+            && !l.starts_with("- ")
+            && !l.starts_with("* ")
+            && !l.starts_with(char::is_numeric)
+    };
+    let line = text
+        .lines()
+        .rev()
+        .find(|l| prose(l))
+        .or_else(|| text.lines().find(|l| !l.trim().is_empty()))
         .unwrap_or_default()
+        .trim();
+    if line.chars().count() > SUMMARY_MAX {
+        let mut cut: String = line.chars().take(SUMMARY_MAX - 1).collect();
+        cut.push('…');
+        cut
+    } else {
+        line.to_owned()
+    }
 }
 
 pub(crate) async fn briefing(st: &AppState) -> String {
@@ -375,6 +413,26 @@ mod tests {
             .map(|e| e.message())
             .unwrap_or_default();
         assert!(busy.contains("还在运行"), "{busy}");
+    }
+
+    #[test]
+    fn a_summary_is_the_last_plain_sentence() {
+        let table = serde_json::json!({
+            "type": "finished", "status": "success",
+            "text": "三个都看了：\n\n| 工作区 | 状态 |\n| --- | --- |\n| atlas-api | 已完成 |\n\n只有 quasar-ml 在等你。"
+        });
+        assert_eq!(last_sentence(&table.to_string()), "只有 quasar-ml 在等你。");
+        let failed = serde_json::json!({
+            "type": "finished", "status": "failed", "message": "API Error: 529 overloaded\nretrying"
+        });
+        assert_eq!(last_sentence(&failed.to_string()), "retrying");
+        let said = serde_json::json!({ "type": "assistant_message", "text": "- 第一点\n- 第二点" });
+        assert_eq!(last_sentence(&said.to_string()), "- 第一点");
+        let long = serde_json::json!({ "type": "user_message", "text": "好".repeat(200) });
+        let cut = last_sentence(&long.to_string());
+        assert_eq!(cut.chars().count(), SUMMARY_MAX);
+        assert!(cut.ends_with('…'));
+        assert_eq!(last_sentence("not json"), "");
     }
 
     #[tokio::test]
