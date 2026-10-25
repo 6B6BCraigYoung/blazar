@@ -198,6 +198,8 @@ pub struct WorkspaceView {
 pub struct StateSnapshot {
     pub nodes: Vec<NodeView>,
     pub workspaces: Vec<WorkspaceView>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub assistant: Option<WorkspaceView>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
