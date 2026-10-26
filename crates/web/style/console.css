@@ -23,8 +23,7 @@
 .tile .tn { margin-top: var(--space-2xs); font-size: var(--font-size-heading); font-weight: var(--font-weight-semibold); line-height: 1.3; font-variant-numeric: tabular-nums; }
 .tile .tn small { font-size: var(--font-size-body); font-weight: var(--font-weight-medium); color: var(--fg-3); }
 .tile .ts { min-height: 1.6em; font-size: var(--font-size-caption-readable); color: var(--fg-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.tile[data-k="waiting"][data-on="true"] { box-shadow: 0 0 0 1.5px var(--status-attention), var(--shadow-card); }
-.tile[data-k="failed"][data-on="true"] { box-shadow: 0 0 0 1.5px var(--status-failed), var(--shadow-card); }
+.tile[data-on="true"] { box-shadow: 0 0 0 1px var(--border-strong), var(--shadow-card); }
 .tile .dot { width: 7px; height: 7px; }
 .tile .dot[data-tone="run"] { --tone: var(--status-run); }
 .tile .dot[data-tone="attention"] { --tone: var(--status-attention); }
@@ -54,8 +53,7 @@
 .console-rail[data-mode="summary"] .inbox-row::before, .pop.card .inbox-row::before { display: none; }
 .console-rail[data-mode="summary"] .inbox-row:hover { background: var(--bg-panel); box-shadow: var(--shadow-card-hover); }
 .console-rail[data-mode="summary"] .inbox-row[data-sel="true"], .console-rail[data-mode="summary"] .inbox-row[data-menu="true"] { background: var(--bg-panel); box-shadow: 0 0 0 2px var(--accent), var(--shadow-card); }
-.console-rail[data-mode="summary"] .inbox-row[data-needs="true"]:not([data-sel="true"]), .pop.card .inbox-row[data-needs="true"] { box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--status-attention) 55%, transparent), var(--shadow-card); }
-.console-rail[data-mode="summary"] .inbox-row[data-kind="run_failed"][data-needs="true"]:not([data-sel="true"]), .pop.card .inbox-row[data-kind="run_failed"] { box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--status-failed) 45%, transparent), var(--shadow-card); }
+.console-rail[data-mode="summary"] .inbox-row[data-needs="true"]:not([data-sel="true"]), .pop.card .inbox-row[data-needs="true"] { box-shadow: 0 0 0 1px var(--border-strong), var(--shadow-card); }
 .console-rail[data-mode="summary"] .inbox-dot, .pop.card .inbox-dot { grid-area: dot; margin: 0; }
 .console-rail[data-mode="summary"] .inbox-row:not([data-unread="true"]) .inbox-dot, .pop.card .inbox-row:not([data-unread="true"]) .inbox-dot { display: none; }
 .console-rail[data-mode="summary"] .inbox-meta, .pop.card .inbox-meta { grid-area: meta; padding: 0; flex-wrap: wrap; white-space: normal; color: var(--fg-3); }
@@ -75,7 +73,7 @@
 .pops { position: fixed; top: 60px; right: var(--space-2xl); z-index: var(--layer-toast); width: 384px; max-width: calc(100vw - 48px); display: flex; flex-direction: column; gap: var(--space-control); pointer-events: none; }
 .pop { position: relative; pointer-events: auto; border-radius: var(--r-lg); background: var(--bg-panel); box-shadow: var(--shadow-menu); animation: popin var(--duration-control) ease-out; }
 .pop.card .inbox-row { box-shadow: none; padding-right: calc(var(--space-card) + 20px); }
-.pop.card .inbox-row[data-needs="true"], .pop.card .inbox-row[data-kind="run_failed"] { box-shadow: none; }
+.pop.card .inbox-row[data-needs="true"] { box-shadow: none; }
 .pop-x { all: unset; position: absolute; top: 8px; right: 8px; width: 20px; height: 20px; display: grid; place-items: center; border-radius: 50%; color: var(--fg-3); font-size: var(--font-size-card-title); line-height: 1; cursor: pointer; }
 .pop-x:hover { background: var(--bg-hover); color: var(--fg); }
 .pop-x:focus-visible { outline: var(--focus-ring); }
