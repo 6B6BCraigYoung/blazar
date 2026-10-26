@@ -11,6 +11,8 @@
   --bg-group: rgba(255,255,255,.05);
   --bg-sidebar: #262628;
   --bg-panel: #2a2a2d;
+  --bg-tree: var(--bg-panel);
+  --bg-tabbar: var(--bg-sidebar);
   --bg-raised: #333336;
   --bg-hover: rgba(255,255,255,.07);
   --bg-code: #19191b;
@@ -262,6 +264,8 @@
   --bg-group: #ffffff;
   --bg-sidebar: #e8e8ed;
   --bg-panel: #ffffff;
+  --bg-tree: var(--bg-sidebar);
+  --bg-tabbar: #f5f5f7;
   --bg-raised: #f5f5f7;
   --bg-hover: rgba(0,0,0,.05);
   --bg-code: #f6f6f8;
@@ -362,6 +366,8 @@
     --bg-group: #ffffff;
     --bg-sidebar: #e8e8ed;
     --bg-panel: #ffffff;
+    --bg-tree: var(--bg-sidebar);
+    --bg-tabbar: #f5f5f7;
     --bg-raised: #f5f5f7;
     --bg-hover: rgba(0,0,0,.05);
     --bg-code: #f6f6f8;
