@@ -923,12 +923,13 @@ def seed_rows(db):
         ("alert", "后台任务「演示：远程评测」失联", "它在等的机器 gpu-a.invalid 不在线。", None, None, "rule:job_orphan:demo", ago(hours=19), True, True),
         ("approval", "对话 · 等你批准：send_prompt", "给 nebula-web 派活：暗色模式收尾后，把主题切换按钮放到顶栏右侧", "对话", CHATS["handoff"], CHAT_APPROVAL, ago(minutes=2), False, False),
         ("run_failed", "对话 · 没跑成：汇总一下所有机器现在的 GPU 占用", "API Error: Can't reach the API server — check your internet or DNS (ENOTFOUND)", "对话", CHATS["gpu"], None, ago(hours=5), False, False),
+        ("denied", "对话 · 被拦下：Remote Shell Writes", REFUSED_CMD, "对话", CHATS["denied"], "toolu_demo_deny1", ago(minutes=8), False, False),
     ]
     for i, (kind, title, body, ws, thread, ref, when, read, archived) in enumerate(inbox):
         db.execute("INSERT INTO inbox (id, kind, title, body, workspace_id, thread_id, session_id, ref_id, read_at, archived_at, created_at)"
                    " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                    (did(21, i + 1), kind, title, body, assistant if ws == "对话" else WS.get(ws), thread,
-                    thread if kind.startswith("run_") else None, ref,
+                    thread if kind.startswith("run_") or kind == "denied" else None, ref,
                     iso(when) if read else None, iso(when) if archived else None, iso(when)))
     snippets = [
         ("验收清单", "- 单元测试全部通过\n- 没有新的 clippy 警告\n- 改动的接口在 README 里有说明"),
@@ -1124,7 +1125,7 @@ def theme(value):
     ui({"action": "type", "selector": "#settings-theme", "value": value, "settle_ms": 300})
 
 
-TITLES = {"/": "工作区", "/chats": "对话", "/inbox": "收件箱", "/tasks": "任务", "/autopilots": "任务",
+TITLES = {"/": "中控台", "/workspaces": "工作区", "/chats": "全部对话", "/tasks": "任务", "/autopilots": "任务",
           "/jobs": "任务", "/bots": "bot", "/agents": "智能体", "/agents/new": "新建角色档案", "/skills": "智能体",
           "/apps": "接入的软件", "/runtimes": "智能体", "/nodes": "机器与组网", "/usage": "智能体"}
 
@@ -1173,10 +1174,12 @@ def calm(*after):
                  for step in (RESTORE, EDITOR_TAB, CLOSE_FILE, CLOSE_FILES, CLOSE_INSPECTOR, CLOSE_TERM))
 
 ROUTES = [
-    ("home", "/", "首页：需要你处理 / 运行中 / 最近 三组两行短卡，「最近」超过两行时折叠并在标题右侧给出「显示全部（N）」"),
-    ("chats", "/chats", "对话列表：侧栏最上面是「对话」；每行是状态点、标题、最后一句的灰字摘要、时间，页头右侧「新对话」；没有对话时是统一的空状态"),
-    ("chat-new", "/chats/new", "新对话页：页头「对话 · 新对话 ⌄」，720 居中的空对话区和输入框，没有检查器、文件树和终端"),
-    ("inbox", "/inbox", "收件箱（无框列表，未读蓝点）"),
+    ("console", "/", "中控台：侧栏第一项「中控台」带橙色角标；页头「中控台 · 对话切换器 ⌄ · 全部对话 · 新对话 ⌘T」；"
+     "顶部五格状态条（在跑 / 等你 / 失败 / 机器 / 额度）；中间是最近一个助手对话；右栏 372px 常驻「需要你处理」卡片，下面是「动态」和「查看全部」"),
+    ("home", "/workspaces", "工作区首页：需要你处理 / 运行中 / 最近 三组两行短卡，「最近」超过两行时折叠并在标题右侧给出「显示全部（N）」"),
+    ("chats", "/chats", "全部对话：页头「中控台 / 全部对话」；每行是状态点、标题、最后一句的灰字摘要、时间，页头右侧「新对话」；没有对话时是统一的空状态"),
+    ("chat-new", "/chats/new", "新对话页：中控台布局，对话切换器显示「新对话」，720 居中的空对话区和输入框，右栏照常"),
+    ("inbox", "/?inbox=all", "中控台右栏展开成完整消息列表：「‹ 消息」返回键、显示 / 类型两个筛选、无框列表、未读蓝点"),
     ("tasks", "/tasks", "任务看板"),
     ("autopilots", "/autopilots", "自动化列表"),
     ("jobs", "/jobs", "后台任务列表"),
@@ -1223,7 +1226,7 @@ def settings_parts(round_name):
     items = [
         ("settings-shortcut-recording", "/settings?s=shortcuts", "快捷键：点一下「任务」的键帽进入录入状态",
          ({"action": "click", "selector": "button[aria-label=\"更改「任务」快捷键\"]"},), False),
-        ("settings-shortcut-conflict", "/settings?s=shortcuts", "快捷键：录入时按下已被「收件箱」占用的 ⌥I，行内给出冲突提示",
+        ("settings-shortcut-conflict", "/settings?s=shortcuts", "快捷键：录入时按下已被「全部消息」占用的 ⌥I，行内给出冲突提示",
          ({"action": "click", "selector": "button[aria-label=\"更改「任务」快捷键\"]"},
           {"action": "key", "key": "i", "code": "KeyI", "alt": True, "selector": "button[aria-label=\"更改「任务」快捷键\"]"},
           {"action": "wait", "ms": 300}), False),
@@ -1355,7 +1358,7 @@ def chat_parts():
         ("chats-row-menu", "/chats", "对话行的右键菜单（打开 ↩ / 重命名… / 删除 ⌘⌫）",
          ({"action": "wait", "selector": f"{row}[data-index=\"0\"]", "timeout_ms": 8000},
           {"action": "context_menu", "selector": f"{row}[data-index=\"0\"]"}), False),
-        ("chat-done", f"/chats/{CHATS['status']}", "对话页：页头「对话 · 标题 ⌄ · 已完成」，720 居中的对话（「列出了 3 个工作区」带三个工作区小标签和「详情」），没有进度行和停止键",
+        ("chat-done", f"/chats/{CHATS['status']}", "对话页：中控台布局，页头「中控台 · 标题 ⌄ · 已完成」，720 居中的对话（「列出了 3 个工作区」带三个工作区小标签和「详情」），没有进度行和停止键",
          ({"action": "wait", "selector": ".chat-room .cc-log", "timeout_ms": 8000}, {"action": "wait", "ms": 800},
           says(".chat-room-head .status", "已完成", "页头状态"), shown(".chat-room .cc-spin", 0, "进度行"),
           shown('.chat-room .cb-send[data-mode="stop"]', 0, "停止键"), shown(f"{listed} .cc-wss .cc-ws", 3, "工作区小标签"),
@@ -1381,7 +1384,7 @@ def chat_parts():
           says(".chat-room .cc-deny[data-state=\"hard\"] .cd-head", "这条命令属于安全边界，批准也不放行", "硬拦截标题"),
           shown(".chat-room .cc-deny[data-state=\"hard\"] .cc-copy", 1, "复制键"),
           shown(".chat-room .cc-user", 2, "用户消息")), False),
-        ("chat-picker", f"/chats/{CHATS['status']}", "页头标题的下拉：新对话 ⌘T、重命名对话…，下面是全部对话",
+        ("chat-picker", f"/chats/{CHATS['status']}", "页头对话切换器的下拉：新对话 ⌘T、重命名对话…，下面是全部对话",
          ({"action": "wait", "selector": ".chat-pick .ws-thread-btn", "timeout_ms": 8000},
           {"action": "click", "selector": ".chat-pick .ws-thread-btn", "settle_ms": 300},
           {"action": "wait", "selector": ".ws-threads", "timeout_ms": 4000}, dict(ESC, after=True)), False),
@@ -1429,52 +1432,59 @@ def plan(round_name):
                    {"action": "scroll", "selector": "main.main", "top": "end", "settle_ms": 300},
                    {"action": "click", "selector": mesh_more},
                    {"action": "wait", "selector": "[data-modal-root]", "timeout_ms": 4000}), False))
-    items.append(("settings-return", "", "设置页按 Esc 回到进入前的页面（这里从收件箱进入）",
-                  ({"action": "navigate", "path": "/inbox", "settle_ms": 600},
+    items.append(("settings-return", "", "设置页按 Esc 回到进入前的页面（这里从中控台的完整消息列表进入）",
+                  ({"action": "navigate", "path": "/?inbox=all", "settle_ms": 600},
                    {"action": "navigate", "path": "/settings?s=chat", "settle_ms": 600},
                    {"action": "wait", "selector": "nav.side .side-back", "timeout_ms": 4000},
                    {"action": "key", "key": "Escape", "code": "Escape", "selector": "body"},
-                   {"action": "wait", "selector": ".inbox-page", "timeout_ms": 4000}), False))
+                   {"action": "wait", "selector": ".console-rail[data-mode=\"all\"]", "timeout_ms": 4000}), False))
     ws_rows = db_rows("SELECT id, name, activity FROM workspaces WHERE kind = 'project' AND coalesce(project_id, '') != ?"
                       " ORDER BY created_at", (PROJECTS["demo-legacy"],))
     if not ws_rows:
-        TITLES["/"] = "开始"
-        items.append(("start", "/", "首次打开的「开始」清单：运行时、机器、第一个工作区", (), False))
-        items.append(("start-new-workspace", "/", "开始清单里「选择项目文件夹…」打开的对话框",
+        TITLES["/workspaces"] = "开始"
+        items.append(("start", "/workspaces", "首次打开的「开始」清单：运行时、机器、第一个工作区", (), False))
+        items.append(("start-new-workspace", "/workspaces", "开始清单里「选择项目文件夹…」打开的对话框",
                       ({"action": "click", "selector": ".start-actions .btn.primary"}, {"action": "wait", "ms": 600}), False))
         return state, items
     make_repos()
     new_ws = {"action": "click", "selector": ".home-page .page-actions .btn.primary"}
-    items.append(("new-workspace", "/", "新建工作区对话框（页头「新建」），目录停在演示仓库",
+    items.append(("new-workspace", "/workspaces", "新建工作区对话框（页头「新建」），目录停在演示仓库",
                   (new_ws, {"action": "wait", "ms": 600}, *browse_to(DEMO, DEMO / "atlas-api")), False))
-    items.append(("new-workspace-folder-menu", "/", "新建工作区对话框里目录的右键菜单（演示仓库里的 src）",
+    items.append(("new-workspace-folder-menu", "/workspaces", "新建工作区对话框里目录的右键菜单（演示仓库里的 src）",
                   (new_ws, {"action": "wait", "ms": 600}, *browse_to(DEMO / "atlas-api", DEMO / "atlas-api" / "src"),
                    {"action": "context_menu", "selector": brow(DEMO / "atlas-api" / "src")}), False))
     first_row = ".home-card[data-index=\"0\"]"
-    items.append(("home-selected", "/", "首页用 → 选中第一张卡：2px 蓝色描边，尺寸不变；审批卡第二行右侧换成「1 允许 3 拒绝」键帽",
+    items.append(("home-selected", "/workspaces", "首页用 → 选中第一张卡：2px 蓝色描边，尺寸不变；审批卡第二行右侧换成「1 允许 3 拒绝」键帽",
                   ({"action": "wait", "selector": first_row, "timeout_ms": 8000},
                    {"action": "key", "key": "ArrowRight", "code": "ArrowRight", "selector": ".home-page"}), False))
-    items.append(("home-row-menu", "/", "首页卡片的右键菜单（允许 / 总是允许 / 拒绝、打开 ↩、简介 ⌘I、改名、移除 ⌘⌫）",
+    items.append(("home-row-menu", "/workspaces", "首页卡片的右键菜单（允许 / 总是允许 / 拒绝、打开 ↩、简介 ⌘I、改名、移除 ⌘⌫）",
                   ({"action": "wait", "selector": first_row, "timeout_ms": 8000},
                    {"action": "context_menu", "selector": first_row}), False))
     show_all = ".home-group[data-group=\"recent\"] .lgroup-actions button"
     if db_rows("SELECT 1 FROM projects WHERE id = ?", (PROJECTS["demo-legacy"],)):
-        items.append(("home-recent-folded", "/", "「最近」超过两行时只显示两行，组标题右侧有「显示全部（N）」",
+        items.append(("home-recent-folded", "/workspaces", "「最近」超过两行时只显示两行，组标题右侧有「显示全部（N）」",
                       ({"action": "wait", "selector": show_all, "timeout_ms": 8000},), False))
-        items.append(("home-recent-all", "/", "点「显示全部」后「最近」原地展开，不跳页",
+        items.append(("home-recent-all", "/workspaces", "点「显示全部」后「最近」原地展开，不跳页",
                       ({"action": "wait", "selector": show_all, "timeout_ms": 8000},
                        {"action": "click", "selector": show_all}, {"action": "wait", "ms": 300}), False))
-    items.append(("workspace-detail", "/", "右键菜单「简介」打开的属性弹层",
+    items.append(("workspace-detail", "/workspaces", "右键菜单「简介」打开的属性弹层",
                   ({"action": "wait", "selector": first_row, "timeout_ms": 8000},
                    {"action": "context_menu", "selector": first_row}, {"action": "click", "text": "简介", "partial": True},
                    {"action": "wait", "ms": 600}), False))
-    items.append(("inbox-selected", "/inbox", "收件箱用 ↓ 走到第二条（键盘逐条处理）",
-                  ({"action": "wait", "selector": ".inbox-row", "timeout_ms": 8000},
-                   {"action": "key", "key": "ArrowDown", "code": "ArrowDown", "selector": ".inbox-page"},
-                   {"action": "key", "key": "ArrowDown", "code": "ArrowDown", "selector": ".inbox-page"}), False))
-    items.append(("inbox-row-menu", "/inbox", "收件箱一条通知的右键菜单（打开、标为已读 U、归档 E）",
-                  ({"action": "wait", "selector": ".inbox-row", "timeout_ms": 8000},
-                   {"action": "context_menu", "selector": ".inbox-row[data-index=\"0\"]"}), False))
+    first_msg = ".console-rail .inbox-row[data-index=\"0\"]"
+    items.append(("console-rail", "/", "中控台右栏：「需要你处理」里是等你批准（允许 1 / 拒绝 3）、在问你（选项加回复框）、被拦下（命令加「允许这一次并重试」「不用了」）、没跑成（下一步加「标为已处理」）的卡片，"
+                  "橙色描边；下面「动态」是跑完了等条目，右侧「查看全部」",
+                  ({"action": "wait", "selector": ".console-rail .inbox-row[data-kind=\"denied\"]", "timeout_ms": 8000},
+                   {"action": "check_ui", "selector": ".console-rail .inbox-row[data-kind=\"denied\"] .inbox-act .btn", "want": 2, "what": "被拦下卡片的按钮数", "after": True},
+                   {"action": "check_ui", "selector": ".console-rail .rail-feed .inbox-row[data-needs=\"true\"]", "want": 0, "what": "动态里不该有需要处理的卡", "after": True},
+                   {"action": "check_ui", "selector": "nav.side .nav .n[data-pill=\"true\"]", "want": 1, "what": "侧栏橙色角标", "after": True}), False))
+    items.append(("inbox-selected", "/?inbox=all", "完整消息列表用 ↓ 走到第二条（键盘逐条处理）",
+                  ({"action": "wait", "selector": first_msg, "timeout_ms": 8000},
+                   {"action": "key", "key": "ArrowDown", "code": "ArrowDown", "selector": first_msg},
+                   {"action": "key", "key": "ArrowDown", "code": "ArrowDown", "selector": ".console-rail .inbox-row[data-sel=\"true\"]"}), False))
+    items.append(("inbox-row-menu", "/?inbox=all", "完整消息列表里一条通知的右键菜单（打开、标为已读 U、归档 E）",
+                  ({"action": "wait", "selector": first_msg, "timeout_ms": 8000},
+                   {"action": "context_menu", "selector": first_msg}), False))
     items += chat_parts()
     failed = {name: label for name, _, label, _, _, _ in FAILED}
     for wid, name, activity in ws_rows:
@@ -1484,7 +1494,7 @@ def plan(round_name):
     if round_name == "data":
         for name, cause, label, _, _, _ in FAILED:
             card = f".home-card[href=\"/w/{WS[name]}\"]"
-            items.append((f"home-failed-{cause}", "/", f"首页「需要你处理」里{label}的卡片（第二行是原因）及其右键菜单：第一项是这一类的下一步，然后是「标为已处理 E」",
+            items.append((f"home-failed-{cause}", "/workspaces", f"首页「需要你处理」里{label}的卡片（第二行是原因）及其右键菜单：第一项是这一类的下一步，然后是「标为已处理 E」",
                           ({"action": "wait", "selector": card, "timeout_ms": 8000},
                            {"action": "context_menu", "selector": card}), False))
         items += detail_pages()
@@ -1601,6 +1611,11 @@ def shots(out, round_name, rehearse=False):
             sys.exit(f"devicePixelRatio 是 {vp['dpr']}，不是 2：窗口可能不在点亮的 Retina 显示器上，先处理再拍")
         print(f"演练：devicePixelRatio 是 {vp['dpr']}，不截图，只走流程", file=sys.stderr)
     state, items = plan(round_name)
+    only = [part for part in os.environ.get("BLAZAR_AUDIT_ONLY", "").split(",") if part]
+    if only:
+        items = [it for it in items if any(it[0] == o or it[0].startswith(o + "-") for o in only)]
+        if not items:
+            sys.exit(f"BLAZAR_AUDIT_ONLY 没有匹配到任何项：{','.join(only)}")
     spawned = []
     preview = None
     if round_name == "data":
