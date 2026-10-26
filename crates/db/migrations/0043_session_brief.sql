@@ -1,0 +1,2 @@
+ALTER TABLE sessions ADD COLUMN summary TEXT;
+ALTER TABLE sessions ADD COLUMN ask TEXT;
