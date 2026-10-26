@@ -11,9 +11,11 @@ use sqlx::{Row, SqlitePool};
 pub type Result<T> = std::result::Result<T, Error>;
 
 mod approvals;
+mod denials;
 mod migration_guard;
 mod privacy;
 pub use approvals::ApprovalResponse;
+pub use denials::DenialDecision;
 pub use privacy::ensure_private_dir;
 
 #[derive(Debug, thiserror::Error)]
