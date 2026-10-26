@@ -9,6 +9,7 @@ use crate::components::empty::Blank;
 use crate::components::icon;
 use crate::components::menu::menu_keydown;
 use crate::components::status::{InlineError, LoadingState};
+use crate::components::toast::toast;
 use leptos::task::spawn_local;
 use serde::{Deserialize, Serialize};
 
@@ -466,6 +467,61 @@ fn line_code(l: &Line) -> String {
     }
 }
 
+fn new_side_len(h: &diff::Hunk) -> u32 {
+    h.lines
+        .iter()
+        .filter(|l| matches!(l.kind, Kind::Ctx | Kind::Add))
+        .count() as u32
+}
+
+fn expand_up(ws: String, d: DiffState, path: String, hunk: usize) {
+    spawn_local(async move {
+        let r = match api::read_file(&ws, &path).await {
+            Ok(r) => r,
+            Err(e) => {
+                toast(format!("没能读取文件：{e}"));
+                return;
+            }
+        };
+        if r.binary || r.too_large {
+            toast("文件太大或是二进制，展不开");
+            return;
+        }
+        let text: Vec<&str> = r.content.lines().collect();
+        d.files.update(|files| {
+            let Some(f) = files.iter_mut().find(|f| f.path == path) else {
+                return;
+            };
+            let prev_end = match hunk.checked_sub(1).and_then(|i| f.hunks.get(i)) {
+                Some(p) => p.new + new_side_len(p),
+                None => 1,
+            };
+            let Some(h) = f.hunks.get_mut(hunk) else {
+                return;
+            };
+            let n = h.new.saturating_sub(prev_end).min(h.old.saturating_sub(1));
+            if n == 0 {
+                return;
+            }
+            let ctx: Vec<Line> = (0..n)
+                .map_while(|k| {
+                    let new = h.new - n + k;
+                    text.get(new as usize - 1).map(|t| Line {
+                        kind: Kind::Ctx,
+                        old: Some(h.old - n + k),
+                        new: Some(new),
+                        text: (*t).to_owned(),
+                    })
+                })
+                .collect();
+            let got = ctx.len() as u32;
+            h.old -= got;
+            h.new -= got;
+            h.lines.splice(0..0, ctx);
+        });
+    });
+}
+
 #[derive(Clone, PartialEq)]
 struct Editing {
     file: String,
@@ -737,12 +793,36 @@ fn file_body(
         return view! { <div class="df-note">{msg}</div> }.into_any();
     }
     let path = f.path.clone();
+    let deleted = f.status == diff::Status::Deleted;
     let mut out: Vec<AnyView> = Vec::new();
-    for h in &f.hunks {
+    let mut prev_end = 1u32;
+    for (hi, h) in f.hunks.iter().enumerate() {
+        let (line, above) = if deleted {
+            (h.old, 0)
+        } else {
+            (h.new, h.new.saturating_sub(prev_end))
+        };
+        prev_end = h.new + new_side_len(h);
+        let up = (above > 0).then(|| {
+            let p = path.clone();
+            view! {
+                <button
+                    type="button"
+                    class="dh-up"
+                    on:click=move |_| expand_up(ws.get_value(), d, p.clone(), hi)
+                >
+                    {format!("展开上方 {above} 行")}
+                </button>
+            }
+        });
         out.push(
             view! {
                 <div class="dh">
-                    {format!("@@ −{} +{} @@ ", h.old, h.new)}<span>{h.ctx.clone()}</span>
+                    <span class="dh-ln" title=h.ctx.clone()>
+                        {format!("第 {line} 行")}
+                    </span>
+                    {up}
+                    <span class="dh-rule" aria-hidden="true"></span>
                 </div>
             }
             .into_any(),

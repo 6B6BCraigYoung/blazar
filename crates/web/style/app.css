@@ -309,8 +309,10 @@ b.mk { font: var(--font-weight-semibold) var(--font-size-caption) var(--font-mon
 .df-note { padding: var(--space-control) var(--space-card); color: var(--fg-3); font-family: var(--font-sans); font-size: var(--font-size-label); }
 .df-more { all: unset; cursor: pointer; display: block; width: 100%; padding: var(--space-lg); text-align: center; color: var(--fg-3); font-family: var(--font-sans); font-size: var(--font-size-label); }
 .df-more:hover { background: var(--bg-hover); }
-.dh { padding: var(--space-2xs) var(--space-lg); background: var(--diff-hunk-bg); color: var(--diff-hunk-fg); }
-.dh span { color: var(--fg-4); }
+.diffview .dh { display: flex; align-items: center; gap: var(--space-md); height: 26px; padding: 0 var(--space-lg); color: var(--fg-4); font: var(--font-size-caption) var(--font-sans); white-space: nowrap; }
+.diffview .dh-rule { flex: 1; height: 1px; background: var(--line); }
+.dh-up { all: unset; cursor: pointer; color: var(--fg-3); }
+.dh-up:hover { color: var(--fg); text-decoration: underline; }
 .dr { display: grid; grid-template-columns: 48px 48px 18px minmax(0, 1fr); }
 .dr2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 .half { display: grid; grid-template-columns: 48px minmax(0, 1fr); min-width: 0; }

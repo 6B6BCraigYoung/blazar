@@ -100,8 +100,6 @@
   --side-w: 216px;
   --danger-control-hover: rgba(255,69,58,.12);
   --code-text-fixed: #d1d1d6;
-  --diff-hunk-bg: rgba(10,132,255,.08);
-  --diff-hunk-fg: #8aa4c8;
   --diff-line-number: #5a5a60;
   --diff-added-bg: rgba(48, 209, 88, .12);
   --diff-removed-bg: rgba(255, 69, 58, .12);
@@ -299,8 +297,6 @@
   --overlay-scrim-inset: var(--side-w);
   --danger-control-hover: rgba(255,59,48,.08);
   --code-text-fixed: #1d1d1f;
-  --diff-hunk-bg: rgba(0,122,255,.06);
-  --diff-hunk-fg: #4a6a96;
   --diff-line-number: #aeaeb2;
   --diff-added-bg: rgba(52,199,89,.12);
   --diff-removed-bg: rgba(255,59,48,.1);
@@ -401,8 +397,6 @@
     --overlay-scrim-inset: var(--side-w);
     --danger-control-hover: rgba(255,59,48,.08);
     --code-text-fixed: #1d1d1f;
-    --diff-hunk-bg: rgba(0,122,255,.06);
-    --diff-hunk-fg: #4a6a96;
     --diff-line-number: #aeaeb2;
     --diff-added-bg: rgba(52,199,89,.12);
     --diff-removed-bg: rgba(255,59,48,.1);
