@@ -15,6 +15,7 @@ pub const KINDS: &[&str] = &[
     "run_failed",
     "approval",
     "question",
+    "denied",
     "autopilot_paused",
     "rate_limit",
     "alert",
@@ -94,7 +95,7 @@ pub async fn resolve_ref(st: &Shared, ref_id: &str) {
     let now = Utc::now().to_rfc3339();
     let r = sqlx::query(
         "UPDATE inbox SET read_at = COALESCE(read_at, ?2), archived_at = ?2
-         WHERE ref_id = ?1 AND archived_at IS NULL AND kind IN ('approval', 'question')",
+         WHERE ref_id = ?1 AND archived_at IS NULL AND kind IN ('approval', 'question', 'denied')",
     )
     .bind(ref_id)
     .bind(now)
@@ -197,6 +198,7 @@ pub async fn on_run_finished(st: Shared, sid: blazar_core_types::SessionId, stat
             .map(str::to_owned)
     });
     let ok = status == "done";
+    let workspace_id: Option<String> = row.try_get("workspace_id").ok();
     push(
         &st,
         Item {
@@ -211,13 +213,85 @@ pub async fn on_run_finished(st: Shared, sid: blazar_core_types::SessionId, stat
                 }
             ),
             body: reply.unwrap_or_default(),
-            workspace_id: row.try_get("workspace_id").ok(),
-            thread_id: Some(thread),
+            workspace_id: workspace_id.clone(),
+            thread_id: Some(thread.clone()),
             session_id: Some(sid.to_string()),
             ref_id: None,
         },
     )
     .await;
+    if ok {
+        push_denials(&st, sid, &ws_name, workspace_id, &thread).await;
+    }
+}
+
+async fn push_denials(
+    st: &Shared,
+    sid: blazar_core_types::SessionId,
+    ws_name: &str,
+    workspace_id: Option<String>,
+    thread: &str,
+) {
+    use blazar_core_types::{EntryKind, Outcome, denial};
+    let Ok(events) = st.db.events_since(sid, 0).await else {
+        return;
+    };
+    let auto = events.iter().any(|e| {
+        matches!(&e.kind, EntryKind::SessionStarted { permission_mode, .. } if permission_mode.as_deref() == Some("auto"))
+    });
+    if !auto {
+        return;
+    }
+    let denials = events.iter().rev().find_map(|e| match &e.kind {
+        EntryKind::Finished(Outcome::Success { denials, .. }) => Some(denials.clone()),
+        _ => None,
+    });
+    for d in denials.unwrap_or_default() {
+        if st
+            .db
+            .denial_decision(sid, &d.tool_use_id)
+            .await
+            .ok()
+            .flatten()
+            .is_some()
+        {
+            continue;
+        }
+        let what = d.what();
+        let allowed_before: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM denial_decisions WHERE workspace_id = ?1 AND what = ?2 AND allow = 1",
+        )
+        .bind(workspace_id.as_deref().unwrap_or_default())
+        .bind(&what)
+        .fetch_one(st.db.pool())
+        .await
+        .unwrap_or(0);
+        if allowed_before > 0 {
+            continue;
+        }
+        let reason = events.iter().find_map(|e| match &e.kind {
+            EntryKind::ToolResult { id, content, .. } if id.0 == d.tool_use_id => {
+                denial::reason_of(content)
+            }
+            _ => None,
+        });
+        push(
+            st,
+            Item {
+                kind: "denied",
+                title: match reason {
+                    Some(r) => format!("{ws_name} · 被拦下：{r}"),
+                    None => format!("{ws_name} · 安全检查拦下了一条命令"),
+                },
+                body: what,
+                workspace_id: workspace_id.clone(),
+                thread_id: Some(thread.to_owned()),
+                session_id: Some(sid.to_string()),
+                ref_id: Some(d.tool_use_id.clone()),
+            },
+        )
+        .await;
+    }
 }
 
 #[derive(Deserialize, Default)]

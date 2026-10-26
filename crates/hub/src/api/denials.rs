@@ -101,6 +101,7 @@ pub async fn decide_denial(
         session_id: sid,
         entry: Box::new(entry),
     });
+    crate::inbox::resolve_ref(&st, &decision.tool_use_id).await;
     Ok(Json(serde_json::json!({
         "recorded": true, "allow": req.allow, "what": what, "text": text, "reason": decision.reason,
     })))

@@ -645,6 +645,7 @@ const KIND_TEXT: &[(&str, &str)] = &[
     ("run_failed", "❌ 没跑成"),
     ("approval", "⚠️ 等你批准"),
     ("question", "💬 在问你"),
+    ("denied", "⛔ 被拦下"),
     ("autopilot_paused", "⏸ 自动化暂停"),
     ("rate_limit", "📉 额度告警"),
     ("alert", "🚨 告警"),
