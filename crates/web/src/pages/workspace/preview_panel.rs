@@ -82,6 +82,8 @@ impl Default for PvPrefs {
     }
 }
 
+const ICON_OPEN: &str = r#"<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 3.5H4A1.5 1.5 0 0 0 2.5 5v7A1.5 1.5 0 0 0 4 13.5h7a1.5 1.5 0 0 0 1.5-1.5V9.5"/><path d="M9.5 2.5h4v4M13.5 2.5 7.5 8.5"/></svg>"#;
+
 const DEVICES: [(&str, &str, &str, &str); 3] = [
     ("desktop", "桌面", "100%", "100%"),
     ("mobile", "手机", "390px", "844px"),
@@ -107,7 +109,6 @@ impl PvSet {
 fn PvMenu(
     prefs: RwSignal<PvPrefs>,
     set_prefs: Callback<PvSet>,
-    url: Signal<String>,
     tunnel: Signal<Option<String>>,
     scripts_open: RwSignal<bool>,
 ) -> impl IntoView {
@@ -186,19 +187,6 @@ fn PvMenu(
                         on:click=move |_| pick(&|| set_prefs.run(PvSet::Log))
                     >
                         "日志"
-                    </button>
-                    <button
-                        type="button"
-                        role="menuitem"
-                        disabled=move || url.with(String::is_empty)
-                        on:click=move |_| {
-                            pick(&|| {
-                                let _ = window()
-                                    .open_with_url_and_target(&url.get_untracked(), "_blank");
-                            })
-                        }
-                    >
-                        "在浏览器打开"
                     </button>
                     <button
                         type="button"
@@ -381,24 +369,80 @@ pub fn PreviewBar(ws: String, active: Signal<bool>, isolated: Signal<bool>) -> i
     });
     let url = move || shown.with(|s| s.url.clone());
     let running = move || dev.with(|d| d.as_ref().is_some_and(|d| d.running));
+    let hist = RwSignal::new(Vec::<String>::new());
+    let at = RwSignal::new(0usize);
+    Effect::new(move |_| {
+        let u = url();
+        if u.is_empty() {
+            return;
+        }
+        let i = at.get_untracked();
+        hist.update(|h| {
+            if h.get(i) == Some(&u) {
+                return;
+            }
+            h.truncate(i + 1);
+            h.push(u);
+            at.set(h.len() - 1);
+        });
+    });
+    let go = move |d: i32| {
+        let Ok(i) = usize::try_from(at.get_untracked() as i32 + d) else {
+            return;
+        };
+        let Some(u) = hist.with_untracked(|h| h.get(i).cloned()) else {
+            return;
+        };
+        at.set(i);
+        url_override.set(u);
+        reload.update(|n| *n += 1);
+    };
+    let open_outside = move |_| {
+        let u = shown.with_untracked(|s| s.url.clone());
+        if !u.is_empty() {
+            let _ = window().open_with_url_and_target(&u, "_blank");
+        }
+    };
 
     view! {
         <div class="diffbar pvbar">
-            <Show when=move || busy.get().is_some() || running() || url().is_empty()>
+            <div class="pv-side">
+                <Show when=move || busy.get().is_some() || running() || url().is_empty()>
+                    <button
+                        class="btn small"
+                        class:primary=move || !running()
+                        disabled=move || busy.get().is_some()
+                        on:click=move |_| start_stop(if running() { "stop" } else { "start" })
+                    >
+                        {move || match busy.get() {
+                            Some("start") => "启动中…",
+                            Some("stop") => "停止中…",
+                            _ if running() => "停止",
+                            _ => "启动预览",
+                        }}
+                    </button>
+                </Show>
                 <button
-                    class="btn small"
-                    class:primary=move || !running()
-                    disabled=move || busy.get().is_some()
-                    on:click=move |_| start_stop(if running() { "stop" } else { "start" })
+                    type="button"
+                    class="laybtn"
+                    aria-label="后退"
+                    title="后退"
+                    disabled=move || at.get() == 0
+                    on:click=move |_| go(-1)
                 >
-                    {move || match busy.get() {
-                        Some("start") => "启动中…",
-                        Some("stop") => "停止中…",
-                        _ if running() => "停止",
-                        _ => "启动预览",
-                    }}
+                    "←"
                 </button>
-            </Show>
+                <button
+                    type="button"
+                    class="laybtn"
+                    aria-label="前进"
+                    title="前进"
+                    disabled=move || hist.with(|h| at.get() + 1 >= h.len())
+                    on:click=move |_| go(1)
+                >
+                    "→"
+                </button>
+            </div>
             <input
                 class="pv-url"
                 aria-label="预览地址"
@@ -418,55 +462,65 @@ pub fn PreviewBar(ws: String, active: Signal<bool>, isolated: Signal<bool>) -> i
                     }
                 }
             />
-            {move || {
-                dev.get()
-                    .and_then(|d| {
-                        d.tunnel_error
-                            .map(|e| {
-                                view! {
-                                    <span class="gchip bad" title=e>
-                                        "连接失败"
-                                    </span>
-                                }
-                            })
-                    })
-            }}
-            <button
-                class="laybtn"
-                aria-label="刷新预览"
-                title="刷新页面"
-                inner_html=super::ICON_REFRESH
-                on:click=move |_| {
-                    reload.update(|n| *n += 1);
-                    load();
-                }
-            ></button>
-            <PvMenu
-                prefs
-                set_prefs=Callback::new(move |f: PvSet| {
-                    set_prefs(&|p| f.apply(p));
-                    if matches!(f, PvSet::Log) {
+            <div class="pv-side right">
+                {move || {
+                    dev.get()
+                        .and_then(|d| {
+                            d.tunnel_error
+                                .map(|e| {
+                                    view! {
+                                        <span class="gchip bad" title=e>
+                                            "连接失败"
+                                        </span>
+                                    }
+                                })
+                        })
+                }}
+                <button
+                    type="button"
+                    class="laybtn"
+                    aria-label="在浏览器中打开"
+                    title="在浏览器中打开"
+                    disabled=move || url().is_empty()
+                    inner_html=ICON_OPEN
+                    on:click=open_outside
+                ></button>
+                <button
+                    class="laybtn"
+                    aria-label="刷新预览"
+                    title="刷新页面"
+                    inner_html=super::ICON_REFRESH
+                    on:click=move |_| {
+                        reload.update(|n| *n += 1);
                         load();
                     }
-                })
-                url=Signal::derive(url)
-                tunnel=Signal::derive(move || {
-                    dev.with(|d| {
-                        d.as_ref()
-                            .and_then(|d| {
-                                d.tunnel
-                                    .map(|t| {
-                                        format!(
-                                            "远端已连接：ssh 隧道把 {} 的 {} 端口接到本机 {t}",
-                                            d.node,
-                                            d.port.unwrap_or(0),
-                                        )
-                                    })
-                            })
+                ></button>
+                <PvMenu
+                    prefs
+                    set_prefs=Callback::new(move |f: PvSet| {
+                        set_prefs(&|p| f.apply(p));
+                        if matches!(f, PvSet::Log) {
+                            load();
+                        }
                     })
-                })
-                scripts_open
-            />
+                    tunnel=Signal::derive(move || {
+                        dev.with(|d| {
+                            d.as_ref()
+                                .and_then(|d| {
+                                    d.tunnel
+                                        .map(|t| {
+                                            format!(
+                                                "远端已连接：ssh 隧道把 {} 的 {} 端口接到本机 {t}",
+                                                d.node,
+                                                d.port.unwrap_or(0),
+                                            )
+                                        })
+                                })
+                        })
+                    })
+                    scripts_open
+                />
+            </div>
         </div>
         <div class="pvbody">
             {move || {

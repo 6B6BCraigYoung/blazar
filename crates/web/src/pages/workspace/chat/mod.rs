@@ -13,6 +13,7 @@ use wasm_bindgen::JsCast;
 use crate::realtime::use_bus;
 
 use composer::Composer;
+pub use dock::Dock;
 use log::Log;
 pub use state::Chat;
 pub(crate) use threads::CHEVRON;

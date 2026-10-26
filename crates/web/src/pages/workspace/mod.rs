@@ -7,6 +7,7 @@ pub(crate) mod git_panel;
 mod head;
 mod inspector;
 mod layout;
+mod mini;
 mod preview_panel;
 mod term_panel;
 mod tree;
@@ -32,6 +33,7 @@ use git_panel::Git;
 use head::WsHead;
 use inspector::Inspector;
 use layout::{Changes, Edge, LayoutState, Splitter, Tab};
+use mini::MiniBar;
 use term_panel::{TermPane, TermTabs, Terms};
 use tree::{TreeActs, TreePane};
 
@@ -118,6 +120,7 @@ fn Workspace(id: String) -> impl IntoView {
         guard.dispose();
     });
     let state = LayoutState::new(&id);
+    provide_context(state);
     let host = NodeRef::<html::Div>::new();
 
     let tree_rev = RwSignal::new(0u32);
@@ -395,6 +398,7 @@ fn Workspace(id: String) -> impl IntoView {
         RwSignal::new(crate::markdown_mode::load() == crate::markdown_mode::MarkdownMode::Preview);
 
     let lay = move || state.lay.get();
+    let mini_id = id.clone();
     let gone = Memo::new(move |_| {
         detail
             .get()
@@ -489,6 +493,9 @@ fn Workspace(id: String) -> impl IntoView {
                                 draft
                                 isolated
                             />
+                            <Show when=move || lay().max>
+                                <MiniBar id=mini_id.clone() chat=chat_slot state />
+                            </Show>
                         </section>
                     </div>
                     <Splitter edge=Edge::Terminal state />

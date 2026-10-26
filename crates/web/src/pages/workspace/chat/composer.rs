@@ -694,6 +694,8 @@ pub fn Composer(
     let app = crate::app_state::use_app();
     let node = chat.node.get_value();
     let unreachable = Memo::new(move |_| app.node_unreachable(&node));
+    let lay = use_context::<super::super::layout::LayoutState>();
+    let maxed = move || lay.is_some_and(|l| l.lay.get().max);
     let deciding = Memo::new(move |_| {
         chat.transcript.with(|t| {
             chat.decided
@@ -972,7 +974,7 @@ pub fn Composer(
                         }
                     })
             }}
-            <Dock chat />
+            {move || (!maxed()).then(|| view! { <Dock chat /> })}
             {move || {
                 failed
                     .get()
