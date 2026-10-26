@@ -51,7 +51,15 @@ APPROVAL = did(9, 1)
 QUESTION = did(9, 2)
 CHAT_APPROVAL = did(9, 3)
 ASSISTANT = did(26, 1)
-CHATS = {name: did(27, i) for i, name in enumerate(["status", "handoff", "gpu"], 1)}
+CHATS = {name: did(27, i) for i, name in enumerate(["status", "handoff", "gpu", "denied", "hard", "hard-retry"], 1)}
+REFUSED = ("Permission for this action was denied by the Claude Code auto mode classifier. Reason: [Remote Shell Writes]. "
+           "If you have other tasks that don't depend on this action, continue working on those. IMPORTANT: You *may* attempt to "
+           "accomplish this action using other tools that might naturally be used to accomplish this goal, e.g. using head instead of cat. "
+           "But you *should not* attempt to work around this denial in malicious ways, e.g. do not use your ability to run tests to execute "
+           "non-test actions. If you believe this capability is essential to complete the user's request, first try a safer method. "
+           "Get as much of the rest of the task done as you can, then STOP and explain to the user what you were trying to do and why you "
+           "need this permission. Let the user decide how to proceed.")
+REFUSED_CMD = "ssh edge.invalid 'systemctl restart demo-agent && systemctl status demo-agent --no-pager | head -5'"
 
 
 def iso(t):
@@ -481,7 +489,8 @@ def short_session(db, sid, ws, when, runtime, title, ask, reply, status, cost, c
 
 def clean(db):
     like = PREFIX + "%"
-    for table, col in [("approvals", "id"), ("events", "session_id"), ("sessions", "id"), ("task_comments", "task_id"),
+    for table, col in [("approvals", "id"), ("denial_decisions", "session_id"), ("events", "session_id"), ("sessions", "id"),
+                       ("task_comments", "task_id"),
                        ("rate_limit_snapshots", "account_id"), ("accounts", "id"),
                        ("tasks", "id"), ("autopilot_runs", "autopilot_id"), ("autopilots", "id"), ("claims", "id"),
                        ("bot_mail", "to_bot"), ("bot_threads", "bot_id"), ("bots", "id"), ("agents", "id"),
@@ -588,7 +597,43 @@ def seed_chats(db, local):
         (c.tick(2), {"type": "finished", "status": "failed", "message": "API Error: Can't reach the API server — check your internet or DNS (ENOTFOUND)"}, None),
     ]
     add_session(db, CHATS["gpu"], ws, ago(hours=5), "claude", "汇总所有机器的 GPU 占用", CHATS["gpu"], "failed", gpu)
+    seed_denied_chats(db, ws, dict(model, permission_mode="auto"))
     return ws
+
+
+def denied_turn(c, model, tool_id, ask, retry=False):
+    denied = f"Bash: {REFUSED_CMD}"
+    denials = [{"tool_name": "Bash", "tool_use_id": tool_id, "input": {"command": REFUSED_CMD, "description": "重启 edge.invalid 上的 demo-agent"}}]
+    said = ("这条命令第二次也被安全检查拦下了。这类远程写操作属于安全边界，我批不了，请你在终端里自己运行上面那条命令。" if retry else
+            "重启 demo-agent 要通过 ssh 在 edge.invalid 上执行 systemctl restart，这条命令被安全检查拦下了（Remote Shell Writes），我没有执行。")
+    return [
+        (c.tick(0), dict(model, provider_session_id=f"demo-{tool_id}"), None),
+        (c.tick(1), {"type": "user_message", "text": ask}, None),
+        (c.tick(3), {"type": "thinking", "text": "demo-agent 跑在 edge.invalid 上，重启要走 ssh。先重启再看状态。"}, None),
+        (c.tick(2), {"type": "tool_use", "id": tool_id, "name": "Bash", "input": denials[0]["input"]}, None),
+        (c.tick(1), {"type": "tool_result", "id": tool_id, "ok": False, "content": REFUSED}, None),
+        (c.tick(4), {"type": "assistant_message", "text": said}, None),
+        (c.tick(1), usage(4100, 260, 0.05), None),
+        (c.tick(1), {"type": "finished", "status": "success", "text": said, "denied": [denied], "denials": denials}, None),
+    ]
+
+
+def seed_denied_chats(db, ws, model):
+    ask = "edge.invalid 上的 demo-agent 掉线了，帮我把它重启一下"
+    c = Clock(ago(minutes=9))
+    add_session(db, CHATS["denied"], ws, ago(minutes=9), "claude", "重启 edge.invalid 上的 demo-agent", CHATS["denied"], "done",
+                denied_turn(c, model, "toolu_demo_deny1", ask))
+    c = Clock(ago(minutes=30))
+    first = denied_turn(c, model, "toolu_demo_deny2", ask)
+    first.append((c.tick(40), {"type": "denial_decided", "tool_use_id": "toolu_demo_deny2", "allow": True, "by": "demo", "what": REFUSED_CMD}, None))
+    add_session(db, CHATS["hard"], ws, ago(minutes=30), "claude", "重启 edge.invalid 上的 demo-agent（第二次）", CHATS["hard"], "done", first)
+    c = Clock(ago(minutes=28))
+    again = "我同意执行刚才被拦下的这条命令，请原样重试一次，不要改动：\n```\n" + REFUSED_CMD + "\n```"
+    add_session(db, CHATS["hard-retry"], ws, ago(minutes=28), "claude", "重启 edge.invalid 上的 demo-agent（第二次）", CHATS["hard"], "done",
+                denied_turn(c, model, "toolu_demo_deny3", again, retry=True))
+    db.execute("INSERT INTO denial_decisions (id, session_id, workspace_id, tool_use_id, tool_name, what, reason, allow, decided_by, decided_at)"
+               " VALUES (?,?,?,?,?,?,?,?,?,?)",
+               (did(28, 1), CHATS["hard"], ws, "toolu_demo_deny2", "Bash", REFUSED_CMD, "Remote Shell Writes", 1, "demo", iso(ago(minutes=29))))
 
 
 def seed_rows(db):
@@ -1312,6 +1357,20 @@ def chat_parts():
         ("chat-failed", f"/chats/{CHATS['gpu']}", "失败的对话页：输入框换成失败卡（断网）",
          ({"action": "wait", "selector": ".chat-room .cc-log", "timeout_ms": 8000}, {"action": "wait", "ms": 800},
           says(".chat-room-head .status", "失败", "页头状态"), shown(".chat-room .cc-spin", 0, "进度行")), False),
+        ("chat-denied", f"/chats/{CHATS['denied']}", "自动批准模式下被安全检查拦下的对话页：橙点提示行里是一张卡，标题「安全检查拦下了这条命令，没有执行」，"
+         "完整命令（可滚动不截断）、「工作区 对话 · 机器 本机」和「原因：[Remote Shell Writes]」、「拦截说明」折叠，底部两个键「允许这一次并重试」「不用了」",
+         ({"action": "wait", "selector": ".chat-room .cc-deny", "timeout_ms": 8000}, {"action": "wait", "ms": 800},
+          says(".chat-room .cc-deny .cd-head", "安全检查拦下了这条命令，没有执行", "卡片标题"),
+          says(".chat-room .cc-deny .acmd", REFUSED_CMD, "完整命令"),
+          says(".chat-room .cc-deny .cd-meta span:last-child", "原因：[Remote Shell Writes]", "拦截原因"),
+          shown(".chat-room .cc-deny .cd-acts .btn", 2, "两个按钮"), shown(".chat-room .cc-deny .ui-detail", 1, "拦截说明")), False),
+        ("chat-denied-hard", f"/chats/{CHATS['hard']}", "批准后仍被拦下的对话页：第一张卡「已允许这一次（demo）」且没有按钮，中间是用户本人的放行消息，"
+         "第二张卡红色标题「这条命令属于安全边界，批准也不放行」，命令右侧有复制键，底下一句「把命令复制到终端里自己运行」",
+         ({"action": "wait", "selector": ".chat-room .cc-deny[data-state=\"hard\"]", "timeout_ms": 8000}, {"action": "wait", "ms": 800},
+          shown(".chat-room .cc-deny[data-state=\"allowed\"]", 1, "已允许的卡"), shown(".chat-room .cc-deny .cd-acts", 0, "按钮"),
+          says(".chat-room .cc-deny[data-state=\"hard\"] .cd-head", "这条命令属于安全边界，批准也不放行", "硬拦截标题"),
+          shown(".chat-room .cc-deny[data-state=\"hard\"] .cc-copy", 1, "复制键"),
+          shown(".chat-room .cc-user", 2, "用户消息")), False),
         ("chat-picker", f"/chats/{CHATS['status']}", "页头标题的下拉：新对话 ⌘T、重命名对话…，下面是全部对话",
          ({"action": "wait", "selector": ".chat-pick .ws-thread-btn", "timeout_ms": 8000},
           {"action": "click", "selector": ".chat-pick .ws-thread-btn", "settle_ms": 300},
