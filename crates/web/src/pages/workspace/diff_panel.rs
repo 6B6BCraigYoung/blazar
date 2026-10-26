@@ -15,6 +15,7 @@ use crate::storage;
 
 use super::files::Files;
 use super::git_panel::Git;
+use super::layout::{Changes, LayoutState};
 
 mod latest;
 
@@ -163,7 +164,9 @@ pub fn DiffBar(
     git: Git,
     collapsed: RwSignal<HashSet<String>>,
     draft: RwSignal<Option<String>>,
+    state: LayoutState,
 ) -> impl IntoView {
+    let sub = move |c: Changes| move || (state.lay.get().changes == c).to_string();
     let review = move |_| {
         let n = d.files.with_untracked(Vec::len);
         let base = d.base.get_untracked();
@@ -195,129 +198,149 @@ pub fn DiffBar(
     };
     view! {
         <div class="diffbar">
-            <button
-                class="laybtn"
-                aria-label="切换改动文件列表"
-                title="改动文件列表"
-                aria-pressed=move || p().tree.to_string()
-                on:click=move |_| d.set_prefs(|p| p.tree = !p.tree)
-                inner_html=super::ICON_LEFT
-            ></button>
-            <span class="seg" title="和谁比">
+            <span class="seg insp-sub" role="group" aria-label="更改的视图">
                 <button
-                    data-on=move || (p().base == "head").to_string()
-                    title="还没提交的改动（相对 HEAD）"
-                    on:click=move |_| d.set_prefs(|p| p.base = "head".into())
+                    type="button"
+                    data-on=sub(Changes::Diff)
+                    aria-pressed=sub(Changes::Diff)
+                    on:click=move |_| state.show_changes(Changes::Diff)
                 >
-                    "未提交"
+                    "差异"
                 </button>
                 <button
-                    data-on=move || (p().base == "target").to_string()
-                    title="这条分支相对目标分支一共改了什么"
-                    on:click=move |_| d.set_prefs(|p| p.base = "target".into())
+                    type="button"
+                    data-on=sub(Changes::Git)
+                    aria-pressed=sub(Changes::Git)
+                    on:click=move |_| state.show_changes(Changes::Git)
+                >
+                    "Git"
+                </button>
+            </span>
+            <Show when=move || state.lay.get().changes == Changes::Diff>
+                <button
+                    class="laybtn"
+                    aria-label="切换改动文件列表"
+                    title="改动文件列表"
+                    aria-pressed=move || p().tree.to_string()
+                    on:click=move |_| d.set_prefs(|p| p.tree = !p.tree)
+                    inner_html=super::ICON_LEFT
+                ></button>
+                <span class="seg" title="和谁比">
+                    <button
+                        data-on=move || (p().base == "head").to_string()
+                        title="还没提交的改动（相对 HEAD）"
+                        on:click=move |_| d.set_prefs(|p| p.base = "head".into())
+                    >
+                        "未提交"
+                    </button>
+                    <button
+                        data-on=move || (p().base == "target").to_string()
+                        title="这条分支相对目标分支一共改了什么"
+                        on:click=move |_| d.set_prefs(|p| p.base = "target".into())
+                    >
+                        {move || {
+                            target()
+                                .map_or_else(
+                                    || "整条分支".to_owned(),
+                                    |t| format!("整条分支 · {t}"),
+                                )
+                        }}
+                    </button>
+                </span>
+                <span class="seg">
+                    <button
+                        data-on=move || (p().view == "unified").to_string()
+                        on:click=move |_| d.set_prefs(|p| p.view = "unified".into())
+                    >
+                        "统一"
+                    </button>
+                    <button
+                        data-on=move || (p().view == "split").to_string()
+                        on:click=move |_| d.set_prefs(|p| p.view = "split".into())
+                    >
+                        "并排"
+                    </button>
+                </span>
+                <label class="chk">
+                    <input
+                        type="checkbox"
+                        prop:checked=move || p().w
+                        on:change=move |_| d.set_prefs(|p| p.w = !p.w)
+                    />
+                    "忽略空白"
+                </label>
+                <label class="chk">
+                    <input
+                        type="checkbox"
+                        prop:checked=move || p().wrap
+                        on:change=move |_| d.set_prefs(|p| p.wrap = !p.wrap)
+                    />
+                    "自动换行"
+                </label>
+                <span class="sum">
+                    {move || {
+                        let (n, a, r) = sums();
+                        view! {
+                            {format!("{n} 个文件 ")}
+                            <b class="ok">{format!("+{a}")}</b>
+                            " "
+                            <b class="bad">{format!("−{r}")}</b>
+                        }
+                    }}
+                </span>
+                <span class="grow"></span>
+                {move || {
+                    let n = d.comments.with(Vec::len);
+                    (n > 0)
+                        .then(|| {
+                            view! {
+                                <span class="pill-note" title="随下一条消息一起发给 agent">
+                                    {format!("{n} 条意见待发")}
+                                </span>
+                            }
+                        })
+                }}
+                <button
+                    class="btn small"
+                    disabled=move || d.files.with(Vec::is_empty)
+                    on:click=move |_| {
+                        let all = d
+                            .files
+                            .with_untracked(|f| {
+                                f.iter().map(|x| x.path.clone()).collect::<HashSet<_>>()
+                            });
+                        collapsed.update(|c| if c.len() >= all.len() { c.clear() } else { *c = all });
+                    }
                 >
                     {move || {
-                        target()
-                            .map_or_else(
-                                || "整条分支".to_owned(),
-                                |t| format!("整条分支 · {t}"),
-                            )
+                        if !d.files.with(Vec::is_empty)
+                            && collapsed.with(HashSet::len) >= d.files.with(Vec::len)
+                        {
+                            "全部展开"
+                        } else {
+                            "全部折叠"
+                        }
                     }}
                 </button>
-            </span>
-            <span class="seg">
                 <button
-                    data-on=move || (p().view == "unified").to_string()
-                    on:click=move |_| d.set_prefs(|p| p.view = "unified".into())
+                    class="btn small"
+                    disabled=move || d.files.with(Vec::is_empty)
+                    title="开一个新对话，让 agent 只审阅不改代码"
+                    on:click=review
                 >
-                    "统一"
+                    "审阅改动"
                 </button>
                 <button
-                    data-on=move || (p().view == "split").to_string()
-                    on:click=move |_| d.set_prefs(|p| p.view = "split".into())
-                >
-                    "并排"
-                </button>
-            </span>
-            <label class="chk">
-                <input
-                    type="checkbox"
-                    prop:checked=move || p().w
-                    on:change=move |_| d.set_prefs(|p| p.w = !p.w)
-                />
-                "忽略空白"
-            </label>
-            <label class="chk">
-                <input
-                    type="checkbox"
-                    prop:checked=move || p().wrap
-                    on:change=move |_| d.set_prefs(|p| p.wrap = !p.wrap)
-                />
-                "自动换行"
-            </label>
-            <span class="sum">
-                {move || {
-                    let (n, a, r) = sums();
-                    view! {
-                        {format!("{n} 个文件 ")}
-                        <b class="ok">{format!("+{a}")}</b>
-                        " "
-                        <b class="bad">{format!("−{r}")}</b>
+                    class="laybtn"
+                    aria-label="刷新差异"
+                    title="刷新"
+                    inner_html=super::ICON_REFRESH
+                    on:click=move |_| {
+                        d.reload.update(|n| *n += 1);
+                        git.reload.update(|n| *n += 1);
                     }
-                }}
-            </span>
-            <span class="grow"></span>
-            {move || {
-                let n = d.comments.with(Vec::len);
-                (n > 0)
-                    .then(|| {
-                        view! {
-                            <span class="pill-note" title="随下一条消息一起发给 agent">
-                                {format!("{n} 条意见待发")}
-                            </span>
-                        }
-                    })
-            }}
-            <button
-                class="btn small"
-                disabled=move || d.files.with(Vec::is_empty)
-                on:click=move |_| {
-                    let all = d
-                        .files
-                        .with_untracked(|f| {
-                            f.iter().map(|x| x.path.clone()).collect::<HashSet<_>>()
-                        });
-                    collapsed.update(|c| if c.len() >= all.len() { c.clear() } else { *c = all });
-                }
-            >
-                {move || {
-                    if !d.files.with(Vec::is_empty)
-                        && collapsed.with(HashSet::len) >= d.files.with(Vec::len)
-                    {
-                        "全部展开"
-                    } else {
-                        "全部折叠"
-                    }
-                }}
-            </button>
-            <button
-                class="btn small"
-                disabled=move || d.files.with(Vec::is_empty)
-                title="开一个新对话，让 agent 只审阅不改代码"
-                on:click=review
-            >
-                "审阅改动"
-            </button>
-            <button
-                class="laybtn"
-                aria-label="刷新差异"
-                title="刷新"
-                inner_html=super::ICON_REFRESH
-                on:click=move |_| {
-                    d.reload.update(|n| *n += 1);
-                    git.reload.update(|n| *n += 1);
-                }
-            ></button>
+                ></button>
+            </Show>
         </div>
     }
 }

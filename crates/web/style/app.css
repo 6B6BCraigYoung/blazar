@@ -156,7 +156,8 @@ button { font: inherit; color: inherit; }
 .insp-head { gap: var(--space-control); }
 .insp-sub button { display: inline-flex; align-items: center; }
 .insp-body { position: relative; flex: 1; min-height: 0; }
-.insp-body > .ipane, .ipane > .ipane { position: absolute; inset: 0; display: none; overflow: auto; overscroll-behavior: contain; }
+.insp-body > .ipane, .ipanes > .ipane { position: absolute; inset: 0; display: none; overflow: auto; overscroll-behavior: contain; }
+.ipanes { position: relative; flex: 1; min-height: 0; }
 .ipane[data-active="true"] { display: block; }
 .ipane.col[data-active="true"] { display: flex; flex-direction: column; overflow: hidden; }
 .insp-body > .ipane.ed { display: flex; overflow: hidden; }

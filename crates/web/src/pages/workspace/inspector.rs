@@ -33,13 +33,6 @@ pub fn Inspector(
     let on = move |t: Tab| move || (lay().tab == t).to_string();
     let collapsed = RwSignal::new(HashSet::<String>::new());
     let diff_n = move || diff.files.with(Vec::len);
-    let git_mark = move || {
-        git.status.with(|g| match g {
-            Some(g) if g.op.is_some() => Some(("bad", "!".to_owned())),
-            Some(g) if g.uncommitted > 0 => Some(("", g.uncommitted.to_string())),
-            _ => None,
-        })
-    };
     let preview_on = Signal::derive(move || {
         let l = lay();
         l.inspect && l.tab == Tab::Preview
@@ -99,30 +92,6 @@ pub fn Inspector(
                 {tab(Tab::Changes, "更改")}
                 {tab(Tab::Preview, "预览")}
             </div>
-            <Show when=move || lay().tab == Tab::Changes>
-                <span class="seg insp-sub" role="group" aria-label="更改的视图">
-                    <button
-                        type="button"
-                        data-on=sub(Changes::Diff)
-                        aria-pressed=sub(Changes::Diff)
-                        on:click=move |_| state.show_changes(Changes::Diff)
-                    >
-                        "差异"
-                    </button>
-                    <button
-                        type="button"
-                        data-on=sub(Changes::Git)
-                        aria-pressed=sub(Changes::Git)
-                        on:click=move |_| state.show_changes(Changes::Git)
-                    >
-                        "Git"
-                        {move || {
-                            git_mark()
-                                .map(|(c, t)| view! { <span class=format!("tabn {c}")>{t}</span> })
-                        }}
-                    </button>
-                </span>
-            </Show>
             <span class="grow"></span>
             <button
                 type="button"
@@ -161,14 +130,6 @@ pub fn Inspector(
                             inner_html=super::ICON_REFRESH
                             on:click=move |_| tree.rev.update(|n| *n += 1)
                         ></button>
-                        <button
-                            class="laybtn"
-                            aria-label="收起文件"
-                            title=crate::shortcuts::titled("收起", "explorer")
-                            on:click=move |_| state.close_files()
-                        >
-                            "×"
-                        </button>
                     </div>
                     <FileTree
                         root=tree.root
@@ -193,12 +154,14 @@ pub fn Inspector(
                 </div>
             </div>
             <div class="ipane col" data-active=on(Tab::Changes)>
-                <div class="ipane col" data-active=sub(Changes::Diff)>
-                    <DiffBar d=diff git collapsed draft />
-                    <DiffView ws=ws.clone() d=diff files collapsed />
-                </div>
-                <div class="ipane" data-active=sub(Changes::Git)>
-                    <GitView git files draft />
+                <DiffBar d=diff git collapsed draft state />
+                <div class="ipanes">
+                    <div class="ipane col" data-active=sub(Changes::Diff)>
+                        <DiffView ws=ws.clone() d=diff files collapsed />
+                    </div>
+                    <div class="ipane" data-active=sub(Changes::Git)>
+                        <GitView git files draft />
+                    </div>
                 </div>
             </div>
             <div class="ipane col" data-active=on(Tab::Preview)>
