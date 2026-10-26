@@ -756,6 +756,9 @@ async fn prompt_inner(
         .await
         .map_err(|e| ApiError(anyhow::anyhow!("在 {run_node} 上启动 agent 失败: {e}")))?;
         crate::tasks::on_run_started(&st, &thread_id).await;
+        crate::inbox::resolve_asks(&st, &thread_id).await;
+        st.services
+            .spawn(crate::titles::maybe_title(st.clone(), session_id, workspace_id));
         crate::run::register(ctx, 0, Some(started_tx)).await;
         attempted = None;
 

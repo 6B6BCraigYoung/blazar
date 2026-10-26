@@ -82,7 +82,9 @@ async fn describe(st: &Shared, id: &str) -> ApiResult<serde_json::Value> {
         .0;
     for t in &mut threads {
         let thread = t["id"].as_str().unwrap_or_default().to_owned();
-        t["summary"] = serde_json::Value::String(summary(st, &thread).await);
+        if t["summary"].as_str().unwrap_or_default().trim().is_empty() {
+            t["summary"] = serde_json::Value::String(summary(st, &thread).await);
+        }
     }
     Ok(serde_json::json!({ "id": id, "path": path, "threads": threads }))
 }
@@ -519,6 +521,8 @@ mod tests {
                 parent: None,
                 step,
                 failure: None,
+                summary: None,
+                ask: None,
             };
         let snap = StateSnapshot {
             nodes: vec![node("local", "offline"), node("gpu-a", "offline")],

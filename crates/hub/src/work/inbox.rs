@@ -2,6 +2,7 @@ use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
+use blazar_core_types::{EntryKind, Outcome, denial};
 use chrono::Utc;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -121,7 +122,74 @@ pub async fn resolve_session(st: &Shared, sid: blazar_core_types::SessionId) {
     }
 }
 
-pub async fn on_run_finished(st: Shared, sid: blazar_core_types::SessionId, status: &'static str) {
+pub async fn resolve_asks(st: &Shared, thread: &str) {
+    let now = Utc::now().to_rfc3339();
+    let r = sqlx::query(
+        "UPDATE inbox SET read_at = COALESCE(read_at, ?2), archived_at = ?2, resolved_at = COALESCE(resolved_at, ?2)
+         WHERE thread_id = ?1 AND archived_at IS NULL AND kind = 'question' AND ref_id LIKE 'ask:%'",
+    )
+    .bind(thread)
+    .bind(&now)
+    .execute(st.db.pool())
+    .await;
+    let cleared = sqlx::query(
+        "UPDATE sessions SET ask = NULL WHERE COALESCE(thread_id, id) = ?1 AND ask IS NOT NULL",
+    )
+    .bind(thread)
+    .execute(st.db.pool())
+    .await;
+    if r.is_ok_and(|r| r.rows_affected() > 0) {
+        changed(st);
+    }
+    if cleared.is_ok_and(|r| r.rows_affected() > 0) {
+        st.emit(ServerEvent::WorkspacesChanged);
+    }
+}
+
+pub async fn resolve_one(State(st): State<Shared>, Path(id): Path<String>) -> Response {
+    let now = Utc::now().to_rfc3339();
+    let row = sqlx::query("SELECT ref_id, session_id FROM inbox WHERE id = ?1")
+        .bind(&id)
+        .fetch_optional(st.db.pool())
+        .await
+        .ok()
+        .flatten();
+    let Some(row) = row else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "没有这条消息" })),
+        )
+            .into_response();
+    };
+    let _ = sqlx::query(
+        "UPDATE inbox SET read_at = COALESCE(read_at, ?2), archived_at = COALESCE(archived_at, ?2),
+                resolved_at = COALESCE(resolved_at, ?2) WHERE id = ?1",
+    )
+    .bind(&id)
+    .bind(&now)
+    .execute(st.db.pool())
+    .await;
+    let ref_id: Option<String> = row.try_get("ref_id").ok().flatten();
+    let session: Option<String> = row.try_get("session_id").ok().flatten();
+    if ref_id.as_deref().is_some_and(|r| r.starts_with("ask:"))
+        && let Some(sid) = session
+    {
+        let _ = sqlx::query("UPDATE sessions SET ask = NULL WHERE id = ?1")
+            .bind(sid)
+            .execute(st.db.pool())
+            .await;
+        st.emit(ServerEvent::WorkspacesChanged);
+    }
+    changed(&st);
+    Json(json!({ "ok": true })).into_response()
+}
+
+pub async fn on_run_finished(
+    st: Shared,
+    sid: blazar_core_types::SessionId,
+    status: &'static str,
+    brief: &crate::brief::Brief,
+) {
     if status == "interrupted" {
         return;
     }
@@ -132,11 +200,8 @@ pub async fn on_run_finished(st: Shared, sid: blazar_core_types::SessionId, stat
         return;
     }
     let row = sqlx::query(
-        "SELECT s.workspace_id, COALESCE(s.thread_id, s.id) AS thread, w.name AS ws, n.name AS node,
-                w.parent_id,
-                (SELECT title FROM sessions r WHERE r.id = COALESCE(s.thread_id, s.id)) AS title
-         FROM sessions s JOIN workspaces w ON w.id = s.workspace_id
-         JOIN nodes n ON n.id = w.node_id WHERE s.id = ?1",
+        "SELECT s.workspace_id, COALESCE(s.thread_id, s.id) AS thread, w.parent_id
+         FROM sessions s JOIN workspaces w ON w.id = s.workspace_id WHERE s.id = ?1",
     )
     .bind(sid.to_string())
     .fetch_optional(st.db.pool())
@@ -152,33 +217,7 @@ pub async fn on_run_finished(st: Shared, sid: blazar_core_types::SessionId, stat
     {
         return;
     }
-    let ws_name = blazar_core_types::api::workspace_label(
-        &row.try_get::<String, _>("ws").unwrap_or_default(),
-        &row.try_get::<String, _>("node").unwrap_or_default(),
-    );
     let thread: String = row.try_get("thread").unwrap_or_default();
-    let title: Option<String> = row.try_get("title").ok().flatten();
-
-    let first: Option<String> = sqlx::query_scalar(
-        "SELECT payload FROM events e JOIN sessions s ON s.id = e.session_id
-         WHERE COALESCE(s.thread_id, s.id) = ?1 AND e.payload LIKE '{\"type\":\"user_message\"%'
-         ORDER BY s.created_at, e.seq LIMIT 1",
-    )
-    .bind(&thread)
-    .fetch_optional(st.db.pool())
-    .await
-    .ok()
-    .flatten()
-    .and_then(|p: String| serde_json::from_str::<Value>(&p).ok())
-    .and_then(|v| {
-        v["text"]
-            .as_str()
-            .map(|t| t.lines().next().unwrap_or_default().to_owned())
-    });
-    let what = title
-        .filter(|t| !t.is_empty())
-        .or(first)
-        .unwrap_or_default();
 
     let reply: Option<String> = sqlx::query_scalar(
         "SELECT payload FROM events WHERE session_id = ?1
@@ -199,19 +238,16 @@ pub async fn on_run_finished(st: Shared, sid: blazar_core_types::SessionId, stat
     });
     let ok = status == "done";
     let workspace_id: Option<String> = row.try_get("workspace_id").ok();
+    let title = if brief.summary.is_empty() {
+        if ok { "跑完了" } else { "没跑成" }.to_owned()
+    } else {
+        brief.summary.clone()
+    };
     push(
         &st,
         Item {
             kind: if ok { "run_done" } else { "run_failed" },
-            title: format!(
-                "{ws_name} · {}{}",
-                if ok { "跑完了" } else { "没跑成" },
-                if what.is_empty() {
-                    String::new()
-                } else {
-                    format!("：{what}")
-                }
-            ),
+            title,
             body: reply.unwrap_or_default(),
             workspace_id: workspace_id.clone(),
             thread_id: Some(thread.clone()),
@@ -220,19 +256,32 @@ pub async fn on_run_finished(st: Shared, sid: blazar_core_types::SessionId, stat
         },
     )
     .await;
+    if ok && let Some(ask) = &brief.ask {
+        push(
+            &st,
+            Item {
+                kind: "question",
+                title: format!("在问你：{}", ask.question),
+                body: String::new(),
+                workspace_id: workspace_id.clone(),
+                thread_id: Some(thread.clone()),
+                session_id: Some(sid.to_string()),
+                ref_id: Some(format!("ask:{sid}")),
+            },
+        )
+        .await;
+    }
     if ok {
-        push_denials(&st, sid, &ws_name, workspace_id, &thread).await;
+        push_denials(&st, sid, workspace_id, &thread).await;
     }
 }
 
 async fn push_denials(
     st: &Shared,
     sid: blazar_core_types::SessionId,
-    ws_name: &str,
     workspace_id: Option<String>,
     thread: &str,
 ) {
-    use blazar_core_types::{EntryKind, Outcome, denial};
     let Ok(events) = st.db.events_since(sid, 0).await else {
         return;
     };
@@ -280,8 +329,8 @@ async fn push_denials(
             Item {
                 kind: "denied",
                 title: match reason {
-                    Some(r) => format!("{ws_name} · 被拦下：{r}"),
-                    None => format!("{ws_name} · 安全检查拦下了一条命令"),
+                    Some(r) => format!("被拦下：{}", denial::reason_label(&r)),
+                    None => "安全检查拦下了一条命令".to_owned(),
                 },
                 body: what,
                 workspace_id: workspace_id.clone(),
@@ -312,7 +361,7 @@ pub async fn list(State(st): State<Shared>, Query(q): Query<ListQuery>) -> Respo
     let resets = crate::failures::RESETS_AT;
     let rows = sqlx::query(&format!(
         "SELECT i.*, w.name AS workspace_name, n.name AS node, s.runtime_kind, s.account_id,
-                s.failure_cause, s.handled_at, {resets} AS resets_at
+                s.failure_cause, s.handled_at, s.ask, {resets} AS resets_at
          FROM inbox i LEFT JOIN workspaces w ON w.id = i.workspace_id
          LEFT JOIN nodes n ON n.id = w.node_id
          LEFT JOIN sessions s ON s.id = i.session_id
@@ -345,6 +394,7 @@ pub async fn list(State(st): State<Shared>, Query(q): Query<ListQuery>) -> Respo
                 "node": s("node"), "runtime": s("runtime_kind"), "account": s("account_id"),
                 "cause": s("failure_cause"), "handled": s("handled_at").is_some(),
                 "resets_at": s("resets_at"),
+                "ask": crate::brief::ask_from_row(r, "ask"),
             })
         })
         .collect();

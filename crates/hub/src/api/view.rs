@@ -167,7 +167,13 @@ pub(crate) async fn snapshot(st: &AppState) -> anyhow::Result<StateSnapshot> {
                 w.diff_added, w.diff_removed, w.diff_files, w.diff_at,
                 n.name AS node, p.name AS project,
                 (SELECT s.id FROM sessions s WHERE s.workspace_id = w.id
-                 ORDER BY s.created_at DESC LIMIT 1) AS session_id
+                 ORDER BY s.created_at DESC LIMIT 1) AS session_id,
+                (SELECT s.summary FROM sessions s WHERE s.workspace_id = w.id
+                 ORDER BY s.created_at DESC LIMIT 1) AS summary,
+                (SELECT s.ask FROM sessions s WHERE s.workspace_id = w.id
+                 ORDER BY s.created_at DESC LIMIT 1) AS ask,
+                (SELECT r.title FROM sessions s JOIN sessions r ON r.id = COALESCE(s.thread_id, s.id)
+                 WHERE s.workspace_id = w.id ORDER BY s.created_at DESC LIMIT 1) AS title
          FROM workspaces w
          JOIN nodes n ON n.id = w.node_id
          LEFT JOIN projects p ON p.id = w.project_id
@@ -178,13 +184,24 @@ pub(crate) async fn snapshot(st: &AppState) -> anyhow::Result<StateSnapshot> {
     let mut assistant = None;
     let mut workspaces: Vec<WorkspaceView> = Vec::with_capacity(rows.len());
     for r in rows {
+        let activity: String = r.try_get("activity").unwrap_or_else(|_| "idle".into());
+        let text = |k: &str| {
+            r.try_get::<Option<String>, _>(k)
+                .unwrap_or(None)
+                .filter(|s| !s.trim().is_empty())
+        };
+        let summary = if matches!(activity.as_str(), "running" | "starting") {
+            text("title")
+        } else {
+            text("summary")
+        };
         let view = WorkspaceView {
             id: r.try_get("id").unwrap_or_default(),
             name: r.try_get("name").unwrap_or_default(),
             node: r.try_get("node").unwrap_or_default(),
             path: r.try_get("path").unwrap_or_default(),
             project: r.try_get("project").unwrap_or(None),
-            activity: r.try_get("activity").unwrap_or_else(|_| "idle".into()),
+            activity,
             last_active_at: r.try_get("last_active_at").unwrap_or(None),
             session_id: r.try_get("session_id").unwrap_or(None),
             diff: match (
@@ -203,6 +220,8 @@ pub(crate) async fn snapshot(st: &AppState) -> anyhow::Result<StateSnapshot> {
             parent: r.try_get("parent_id").unwrap_or(None),
             step: None,
             failure: None,
+            summary,
+            ask: crate::brief::ask_from_row(&r, "ask"),
         };
         if r.try_get::<String, _>("kind").unwrap_or_default() == super::assistant::KIND {
             assistant.get_or_insert(view);

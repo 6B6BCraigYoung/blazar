@@ -153,6 +153,10 @@ pub async fn workspace_sessions(
                    ORDER BY x.created_at DESC LIMIT 1) AS cause,
                 (SELECT x.handled_at IS NOT NULL FROM sessions x WHERE COALESCE(x.thread_id, x.id) = t.thread
                    ORDER BY x.created_at DESC LIMIT 1) AS handled,
+                (SELECT x.summary FROM sessions x WHERE COALESCE(x.thread_id, x.id) = t.thread
+                   ORDER BY x.created_at DESC LIMIT 1) AS summary,
+                (SELECT x.ask FROM sessions x WHERE COALESCE(x.thread_id, x.id) = t.thread
+                   ORDER BY x.created_at DESC LIMIT 1) AS ask,
                 (SELECT COUNT(*) FROM approvals a JOIN sessions x ON x.id = a.session_id
                    WHERE COALESCE(x.thread_id, x.id) = t.thread AND a.decision IS NULL) AS waiting,
                 (SELECT COUNT(*) FROM events e JOIN sessions x ON x.id = e.session_id
@@ -209,6 +213,8 @@ pub async fn workspace_sessions(
                     "created_at": r.try_get::<String, _>("created_at").unwrap_or_default(),
                     "last_at": r.try_get::<Option<String>, _>("last_at").unwrap_or(None),
                     "events": r.try_get::<i64, _>("events").unwrap_or(0),
+                    "summary": r.try_get::<Option<String>, _>("summary").unwrap_or(None).unwrap_or_default(),
+                    "ask": crate::brief::ask_from_row(r, "ask"),
 
                     "titled": stored.is_some(),
                     "title": stored.unwrap_or_else(|| first_line(r.try_get::<Option<String>, _>("first_msg").unwrap_or(None))),

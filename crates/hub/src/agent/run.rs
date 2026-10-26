@@ -661,9 +661,10 @@ async fn finalize(ctx: &Ctx, code: Option<i32>, p: &mut Progress) -> Result<(), 
         ctx.sid,
         status,
     ));
-    ctx.st.services.spawn(crate::inbox::on_run_finished(
+    ctx.st.services.spawn(crate::brief::on_run_finished(
         ctx.st.clone(),
         ctx.sid,
+        ctx.ws,
         status,
     ));
     ctx.st.services.spawn(crate::scripts::on_run_finished(
@@ -955,16 +956,6 @@ async fn triage_approvals(ctx: &Ctx, approvals: &[NewApproval]) {
         let tool = ap.request["tool_name"].as_str().unwrap_or_default();
         let short = tool.rsplit("__").next().unwrap_or(tool);
         let question = short == "AskUserQuestion";
-        let ws_name = sqlx::query_as::<_, (String, String)>(
-            "SELECT w.name, n.name FROM workspaces w JOIN nodes n ON n.id = w.node_id WHERE w.id = ?1",
-        )
-        .bind(&ws)
-        .fetch_optional(ctx.st.db.pool())
-        .await
-        .ok()
-        .flatten()
-        .map(|(name, node)| blazar_core_types::api::workspace_label(&name, &node))
-        .unwrap_or_default();
         let input = &ap.request["input"];
         let what = if question {
             input["questions"][0]["question"]
@@ -991,9 +982,9 @@ async fn triage_approvals(ctx: &Ctx, approvals: &[NewApproval]) {
             crate::inbox::Item {
                 kind: if question { "question" } else { "approval" },
                 title: if question {
-                    format!("{ws_name} · 智能体在问你")
+                    format!("在问你：{what}")
                 } else {
-                    format!("{ws_name} · 等你批准：{short}")
+                    format!("等你批准：{}", approval_line(short, input))
                 },
                 body: what,
                 workspace_id: Some(ws),
@@ -1003,6 +994,48 @@ async fn triage_approvals(ctx: &Ctx, approvals: &[NewApproval]) {
             },
         )
         .await;
+    }
+}
+
+fn basename(path: &str) -> &str {
+    path.trim_end_matches('/')
+        .rsplit('/')
+        .next()
+        .unwrap_or(path)
+}
+
+pub(crate) fn approval_line(short: &str, input: &serde_json::Value) -> String {
+    let field = |k: &str| {
+        input[k]
+            .as_str()
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .map(|v| v.lines().next().unwrap_or_default().to_owned())
+    };
+    if blazar_core_types::denial::is_shell(short) {
+        return match (field("description"), field("command")) {
+            (Some(d), _) => d,
+            (None, Some(c)) => format!("运行 {}", c.chars().take(60).collect::<String>()),
+            (None, None) => "运行一条命令".to_owned(),
+        };
+    }
+    let file = field("file_path")
+        .or_else(|| field("notebook_path"))
+        .or_else(|| field("path"));
+    match short {
+        "Edit" | "MultiEdit" | "Write" | "NotebookEdit" => match file {
+            Some(f) => format!("改 {}", basename(&f)),
+            None => "改一个文件".to_owned(),
+        },
+        "Read" => match file {
+            Some(f) => format!("读 {}", basename(&f)),
+            None => "读一个文件".to_owned(),
+        },
+        "WebFetch" | "WebSearch" => "访问网页".to_owned(),
+        "send_prompt" | "start_task" => "给工作区派活".to_owned(),
+        "job_spawn" | "job_register" => "启动后台任务".to_owned(),
+        "create_workspace" => "新建工作区".to_owned(),
+        other => format!("使用 {other}"),
     }
 }
 

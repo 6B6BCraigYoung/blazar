@@ -70,9 +70,23 @@ impl Row {
 fn needs(state: &str) -> Option<u8> {
     match state {
         "awaiting_approval" => Some(0),
+        "asking" => Some(1),
         "errored" => Some(2),
         _ => None,
     }
+}
+
+#[must_use]
+pub fn card_line(w: &WorkspaceView, state: &str, root: &str) -> StepText {
+    if state == "asking"
+        && let Some(a) = &w.ask
+    {
+        return StepText::plain(a.question.clone());
+    }
+    if let Some(s) = w.summary.as_deref().filter(|s| !s.trim().is_empty()) {
+        return StepText::plain(s.trim());
+    }
+    step_text(w.step.as_ref(), state, root)
 }
 
 fn running(state: &str) -> bool {
@@ -318,6 +332,8 @@ mod tests {
             parent: parent.map(str::to_owned),
             step: None,
             failure: None,
+            summary: None,
+            ask: None,
         }
     }
 
@@ -412,6 +428,31 @@ mod tests {
         assert_eq!(rows[0].group, Group::Running);
         assert_eq!(rows[0].child.as_ref().map(|c| c.id.as_str()), Some("kid"));
         assert_eq!(rows[0].subject().id, "kid");
+    }
+
+    #[test]
+    fn a_card_prefers_the_question_then_the_summary_then_the_step() {
+        let mut w = ws("w", "completed", None, None);
+        w.step = Some(WorkspaceStep {
+            kind: "tool".into(),
+            tool: "Bash".into(),
+            input: serde_json::json!({ "command": "pytest" }),
+            text: String::new(),
+        });
+        assert_eq!(card_line(&w, "running", "").label, "Bash");
+        w.summary = Some("给 /users 加了分页，测试通过".into());
+        assert_eq!(
+            card_line(&w, "idle", ""),
+            StepText::plain("给 /users 加了分页，测试通过")
+        );
+        w.ask = Some(blazar_core_types::api::Ask {
+            question: "正式 hub 要不要一起改？".into(),
+            options: vec![],
+        });
+        assert_eq!(card_line(&w, "asking", "").label, "正式 hub 要不要一起改？");
+        let rows = group_rows(vec![w.clone()], &[w], |_| "asking".to_owned());
+        assert_eq!(rows[0].group, Group::Needs);
+        assert_eq!(rows[0].urgency, 1);
     }
 
     #[test]
