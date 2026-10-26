@@ -116,6 +116,7 @@ pub fn build_router(st: Arc<AppState>) -> Router {
         .route("/api/approvals/{id}", post(api::decide_approval))
         .route("/api/sessions/{id}/input", post(api::session_input))
         .route("/api/sessions/{id}/control", post(api::session_control))
+        .route("/api/sessions/{id}/denials", post(api::decide_denial))
         .route("/api/workspaces/{id}/checkpoints", get(checkpoint::list))
         .route(
             "/api/workspaces/{id}/sessions",
