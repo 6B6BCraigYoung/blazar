@@ -100,6 +100,39 @@ impl Chat {
         });
     }
 
+    pub fn decide_denial(self, sid: String, tool_use_id: String, allow: bool) {
+        let key = format!("{sid}:{tool_use_id}");
+        if !self.denials.write().begin(&key) {
+            return;
+        }
+        self.spawn(async move {
+            let r = api::send::<Value>(
+                "POST",
+                &format!("/api/sessions/{sid}/denials"),
+                &json!({ "tool_use_id": tool_use_id, "allow": allow }),
+            )
+            .await;
+            let recorded = r
+                .as_ref()
+                .is_ok_and(|r| r["recorded"].as_bool() == Some(true));
+            let _ = self.denials.try_update(|d| d.finish(&key, recorded));
+            match r {
+                Ok(r) if recorded => {
+                    if allow && let Some(text) = r["text"].as_str() {
+                        self.send_text(text.to_owned());
+                    }
+                }
+                Ok(r) => toast(
+                    r["reason"]
+                        .as_str()
+                        .unwrap_or("这条操作已经决定过了")
+                        .to_owned(),
+                ),
+                Err(e) => toast(format!("没能记录：{e}")),
+            }
+        });
+    }
+
     pub fn allow_always(self, id: String, request: Value) {
         let ws = self.ws_id();
         self.spawn(async move {

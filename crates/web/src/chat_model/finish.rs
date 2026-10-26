@@ -64,7 +64,11 @@ fn sig_body(b: &Body) -> u64 {
             by_account,
             cause,
         } => (3u8, text, by_account, cause.as_str()).hash(&mut h),
-        Body::Warn { denied } => (4u8, denied).hash(&mut h),
+        Body::Warn {
+            denied,
+            calls,
+            auto,
+        } => (4u8, denied, calls, auto).hash(&mut h),
         Body::Meta { text, bad } => (5u8, text, bad).hash(&mut h),
         Body::Retry {
             why,
@@ -116,7 +120,15 @@ pub(super) fn finish_items(
                     by_account,
                     cause,
                 },
-                BBody::Warn { denied } => Body::Warn { denied },
+                BBody::Warn {
+                    denied,
+                    calls,
+                    auto,
+                } => Body::Warn {
+                    denied,
+                    calls,
+                    auto,
+                },
                 BBody::Meta { text, bad } => Body::Meta { text, bad },
                 BBody::Retry {
                     why,

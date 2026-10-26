@@ -250,3 +250,102 @@ fn rows_that_touch_frozen_items_fall_back_to_a_full_rebuild() {
         same(&inc, &build(&rows, "/w", false)).unwrap();
     }
 }
+
+#[test]
+fn a_late_denial_decision_reaches_a_frozen_card() {
+    let refused = "Permission for this action was denied by the Claude Code auto mode classifier. Reason: [Remote Shell Writes].";
+    let mut rows = vec![
+        row(
+            "s",
+            1,
+            1000,
+            None,
+            false,
+            false,
+            json!({"type":"session_started","provider_session_id":"p","model":"m","cwd":"/w","permission_mode":"auto"}),
+        ),
+        row(
+            "s",
+            2,
+            2000,
+            None,
+            false,
+            false,
+            json!({"type":"user_message","text":"go"}),
+        ),
+        row(
+            "s",
+            3,
+            3000,
+            None,
+            false,
+            false,
+            json!({"type":"tool_use","id":"t1","name":"Bash","input":{"command":"ssh edge.invalid 'systemctl restart x'"}}),
+        ),
+        row(
+            "s",
+            4,
+            4000,
+            None,
+            false,
+            false,
+            json!({"type":"tool_result","id":"t1","ok":false,"content":refused}),
+        ),
+        row(
+            "s",
+            5,
+            5000,
+            None,
+            false,
+            false,
+            json!({"type":"finished","status":"success","denied":["Bash: ssh edge.invalid 'systemctl restart x'"],
+                "denials":[{"tool_name":"Bash","tool_use_id":"t1","input":{"command":"ssh edge.invalid 'systemctl restart x'"}}]}),
+        ),
+    ];
+    let mut m = Model::new("/w");
+    let first = m.update(&rows, 0, false);
+    same(&first, &build(&rows, "/w", false)).unwrap();
+    assert!(m.frozen_rows() >= 5, "frozen {}", m.frozen_rows());
+    rows.push(row(
+        "s",
+        6,
+        6000,
+        None,
+        false,
+        false,
+        json!({"type":"denial_decided","tool_use_id":"t1","allow":true,"by":"craig","what":"ssh edge.invalid 'systemctl restart x'"}),
+    ));
+    let inc = m.update(&rows, 0, false);
+    same(&inc, &build(&rows, "/w", false)).unwrap();
+    let decided = inc.items.iter().any(|i| {
+        matches!(&i.body, Body::Warn { calls, .. } if calls[0].decided == Some((true, "craig".into())))
+    });
+    assert!(decided, "{:#?}", inc.items);
+    for (seq, kind) in [
+        (
+            1,
+            json!({"type":"user_message","text":"我同意执行刚才被拦下的这条命令"}),
+        ),
+        (
+            2,
+            json!({"type":"tool_use","id":"t2","name":"Bash","input":{"command":"ssh edge.invalid 'systemctl restart x'"}}),
+        ),
+        (
+            3,
+            json!({"type":"tool_result","id":"t2","ok":false,"content":refused}),
+        ),
+        (
+            4,
+            json!({"type":"finished","status":"success","denied":["Bash: ssh edge.invalid 'systemctl restart x'"],
+            "denials":[{"tool_name":"Bash","tool_use_id":"t2","input":{"command":"ssh edge.invalid 'systemctl restart x'"}}]}),
+        ),
+    ] {
+        rows.push(row("s2", seq, 7000 + seq as i64, None, false, false, kind));
+        let inc = m.update(&rows, 0, seq < 4);
+        same(&inc, &build(&rows, "/w", seq < 4)).unwrap();
+    }
+    let hard = m.update(&rows, 0, false).items.iter().any(
+        |i| matches!(&i.body, Body::Warn { calls, .. } if calls[0].sid == "s2" && calls[0].hard),
+    );
+    assert!(hard);
+}

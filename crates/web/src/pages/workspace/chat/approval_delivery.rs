@@ -25,6 +25,10 @@ impl ApprovalDeliveries {
         self.delivered.contains(id)
     }
 
+    pub fn busy(&self, id: &str) -> bool {
+        self.pending.contains(id)
+    }
+
     pub fn clear(&mut self) {
         self.delivered.clear();
     }
@@ -39,9 +43,11 @@ mod tests {
         let mut deliveries = ApprovalDeliveries::default();
         assert!(deliveries.begin("approval-a"));
         assert!(!deliveries.contains("approval-a"));
+        assert!(deliveries.busy("approval-a"));
         assert!(!deliveries.begin("approval-a"));
         deliveries.finish("approval-a", false);
         assert!(!deliveries.contains("approval-a"));
+        assert!(!deliveries.busy("approval-a"));
         assert!(deliveries.begin("approval-a"));
         deliveries.finish("approval-a", true);
         assert!(deliveries.contains("approval-a"));

@@ -503,7 +503,13 @@ fn chaos_kind(rng: &mut Prng, i: usize, tools: &mut Vec<String>, elided: bool) -
         9..=11 => {
             let id = existing(rng, tools);
             let ok = rng.chance(0.8);
-            let content = if elided { String::new() } else { text(rng) };
+            let content = if elided {
+                String::new()
+            } else if !ok && rng.chance(0.3) {
+                "Permission for this action was denied by the Claude Code auto mode classifier. Reason: [Destructive Cleanup]. Continue with other work.".to_owned()
+            } else {
+                text(rng)
+            };
             json!({"type":"tool_result","id": id,"ok": ok,"content": content})
         }
         12 => {
@@ -530,12 +536,16 @@ fn chaos_kind(rng: &mut Prng, i: usize, tools: &mut Vec<String>, elided: bool) -
                 } else {
                     json!(text(rng))
                 };
-                let denied = if rng.chance(0.3) {
-                    json!(["Bash(rm)"])
+                let (denied, denials) = if rng.chance(0.3) {
+                    let id = existing(rng, tools);
+                    (
+                        json!(["Bash: rm -rf build"]),
+                        json!([{"tool_name":"Bash","tool_use_id": id,"input":{"command":"rm -rf build"}}]),
+                    )
                 } else {
-                    json!([])
+                    (json!([]), json!([]))
                 };
-                json!({"type":"finished","status":"success","text": t,"usage":{"input":10,"output":5},"denied": denied})
+                json!({"type":"finished","status":"success","text": t,"usage":{"input":10,"output":5},"denied": denied,"denials": denials})
             }
             1 => json!({"type":"finished","status":"interrupted"}),
             _ => {
@@ -547,7 +557,7 @@ fn chaos_kind(rng: &mut Prng, i: usize, tools: &mut Vec<String>, elided: bool) -
                 json!({"type":"finished","status":"failed","message": m})
             }
         },
-        16 => match rng.below(4) {
+        16 => match rng.below(5) {
             0 => {
                 let status =
                     *rng.pick(&["started", "completed", "killed", "running", "stopped"][..]);
@@ -555,6 +565,10 @@ fn chaos_kind(rng: &mut Prng, i: usize, tools: &mut Vec<String>, elided: bool) -
             }
             1 => json!({"type":"notice","message":"note"}),
             2 => json!({"type":"error","message":"bad"}),
+            3 => {
+                let id = existing(rng, tools);
+                json!({"type":"denial_decided","tool_use_id": id,"allow": rng.chance(0.6),"by":"demo","what":"rm -rf build"})
+            }
             _ => json!({"type":"input_consumed","text":"x"}),
         },
         17 => match rng.below(3) {
@@ -564,7 +578,12 @@ fn chaos_kind(rng: &mut Prng, i: usize, tools: &mut Vec<String>, elided: bool) -
                 } else {
                     json!("m1")
                 };
-                json!({"type":"session_started","provider_session_id":"p","model": model,"cwd":null,"permission_mode":null,"mcp_servers":[{"name":"a","status":"connected"}]})
+                let mode = if rng.chance(0.5) {
+                    Value::Null
+                } else {
+                    json!("auto")
+                };
+                json!({"type":"session_started","provider_session_id":"p","model": model,"cwd":null,"permission_mode": mode,"mcp_servers":[{"name":"a","status":"connected"}]})
             }
             1 => json!({"type":"token_usage","input": rng.below(500),"output": rng.below(100)}),
             _ => {

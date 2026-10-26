@@ -527,3 +527,132 @@ fn lost_resume_points_read_as_a_note_and_other_failures_carry_their_cause() {
         }
     ));
 }
+
+const REFUSED: &str = "Permission for this action was denied by the Claude Code auto mode classifier. Reason: [Remote Shell Writes]. If you have other tasks that don't depend on this action, continue working on those.";
+const CMD: &str = "ssh edge.invalid 'systemctl restart demo-agent'";
+
+fn denied_turn(sid: &str, mode: &str, base: u64) -> Vec<Row> {
+    vec![
+        row(
+            sid,
+            base,
+            0,
+            json!({"type":"session_started","provider_session_id":"p","model":"m","cwd":"/w","permission_mode":mode}),
+        ),
+        row(
+            sid,
+            base + 1,
+            0,
+            json!({"type":"user_message","text":"重启 edge.invalid 上的 demo-agent"}),
+        ),
+        row(
+            sid,
+            base + 2,
+            0,
+            json!({"type":"tool_use","id":"t1","name":"Bash","input":{"command":CMD}}),
+        ),
+        row(
+            sid,
+            base + 3,
+            0,
+            json!({"type":"tool_result","id":"t1","ok":false,"content":REFUSED}),
+        ),
+        row(
+            sid,
+            base + 4,
+            0,
+            json!({"type":"finished","status":"success","text":"被拦下了","denied":[format!("Bash: {CMD}")],
+                "denials":[{"tool_name":"Bash","tool_use_id":"t1","input":{"command":CMD}}]}),
+        ),
+    ]
+}
+
+fn warn_of(t: &Transcript) -> (Vec<String>, Vec<DeniedCall>, bool) {
+    t.items
+        .iter()
+        .find_map(|i| match &i.body {
+            Body::Warn {
+                denied,
+                calls,
+                auto,
+            } => Some((denied.clone(), calls.clone(), *auto)),
+            _ => None,
+        })
+        .expect("有被拦下的操作就该有提示")
+}
+
+#[test]
+fn a_classifier_denial_in_auto_mode_becomes_a_card_with_the_full_command_and_reason() {
+    let t = build(&denied_turn("s", "auto", 1), "/w", false);
+    let (denied, calls, auto) = warn_of(&t);
+    assert!(auto);
+    assert_eq!(denied, [format!("Bash: {CMD}")]);
+    assert_eq!(calls.len(), 1);
+    let c = &calls[0];
+    assert_eq!((c.sid.as_str(), c.tool_use_id.as_str()), ("s", "t1"));
+    assert_eq!((c.tool_name.as_str(), c.what.as_str()), ("Bash", CMD));
+    assert_eq!(c.reason.as_deref(), Some("Remote Shell Writes"));
+    assert_eq!(c.detail, REFUSED);
+    assert_eq!((c.decided.clone(), c.hard), (None, false));
+    assert!(c.shell());
+    let manual = build(&denied_turn("s", "acceptEdits", 1), "/w", false);
+    assert!(!warn_of(&manual).2, "别的模式还是老样子");
+}
+
+#[test]
+fn a_decision_marks_the_card_and_a_second_denial_of_the_same_command_is_a_hard_stop() {
+    let mut rows = denied_turn("s", "auto", 1);
+    rows.push(row(
+        "s",
+        6,
+        0,
+        json!({"type":"denial_decided","tool_use_id":"t1","allow":true,"by":"craig","what":CMD}),
+    ));
+    let t = build(&rows, "/w", false);
+    let (_, calls, _) = warn_of(&t);
+    assert_eq!(calls[0].decided, Some((true, "craig".to_owned())));
+    assert!(!calls[0].hard, "第一张卡只是被批准了，不是硬拦截");
+    let mut retry = denied_turn("s2", "auto", 1);
+    retry[1] = row(
+        "s2",
+        2,
+        0,
+        json!({"type":"user_message","text":blazar_core_types::denial::retry_message("Bash", CMD)}),
+    );
+    rows.extend(retry);
+    let t = build(&rows, "/w", false);
+    let cards: Vec<&DeniedCall> = t
+        .items
+        .iter()
+        .filter_map(|i| match &i.body {
+            Body::Warn { calls, .. } => Some(calls),
+            _ => None,
+        })
+        .flatten()
+        .collect();
+    assert_eq!(cards.len(), 2);
+    assert_eq!((cards[0].hard, cards[1].hard), (false, true));
+    assert_eq!(cards[1].sid, "s2");
+    assert_eq!(cards[1].reason.as_deref(), Some("Remote Shell Writes"));
+    let skipped = {
+        let mut r = denied_turn("s", "auto", 1);
+        r.push(row(
+            "s",
+            6,
+            0,
+            json!({"type":"denial_decided","tool_use_id":"t1","allow":false,"by":"craig","what":CMD}),
+        ));
+        r.extend(denied_turn("s2", "auto", 1));
+        build(&r, "/w", false)
+    };
+    let hard: Vec<bool> = skipped
+        .items
+        .iter()
+        .filter_map(|i| match &i.body {
+            Body::Warn { calls, .. } => Some(calls.iter().map(|c| c.hard)),
+            _ => None,
+        })
+        .flatten()
+        .collect();
+    assert_eq!(hard, [false, false], "没批准过的命令再次被拦不算硬拦截");
+}

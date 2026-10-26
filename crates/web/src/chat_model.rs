@@ -207,6 +207,8 @@ pub enum Body {
     },
     Warn {
         denied: Vec<String>,
+        calls: Vec<DeniedCall>,
+        auto: bool,
     },
     Meta {
         text: String,
@@ -222,6 +224,28 @@ pub enum Body {
         turns: usize,
         items: Vec<Item>,
     },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct DeniedCall {
+    pub sid: String,
+    pub tool_use_id: String,
+    pub tool_name: String,
+    pub what: String,
+    pub reason: Option<String>,
+    pub detail: String,
+    pub decided: Option<(bool, String)>,
+    pub hard: bool,
+}
+
+impl DeniedCall {
+    pub fn key(&self) -> String {
+        format!("{}:{}", self.sid, self.tool_use_id)
+    }
+
+    pub fn shell(&self) -> bool {
+        blazar_core_types::denial::is_shell(&self.tool_name)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -8,7 +8,8 @@ use wasm_bindgen::JsCast;
 use wasm_bindgen::closure::Closure;
 
 use crate::chat_model::{
-    Body, Extra, Fold, Group, Item, Res, St, Step, Tool, fmt_tokens, group_sig, group_steps,
+    Body, DeniedCall, Extra, Fold, Group, Item, Res, St, Step, Tool, fmt_tokens, group_sig,
+    group_steps,
 };
 use crate::components::dialog::{self, Choice};
 use crate::components::toast::toast;
@@ -1082,6 +1083,177 @@ fn MsgMenu(
     }
 }
 
+fn warn_view(chat: Chat, denied: Vec<String>, calls: Vec<DeniedCall>, auto: bool) -> AnyView {
+    let listed = move |denied: Vec<String>| {
+        denied
+            .into_iter()
+            .map(|d| view! { <div class="muted">{format!("· {d}")}</div> })
+            .collect_view()
+    };
+    if !auto {
+        return view! {
+            <div class="cc-row cc-warn">
+                <span class="cc-dot"></span>
+                <div class="cc-main">
+                    {format!("有 {} 个操作被拒绝，没有执行：", denied.len())}
+                    {listed(denied)}
+                    <div class="muted small">
+                        "当前权限模式会拒绝这些操作。切换到「自动改文件」或「自动批准」后重试。"
+                    </div>
+                </div>
+            </div>
+        }
+        .into_any();
+    }
+    let (cards, plain): (Vec<DeniedCall>, Vec<DeniedCall>) =
+        calls.into_iter().partition(|c| c.reason.is_some());
+    let rest: Vec<String> = if cards.is_empty() && plain.is_empty() {
+        denied
+    } else {
+        plain
+            .iter()
+            .map(|c| format!("{}: {}", c.tool_name, c.what))
+            .collect()
+    };
+    let place = place_of(chat);
+    view! {
+        <div class="cc-row cc-warn">
+            <span class="cc-dot"></span>
+            <div class="cc-main">
+                {cards
+                    .into_iter()
+                    .map(|c| denial_card(chat, c, place.clone()))
+                    .collect_view()}
+                {(!rest.is_empty())
+                    .then(|| {
+                        view! {
+                            {format!("有 {} 个操作被拒绝，没有执行：", rest.len())}
+                            {listed(rest)}
+                        }
+                    })}
+            </div>
+        </div>
+    }
+    .into_any()
+}
+
+fn place_of(chat: Chat) -> (String, String) {
+    let app = crate::app_state::use_app();
+    let id = chat.ws_id();
+    let node = chat.node.get_value();
+    let name = untrack(|| app.workspace(&id))
+        .map(|w| crate::fmt::ws_title(&w.name, &w.node))
+        .unwrap_or_else(|| "这个工作区".to_owned());
+    (
+        format!(
+            "工作区 {name} · 机器 {}",
+            blazar_core_types::api::machine_label(&node)
+        ),
+        chat.root.get_value(),
+    )
+}
+
+fn denial_card(chat: Chat, c: DeniedCall, place: (String, String)) -> AnyView {
+    let key = c.key();
+    let noun = if c.shell() {
+        "这条命令"
+    } else {
+        "这个操作"
+    };
+    let state = if c.hard {
+        "hard"
+    } else {
+        match c.decided {
+            Some((true, _)) => "allowed",
+            Some((false, _)) => "skipped",
+            None => "open",
+        }
+    };
+    let head = match (state, &c.decided) {
+        ("hard", _) => format!("{noun}属于安全边界，批准也不放行"),
+        ("allowed", Some((_, by))) => {
+            format!("安全检查拦下了{noun} · 已允许这一次（{by}），已作为你的消息重发")
+        }
+        ("skipped", _) => format!("安全检查拦下了{noun} · 已跳过"),
+        _ => format!("安全检查拦下了{noun}，没有执行"),
+    };
+    let k = key.clone();
+    let busy = Memo::new(move |_| chat.denials.with(|d| d.busy(&k)));
+    let done = RwSignal::new(false);
+    let what = c.what.clone();
+    let (sid_a, tid_a) = (c.sid.clone(), c.tool_use_id.clone());
+    let (sid_n, tid_n) = (c.sid.clone(), c.tool_use_id.clone());
+    let reason = c.reason.clone();
+    let detail = c.detail.clone();
+    let hard = c.hard;
+    let (where_, root) = place;
+    view! {
+        <div class="cc-deny" data-state=state>
+            <div class="cd-head">{head}</div>
+            <div class="cd-cmd">
+                <pre class="acmd">{c.what.clone()}</pre>
+                {hard
+                    .then(|| {
+                        view! {
+                            <button
+                                type="button"
+                                class="cc-copy"
+                                aria-label="复制命令"
+                                title="复制"
+                                data-done=move || done.get().to_string()
+                                inner_html=COPY
+                                on:click=move |_| copy(what.clone(), done)
+                            ></button>
+                        }
+                    })}
+            </div>
+            <div class="cd-meta">
+                <span title=root>{where_}</span>
+                {reason.map(|r| view! { <span>{format!("原因：[{r}]")}</span> })}
+            </div>
+            {(!detail.is_empty())
+                .then(|| {
+                    view! {
+                        <details class="ui-detail">
+                            <summary>"拦截说明"</summary>
+                            <pre>{detail}</pre>
+                        </details>
+                    }
+                })}
+            {(state == "open")
+                .then(|| {
+                    view! {
+                        <div class="cd-acts">
+                            <button
+                                type="button"
+                                class="btn primary"
+                                disabled=move || busy.get()
+                                on:click=move |_| chat.decide_denial(sid_a.clone(), tid_a.clone(), true)
+                            >
+                                "允许这一次并重试"
+                            </button>
+                            <button
+                                type="button"
+                                class="btn ghost"
+                                disabled=move || busy.get()
+                                on:click=move |_| chat.decide_denial(sid_n.clone(), tid_n.clone(), false)
+                            >
+                                "不用了"
+                            </button>
+                        </div>
+                    }
+                })}
+            {hard
+                .then(|| {
+                    view! {
+                        <div class="cd-note">"要做的话，把命令复制到终端里自己运行。"</div>
+                    }
+                })}
+        </div>
+    }
+    .into_any()
+}
+
 fn error_view(chat: Chat, text: String, by_account: bool) -> AnyView {
     let switch = move |_| {
         chat.spawn(async move {
@@ -1245,22 +1417,11 @@ fn item_view(it: Item, chat: Chat, opened: Opened, ws: String, copyable: bool) -
         Body::Error {
             text, by_account, ..
         } => error_view(chat, text, by_account),
-        Body::Warn { denied } => view! {
-            <div class="cc-row cc-warn">
-                <span class="cc-dot"></span>
-                <div class="cc-main">
-                    {format!("有 {} 个操作被拒绝，没有执行：", denied.len())}
-                    {denied
-                        .into_iter()
-                        .map(|d| view! { <div class="muted">{format!("· {d}")}</div> })
-                        .collect_view()}
-                    <div class="muted small">
-                        "当前权限模式会拒绝这些操作。切换到「自动改文件」或「自动批准」后重试。"
-                    </div>
-                </div>
-            </div>
-        }
-        .into_any(),
+        Body::Warn {
+            denied,
+            calls,
+            auto,
+        } => warn_view(chat, denied, calls, auto),
         Body::Meta { text, bad } => view! {
             <div class="cc-meta" class:bad=bad>
                 {text}

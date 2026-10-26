@@ -348,6 +348,15 @@ impl Chat {
         self.send_request(Value::Object(body));
     }
 
+    pub fn send_text(self, text: String) {
+        let mut body = self.send_options();
+        body.insert("text".into(), json!(text));
+        body.insert("resume_session".into(), json!(self.view.get_untracked()));
+        body.insert("images".into(), json!([]));
+        body.insert("wait_secs".into(), json!(20));
+        self.send_request(Value::Object(body));
+    }
+
     pub fn retry_failed(self, id: u32) {
         let request = self.deliveries.write().take_failed(id);
         if let Some(request) = request {

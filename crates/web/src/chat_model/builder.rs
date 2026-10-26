@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use blazar_core_types::failure::FailureCause;
-use blazar_core_types::{EntryKind, McpServerStatus, Outcome, RateLimitWindow};
+use blazar_core_types::{EntryKind, McpServerStatus, Outcome, RateLimitWindow, denial};
 use serde_json::Value;
 
 use super::approvals::{appr_kind_label, decision_text};
@@ -12,7 +12,7 @@ use super::tools::{
     raw_output, result_of, s, shell_display, shell_result, short, todos_of, tool_name, tool_title,
     write_preview,
 };
-use super::{Extra, Item, Pending, Res, Row, St, Todo, Tool, Transcript};
+use super::{DeniedCall, Extra, Item, Pending, Res, Row, St, Todo, Tool, Transcript};
 
 fn est_tokens(s: &str) -> u64 {
     let (wide, narrow) = s.chars().fold((0u64, 0u64), |(w, n), c| {
@@ -104,6 +104,8 @@ pub(super) enum BBody {
     },
     Warn {
         denied: Vec<String>,
+        calls: Vec<DeniedCall>,
+        auto: bool,
     },
     Meta {
         text: String,
@@ -135,6 +137,8 @@ struct Carry {
     todos: Option<Vec<Todo>>,
     mcp: Vec<McpServerStatus>,
     rate: Vec<RateLimitWindow>,
+    mode: String,
+    refusals: HashMap<String, String>,
 }
 
 #[derive(Default)]
@@ -146,6 +150,9 @@ struct Frozen {
     tools: HashSet<String>,
     approvals: HashSet<String>,
     resolved: HashMap<String, String>,
+    denials: HashSet<String>,
+    decisions: HashMap<String, (bool, String)>,
+    cleared: HashSet<String>,
     seen: HashSet<String>,
     bg: HashMap<String, String>,
     carry: Carry,
@@ -187,6 +194,8 @@ struct Builder<'a> {
     bg: HashMap<String, String>,
     bg_order: Vec<(String, String)>,
     resolved: HashMap<String, String>,
+    decisions: HashMap<String, (bool, String)>,
+    cleared: HashSet<String>,
     pending: Vec<Pending>,
     bail: bool,
     mark: Option<Mark>,
@@ -211,6 +220,7 @@ fn kind_name(k: &EntryKind) -> &'static str {
         EntryKind::Notice { .. } => "notice",
         EntryKind::ApiRetry { .. } => "api_retry",
         EntryKind::BackgroundTask { .. } => "background_task",
+        EntryKind::DenialDecided { .. } => "denial_decided",
         EntryKind::Finished(_) => "finished",
         EntryKind::Progress { .. } => "progress",
     }
@@ -234,6 +244,8 @@ impl<'a> Builder<'a> {
             bg: HashMap::new(),
             bg_order: Vec::new(),
             resolved: HashMap::new(),
+            decisions: HashMap::new(),
+            cleared: HashSet::new(),
             pending: Vec::new(),
             bail: false,
             mark: None,
@@ -243,12 +255,27 @@ impl<'a> Builder<'a> {
     fn prepare(&mut self, rows: &[Row]) {
         self.len = rows.len();
         for r in rows {
-            if let EntryKind::ApprovalResolved { id, decision } = &r.kind {
-                let id = id.to_string();
-                if self.base.approvals.contains(&id) {
-                    self.bail = true;
+            match &r.kind {
+                EntryKind::ApprovalResolved { id, decision } => {
+                    let id = id.to_string();
+                    if self.base.approvals.contains(&id) {
+                        self.bail = true;
+                    }
+                    self.resolved.insert(id, decision_text(decision));
                 }
-                self.resolved.insert(id, decision_text(decision));
+                EntryKind::DenialDecided {
+                    tool_use_id,
+                    allow,
+                    by,
+                    ..
+                } => {
+                    if self.base.denials.contains(tool_use_id) {
+                        self.bail = true;
+                    }
+                    self.decisions
+                        .insert(tool_use_id.clone(), (*allow, by.clone()));
+                }
+                _ => {}
             }
         }
     }
@@ -282,6 +309,25 @@ impl<'a> Builder<'a> {
 
     fn resolution(&self, id: &str) -> Option<&String> {
         self.resolved.get(id).or_else(|| self.base.resolved.get(id))
+    }
+
+    fn decision(&self, tool_use_id: &str) -> Option<(bool, String)> {
+        self.decisions
+            .get(tool_use_id)
+            .or_else(|| self.base.decisions.get(tool_use_id))
+            .cloned()
+    }
+
+    fn was_cleared(&self, what: &str) -> bool {
+        self.cleared.contains(what) || self.base.cleared.contains(what)
+    }
+
+    fn note_refusal(&mut self, id: &str, ok: bool, content: &str) {
+        if !ok && denial::reason_of(content).is_some() {
+            self.carry
+                .refusals
+                .insert(id.to_owned(), content.to_owned());
+        }
     }
 
     fn seen_session(&self, sid: &str) -> bool {
@@ -448,6 +494,7 @@ impl<'a> Builder<'a> {
                 | "rate_limit"
                 | "input_consumed"
                 | "approval_resolved"
+                | "denial_decided"
                 | "session_started"
                 | "approval"
         ) || matches!(&r.kind, EntryKind::AssistantMessage { text } if text.trim().is_empty())
@@ -468,6 +515,7 @@ impl<'a> Builder<'a> {
                 let text = shell_display(text);
                 self.carry.turn_tokens.clear();
                 self.carry.turn_est = 0;
+                self.carry.refusals.clear();
                 let first = !self.seen_session(&r.session_id) && !r.rewound;
                 if self.seen.insert(r.session_id.clone()) {
                     self.seen_order.push(r.session_id.clone());
@@ -517,6 +565,7 @@ impl<'a> Builder<'a> {
             EntryKind::ToolResult {
                 id, ok, content, ..
             } => {
+                self.note_refusal(&id.0, *ok, content);
                 if let Some(t) = self.tool_index(&id.0) {
                     self.finish_tool(t, *ok, content, r.ts);
                 } else if !self.bail
@@ -541,8 +590,18 @@ impl<'a> Builder<'a> {
                 }
             }
             EntryKind::ApprovalResolved { .. } | EntryKind::InputConsumed { .. } => {}
-            EntryKind::SessionStarted { mcp_servers, .. } => {
+            EntryKind::DenialDecided { allow, what, .. } => {
+                if *allow {
+                    self.cleared.insert(what.clone());
+                }
+            }
+            EntryKind::SessionStarted {
+                mcp_servers,
+                permission_mode,
+                ..
+            } => {
                 self.carry.mcp = mcp_servers.clone();
+                self.carry.mode = permission_mode.clone().unwrap_or_default();
             }
             EntryKind::TokenUsage(_) => {}
             EntryKind::Progress {
@@ -615,7 +674,7 @@ impl<'a> Builder<'a> {
                     );
                 }
             }
-            EntryKind::Finished(out) => self.finished(key, out),
+            EntryKind::Finished(out) => self.finished(key, &r.session_id, out),
         }
     }
 
@@ -724,6 +783,7 @@ impl<'a> Builder<'a> {
             EntryKind::ToolResult {
                 id, ok, content, ..
             } => {
+                self.note_refusal(&id.0, *ok, content);
                 if let Some(t) = self.tool_index(&id.0) {
                     self.finish_tool(t, *ok, content, r.ts);
                 }
@@ -740,7 +800,7 @@ impl<'a> Builder<'a> {
         }
     }
 
-    fn finished(&mut self, key: String, out: &Outcome) {
+    fn finished(&mut self, key: String, sid: &str, out: &Outcome) {
         let interrupted = matches!(out, Outcome::Interrupted);
 
         for t in &mut self.tools {
@@ -758,18 +818,47 @@ impl<'a> Builder<'a> {
                 },
             ),
             Outcome::Failed { message } => self.push_error(key, message),
-            Outcome::Success { text, denied, .. } => {
+            Outcome::Success {
+                text,
+                denied,
+                denials,
+                ..
+            } => {
                 if let Some(t) = text
                     .as_ref()
                     .filter(|t| !t.trim().is_empty() && t.trim() != self.carry.last_text)
                 {
                     self.push(format!("{key}:text"), BBody::Assistant { text: t.clone() });
                 }
-                if !denied.is_empty() {
+                if !denied.is_empty() || !denials.is_empty() {
+                    let calls = denials
+                        .iter()
+                        .map(|d| {
+                            let what = d.what();
+                            let detail = self
+                                .carry
+                                .refusals
+                                .get(&d.tool_use_id)
+                                .cloned()
+                                .unwrap_or_default();
+                            DeniedCall {
+                                sid: sid.to_owned(),
+                                tool_use_id: d.tool_use_id.clone(),
+                                tool_name: d.tool_name.clone(),
+                                reason: denial::reason_of(&detail),
+                                detail,
+                                decided: self.decision(&d.tool_use_id),
+                                hard: self.was_cleared(&what),
+                                what,
+                            }
+                        })
+                        .collect();
                     self.push(
                         format!("{key}:denied"),
                         BBody::Warn {
                             denied: denied.clone(),
+                            calls,
+                            auto: self.carry.mode == "auto",
                         },
                     );
                 }
@@ -928,6 +1017,22 @@ impl Model {
                 }
                 EntryKind::ApprovalResolved { id, decision } => {
                     f.resolved.insert(id.to_string(), decision_text(decision));
+                }
+                EntryKind::DenialDecided {
+                    tool_use_id,
+                    allow,
+                    by,
+                    what,
+                } => {
+                    f.decisions
+                        .insert(tool_use_id.clone(), (*allow, by.clone()));
+                    if *allow {
+                        f.cleared.insert(what.clone());
+                    }
+                }
+                EntryKind::Finished(Outcome::Success { denials, .. }) => {
+                    f.denials
+                        .extend(denials.iter().map(|d| d.tool_use_id.clone()));
                 }
                 _ => {}
             }
