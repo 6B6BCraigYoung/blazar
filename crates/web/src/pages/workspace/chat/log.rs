@@ -1235,7 +1235,11 @@ fn denial_card(chat: Chat, c: DeniedCall, place: (String, String)) -> AnyView {
     let (where_, root) = place;
     view! {
         <div class="cc-deny" data-state=state>
-            <div class="cd-head">{head}</div>
+            <div class="cd-head">
+                {hard.then(|| view! { <span class="dot" data-tone="failed" aria-hidden="true"></span> })}
+                {head}
+            </div>
+
             <div class="cd-cmd">
                 <pre class="acmd">{c.what.clone()}</pre>
                 {hard

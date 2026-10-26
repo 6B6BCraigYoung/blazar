@@ -174,7 +174,7 @@
 .cc-deny { display: flex; flex-direction: column; gap: var(--space-sm); margin: 0 0 var(--space-sm); padding: var(--space-control) var(--space-lg); border: 1px solid var(--border); border-radius: var(--r-md); background: var(--bg-panel); box-shadow: var(--shadow-composer); color: var(--fg); }
 .cc-deny:last-child { margin-bottom: 0; }
 .cd-head { font-size: var(--font-size-body); color: var(--fg); }
-.cc-deny[data-state="hard"] .cd-head { color: var(--status-failed); }
+.cc-deny[data-state="hard"] .cd-head { display: flex; align-items: center; gap: var(--space-sm); color: var(--fg-3); }
 .cd-cmd { display: flex; align-items: flex-start; gap: var(--space-sm); }
 .cd-cmd .acmd { flex: 1; min-width: 0; max-height: 240px; }
 .cd-cmd .cc-copy { margin-top: var(--space-xs); }
