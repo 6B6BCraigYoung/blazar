@@ -867,6 +867,9 @@ def ui(cmd):
 
 
 def try_ui(cmd):
+    if cmd.get("optional") and cmd.get("selector") and not any(
+            t["shown"] for t in ui({"action": "text", "selector": cmd["selector"]})["texts"]):
+        return {"skipped": True}
     try:
         return ui(cmd)
     except RuntimeError as e:
@@ -1049,7 +1052,7 @@ RESTORE = {"action": "click", "selector": "button[aria-label=\"还原检查器\"
 CLOSE_INSPECTOR = {"action": "click", "selector": "button[aria-label=\"关闭检查器\"]", "optional": True}
 OPEN_FILES = {"action": "click", "selector": ".ws-head button[aria-label=\"文件\"][aria-pressed=\"false\"]", "optional": True}
 EDITOR_TAB = {"action": "click", "selector": ".ws-insp .rtabs .rtab:first-child", "optional": True}
-CLOSE_FILES = {"action": "click", "selector": "button[aria-label=\"收起文件\"]", "optional": True}
+CLOSE_FILES = {"action": "click", "selector": ".ws-head button[aria-label=\"文件\"][aria-pressed=\"true\"]", "optional": True}
 CLOSE_TERM = {"action": "click", "selector": "button[aria-label=\"收起终端\"]", "optional": True}
 PREVIEW_KEY = {"action": "key", "key": "P", "code": "KeyP", "meta": True, "shift": True, "selector": "body"}
 CHANGES = {"action": "click", "selector": "button.ws-changes"}
