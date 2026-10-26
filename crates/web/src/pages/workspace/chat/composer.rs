@@ -916,10 +916,10 @@ pub fn Composer(
                         view! {
                             <div class="cb-band queue">
                                 <div class="cq-h">
-                                    <b>"Failed to send"</b>
+                                    <b>"没有发出去"</b>
                                     <span class="grow"></span>
                                     <button class="linkbtn" on:click=move |_| chat.retry_failed(id)>
-                                        "Retry"
+                                        "重试"
                                     </button>
                                     <button
                                         class="linkbtn"
@@ -927,16 +927,16 @@ pub fn Composer(
                                             failed_edit.set(Some((id, request.clone())))
                                         }
                                     >
-                                        "Edit"
+                                        "编辑"
                                     </button>
                                     <button
                                         class="linkbtn"
                                         on:click=move |_| {
                                             chat.spawn(async move {
                                                 if dialog::ask(
-                                                        "Discard message?",
-                                                        "This message was not sent. Discarding it cannot be undone.",
-                                                        vec![Choice::plain("Cancel"), Choice::danger("Discard")],
+                                                        "丢弃这条消息？",
+                                                        "这条消息没有发出去，丢弃后找不回来。",
+                                                        vec![Choice::plain("取消"), Choice::danger("丢弃")],
                                                     )
                                                     .await == Some(1)
                                                 {
@@ -947,12 +947,12 @@ pub fn Composer(
                                             })
                                         }
                                     >
-                                        "Discard"
+                                        "丢弃"
                                     </button>
                                 </div>
                                 <div class="cq-t">
                                     {text}
-                                    {(images > 0).then(|| format!(" · {images} attachments"))}
+                                    {(images > 0).then(|| format!(" · {images} 个附件"))}
                                 </div>
                             </div>
                         }
