@@ -196,6 +196,7 @@ fn live_fold_and_pending_approval() {
             more: 0,
             added: 1,
             removed: 1,
+            start: None,
         }
     );
 

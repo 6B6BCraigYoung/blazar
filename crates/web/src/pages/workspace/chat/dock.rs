@@ -9,7 +9,7 @@ use wasm_bindgen::JsCast;
 use crate::chat_model::{self, ApprovalKey, Extra, Pending};
 use crate::components::toast::toast;
 
-use super::log::{Md, ws_chip};
+use super::log::{Md, diff_rows, diff_style, file_head, file_rows, more_row, ws_chip};
 use super::state::Chat;
 
 const CHEVRON: &str = r#"<svg viewBox="0 0 16 16"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>"#;
@@ -267,35 +267,39 @@ fn ApprovalCard(chat: Chat, p: Pending) -> impl IntoView {
         view! {
             <pre class="acmd">{what}</pre>
             {match diff {
-                Extra::Diff { rows, more, .. } => {
+                Extra::Diff {
+                    rows,
+                    more,
+                    added,
+                    start,
+                    ..
+                } if tn == "Write" => {
                     Some(
                         view! {
-                            <div class="cc-diff">
-                                {rows
-                                    .into_iter()
-                                    .map(|(c, l)| {
-                                        view! {
-                                            <div class=match c {
-                                                '+' => "dadd",
-                                                '-' => "ddel",
-                                                _ => "dgap",
-                                            }>
-                                                <span class="dm">
-                                                    {if c == '-' { "−".to_owned() } else { c.to_string() }}
-                                                </span>
-                                                {l}
-                                            </div>
-                                        }
-                                    })
-                                    .collect_view()}
-                                {(more > 0)
-                                    .then(|| {
-                                        view! {
-                                            <div class="dgap">{format!("… 还有 {more} 行")}</div>
-                                        }
-                                    })}
+                            <div class="cc-new" style=diff_style(&rows, start)>
+                                {file_head(added)}
+                                {file_rows(&rows)}
+                                {more_row(more)}
                             </div>
-                        },
+                        }
+                            .into_any(),
+                    )
+                }
+                Extra::Diff {
+                    rows, more, start, ..
+                } => {
+                    Some(
+                        view! {
+                            <div
+                                class="cc-diff"
+                                style=diff_style(&rows, start)
+                                data-ln=start.is_some().to_string()
+                            >
+                                {diff_rows(&rows, start)}
+                                {more_row(more)}
+                            </div>
+                        }
+                            .into_any(),
                     )
                 }
                 _ => None,

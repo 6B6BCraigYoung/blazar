@@ -130,6 +130,7 @@ pub enum Extra {
         more: usize,
         added: usize,
         removed: usize,
+        start: Option<u32>,
     },
     Files(Vec<String>),
     Plan(String),

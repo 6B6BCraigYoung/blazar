@@ -8,8 +8,8 @@ use serde_json::Value;
 use super::approvals::{appr_kind_label, decision_text};
 use super::finish::finish_items;
 use super::tools::{
-    SHELL_TOOLS, command_of, edit_diff, fleet_target, fleet_words, is_fleet, raw_input, raw_output,
-    result_of, s, shell_display, shell_result, short, todos_of, tool_name, tool_title,
+    SHELL_TOOLS, command_of, edit_diff, edit_start, fleet_target, fleet_words, is_fleet, raw_input,
+    raw_output, result_of, s, shell_display, shell_result, short, todos_of, tool_name, tool_title,
     write_preview,
 };
 use super::{Extra, Item, Pending, Res, Row, St, Todo, Tool, Transcript};
@@ -682,6 +682,13 @@ impl<'a> Builder<'a> {
         self.set_state(t, if ok { St::Ok } else { St::Err });
         self.tools[t].tool.result = res;
         self.tools[t].tool.ms = ms;
+        if ok
+            && self.tools[t].tool.name == "Edit"
+            && let Extra::Diff { rows, start, .. } = &mut self.tools[t].tool.extra
+            && start.is_none()
+        {
+            *start = edit_start(content, rows);
+        }
         if let Some(raw) = self.tools[t].tool.raw.as_mut()
             && !raw.contains("\n输出\n")
         {

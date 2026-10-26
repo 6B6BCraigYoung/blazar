@@ -228,40 +228,115 @@ fn result_view(r: Res, key: String, opened: Opened) -> impl IntoView {
 
 const DIFF_PEEK: usize = 6;
 
-fn diff_view(rows: Vec<(char, String)>, more: usize, opened: Opened, key: String) -> impl IntoView {
+fn number_width(last: usize) -> String {
+    format!("--dn:{}ch", last.max(1).to_string().len().max(2))
+}
+
+pub(super) fn diff_style(rows: &[(char, String)], start: Option<u32>) -> Option<String> {
+    let added = rows.iter().filter(|r| r.0 == '+').count();
+    start.map(|s| number_width(s as usize + added.saturating_sub(1)))
+}
+
+pub(super) fn diff_rows(rows: &[(char, String)], start: Option<u32>) -> impl IntoView + use<> {
+    let mut next = start;
+    rows.iter()
+        .map(|(c, l)| {
+            let (cls, mark) = match c {
+                '+' => ("dadd", "+"),
+                '-' => ("ddel", "−"),
+                _ => ("dgap", ""),
+            };
+            let num = (*c == '+').then_some(next).flatten().map(|n| n.to_string());
+            if *c == '+' {
+                next = next.map(|n| n + 1);
+            }
+            let text = if *c == '⋯' {
+                "⋯".to_owned()
+            } else {
+                l.clone()
+            };
+            view! {
+                <div class=cls>
+                    {start.map(|_| view! { <span class="dn">{num}</span> })}
+                    <span class="dm">{mark}</span>
+                    <span class="dt">{text}</span>
+                </div>
+            }
+        })
+        .collect_view()
+}
+
+pub(super) fn file_rows(rows: &[(char, String)]) -> impl IntoView + use<> {
+    rows.iter()
+        .enumerate()
+        .map(|(i, (_, l))| {
+            view! {
+                <div class="dnew">
+                    <span class="dn">{(i + 1).to_string()}</span>
+                    <span class="dt">{l.clone()}</span>
+                </div>
+            }
+        })
+        .collect_view()
+}
+
+pub(super) fn file_head(added: usize) -> impl IntoView {
+    view! {
+        <div class="dnh">
+            <span>"新文件"</span>
+            <i class="ok">{format!("+{added}")}</i>
+        </div>
+    }
+}
+
+pub(super) fn more_row(more: usize) -> Option<impl IntoView> {
+    (more > 0).then(|| view! { <div class="dmore">{format!("… 还有 {more} 行")}</div> })
+}
+
+fn diff_view(
+    rows: Vec<(char, String)>,
+    more: usize,
+    start: Option<u32>,
+    fresh: Option<usize>,
+    opened: Opened,
+    key: String,
+) -> impl IntoView {
     let all = RwSignal::new(opened.is(&key));
     let hidden = rows.len().saturating_sub(DIFF_PEEK);
+    let style = match fresh {
+        Some(added) => Some(number_width(added)),
+        None => diff_style(&rows, start),
+    };
     let rows = StoredValue::new(rows);
-    let line = |(c, l): &(char, String)| {
-        let cls = match c {
-            '+' => "dadd",
-            '-' => "ddel",
-            _ => "dgap",
-        };
-        view! {
-            <div class=cls>
-                <span class="dm">
-                    {match *c {
-                        '⋯' => ' ',
-                        '-' => '−',
-                        c => c,
-                    }}
-                </span>
-                {if *c == '⋯' { "⋯".to_owned() } else { l.clone() }}
+    let shown = move || {
+        let n = if all.get() { usize::MAX } else { DIFF_PEEK };
+        rows.with_value(|r| r[..n.min(r.len())].to_vec())
+    };
+    let tail = move || (all.get() && more > 0).then(|| more_row(more));
+    let block = match fresh {
+        Some(added) => view! {
+            <div class="cc-new" style=style title="在「更改」里查看">
+                {file_head(added)}
+                {move || file_rows(&shown())}
+                {tail}
             </div>
         }
+        .into_any(),
+        None => view! {
+            <div
+                class="cc-diff"
+                style=style
+                data-ln=start.is_some().to_string()
+                title="在「更改」里查看"
+            >
+                {move || diff_rows(&shown(), start)}
+                {tail}
+            </div>
+        }
+        .into_any(),
     };
     view! {
-        <div class="cc-diff" title="在「更改」里查看">
-            {move || {
-                let n = if all.get() { usize::MAX } else { DIFF_PEEK };
-                rows.with_value(|r| r.iter().take(n).map(line).collect_view())
-            }}
-            {move || {
-                (all.get() && more > 0)
-                    .then(|| view! { <div class="dgap">{format!("… 还有 {more} 行")}</div> })
-            }}
-        </div>
+        {block}
         {move || {
             (hidden > 0 && !all.get())
                 .then(|| {
@@ -282,7 +357,7 @@ fn diff_view(rows: Vec<(char, String)>, more: usize, opened: Opened, key: String
     }
 }
 
-fn extra_view(e: &Extra, opened: Opened, key: &str, ws: &str) -> AnyView {
+fn extra_view(e: &Extra, fresh: Option<usize>, opened: Opened, key: &str, ws: &str) -> AnyView {
     match e {
         Extra::None => ().into_any(),
         Extra::Cmd(c) => view! {
@@ -292,9 +367,17 @@ fn extra_view(e: &Extra, opened: Opened, key: &str, ws: &str) -> AnyView {
         }
         .into_any(),
         Extra::Todos(list) => todo_list(list).into_any(),
-        Extra::Diff { rows, more, .. } => {
-            diff_view(rows.clone(), *more, opened, format!("diff:{key}")).into_any()
-        }
+        Extra::Diff {
+            rows, more, start, ..
+        } => diff_view(
+            rows.clone(),
+            *more,
+            *start,
+            fresh,
+            opened,
+            format!("diff:{key}"),
+        )
+        .into_any(),
         Extra::Files(f) => view! {
             <div class="cc-diff">
                 {f.iter().map(|x| view! { <div class="dh">{x.clone()}</div> }).collect_view()}
@@ -442,6 +525,10 @@ fn tool_view(t: Tool, chat: Chat, opened: Opened, ws: String) -> AnyView {
         }
         _ => None,
     };
+    let fresh = match (&t.extra, t.name.as_str()) {
+        (Extra::Diff { added, .. }, "Write") => Some(*added),
+        _ => None,
+    };
     let open = matches!(
         t.name.as_str(),
         "Read" | "Write" | "Edit" | "MultiEdit" | "NotebookEdit"
@@ -490,7 +577,7 @@ fn tool_view(t: Tool, chat: Chat, opened: Opened, ws: String) -> AnyView {
                             }
                         })}
                 </div>
-                {extra_view(&t.extra, opened, &t.id, &ws)}
+                {extra_view(&t.extra, fresh, opened, &t.id, &ws)}
                 {sub}
                 <div class="cc-res">
                     {t.result.map(|r| result_view(r, format!("res:{}", t.id), opened))}
@@ -1493,7 +1580,7 @@ pub fn Log(chat: Chat, tick: RwSignal<u32>, log_h: RwSignal<f64>) -> impl IntoVi
                 _ => (p, 0),
             };
             chat.files.open(path, line);
-        } else if find(".cc-tool[data-name] .cc-diff").is_some() {
+        } else if find(".cc-tool[data-name] :is(.cc-diff, .cc-new)").is_some() {
             chat.show_diff.run(());
         }
     };

@@ -313,7 +313,26 @@ pub fn write_preview(input: &Value) -> Extra {
         more: lines.len().saturating_sub(DIFF_MAX),
         added: lines.len(),
         removed: 0,
+        start: Some(1),
     }
+}
+
+pub fn edit_start(result: &str, rows: &[(char, String)]) -> Option<u32> {
+    let first = rows.iter().find(|r| r.0 == '+').map(|r| r.1.as_str())?;
+    let numbered = result.lines().filter_map(|l| {
+        let (n, text) = l.split_once('\t')?;
+        Some((n.trim().parse::<u32>().ok()?, text))
+    });
+    let mut hit = None;
+    for (n, text) in numbered {
+        if text == first {
+            if hit.is_some() {
+                return None;
+            }
+            hit = Some(n);
+        }
+    }
+    hit
 }
 
 pub fn edit_diff(input: &Value, root: &str) -> Extra {
@@ -368,6 +387,7 @@ pub fn edit_diff(input: &Value, root: &str) -> Extra {
         more,
         added,
         removed,
+        start: None,
     }
 }
 
@@ -901,9 +921,18 @@ mod tests {
             Extra::Diff {
                 added: 2,
                 removed: 0,
+                start: Some(1),
                 ..
             }
         ));
+        let rows = [('-', "old".to_owned()), ('+', "new line".to_owned())];
+        let snippet = "The file a.py has been updated. Here's the result of running `cat -n` on a snippet of the edited file:\n    11\tctx\n    12\tnew line\n    13\tafter";
+        assert_eq!(edit_start(snippet, &rows), Some(12));
+        assert_eq!(edit_start("The file a.py has been updated.", &rows), None);
+        assert_eq!(
+            edit_start("     1\tnew line\n     2\tnew line", &rows),
+            None
+        );
         let (_, arg) = tool_title(
             "Bash",
             &json!({"command":"cd a\nmake","description":"build"}),
