@@ -76,6 +76,9 @@ pub struct DiffState {
     pub prefs: RwSignal<Prefs>,
     pub comments: RwSignal<Vec<Comment>>,
     pub reload: RwSignal<u32>,
+    pub loaded: RwSignal<u32>,
+    pub focus: RwSignal<Option<(String, u32, u32)>>,
+    pub mark: RwSignal<Option<(String, u32)>>,
 }
 
 impl DiffState {
@@ -90,7 +93,16 @@ impl DiffState {
             prefs: RwSignal::new(storage::load(PREFS_KEY).unwrap_or_default()),
             comments: RwSignal::new(storage::load(&review_key(ws)).unwrap_or_default()),
             reload: RwSignal::new(0),
+            loaded: RwSignal::new(0),
+            focus: RwSignal::new(None),
+            mark: RwSignal::new(None),
         }
+    }
+
+    pub fn locate(self, path: String, line: u32) {
+        self.focus
+            .set(Some((path, line, self.loaded.get_untracked())));
+        self.reload.update(|n| *n += 1);
     }
 
     fn set_prefs(self, f: impl FnOnce(&mut Prefs)) {
@@ -173,6 +185,7 @@ pub fn keep_loaded(ws: String, d: DiffState, git: Git, state: LayoutState) {
                 }
             }
             let _ = d.base.try_set(base);
+            let _ = d.loaded.try_update(|n| *n += 1);
         });
     });
 }
@@ -543,6 +556,27 @@ pub fn DiffView(
     let filter = RwSignal::new(String::new());
     let p = move || d.prefs.get();
     let ws_c = StoredValue::new(ws);
+    Effect::new(move |_| {
+        let Some((path, line, asked)) = d.focus.get() else {
+            return;
+        };
+        if d.loaded.get() <= asked || d.loading.get() {
+            return;
+        }
+        let at = d.files.with(|fs| fs.iter().position(|f| f.path == path));
+        d.focus.set(None);
+        let Some(i) = at else {
+            toast("「更改」里没有这个文件的改动");
+            return;
+        };
+        collapsed.update(|c| {
+            c.remove(&path);
+        });
+        expanded.update(|e| {
+            e.insert(path.clone());
+        });
+        gloo_timers::callback::Timeout::new(80, move || reveal(d, i, path, line)).forget();
+    });
 
     let body = move || {
         if d.loading.get() && d.files.with(Vec::is_empty) {
@@ -665,6 +699,46 @@ pub fn DiffView(
             </div>
         </div>
     }
+}
+
+fn reveal(d: DiffState, i: usize, path: String, line: u32) {
+    let Some(section) = document().get_element_by_id(&format!("df-{i}")) else {
+        return;
+    };
+    let row = section
+        .query_selector_all("[data-ln]")
+        .ok()
+        .and_then(|rows| {
+            (0..rows.length()).find_map(|k| {
+                let el = rows.item(k)?.dyn_into::<web_sys::Element>().ok()?;
+                let n: u32 = el.get_attribute("data-ln")?.parse().ok()?;
+                (n >= line).then_some((el, n))
+            })
+        });
+    let opts = web_sys::ScrollIntoViewOptions::new();
+    opts.set_block(if row.is_some() {
+        web_sys::ScrollLogicalPosition::Center
+    } else {
+        web_sys::ScrollLogicalPosition::Start
+    });
+    let target = row.as_ref().map_or(section, |(el, _)| el.clone());
+    target.scroll_into_view_with_scroll_into_view_options(&opts);
+    if let Some((row, n)) = row {
+        let _ = row.set_attribute("data-focus", "true");
+        d.mark.set(Some((path, n)));
+        gloo_timers::callback::Timeout::new(1600, move || {
+            let _ = row.remove_attribute("data-focus");
+            d.mark.set(None);
+        })
+        .forget();
+    }
+}
+
+fn marked(d: DiffState, path: &str) -> Option<u32> {
+    d.mark
+        .get_untracked()
+        .filter(|(p, _)| p == path)
+        .map(|(_, n)| n)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -794,6 +868,7 @@ fn file_body(
     }
     let path = f.path.clone();
     let deleted = f.status == diff::Status::Deleted;
+    let mark = marked(d, &path);
     let mut out: Vec<AnyView> = Vec::new();
     let mut prev_end = 1u32;
     for (hi, h) in f.hunks.iter().enumerate() {
@@ -840,8 +915,8 @@ fn file_body(
                         out.push(
                             view! {
                                 <div class="dr2">
-                                    {half(Some(l), "old", &path, editing)}
-                                    {half(Some(l), "new", &path, editing)}
+                                    {half(Some(l), "old", &path, editing, mark)}
+                                    {half(Some(l), "new", &path, editing, mark)}
                                 </div>
                             }
                             .into_any(),
@@ -866,7 +941,7 @@ fn file_body(
                         for k in 0..dels.len().max(adds.len()) {
                             let dl = dels.get(k).copied();
                             let al = adds.get(k).copied();
-                            out.push(view! { <div class="dr2">{half(dl, "old", &path, editing)}{half(al, "new", &path, editing)}</div> }.into_any());
+                            out.push(view! { <div class="dr2">{half(dl, "old", &path, editing, mark)}{half(al, "new", &path, editing, mark)}</div> }.into_any());
                             if let Some(l) = dl {
                                 out.push(
                                     comments_at(&path, "old", l.old.unwrap_or(0), editing, d, ws)
@@ -916,7 +991,12 @@ fn file_body(
                 };
                 let code = line_code(l);
                 out.push(view! {
-                    <div class="dr" data-t=t>
+                    <div
+                        class="dr"
+                        data-t=t
+                        data-ln=l.new.map(|n| n.to_string())
+                        data-focus=(mark.is_some() && l.new == mark).then_some("true")
+                    >
                         <span class="ln">{l.old.map(|n| n.to_string()).unwrap_or_default()}</span>
                         <span class="ln">
                             {l.new.map(|n| n.to_string()).unwrap_or_default()}
@@ -962,6 +1042,7 @@ fn half(
     side: &'static str,
     path: &str,
     editing: RwSignal<Option<Editing>>,
+    mark: Option<u32>,
 ) -> AnyView {
     let Some(l) = l else {
         return view! { <div class="half" data-t="_"></div> }.into_any();
@@ -973,8 +1054,14 @@ fn half(
         _ => " ",
     };
     let code = line_code(l);
+    let hit = side == "new" && mark == Some(n);
     view! {
-        <div class="half" data-t=t>
+        <div
+            class="half"
+            data-t=t
+            data-ln=(side == "new").then(|| n.to_string())
+            data-focus=hit.then_some("true")
+        >
             <span class="ln">{n.to_string()}{add_btn(path, side, n, &code, editing)}</span>
             <span class="dc">{code.clone()}</span>
         </div>

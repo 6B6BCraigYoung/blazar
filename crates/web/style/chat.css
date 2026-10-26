@@ -96,6 +96,12 @@
 .cc-cnt .ok { color: var(--ok-fg); }
 .cc-cnt .bad { color: var(--err-fg); }
 .cc-arg[data-open]:hover { color: var(--fg); text-decoration: underline; }
+.cc-go { display: inline-flex; align-self: center; color: var(--fg-4); }
+.cc-go svg { width: 12px; height: 12px; }
+.cc-turn[data-current="true"] .cc-go { display: none; }
+.cc-turn[data-current="false"] .cc-tool[data-path] :is(.cc-diff, .cc-new, .cc-more) { display: none; }
+.cc-turn[data-current="false"] .cc-tool[data-path] .cc-head { cursor: pointer; }
+.cc-turn[data-current="false"] .cc-tool[data-path] .cc-head:hover :is(.cc-arg, .cc-go) { color: var(--fg); }
 .cc-tool .cc-diff, .cc-tool .cc-new { cursor: pointer; }
 .cc-tool .cc-diff:hover { border-color: var(--border-strong); }
 .cc-tool .cc-new:hover { box-shadow: inset 2px 0 0 var(--ok-fg), 0 0 0 1px var(--border-strong); }

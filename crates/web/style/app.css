@@ -332,6 +332,8 @@ b.mk { font: var(--font-weight-semibold) var(--font-size-caption) var(--font-mon
 .dr[data-t="+"], .half[data-t="+"] { background: var(--diff-added-bg); }
 .dr[data-t="-"], .half[data-t="-"] { background: var(--diff-removed-bg); }
 .dr[data-t="+"] .dg { color: var(--ok-fg); } .dr[data-t="-"] .dg { color: var(--err-fg); }
+.dr[data-focus], .half[data-focus] { animation: dfocus 1.6s ease-out both; }
+@keyframes dfocus { 0%, 45% { box-shadow: inset 0 0 0 1px var(--option-selected-border); } }
 .half[data-t="_"] { background: repeating-linear-gradient(135deg, transparent 0 6px, var(--diff-empty-stripe) 6px 12px); }
 .dcm { all: unset; position: absolute; inset: 0; cursor: pointer; }
 .dcmt, .dcmt-edit { margin: var(--margin-diff-comment); padding: var(--space-md) var(--space-lg); border: 1px solid var(--border-strong); border-radius: var(--r-md); background: var(--bg-raised); font-family: var(--font-sans); font-size: var(--font-size-label-readable); }

@@ -536,6 +536,11 @@ fn tool_view(t: Tool, chat: Chat, opened: Opened, ws: String) -> AnyView {
     .then(|| t.arg.clone())
     .filter(|a| !a.is_empty() && !a.starts_with('/') && !a.starts_with('~'));
     let open_tip = open.as_ref().map(|_| "在检查器里打开");
+    let locate = counts.and(open.clone());
+    let line = match &t.extra {
+        Extra::Diff { start, .. } => start.unwrap_or(0),
+        _ => 0,
+    };
     let tid = t.id.clone();
     let waiting = Memo::new(move |_| {
         chat.transcript.with(|tr| {
@@ -551,6 +556,8 @@ fn tool_view(t: Tool, chat: Chat, opened: Opened, ws: String) -> AnyView {
             data-st=t.state.as_str()
             data-name=t.name.clone()
             data-wait=move || waiting.get().to_string()
+            data-path=locate.clone()
+            data-line=locate.as_ref().map(|_| line.to_string())
         >
             <span class="cc-dot"></span>
             <div class="cc-main">
@@ -571,9 +578,16 @@ fn tool_view(t: Tool, chat: Chat, opened: Opened, ws: String) -> AnyView {
                         .map(|(a, r)| {
                             view! {
                                 <span class="cc-cnt">
-                                    <i class="ok">{format!("+{a}")}</i>
-                                    <i class="bad">{format!("−{r}")}</i>
+                                    {(a > 0).then(|| view! { <i class="ok">{format!("+{a}")}</i> })}
+                                    {(r > 0).then(|| view! { <i class="bad">{format!("−{r}")}</i> })}
                                 </span>
+                            }
+                        })}
+                    {locate
+                        .as_ref()
+                        .map(|_| {
+                            view! {
+                                <span class="cc-go" title="在「更改」里定位" inner_html=CHEVRON></span>
                             }
                         })}
                 </div>
@@ -1189,7 +1203,7 @@ fn retry_view(chat: Chat, why: String, attempt: u32, max: u32, until: i64) -> An
     .into_any()
 }
 
-fn item_view(it: Item, chat: Chat, opened: Opened, ws: String) -> AnyView {
+fn item_view(it: Item, chat: Chat, opened: Opened, ws: String, copyable: bool) -> AnyView {
     let key = it.key.clone();
     match it.body {
         Body::User {
@@ -1207,16 +1221,21 @@ fn item_view(it: Item, chat: Chat, opened: Opened, ws: String) -> AnyView {
                     <span class="cc-dot"></span>
                     <div class="cc-main">
                         <Md text ws />
-                        <div class="cc-acts2">
-                            <button
-                                class="cc-copy"
-                                aria-label="复制回复"
-                                title="复制"
-                                data-done=move || done.get().to_string()
-                                inner_html=COPY
-                                on:click=move |_| copy(t.clone(), done)
-                            ></button>
-                        </div>
+                        {copyable
+                            .then(|| {
+                                view! {
+                                    <div class="cc-acts2">
+                                        <button
+                                            class="cc-copy"
+                                            aria-label="复制回复"
+                                            title="复制"
+                                            data-done=move || done.get().to_string()
+                                            inner_html=COPY
+                                            on:click=move |_| copy(t.clone(), done)
+                                        ></button>
+                                    </div>
+                                }
+                            })}
                     </div>
                 </div>
             }
@@ -1264,7 +1283,7 @@ fn item_view(it: Item, chat: Chat, opened: Opened, ws: String) -> AnyView {
                     <div class="cc-rwl">
                         {items
                             .into_iter()
-                            .map(|i| item_view(i, chat, opened, ws.clone()))
+                            .map(|i| item_view(i, chat, opened, ws.clone(), false))
                             .collect_view()}
                     </div>
                 }
@@ -1308,7 +1327,13 @@ fn fold_slot(key: String, chat: Chat, opened: Opened, ws: String) -> AnyView {
     .into_any()
 }
 
-fn item_slot(key: String, chat: Chat, opened: Opened, ws: String) -> AnyView {
+fn item_slot(
+    key: String,
+    chat: Chat,
+    opened: Opened,
+    ws: String,
+    last_reply: Memo<Option<String>>,
+) -> AnyView {
     let k = key.clone();
     let fold = Memo::new(move |_| {
         chat.transcript.with(|t| {
@@ -1323,13 +1348,15 @@ fn item_slot(key: String, chat: Chat, opened: Opened, ws: String) -> AnyView {
     });
     let k = key.clone();
     let sig = Memo::new(move |_| chat.transcript.with(|t| t.item(&k).map(|it| it.sig)));
+    let k = key.clone();
+    let copyable = Memo::new(move |_| last_reply.with(|l| l.as_deref() == Some(k.as_str())));
     (move || {
         if fold.get() {
             return fold_slot(key.clone(), chat, opened, ws.clone());
         }
         sig.track();
         match chat.transcript.with_untracked(|t| t.item(&key).cloned()) {
-            Some(it) => item_view(it, chat, opened, ws.clone()),
+            Some(it) => item_view(it, chat, opened, ws.clone(), copyable.get()),
             None => ().into_any(),
         }
     })
@@ -1567,7 +1594,15 @@ pub fn Log(chat: Chat, tick: RwSignal<u32>, log_h: RwSignal<f64>) -> impl IntoVi
             return;
         };
         let find = |sel: &str| t.closest(sel).ok().flatten();
-        if let Some(a) = find("a[href^=\"#open:\"]") {
+        if let Some(row) = find(".cc-turn[data-current=\"false\"] .cc-tool[data-path]") {
+            let path = row.get_attribute("data-path").unwrap_or_default();
+            let line = row
+                .get_attribute("data-line")
+                .and_then(|l| l.parse().ok())
+                .unwrap_or(0);
+            chat.diff.locate(path, line);
+            chat.show_diff.run(());
+        } else if let Some(a) = find("a[href^=\"#open:\"]") {
             e.prevent_default();
             let raw = a.get_attribute("href").unwrap_or_default();
             let p = raw.trim_start_matches(md::OPEN_PREFIX);
@@ -1632,10 +1667,33 @@ pub fn Log(chat: Chat, tick: RwSignal<u32>, log_h: RwSignal<f64>) -> impl IntoVi
                     key=|t| t.head.clone()
                     children=move |turn: Turn| {
                         let ws = ws.clone();
+                        let head = turn.head.clone();
+                        let current = Memo::new(move |_| {
+                            turns.with(|ts| ts.last().is_some_and(|t| t.head == head))
+                        });
+                        let head = turn.head.clone();
+                        let last_reply = Memo::new(move |_| {
+                            turns.with(|ts| {
+                                let t = ts.iter().find(|t| t.head == head)?;
+                                chat.transcript
+                                    .with(|tr| {
+                                        t.keys
+                                            .iter()
+                                            .rev()
+                                            .find(|k| {
+                                                matches!(
+                                                    tr.item(k),
+                                                    Some(Item { body: Body::Assistant { .. }, .. })
+                                                )
+                                            })
+                                            .cloned()
+                                    })
+                            })
+                        });
                         view! {
-                            <div class="cc-turn">
+                            <div class="cc-turn" data-current=move || current.get().to_string()>
                                 <For each=turn_keys(turn.head) key=|k| k.clone() let:k>
-                                    {item_slot(k, chat, opened, ws.clone())}
+                                    {item_slot(k, chat, opened, ws.clone(), last_reply)}
                                 </For>
                             </div>
                         }
