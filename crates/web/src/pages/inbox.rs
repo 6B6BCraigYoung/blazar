@@ -156,11 +156,11 @@ pub fn item_of(it: &Value, assistant: Option<&str>) -> Item {
         .unwrap_or(&stored)
         .to_owned();
     let title = match &failure {
-        Some(f) if f.cause != FailureCause::Other || stored.is_empty() => f.line(),
-        _ => stored,
+        Some(f) => f.line_or(Some(&stored)),
+        None => stored,
     };
     let (body, raw) = match (&failure, k.as_str()) {
-        (Some(_), _) | (None, "run_done") => (String::new(), raw),
+        (Some(_), _) | (None, "run_done" | "question") => (String::new(), raw),
         (None, "denied") => (raw, String::new()),
         (None, _) => {
             let human = crate::vocab::error(&raw, None);

@@ -57,6 +57,15 @@ impl Failure {
         format!("{}，{}", self.headline(), self.cause.advice())
     }
 
+    pub fn line_or(&self, stored: Option<&str>) -> String {
+        match stored.map(str::trim).filter(|s| !s.is_empty()) {
+            Some(s) if matches!(self.cause, FailureCause::Other | FailureCause::Resume) => {
+                s.to_owned()
+            }
+            _ => self.line(),
+        }
+    }
+
     pub fn primary(&self) -> &'static str {
         vocab::next_step(self.cause)
     }
