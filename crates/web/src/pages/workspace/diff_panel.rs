@@ -109,9 +109,21 @@ impl DiffState {
     }
 }
 
-pub fn keep_loaded(ws: String, d: DiffState, git: Git) {
+pub fn keep_loaded(ws: String, d: DiffState, git: Git, state: LayoutState) {
     let bus = use_bus();
     let latest = std::rc::Rc::new(latest::Latest::default());
+    let refresh = move || {
+        d.reload.update(|n| *n += 1);
+        git.reload.update(|n| *n += 1);
+    };
+    crate::refocus::on_refocus(refresh);
+    Effect::new(move |was: Option<bool>| {
+        let shown = state.lay.with(|l| l.inspect && l.tab == Tab::Changes);
+        if shown && was == Some(false) {
+            refresh();
+        }
+        shown
+    });
     Effect::new(move |_| {
         bus.workspaces.track();
         d.reload.track();
@@ -441,16 +453,6 @@ pub fn DiffBar(
                 >
                     "让智能体审阅…"
                 </button>
-                <button
-                    class="laybtn"
-                    aria-label="刷新差异"
-                    title="刷新"
-                    inner_html=super::ICON_REFRESH
-                    on:click=move |_| {
-                        d.reload.update(|n| *n += 1);
-                        git.reload.update(|n| *n += 1);
-                    }
-                ></button>
             </Show>
         </div>
     }

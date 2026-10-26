@@ -224,7 +224,7 @@ fn Workspace(id: String) -> impl IntoView {
     let git = Git::new(&id);
     git.keep_loaded();
     let diff = DiffState::new(&id);
-    diff_panel::keep_loaded(id.clone(), diff, git);
+    diff_panel::keep_loaded(id.clone(), diff, git, state);
     Effect::new(move |prev: Option<()>| {
         git.changed.track();
         if prev.is_some() {
