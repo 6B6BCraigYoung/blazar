@@ -21,6 +21,8 @@ pub const SHORTCUTS: &[(&str, &str, &str)] = &[
     ("newws", "新建工作区", "Mod+N"),
     ("inspect", "简介", "Mod+I"),
     ("delete", "删除", "Mod+Backspace"),
+    ("copypath", "复制路径", "Mod+Alt+C"),
+    ("reveal", "在访达中显示", "Mod+Alt+R"),
     ("diff", "更改", "Mod+Shift+D"),
     ("git", "Git", "Mod+Shift+G"),
     ("preview", "预览", "Mod+Shift+P"),

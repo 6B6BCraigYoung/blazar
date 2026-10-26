@@ -68,6 +68,49 @@ fn copy_text(text: String) {
     });
 }
 
+fn reveal_path(path: String) {
+    leptos::task::spawn_local(async move {
+        if let Err(e) =
+            crate::desktop::invoke("reveal_path", &serde_json::json!({ "path": path })).await
+        {
+            toast(format!("没能在访达中显示：{e}"));
+        }
+    });
+}
+
+fn mod_shortcut(e: &web_sys::KeyboardEvent) -> Option<&'static str> {
+    match crate::shortcuts::action(e)? {
+        "delete" => Some("remove"),
+        "copypath" => Some("copy"),
+        "reveal" => Some("reveal"),
+        _ => None,
+    }
+}
+
+fn plain_enter(e: &web_sys::KeyboardEvent) -> bool {
+    e.key() == "Enter"
+        && !e.meta_key()
+        && !e.ctrl_key()
+        && !e.alt_key()
+        && !e.shift_key()
+        && !e.is_composing()
+}
+
+fn hint(id: &str) -> String {
+    crate::shortcuts::label(&crate::shortcuts::current(id))
+}
+
+fn run_menu(what: &str, m: Menu, ws: String, files: Files, acts: TreeActs) {
+    let abs = absolute(&acts.root.get_untracked(), &m.path);
+    match what {
+        "copy" => copy_text(abs),
+        "reveal" if acts.local.get_untracked() => reveal_path(abs),
+        "rename" if !m.path.is_empty() => rename_entry(ws, m),
+        "remove" if !m.path.is_empty() => remove_entry(ws, m, files),
+        _ => {}
+    }
+}
+
 fn rename_entry(ws: String, m: Menu) {
     leptos::task::spawn_local(async move {
         let Some(name) = dialog::prompt_with("重命名", "新名称", &m.name, "重命名").await
@@ -209,17 +252,7 @@ fn TreeMenu(
             let copied = abs.clone();
             let copy = pick(Box::new(move || copy_text(copied.clone())));
             let shown = abs.clone();
-            let reveal = pick(Box::new(move || {
-                let path = shown.clone();
-                leptos::task::spawn_local(async move {
-                    if let Err(e) =
-                        crate::desktop::invoke("reveal_path", &serde_json::json!({ "path": path }))
-                            .await
-                    {
-                        toast(format!("没能在访达中显示：{e}"));
-                    }
-                });
-            }));
+            let reveal = pick(Box::new(move || reveal_path(shown.clone())));
             let dir = if m.dir {
                 m.path.clone()
             } else {
@@ -236,14 +269,22 @@ fn TreeMenu(
             let remove = pick(Box::new(move || {
                 remove_entry(ws_d.clone(), m_d.clone(), files)
             }));
+            let (ws_k, m_k) = (ws.clone(), m.clone());
             view! {
                 <div
-                    class="ctx-menu tree-menu"
+                    class="ctx-menu row-menu tree-menu"
                     role="menu"
                     aria-label=m.name.clone()
                     node_ref=root_el
                     style=format!("left:{x}px;top:{y}px")
                     on:keydown=move |e| {
+                        if let Some(what) = mod_shortcut(&e) {
+                            e.prevent_default();
+                            e.stop_propagation();
+                            menu.set(None);
+                            run_menu(what, m_k.clone(), ws_k.clone(), files, acts);
+                            return;
+                        }
                         if let Some(r) = root_el.get_untracked() {
                             crate::components::menu::menu_keydown(
                                 &e,
@@ -260,7 +301,7 @@ fn TreeMenu(
                         disabled=is_root
                         on:click=mention
                     >
-                        "在对话中引用"
+                        <span>"在对话中引用"</span>
                     </button>
                     <button
                         type="button"
@@ -269,10 +310,11 @@ fn TreeMenu(
                         disabled=!m.changed
                         on:click=changes
                     >
-                        "查看更改"
+                        <span>"查看更改"</span>
                     </button>
                     <button type="button" role="menuitem" class="ctx-item" on:click=copy>
-                        "复制路径"
+                        <span>"复制路径"</span>
+                        <kbd>{hint("copypath")}</kbd>
                     </button>
                     <div class="menu-sep" role="separator"></div>
                     {local
@@ -284,16 +326,27 @@ fn TreeMenu(
                                     class="ctx-item"
                                     on:click=reveal
                                 >
-                                    "在访达中显示"
+                                    <span>"在访达中显示"</span>
+                                    <kbd>{hint("reveal")}</kbd>
                                 </button>
                             }
                         })}
                     <button type="button" role="menuitem" class="ctx-item" on:click=terminal>
-                        "在终端中打开"
+                        <span>"在终端中打开"</span>
                     </button>
-                    <button type="button" role="menuitem" class="ctx-item" on:click=download>
-                        {if m.dir { "下载文件夹" } else { "下载" }}
-                    </button>
+                    {(!local)
+                        .then(|| {
+                            view! {
+                                <button
+                                    type="button"
+                                    role="menuitem"
+                                    class="ctx-item"
+                                    on:click=download
+                                >
+                                    <span>{if m.dir { "下载文件夹" } else { "下载" }}</span>
+                                </button>
+                            }
+                        })}
                     <div class="menu-sep" role="separator"></div>
                     <button
                         type="button"
@@ -302,7 +355,8 @@ fn TreeMenu(
                         disabled=is_root
                         on:click=rename
                     >
-                        "重命名…"
+                        <span>"重命名…"</span>
+                        <kbd>{crate::shortcuts::label("Enter")}</kbd>
                     </button>
                     <button
                         type="button"
@@ -311,7 +365,8 @@ fn TreeMenu(
                         disabled=is_root
                         on:click=remove
                     >
-                        "删除…"
+                        <span>"删除…"</span>
+                        <kbd>{hint("delete")}</kbd>
                     </button>
                 </div>
             }
@@ -723,11 +778,46 @@ pub fn FileTree(
             on:input=move |e| filter.set(event_target_value(&e))
         />
         <TreeMenu menu ws=files.ws() files acts />
-        <div class="tree" on:scroll=move |_| menu.set(None)>
+        <div
+            class="tree"
+            on:scroll=move |_| menu.set(None)
+            on:keydown=move |e: leptos::ev::KeyboardEvent| {
+                let what = mod_shortcut(&e).or_else(|| plain_enter(&e).then_some("rename"));
+                let Some(what) = what else { return };
+                let Some(btn) = e
+                    .target()
+                    .and_then(|t| wasm_bindgen::JsCast::dyn_into::<web_sys::Element>(t).ok())
+                    .and_then(|t| t.closest("button.tn").ok().flatten())
+                else {
+                    return;
+                };
+                if btn.get_attribute("data-more").as_deref() == Some("true") {
+                    return;
+                }
+                let path = btn.get_attribute("data-path").unwrap_or_default();
+                let name = if path.is_empty() {
+                    root_name.get_untracked()
+                } else {
+                    path.rsplit('/').next().unwrap_or(&path).to_owned()
+                };
+                e.prevent_default();
+                e.stop_propagation();
+                let m = Menu {
+                    x: 0,
+                    y: 0,
+                    path,
+                    name,
+                    dir: btn.has_attribute("aria-expanded"),
+                    changed: false,
+                };
+                run_menu(what, m, files.ws(), files, acts);
+            }
+        >
             <div class="tree-flow">
                 <button
                     type="button"
                     class="tn root"
+                    data-path=""
                     aria-expanded=move || root_open.get().to_string()
                     data-open=move || root_open.get().to_string()
                     data-menu=move || {
@@ -865,6 +955,7 @@ pub fn FileTree(
                                                 type="button"
                                                 class="tn"
                                                 disabled=more
+                                                data-path=row.path.clone()
                                                 aria-expanded=dir.then(|| row.open.to_string())
                                                 aria-pressed=move || {
                                                     (!dir && !more).then(|| accessible_sel().to_string())

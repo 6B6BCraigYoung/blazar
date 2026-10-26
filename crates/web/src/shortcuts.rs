@@ -13,6 +13,8 @@ const DEFAULTS: &[(&str, &str)] = &[
     ("newws", "Mod+N"),
     ("inspect", "Mod+I"),
     ("delete", "Mod+Backspace"),
+    ("copypath", "Mod+Alt+C"),
+    ("reveal", "Mod+Alt+R"),
     ("diff", "Mod+Shift+D"),
     ("git", "Mod+Shift+G"),
     ("preview", "Mod+Shift+P"),
