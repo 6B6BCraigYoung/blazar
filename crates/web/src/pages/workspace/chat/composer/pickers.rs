@@ -5,7 +5,7 @@ use serde_json::json;
 use crate::components::status::EmptyState;
 use crate::components::toast::toast;
 
-use super::super::state::{ACC_RUNTIMES, Chat, ModelSel};
+use super::super::state::{ACC_RUNTIMES, Chat, ModelSel, mode_label};
 use super::presentation::{editor_url, eff_label, icon};
 use super::{Pop, SlashItem};
 
@@ -243,19 +243,19 @@ pub(super) fn plus_pop(
         </button>
         {cur
             .map(|f| {
-                let on = chat.ctx_off.get_untracked().as_deref() != Some(f.as_str());
+                let on = chat.ctx_on.get_untracked().as_deref() == Some(f.as_str());
                 let f2 = f.clone();
                 view! {
                     <button
                         class="cp-row"
                         on:click=move |_| {
-                            chat.ctx_off.set(if on { Some(f2.clone()) } else { None });
+                            chat.ctx_on.set(if on { None } else { Some(f2.clone()) });
                             pop.set(None);
                         }
                     >
                         <span class="cp-ico" inner_html=icon("file")></span>
                         <span class="cp-t">
-                            <b>{if on { "Remove current file" } else { "Add current file" }}</b>
+                            <b>{if on { "移出当前文件" } else { "加入当前文件" }}</b>
                             <span>{f}</span>
                         </span>
                     </button>
@@ -286,7 +286,7 @@ fn effort_row(chat: Chat) -> impl IntoView {
                 .map_or_else(|| "Default".to_owned(), eff_label);
             view! {
                 <div class="cp-eff">
-                    <span>"Effort "<span class="muted">{format!("({label})")}</span></span>
+                    <span>"思考强度 "<span class="muted">{format!("({label})")}</span></span>
                     <span class="eff-track">
                         {effs
                             .iter()
@@ -326,11 +326,11 @@ pub(super) fn mode_pop(chat: Chat, pop: RwSignal<Option<Pop>>) -> impl IntoView 
     let cur = chat.effective_mode().map(|m| m.0);
     view! {
         <div class="cp-sec flex">
-            "Modes"<span class="cp-hk">
+            "权限模式"<span class="cp-hk">
                 <kbd>"⇧"</kbd>
                 " + "
                 <kbd>"tab"</kbd>
-                " to switch"
+                " 切换"
             </span>
         </div>
         {chat
@@ -349,8 +349,8 @@ pub(super) fn mode_pop(chat: Chat, pop: RwSignal<Option<Pop>>) -> impl IntoView 
                     >
                         <span class="cp-ico" inner_html=icon(ic)></span>
                         <span class="cp-t">
-                            <b>{t}</b>
-                            <span>{d}</span>
+                            <b>{mode_label(v)}</b>
+                            <span>{format!("{t} · {d}")}</span>
                         </span>
                         {(Some(v) == cur).then(|| view! { <span class="cp-ok">"✓"</span> })}
                     </button>

@@ -157,7 +157,7 @@ impl Chat {
 
     pub fn ctx_file(self) -> Option<String> {
         let cur = self.files.current.get()?;
-        (self.ctx_off.get().as_deref() != Some(cur.as_str())).then_some(cur)
+        (self.ctx_on.get().as_deref() == Some(cur.as_str())).then_some(cur)
     }
 
     pub fn load_catalogs(self) {

@@ -21,18 +21,26 @@ pub(super) fn icon(k: &str) -> String {
         "slash" => r#"<rect x="3.5" y="3.5" width="17" height="17" rx="3"/><path d="M14 8l-4 8"/>"#,
         "send" => r#"<path d="M12 19V5M5.5 11.5 12 5l6.5 6.5"/>"#,
         "plug" => r#"<path d="M9 7V3M15 7V3M7 7h10v4a5 5 0 0 1-10 0z"/><path d="M12 16v5"/>"#,
+        "chip" => {
+            r#"<rect x="7" y="7" width="10" height="10" rx="2"/><path d="M9 3v4M15 3v4M9 17v4M15 17v4M3 9h4M3 15h4M17 9h4M17 15h4"/>"#
+        }
+        "chat" => {
+            r#"<path d="M5 5h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-7l-4 3.5V17H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z"/>"#
+        }
+        "tick" => r#"<path d="m5 12.5 4.5 4.5L19 7"/>"#,
+        "chev" => r#"<path d="M6 9l6 6 6-6"/>"#,
         _ => "",
     })
 }
 
 const EFF_LABEL: [(&str, &str); 7] = [
-    ("minimal", "Minimal"),
-    ("low", "Low"),
-    ("medium", "Medium"),
-    ("high", "High"),
-    ("xhigh", "Extra high"),
-    ("max", "Max"),
-    ("ultra", "Ultra"),
+    ("minimal", "最低"),
+    ("low", "低"),
+    ("medium", "中"),
+    ("high", "高"),
+    ("xhigh", "特高"),
+    ("max", "最高"),
+    ("ultra", "极高"),
 ];
 
 pub(super) fn eff_label(e: &str) -> String {

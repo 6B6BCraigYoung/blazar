@@ -1255,7 +1255,7 @@ fn item_view(it: Item, chat: Chat, opened: Opened, ws: String, copyable: bool) -
                         .map(|d| view! { <div class="muted">{format!("· {d}")}</div> })
                         .collect_view()}
                     <div class="muted small">
-                        "当前模式会拒绝这些操作。切换到 Edit automatically 或 Auto 后重试。"
+                        "当前权限模式会拒绝这些操作。切换到「自动改文件」或「自动批准」后重试。"
                     </div>
                 </div>
             </div>

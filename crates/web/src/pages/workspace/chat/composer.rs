@@ -16,7 +16,7 @@ use crate::failure::Failure;
 use crate::storage;
 
 use super::dock::Dock;
-use super::state::{ACC_RUNTIMES, Attach, Chat};
+use super::state::{ACC_RUNTIMES, Attach, Chat, mode_label};
 
 mod pickers;
 mod presentation;
@@ -679,14 +679,14 @@ pub fn Composer(
             .iter()
             .find(|x| x.id == s.model.clone().unwrap_or_default())
             .or_else(|| list.first());
-        let name = m.map_or_else(
-            || "Default".to_owned(),
-            |m| {
+        let name = m
+            .map(|m| {
                 m.label
                     .replace(" (recommended)", "")
                     .replace(" (Recommended)", "")
-            },
-        );
+            })
+            .filter(|n| !n.is_empty() && n != "Default")
+            .unwrap_or_else(|| "默认模型".to_owned());
         (name, s.effort.map(|e| eff_label(&e)))
     };
 
@@ -1013,33 +1013,11 @@ pub fn Composer(
             >
                 <Tray chat log_h />
                 {move || {
-                    let ctx = chat.ctx_file();
                     let list = chat.attach.get();
-                    (ctx.is_some() || !list.is_empty())
+                    (!list.is_empty())
                         .then(|| {
                             view! {
                                 <div class="cb-atts">
-                                    {ctx
-                                        .map(|f| {
-                                            let off = f.clone();
-                                            let tip = format!("Current file: {f}");
-                                            view! {
-                                                <span class="cb-att ctx" title=tip>
-                                                    <span class="ic" inner_html=icon("file")></span>
-                                                    <span class="nm">{f}</span>
-                                                    <button
-                                                        class="x"
-                                                        aria-label="Remove current file"
-                                                        title="Remove"
-                                                        on:click=move |_| {
-                                                            chat.ctx_off.set(Some(off.clone()))
-                                                        }
-                                                    >
-                                                        "×"
-                                                    </button>
-                                                </span>
-                                            }
-                                        })}
                                     {list
                                         .into_iter()
                                         .enumerate()
@@ -1103,21 +1081,22 @@ pub fn Composer(
                 ></textarea>
                 <div class="cb-bar">
                     <button
-                        class="cb-ic cb-trigger"
-                        aria-label="Add context"
-                        title="Add context"
-                        inner_html=icon("plus")
+                        class="cb-btn cb-trigger cb-add"
+                        aria-label="添加"
+                        title="添加图片、引用项目里的文件或当前文件"
                         on:click=move |_| {
                             pop.update(|p| {
                                 *p = if *p == Some(Pop::Plus) { None } else { Some(Pop::Plus) };
                             })
                         }
-                    ></button>
+                    >
+                        <span class="ic" inner_html=icon("plus")></span>
+                        <span class="cb-tx">"添加"</span>
+                    </button>
                     <button
-                        class="cb-ic cb-trigger"
-                        aria-label="Slash commands"
-                        title="Slash commands (/)"
-                        inner_html=icon("slash")
+                        class="cb-btn cb-trigger cb-slash"
+                        aria-label="命令"
+                        title="斜杠命令，直接输入 / 也可以"
                         on:click=move |_| {
                             if !chat.prompt.get_untracked().starts_with('/') {
                                 chat.prompt.set("/".into());
@@ -1126,7 +1105,10 @@ pub fn Composer(
                             pop.set(Some(Pop::Slash));
                             focus();
                         }
-                    ></button>
+                    >
+                        <span class="ic" inner_html=icon("slash")></span>
+                        <span class="cb-tx">"命令"</span>
+                    </button>
                     {move || {
                         (chat.runtime() == "claude")
                             .then(|| {
@@ -1138,16 +1120,17 @@ pub fn Composer(
                                         (0, 0),
                                         |(n, b), m| (n + 1, b + usize::from(m.status == "failed")),
                                     );
+                                let tip = match (n, bad) {
+                                    (0, _) => "MCP 服务器".to_owned(),
+                                    (n, 0) => format!("MCP 服务器：{n} 个"),
+                                    (n, bad) => format!("MCP 服务器：{n} 个，{bad} 个连不上"),
+                                };
                                 view! {
                                     <button
-                                        class="cb-ic cb-trigger"
+                                        class="cb-btn cb-trigger cb-mcp"
                                         data-bad=(bad > 0).to_string()
-                                        aria-label="MCP servers"
-                                        title=format!(
-                                            "MCP servers{}",
-                                            if n > 0 { format!(" ({n})") } else { String::new() },
-                                        )
-                                        inner_html=icon("plug")
+                                        aria-label="MCP 服务器"
+                                        title=tip
                                         on:click=move |_| {
                                             chat.load_catalog();
                                             pop.update(|p| {
@@ -1158,51 +1141,83 @@ pub fn Composer(
                                                 };
                                             });
                                         }
-                                    ></button>
+                                    >
+                                        <span class="ic" inner_html=icon("plug")></span>
+                                        <span class="cb-tx">
+                                            "MCP"
+                                            {(n > 0).then(|| view! { <span class="muted">{format!(" {n}")}</span> })}
+                                        </span>
+                                    </button>
                                 }
                             })
                     }}
                     <button
-                        class="cb-chip cb-trigger cb-model"
-                        title="Switch model"
+                        class="cb-btn cb-trigger cb-model"
+                        aria-label="模型"
+                        title="切换模型和思考强度"
                         on:click=move |_| {
                             pop.update(|p| {
                                 *p = if *p == Some(Pop::Model) { None } else { Some(Pop::Model) };
                             })
                         }
                     >
-                        <span class="cb-tx">
-                            {move || {
-                                let (n, e) = model_label();
-                                view! {
-                                    {n}
-                                    {e
-                                        .map(|e| {
-                                            view! {
-                                                " "
-                                                <span class="muted">{e}</span>
-                                            }
-                                        })}
-                                }
-                            }}
-                        </span>
+                        <span class="ic" inner_html=icon("chip")></span>
+                        <span class="cb-tx">{move || model_label().0}</span>
+                        {move || {
+                            model_label()
+                                .1
+                                .map(|e| view! { <span class="muted">{format!("· 思考强度 {e}")}</span> })
+                        }}
                     </button>
                     <Show when=move || chat.fresh.get() && chat.view.get().is_some()>
                         <button
                             type="button"
-                            class="cb-chip cb-fresh"
-                            aria-label="Keep the current conversation"
-                            title="The next message starts a new conversation"
+                            class="cb-btn cb-fresh"
+                            aria-label="取消新对话"
+                            title="下一条消息会开始新对话，点击取消"
                             on:click=move |_| chat.fresh.set(false)
                         >
-                            "New conversation ×"
+                            <span class="ic" inner_html=icon("chat")></span>
+                            <span class="cb-tx">"新对话"</span>
+                            <span class="muted">"×"</span>
                         </button>
                     </Show>
+                    {move || {
+                        chat.files
+                            .current
+                            .get()
+                            .map(|f| {
+                                let on = chat.ctx_on.get().as_deref() == Some(f.as_str());
+                                let name = f.rsplit('/').next().unwrap_or(&f).to_owned();
+                                let tip = if on {
+                                    format!("{f}\n已加入这条消息的上下文，点击移出")
+                                } else {
+                                    format!("{f}\n把正在看的文件加入这条消息的上下文")
+                                };
+                                let f2 = f.clone();
+                                view! {
+                                    <button
+                                        type="button"
+                                        class="cb-btn cb-ctx"
+                                        data-on=on.to_string()
+                                        aria-label=if on { "移出当前文件" } else { "加入当前文件" }
+                                        title=tip
+                                        on:click=move |_| {
+                                            chat.ctx_on.set(if on { None } else { Some(f2.clone()) })
+                                        }
+                                    >
+                                        <span class="ic" inner_html=icon(if on { "tick" } else { "plus" })></span>
+                                        <span class="cb-tx">{name}</span>
+                                    </button>
+                                }
+                            })
+                    }}
                     <span class="cb-grow"></span>
                     <span class="cb-right">
                         <button
-                            class="cb-chip cb-plain cb-trigger cb-agent"
-                            title="Switch agent or account, keeping the conversation"
+                            class="cb-btn cb-trigger cb-agent"
+                            aria-label="角色和运行时"
+                            title="切换角色、运行时或账号，对话会保留"
                             on:click=move |_| {
                                 pop.update(|p| {
                                     *p = if *p == Some(Pop::Agent) {
@@ -1235,6 +1250,7 @@ pub fn Composer(
                                         .flatten()
                                 }}
                             </span>
+                            <span class="chev" inner_html=icon("chev")></span>
                         </button>
                         {move || {
                             chat.effective_mode()
@@ -1246,16 +1262,21 @@ pub fn Composer(
                                         .and_then(|p| p.permission_mode)
                                         .is_some()
                                     {
-                                        " (from agent)"
+                                        "，来自角色档案"
                                     } else {
-                                        " (default)"
+                                        "，默认"
                                     };
                                     view! {
                                         <button
-                                            class="cb-chip cb-plain cb-trigger cb-mode"
+                                            class="cb-btn cb-trigger cb-mode"
                                             data-ui-guard=""
                                             data-mode=m.0
-                                            title=format!("{}{from}", m.2)
+                                            aria-label="权限模式"
+                                            title=format!(
+                                                "权限模式：{}{from}\n{}\nShift+Tab 切换",
+                                                mode_label(m.0),
+                                                m.2,
+                                            )
                                             on:click=move |_| {
                                                 pop.update(|p| {
                                                     *p = if *p == Some(Pop::Mode) {
@@ -1266,8 +1287,8 @@ pub fn Composer(
                                                 })
                                             }
                                         >
-                                            <span inner_html=icon(m.3)></span>
-                                            <span>{m.1}</span>
+                                            <span class="ic" inner_html=icon(m.3)></span>
+                                            <span class="cb-tx">{mode_label(m.0)}</span>
                                         </button>
                                     }
                                 })
@@ -1279,24 +1300,24 @@ pub fn Composer(
                             data-pmode=move || chat.effective_mode().map(|m| m.0).unwrap_or("")
                             aria-label=move || {
                                 if stop_mode() {
-                                    "Stop"
+                                    "停止"
                                 } else if running.get()
                                     && !matches!(chat.runtime().as_str(), "claude" | "codex")
                                 {
-                                    "Queue"
+                                    "排队"
                                 } else {
-                                    "Send"
+                                    "发送"
                                 }
                             }
                             title=move || {
                                 if stop_mode() {
-                                    "Stop (Esc)"
+                                    "停止 (Esc)"
                                 } else if running.get()
                                     && !matches!(chat.runtime().as_str(), "claude" | "codex")
                                 {
-                                    "Queue (Enter)"
+                                    "排队 (Enter)"
                                 } else {
-                                    "Send (Enter)"
+                                    "发送 (Enter)"
                                 }
                             }
                             disabled=move || unreachable.get() && !stop_mode()
