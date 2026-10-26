@@ -783,6 +783,52 @@ fn copy(text: String, done: RwSignal<bool>) {
     });
 }
 
+pub fn split_fences(text: &str) -> Vec<(bool, String)> {
+    let mut out: Vec<(bool, String)> = Vec::new();
+    let mut fence: Option<usize> = None;
+    let mut buf = String::new();
+    for line in text.split_inclusive('\n') {
+        let ticks = line.trim_start().chars().take_while(|c| *c == '`').count();
+        let marker = ticks >= 3 && line.trim_start().starts_with("```");
+        match fence {
+            None if marker => {
+                if !buf.is_empty() {
+                    out.push((false, std::mem::take(&mut buf)));
+                }
+                fence = Some(ticks);
+            }
+            Some(n) if marker && ticks >= n && line.trim().chars().all(|c| c == '`') => {
+                out.push((true, std::mem::take(&mut buf)));
+                fence = None;
+            }
+            _ => buf.push_str(line),
+        }
+    }
+    if !buf.is_empty() {
+        out.push((fence.is_some(), buf));
+    }
+    out
+}
+
+fn user_segments(text: &str) -> AnyView {
+    let parts = split_fences(text);
+    if parts.len() == 1 && !parts[0].0 {
+        return text.to_owned().into_any();
+    }
+    parts
+        .into_iter()
+        .map(|(code, body)| {
+            if code {
+                view! { <pre class="cc-ucode">{body.trim_end_matches('\n').to_owned()}</pre> }
+                    .into_any()
+            } else {
+                body.into_any()
+            }
+        })
+        .collect_view()
+        .into_any()
+}
+
 #[component]
 fn UserMsg(
     chat: Chat,
@@ -943,7 +989,7 @@ fn UserMsg(
                 }
             >
                 <div class="cc-uline">
-                    <div class="cc-ut">{text.clone()}</div>
+                    <div class="cc-ut">{user_segments(&text)}</div>
                     {move || {
                         (latest.get() && !editing.get())
                             .then(|| {

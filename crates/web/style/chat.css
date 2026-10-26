@@ -30,6 +30,8 @@
 .cc-user[data-stuck] .cc-xp, .cc-user[data-stuck] .cc-acts, .cc-user[data-stuck] .cc-edit { display: none; }
 .cc-user[data-stuck]::before { content: ""; position: absolute; z-index: -1; inset: -14px 0 -8px; background: linear-gradient(to bottom, var(--bg-canvas) calc(100% - 8px), transparent); }
 .cc-user .cc-ut { white-space: pre-wrap; word-break: break-word; color: var(--fg); }
+.cc-user .cc-ucode { margin: var(--space-xs) 0; padding: var(--space-sm) var(--space-md); border-radius: var(--r-sm); background: var(--bg-code); font: var(--font-size-label) / var(--line-height-code) var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--fg); }
+.cc-user[data-stuck] .cc-ucode { display: inline; margin: 0; padding: 0; background: none; white-space: nowrap; }
 .cc-user[data-long="true"]:not([data-expanded="true"]) .cc-ut { max-height: 7.5em; overflow: hidden; -webkit-mask-image: linear-gradient(var(--mask-opaque) 60%, transparent); mask-image: linear-gradient(var(--mask-opaque) 60%, transparent); }
 .cc-xp { all: unset; cursor: pointer; font-size: var(--font-size-caption-readable); color: var(--fg-3); }
 .cc-xp:hover { color: var(--fg); }
