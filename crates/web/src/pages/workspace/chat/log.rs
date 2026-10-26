@@ -1239,7 +1239,6 @@ fn denial_card(chat: Chat, c: DeniedCall, place: (String, String)) -> AnyView {
                 {hard.then(|| view! { <span class="dot" data-tone="failed" aria-hidden="true"></span> })}
                 {head}
             </div>
-
             <div class="cd-cmd">
                 <pre class="acmd">{c.what.clone()}</pre>
                 {hard
@@ -1259,7 +1258,14 @@ fn denial_card(chat: Chat, c: DeniedCall, place: (String, String)) -> AnyView {
             </div>
             <div class="cd-meta">
                 <span title=root>{where_}</span>
-                {reason.map(|r| view! { <span>{format!("原因：[{r}]")}</span> })}
+                {reason
+                    .map(|r| {
+                        view! {
+                            <span title=format!("[{r}]")>
+                                {format!("原因：{}", blazar_core_types::denial::reason_label(&r))}
+                            </span>
+                        }
+                    })}
             </div>
             {(!detail.is_empty())
                 .then(|| {
