@@ -141,7 +141,12 @@ pub fn sanitize(kind: &mut EntryKind) {
             }
         }
         EntryKind::Approval { request, .. } => sanitize_json(request),
-        EntryKind::Finished(crate::Outcome::Success { text, denied, .. }) => {
+        EntryKind::Finished(crate::Outcome::Success {
+            text,
+            denied,
+            denials,
+            ..
+        }) => {
             if let Some(t) = text {
                 clean(t);
             }
@@ -149,6 +154,13 @@ pub fn sanitize(kind: &mut EntryKind) {
             for d in denied.iter_mut() {
                 clean(d);
             }
+            for d in denials.iter_mut() {
+                sanitize_json(&mut d.input);
+            }
+        }
+        EntryKind::DenialDecided { what, by, .. } => {
+            clean(what);
+            clean(by);
         }
         EntryKind::BackgroundTask {
             description: Some(d),

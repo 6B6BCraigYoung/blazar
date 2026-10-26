@@ -476,6 +476,13 @@ fn render(seq: &u64, kind: &EntryKind) -> String {
         }
         EntryKind::Error { message } => format!("错误  {message}"),
         EntryKind::Notice { message } => format!("提示  {message}"),
+        EntryKind::DenialDecided {
+            allow, by, what, ..
+        } => format!(
+            "放行  {by} {}被拦下的操作：{}",
+            if *allow { "允许重试" } else { "跳过了" },
+            truncate(what)
+        ),
         EntryKind::ApiRetry {
             attempt,
             max_retries,

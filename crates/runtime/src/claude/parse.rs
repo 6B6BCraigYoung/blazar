@@ -1,5 +1,6 @@
 use blazar_core_types::{
-    EntryKind, Outcome, Provider, ProviderSessionId, RateLimit, RateLimitWindow, TokenUsage, ToolId,
+    Denial, EntryKind, Outcome, Provider, ProviderSessionId, RateLimit, RateLimitWindow,
+    TokenUsage, ToolId,
 };
 use chrono::{DateTime, Utc};
 use serde_json::Value;
@@ -232,10 +233,12 @@ fn parse_result(v: &Value) -> Vec<EntryKind> {
             },
         }
     } else {
+        let denials = permission_denials(v);
         Outcome::Success {
             text: string_field(v, "result"),
             usage: usage.clone(),
-            denied: permission_denials(v),
+            denied: denials.iter().map(Denial::summary).collect(),
+            denials,
         }
     };
 
@@ -285,25 +288,23 @@ fn parse_control_cancel(v: &Value) -> Vec<EntryKind> {
         .unwrap_or_default()
 }
 
-fn permission_denials(v: &Value) -> Vec<String> {
+fn permission_denials(v: &Value) -> Vec<Denial> {
     v.get("permission_denials")
         .and_then(Value::as_array)
         .map(|a| {
             a.iter()
-                .map(|d| {
-                    let tool = d.get("tool_name").and_then(Value::as_str).unwrap_or("?");
-                    let input = d.get("tool_input");
-
-                    let what = ["command", "file_path", "path", "url", "pattern"]
-                        .iter()
-                        .find_map(|k| input?.get(*k)?.as_str())
-                        .map(str::to_owned)
-                        .unwrap_or_default();
-                    if what.is_empty() {
-                        tool.to_owned()
-                    } else {
-                        format!("{tool}: {what}")
-                    }
+                .map(|d| Denial {
+                    tool_name: d
+                        .get("tool_name")
+                        .and_then(Value::as_str)
+                        .unwrap_or("?")
+                        .to_owned(),
+                    tool_use_id: d
+                        .get("tool_use_id")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_owned(),
+                    input: d.get("tool_input").cloned().unwrap_or(Value::Null),
                 })
                 .collect()
         })
@@ -593,10 +594,21 @@ mod tests {
         let r = r#"{"type":"result","subtype":"success","is_error":false,"result":"好的",
             "permission_denials":[{"tool_name":"Bash","tool_use_id":"t1","tool_input":{"command":"touch made_it.txt"}}]}"#;
         let p = parse_line(r).unwrap();
-        let Some(EntryKind::Finished(Outcome::Success { denied, .. })) = p.entries.last() else {
+        let Some(EntryKind::Finished(Outcome::Success {
+            denied, denials, ..
+        })) = p.entries.last()
+        else {
             panic!("{:?}", p.entries)
         };
         assert_eq!(denied, &vec!["Bash: touch made_it.txt".to_owned()]);
+        assert_eq!(
+            denials,
+            &vec![Denial {
+                tool_name: "Bash".into(),
+                tool_use_id: "t1".into(),
+                input: serde_json::json!({"command": "touch made_it.txt"}),
+            }]
+        );
         assert_eq!(
             blazar_core_types::ActivityState::from_entry(p.entries.last().unwrap()),
             Some(blazar_core_types::ActivityState::Errored),

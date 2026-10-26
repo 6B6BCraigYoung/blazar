@@ -732,6 +732,7 @@ mod tests {
                     text: Some("done".into()),
                     usage: None,
                     denied: Vec::new(),
+                    denials: Vec::new(),
                 }),
             ),
         )

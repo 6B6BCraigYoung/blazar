@@ -1,6 +1,7 @@
 pub mod api;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod connection;
+pub mod denial;
 pub mod failure;
 pub mod http;
 #[cfg(not(target_arch = "wasm32"))]
@@ -236,7 +237,36 @@ pub enum EntryKind {
         task_type: Option<String>,
     },
 
+    DenialDecided {
+        tool_use_id: String,
+        allow: bool,
+        #[serde(default)]
+        by: String,
+        #[serde(default)]
+        what: String,
+    },
+
     Finished(Outcome),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Denial {
+    pub tool_name: String,
+    pub tool_use_id: String,
+    #[serde(default)]
+    pub input: serde_json::Value,
+}
+
+impl Denial {
+    #[must_use]
+    pub fn what(&self) -> String {
+        denial::what_of(&self.tool_name, &self.input)
+    }
+
+    #[must_use]
+    pub fn summary(&self) -> String {
+        denial::summary(&self.tool_name, &self.input)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -299,6 +329,9 @@ pub enum Outcome {
 
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         denied: Vec<String>,
+
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        denials: Vec<Denial>,
     },
     Failed {
         message: String,
@@ -353,6 +386,7 @@ impl ActivityState {
             | EntryKind::RateLimit(_)
             | EntryKind::Progress { .. }
             | EntryKind::Notice { .. }
+            | EntryKind::DenialDecided { .. }
             | EntryKind::ApiRetry { .. } => None,
         }
     }

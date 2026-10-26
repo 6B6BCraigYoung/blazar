@@ -43,6 +43,7 @@ pub fn parse_line(line: &str) -> Vec<EntryKind> {
                 text: None,
                 usage,
                 denied: Vec::new(),
+                denials: Vec::new(),
             }));
             out
         }
