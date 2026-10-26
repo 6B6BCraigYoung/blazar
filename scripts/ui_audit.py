@@ -36,6 +36,14 @@ FAILED = [
     ("lyra-build", "other", "其他原因", "agent 异常退出（退出码 1）。stderr: Error: ENOSPC: no space left on device, write",
      "把三步打包脚本合成一条命令", "一条命令打包"),
 ]
+FAILED_LINE = {
+    "network": "网络断了，没做完，可以继续",
+    "busy": "服务繁忙，没做完，可以继续",
+    "node": "机器连不上，没做完，先把机器连上",
+    "quota": "额度用完了，没做完，可以换个账号",
+    "other": "磁盘满了，打包脚本没跑完，清掉空间后可以重试",
+}
+ASK = {"question": "正式站的首页文案要不要一起改？", "options": ["一起改", "先不动正式站"]}
 WS = {name: did(1, i) for i, name in enumerate(
     ["atlas-api", "nebula-web", "quasar-ml", "orbit-docs", "quasar-train", "orbit-site",
      "comet-sync", "quasar-eval", "atlas-worker", "lyra-build", *LEGACY], 1)}
@@ -51,7 +59,7 @@ APPROVAL = did(9, 1)
 QUESTION = did(9, 2)
 CHAT_APPROVAL = did(9, 3)
 ASSISTANT = did(26, 1)
-CHATS = {name: did(27, i) for i, name in enumerate(["status", "handoff", "gpu", "denied", "hard", "hard-retry"], 1)}
+CHATS = {name: did(27, i) for i, name in enumerate(["status", "handoff", "gpu", "denied", "hard", "hard-retry", "ask"], 1)}
 REFUSED = ("Permission for this action was denied by the Claude Code auto mode classifier. Reason: [Remote Shell Writes]. "
            "If you have other tasks that don't depend on this action, continue working on those. IMPORTANT: You *may* attempt to "
            "accomplish this action using other tools that might naturally be used to accomplish this goal, e.g. using head instead of cat. "
@@ -461,9 +469,11 @@ def usage(inp, out, cost):
     return {"type": "token_usage", "input": inp, "output": out, "cache_read": inp * 3, "cache_creation": inp // 5, "cost_usd": cost}
 
 
-def add_session(db, sid, ws, when, runtime, title, thread, status, events, agent=None, account=None):
-    db.execute("INSERT INTO sessions (id, workspace_id, runtime_kind, provider_session_id, status, created_at, title, thread_id, agent_profile, account_id)"
-               " VALUES (?,?,?,?,?,?,?,?,?,?)", (sid, ws, runtime, f"demo-{sid[-8:]}", status, iso(when), title, thread, agent, account))
+def add_session(db, sid, ws, when, runtime, title, thread, status, events, agent=None, account=None, summary=None, ask=None):
+    db.execute("INSERT INTO sessions (id, workspace_id, runtime_kind, provider_session_id, status, created_at, title, thread_id, agent_profile, account_id,"
+               " summary, ask) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+               (sid, ws, runtime, f"demo-{sid[-8:]}", status, iso(when), title, thread, agent, account, summary,
+                json.dumps(ask, ensure_ascii=False) if ask else None))
     for seq, (ts, payload, parent) in enumerate(events, 1):
         db.execute("INSERT INTO events (session_id, seq, ts, payload, parent_tool_id) VALUES (?,?,?,?,?)",
                    (sid, seq, ts, json.dumps(payload, ensure_ascii=False, separators=(",", ":")), parent))
@@ -484,7 +494,8 @@ def short_session(db, sid, ws, when, runtime, title, ask, reply, status, cost, c
         evs.append((c.tick(1), {"type": "finished", "status": "interrupted"}, None))
     else:
         evs.append((c.tick(1), {"type": "finished", "status": "success", "text": reply}, None))
-    add_session(db, sid, ws, when, runtime, title, sid, status, evs, agent)
+    summary = {"failed": FAILED_LINE["busy"], "interrupted": "被中断了，没做完"}.get(status, reply.rstrip("。"))
+    add_session(db, sid, ws, when, runtime, title, sid, status, evs, agent, summary=summary)
 
 
 def tables(db):
@@ -578,7 +589,8 @@ def seed_chats(db, local):
         (c.tick(1), usage(6200, 480, 0.09), None),
         (c.tick(1), {"type": "finished", "status": "success", "text": summary}, None),
     ]
-    add_session(db, CHATS["status"], ws, ago(hours=1), "claude", "看三个工作区的状态", CHATS["status"], "done", status)
+    add_session(db, CHATS["status"], ws, ago(hours=1), "claude", "看三个工作区的状态", CHATS["status"], "done", status,
+                summary="三个工作区里只有 quasar-ml 在等你批准")
     req = {"tool_name": "mcp__blazar-fleet__send_prompt", "tool_use_id": "toolu_demo_chat2",
            "input": {"workspace_id": WS["nebula-web"], "resume": True, "wait_secs": 15,
                      "text": "暗色模式收尾后，把主题切换按钮放到顶栏右侧，顺手在 README 里补一张截图。"}}
@@ -606,9 +618,30 @@ def seed_chats(db, local):
         (c.tick(4), {"type": "tool_result", "id": "toolu_demo_chat3", "ok": False, "content": f"机器 {NODE} 不在线，上次在线 5 小时前"}, None),
         (c.tick(2), {"type": "finished", "status": "failed", "message": "API Error: Can't reach the API server — check your internet or DNS (ENOTFOUND)"}, None),
     ]
-    add_session(db, CHATS["gpu"], ws, ago(hours=5), "claude", "汇总所有机器的 GPU 占用", CHATS["gpu"], "failed", gpu)
+    add_session(db, CHATS["gpu"], ws, ago(hours=5), "claude", "汇总所有机器的 GPU 占用", CHATS["gpu"], "failed", gpu,
+                summary=FAILED_LINE["network"])
     seed_denied_chats(db, ws, dict(model, permission_mode="auto"))
+    seed_asking_chat(db, ws, model)
     return ws
+
+
+def seed_asking_chat(db, ws, model):
+    said = ("首页的三句话文案已经改好，提交在 orbit-site 的 main 分支上，没有推送。\n\n"
+            "正式站的首页文案要不要一起改？改的话我顺手把两边同步成一样的。")
+    c = Clock(ago(minutes=5))
+    evs = [
+        (c.tick(0), dict(model, provider_session_id="demo-chat-ask"), None),
+        (c.tick(1), {"type": "user_message", "text": "orbit-site 的首页文案改完了吗？正式站是不是也要改"}, None),
+        (c.tick(3), {"type": "tool_use", "id": "toolu_demo_ask1", "name": "mcp__blazar-fleet__get_history",
+                     "input": {"workspace_id": WS["orbit-site"], "limit": 3, "mode": "summary"}}, None),
+        (c.tick(2), {"type": "tool_result", "id": "toolu_demo_ask1", "ok": True,
+                     "content": "[user_message] 把首页的英雄区文案改成三句话\n[assistant_message] 改好了，已提交，没有推送"}, None),
+        (c.tick(4), {"type": "assistant_message", "text": said}, None),
+        (c.tick(1), usage(3800, 210, 0.04), None),
+        (c.tick(1), {"type": "finished", "status": "success", "text": said}, None),
+    ]
+    add_session(db, CHATS["ask"], ws, ago(minutes=5), "claude", "首页文案与正式站", CHATS["ask"], "done", evs,
+                summary="首页文案改好了，问正式站要不要一起改", ask=ASK)
 
 
 def denied_turn(c, model, tool_id, ask, retry=False):
@@ -632,15 +665,16 @@ def seed_denied_chats(db, ws, model):
     ask = "edge.invalid 上的 demo-agent 掉线了，帮我把它重启一下"
     c = Clock(ago(minutes=9))
     add_session(db, CHATS["denied"], ws, ago(minutes=9), "claude", "重启 edge.invalid 上的 demo-agent", CHATS["denied"], "done",
-                denied_turn(c, model, "toolu_demo_deny1", ask))
+                denied_turn(c, model, "toolu_demo_deny1", ask), summary="重启命令被安全检查拦下，没有执行")
     c = Clock(ago(minutes=30))
     first = denied_turn(c, model, "toolu_demo_deny2", ask)
     first.append((c.tick(40), {"type": "denial_decided", "tool_use_id": "toolu_demo_deny2", "allow": True, "by": "demo", "what": REFUSED_CMD}, None))
-    add_session(db, CHATS["hard"], ws, ago(minutes=30), "claude", "重启 edge.invalid 上的 demo-agent（第二次）", CHATS["hard"], "done", first)
+    add_session(db, CHATS["hard"], ws, ago(minutes=30), "claude", "重启 edge.invalid 上的 demo-agent（第二次）", CHATS["hard"], "done", first,
+                summary="重启命令被安全检查拦下，没有执行")
     c = Clock(ago(minutes=28))
     again = "我同意执行刚才被拦下的这条命令，请原样重试一次，不要改动：\n```\n" + REFUSED_CMD + "\n```"
     add_session(db, CHATS["hard-retry"], ws, ago(minutes=28), "claude", "重启 edge.invalid 上的 demo-agent（第二次）", CHATS["hard"], "done",
-                denied_turn(c, model, "toolu_demo_deny3", again, retry=True))
+                denied_turn(c, model, "toolu_demo_deny3", again, retry=True), summary="第二次也被拦下，要你自己在终端里重启")
     db.execute("INSERT INTO denial_decisions (id, session_id, workspace_id, tool_use_id, tool_name, what, reason, allow, decided_by, decided_at)"
                " VALUES (?,?,?,?,?,?,?,?,?,?)",
                (did(28, 1), CHATS["hard"], ws, "toolu_demo_deny2", "Bash", REFUSED_CMD, "Remote Shell Writes", 1, "demo", iso(ago(minutes=29))))
@@ -705,6 +739,8 @@ def seed_rows(db):
     model = {"type": "session_started", "provider_session_id": "demo-long", "model": "claude-opus-5-5", "cwd": cwd,
              "permission_mode": "default", "mcp_servers": [{"name": "blazar-fleet", "status": "connected"}]}
     costs = [(48211, 2310, 0.62), (91240, 5120, 1.37), (30110, 880, 0.31), (64200, 3900, 0.95), (12040, 420, 0.12)]
+    lines = ["给 /users 加了 limit/offset 分页，旧测试通过", "非法分页参数改成返回 400，README 已更新", "ruff 和 35 个测试全部通过",
+             "统一了错误响应体，加了灌假用户的脚本", "提交了分页改动，没有推送"]
     for n, turn in enumerate(long_thread(cwd)):
         sid = did(10, n + 1)
         start = clock.t
@@ -713,7 +749,7 @@ def seed_rows(db):
         last = next(e for e in reversed(turn) if e["type"] == "finish")
         evs.append((clock.tick(1), usage(*costs[n][:2], costs[n][2]), None))
         evs.append((clock.tick(1), {"type": "finished", "status": "success", "text": last["text"]}, None))
-        add_session(db, sid, WS["atlas-api"], start, "claude_cli", "给 /users 加分页", THREAD, "done", evs, AGENTS["backend"])
+        add_session(db, sid, WS["atlas-api"], start, "claude_cli", "给 /users 加分页", THREAD, "done", evs, AGENTS["backend"], summary=lines[n])
         clock.tick(90)
 
     asks = [
@@ -768,7 +804,8 @@ def seed_rows(db):
     ]
     site += [(c.tick(2 + n), dict(retry, attempt=n, delay_ms=min(1000 * 2 ** (n - 1), 32000)), None) for n in range(1, 11)]
     site.append((c.tick(5), {"type": "finished", "status": "failed", "message": "API Error: 529 overloaded"}, None))
-    add_session(db, did(12, 4), WS["orbit-site"], ago(hours=3, minutes=2), "claude_cli", "改首页文案", did(12, 4), "failed", site, AGENTS["writer"])
+    add_session(db, did(12, 4), WS["orbit-site"], ago(hours=3, minutes=2), "claude_cli", "改首页文案", did(12, 4), "failed", site, AGENTS["writer"],
+                summary=FAILED_LINE["busy"])
 
     db.execute("INSERT INTO accounts (id, provider, display_name, auth_mode, status, created_at) VALUES (?,?,?,?,?,?)",
                (ACCOUNT, "claude", "演示账号", "cli", "active", iso(ago(days=30))))
@@ -786,7 +823,7 @@ def seed_rows(db):
             (c.tick(90), {"type": "finished", "status": "failed", "message": message}, None),
         ]
         add_session(db, did(12, n), WS[name], when - timedelta(minutes=2), "claude", title, did(12, n), "failed", evs,
-                    AGENTS["backend"], ACCOUNT if cause == "quota" else None)
+                    AGENTS["backend"], ACCOUNT if cause == "quota" else None, summary=FAILED_LINE[cause])
 
     c = Clock(ago(minutes=6))
     req = {"tool_name": "Bash", "input": {"command": "python train.py --config configs/base.yaml --steps 200", "description": "冒烟训练 200 步"}, "tool_use_id": "toolu_demo_appr"}
@@ -909,27 +946,28 @@ def seed_rows(db):
                     iso(ago(hours=hours)), iso(ago(hours=hours - 1)), iso(ago(hours=hours - 1))))
 
     inbox = [
-        ("run_done", "atlas-api · 跑完了：提交吧，提交信息用英文", "已提交：`3f9c2ab feat(users): paginate the users list and return 400 on bad params`。没有推送。", "atlas-api", THREAD, None, ago(minutes=20), False, False),
-        ("approval", "quasar-ml · 等你批准：Bash", "python train.py --config configs/base.yaml --steps 200", "quasar-ml", did(12, 2), APPROVAL, ago(minutes=4), False, False),
-        ("question", "quasar-ml · 智能体在问你", "lr=3e-4 那组的节点离线了，要不要换到本机重跑？", "quasar-ml", did(12, 2), QUESTION, ago(minutes=3), False, False),
-        ("run_failed", "orbit-site · 没跑成：把首页的英雄区文案改成三句话，突出离线可用", "API Error: 529 overloaded", "orbit-site", did(12, 4), None, ago(hours=3), False, False),
+        ("run_done", "提交了分页改动，没有推送", "已提交：`3f9c2ab feat(users): paginate the users list and return 400 on bad params`。没有推送。", "atlas-api", THREAD, None, ago(minutes=20), False, False),
+        ("approval", "等你批准：冒烟训练 200 步", "python train.py --config configs/base.yaml --steps 200", "quasar-ml", did(12, 2), APPROVAL, ago(minutes=4), False, False),
+        ("question", "在问你：lr=3e-4 那组的节点离线了，要不要换到本机重跑？", "lr=3e-4 那组的节点离线了，要不要换到本机重跑？", "quasar-ml", did(12, 2), QUESTION, ago(minutes=3), False, False),
+        ("run_failed", FAILED_LINE["busy"], "API Error: 529 overloaded", "orbit-site", did(12, 4), None, ago(hours=3), False, False),
     ] + [
-        ("run_failed", f"{name}{'（' + NODE + '）' if cause == 'node' else ''} · 没跑成：{title}", message, name, did(12, n), None,
+        ("run_failed", FAILED_LINE[cause], message, name, did(12, n), None,
          next(last for ws, _, _, _, _, last, _ in wss if ws == name), False, False)
         for n, (name, cause, _, message, _, title) in enumerate(FAILED, 5) if name != "orbit-site"
     ] + [
         ("autopilot_paused", "自动化「夜间评测汇总」已暂停", "连续失败 3 次。", None, None, AUTOPILOTS[1], ago(hours=9), True, False),
         ("job", "后台任务「演示：导出评测表」失败了", "退出码 1", None, None, None, ago(hours=4), True, False),
         ("alert", "后台任务「演示：远程评测」失联", "它在等的机器 gpu-a.invalid 不在线。", None, None, "rule:job_orphan:demo", ago(hours=19), True, True),
-        ("approval", "对话 · 等你批准：send_prompt", "给 nebula-web 派活：暗色模式收尾后，把主题切换按钮放到顶栏右侧", "对话", CHATS["handoff"], CHAT_APPROVAL, ago(minutes=2), False, False),
-        ("run_failed", "对话 · 没跑成：汇总一下所有机器现在的 GPU 占用", "API Error: Can't reach the API server — check your internet or DNS (ENOTFOUND)", "对话", CHATS["gpu"], None, ago(hours=5), False, False),
-        ("denied", "对话 · 被拦下：Remote Shell Writes", REFUSED_CMD, "对话", CHATS["denied"], "toolu_demo_deny1", ago(minutes=8), False, False),
+        ("approval", "等你批准：给工作区派活", "给 nebula-web 派活：暗色模式收尾后，把主题切换按钮放到顶栏右侧", "对话", CHATS["handoff"], CHAT_APPROVAL, ago(minutes=2), False, False),
+        ("run_failed", FAILED_LINE["network"], "API Error: Can't reach the API server — check your internet or DNS (ENOTFOUND)", "对话", CHATS["gpu"], None, ago(hours=5), False, False),
+        ("denied", "被拦下：远程命令写操作", REFUSED_CMD, "对话", CHATS["denied"], "toolu_demo_deny1", ago(minutes=8), False, False),
+        ("question", "在问你：" + ASK["question"], "", "对话", CHATS["ask"], "ask:" + CHATS["ask"], ago(minutes=5), False, False),
     ]
     for i, (kind, title, body, ws, thread, ref, when, read, archived) in enumerate(inbox):
         db.execute("INSERT INTO inbox (id, kind, title, body, workspace_id, thread_id, session_id, ref_id, read_at, archived_at, created_at)"
                    " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                    (did(21, i + 1), kind, title, body, assistant if ws == "对话" else WS.get(ws), thread,
-                    thread if kind.startswith("run_") or kind == "denied" else None, ref,
+                    thread if kind.startswith("run_") or kind == "denied" or (ref or "").startswith("ask:") else None, ref,
                     iso(when) if read else None, iso(when) if archived else None, iso(when)))
     snippets = [
         ("验收清单", "- 单元测试全部通过\n- 没有新的 clippy 警告\n- 改动的接口在 README 里有说明"),
