@@ -2,7 +2,7 @@ use leptos::ev;
 use leptos::html;
 use leptos::prelude::*;
 use leptos_router::NavigateOptions;
-use leptos_router::hooks::{use_navigate, use_params_map};
+use leptos_router::hooks::{use_location, use_navigate, use_params_map, use_query_map};
 use serde_json::json;
 use wasm_bindgen::JsCast;
 
@@ -13,27 +13,40 @@ use crate::components::status::{InlineError, LoadingState};
 use crate::pages::workspace::chat::{CHEVRON, Chat, ChatPane};
 use crate::vocab;
 
+use super::pulse::Pulse;
+use super::rail::Rail;
 use super::{NEW, title_of};
 
 #[component]
-pub fn ChatPage() -> impl IntoView {
+pub fn ConsolePage() -> impl IntoView {
     let params = use_params_map();
-    let thread = Signal::derive(move || {
-        params
-            .read()
-            .get("thread")
-            .filter(|t| !t.is_empty() && t != "new")
-    });
+    let location = use_location();
     let assistant = LocalResource::new(|| async move {
         api::send::<api::Assistant>("POST", "/api/assistant", &json!({})).await
     });
     view! {
         {move || match assistant.get() {
-            None => view! { <LoadingState text="正在打开对话…" /> }.into_any(),
+            None => view! { <LoadingState text="正在打开中控台…" /> }.into_any(),
             Some(Err(e)) => view! { <InlineError message=e.to_string() /> }.into_any(),
             Some(Ok(a)) => {
                 match a.id {
-                    Some(id) => view! { <Room id path=a.path thread /> }.into_any(),
+                    Some(id) => {
+                        let latest = a
+                            .threads
+                            .iter()
+                            .max_by(|x, y| x.when().cmp(y.when()))
+                            .map(|t| t.id.clone());
+                        let thread = Signal::derive(move || {
+                            params
+                                .read()
+                                .get("thread")
+                                .filter(|t| !t.is_empty() && t != "new")
+                                .or_else(|| {
+                                    location.pathname.with(|p| p == "/").then(|| latest.clone()).flatten()
+                                })
+                        });
+                        view! { <Room id path=a.path thread /> }.into_any()
+                    }
                     None => view! { <InlineError message="对话没能打开，稍后再试" /> }.into_any(),
                 }
             }
@@ -45,6 +58,8 @@ pub fn ChatPage() -> impl IntoView {
 fn Room(id: String, path: String, thread: Signal<Option<String>>) -> impl IntoView {
     let app = use_app();
     let navigate = StoredValue::new_local(use_navigate());
+    let query = use_query_map();
+    let location = use_location();
     app.current_ws.set(Some(id.clone()));
     app.mark_seen(&id);
     {
@@ -121,15 +136,21 @@ fn Room(id: String, path: String, thread: Signal<Option<String>>) -> impl IntoVi
     let go = Callback::new(move |href: String| {
         navigate.with_value(|n| n(&href, Default::default()));
     });
+    let all = Signal::derive(move || query.with(|q| q.get("inbox").as_deref() == Some("all")));
+    let rail_mode = Callback::new(move |all: bool| {
+        let path = location.pathname.get_untracked();
+        let href = if all {
+            format!("{path}?inbox=all")
+        } else {
+            path
+        };
+        navigate.with_value(|n| n(&href, Default::default()));
+    });
+    let hint = crate::shortcuts::label(&crate::shortcuts::current("newchat"));
     view! {
-        <div class="ws chat-room">
-            <header class="ws-head chat-room-head">
-                <a class="chat-up" href="/chats">
-                    "对话"
-                </a>
-                <span class="chat-sep" aria-hidden="true">
-                    "·"
-                </span>
+        <div class="ws chat-room console" data-rail=move || if all.get() { "all" } else { "summary" }>
+            <header class="ws-head chat-room-head console-head">
+                <h1 class="console-title">"中控台"</h1>
                 <ChatPicker chat go />
                 {move || {
                     status
@@ -146,15 +167,35 @@ fn Room(id: String, path: String, thread: Signal<Option<String>>) -> impl IntoVi
                         })
                 }}
                 <span class="grow"></span>
+                <a class="btn console-all" href="/chats">
+                    "全部对话"
+                </a>
+                <button
+                    type="button"
+                    class="btn primary console-new"
+                    on:click=move |_| {
+                        chat.new_chat();
+                        chat.show_aux.run(());
+                    }
+                >
+                    "新对话"
+                    {(!hint.is_empty()).then(|| view! { <kbd>{hint.clone()}</kbd> })}
+                </button>
             </header>
-            <div class="ws-body">
-                <div class="ws-stage">
-                    <div class="ws-row">
-                        <section class="ws-chat" aria-label="对话">
-                            <ChatPane chat tree_files draft mention thread ready />
-                        </section>
+            <div class="console-body">
+                <div class="console-main">
+                    <Pulse rail_mode />
+                    <div class="ws-body">
+                        <div class="ws-stage">
+                            <div class="ws-row">
+                                <section class="ws-chat" aria-label="对话">
+                                    <ChatPane chat tree_files draft mention thread ready />
+                                </section>
+                            </div>
+                        </div>
                     </div>
                 </div>
+                <Rail all rail_mode />
             </div>
         </div>
     }

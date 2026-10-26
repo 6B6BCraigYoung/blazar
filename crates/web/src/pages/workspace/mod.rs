@@ -50,7 +50,7 @@ pub fn WorkspacePage() -> impl IntoView {
     let navigate = StoredValue::new_local(leptos_router::hooks::use_navigate());
     Effect::new(move |_| {
         if app.is_assistant(&id()) {
-            navigate.with_value(|n| n("/chats", Default::default()));
+            navigate.with_value(|n| n("/", Default::default()));
         }
     });
     move || {

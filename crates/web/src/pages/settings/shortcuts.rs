@@ -31,7 +31,7 @@ pub const SHORTCUTS: &[(&str, &str, &str)] = &[
     ("diffwrap", "差异：自动换行", "Alt+Z"),
     ("difflist", "差异：改动文件列表", "Mod+Alt+L"),
     ("difffold", "差异：全部折叠 / 展开", "Mod+Alt+["),
-    ("inbox", "收件箱", "Alt+I"),
+    ("inbox", "全部消息", "Alt+I"),
     ("tasks", "任务", "Alt+T"),
     ("workspaces", "工作区", "Alt+W"),
     ("settings", "设置", "Mod+,"),

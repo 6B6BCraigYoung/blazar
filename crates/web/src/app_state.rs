@@ -20,6 +20,9 @@ pub struct AppData {
     pub state: RwSignal<Option<StateSnapshot>>,
     pub state_error: RwSignal<Option<String>>,
     pub inbox_unread: RwSignal<u64>,
+    pub inbox: RwSignal<Vec<Value>>,
+    inbox_seen: StoredValue<Option<std::collections::HashSet<String>>>,
+    pub rail_shown: RwSignal<bool>,
     pub tasks_review: RwSignal<usize>,
     pub autopilots_active: RwSignal<usize>,
     pub jobs_running: RwSignal<usize>,
@@ -189,13 +192,49 @@ impl AppData {
         })
     }
 
-    pub fn chats_waiting(self) -> usize {
-        self.chats.with(|a| {
-            a.threads
-                .iter()
-                .filter(|t| t.state() == "awaiting_approval")
+    pub fn inbox_items(self) -> Vec<crate::pages::inbox::Item> {
+        let assistant = self.assistant().map(|w| w.id);
+        self.inbox.with(|l| {
+            l.iter()
+                .map(|it| crate::pages::inbox::item_of(it, assistant.as_deref()))
+                .collect()
+        })
+    }
+
+    pub fn pending_count(self) -> usize {
+        self.inbox.with(|l| {
+            l.iter()
+                .filter(|it| crate::pages::inbox::item_of(it, None).needs_you())
                 .count()
         })
+    }
+
+    fn load_inbox(self) {
+        spawn_local(async move {
+            let Ok(v) = api::get::<Value>("/api/inbox?filter=all").await else {
+                return;
+            };
+            let _ = self.inbox_unread.try_set(v["unread"].as_u64().unwrap_or(0));
+            let items = v["items"].as_array().cloned().unwrap_or_default();
+            let ids: std::collections::HashSet<String> = items
+                .iter()
+                .filter_map(|it| it["id"].as_str().map(str::to_owned))
+                .collect();
+            let fresh: Vec<Value> = match self.inbox_seen.try_get_value().flatten() {
+                Some(seen) => items
+                    .iter()
+                    .filter(|it| {
+                        it["read"].as_bool() != Some(true)
+                            && it["id"].as_str().is_some_and(|id| !seen.contains(id))
+                    })
+                    .cloned()
+                    .collect(),
+                None => Vec::new(),
+            };
+            let _ = self.inbox_seen.try_set_value(Some(ids));
+            let _ = self.inbox.try_set(items);
+            let _ = fresh;
+        });
     }
 
     pub fn load_chats(self) {
@@ -296,11 +335,7 @@ impl AppData {
     fn load_counts(self, which: &'static str) {
         spawn_local(async move {
             match which {
-                "inbox" => {
-                    if let Ok(v) = api::get::<Value>("/api/inbox/count").await {
-                        let _ = self.inbox_unread.try_set(v["unread"].as_u64().unwrap_or(0));
-                    }
-                }
+                "inbox" => self.load_inbox(),
                 "tasks" => {
                     if let Ok(v) = api::get::<Vec<Value>>("/api/tasks").await {
                         let n = v
@@ -415,7 +450,7 @@ async fn notify_changes(app: AppData, fresh: Vec<WorkspaceView>) {
             _ => "在等你批准",
         };
         let href = if app.is_assistant(&w.id) {
-            "/chats".to_owned()
+            "/".to_owned()
         } else {
             format!("/w/{}", w.id)
         };
@@ -436,6 +471,9 @@ pub fn provide(bus: Bus) -> AppData {
         state: RwSignal::new(None),
         state_error: RwSignal::new(None),
         inbox_unread: RwSignal::new(0),
+        inbox: RwSignal::new(Vec::new()),
+        inbox_seen: StoredValue::new(None),
+        rail_shown: RwSignal::new(false),
         tasks_review: RwSignal::new(0),
         autopilots_active: RwSignal::new(0),
         jobs_running: RwSignal::new(0),

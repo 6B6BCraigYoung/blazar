@@ -3,7 +3,6 @@ use crate::action_gate::ActionGate;
 use crate::components::empty::{self, Action, Blank};
 use crate::components::group::ListGroup;
 use crate::components::icon;
-use crate::components::page_head::PageHead;
 use crate::components::rows::{MenuAt, RowAction, RowMenu};
 use crate::components::status::{InlineError, LoadingState, Status, Tone};
 use crate::components::toast::toast;
@@ -15,16 +14,18 @@ use leptos::ev;
 use leptos::html;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
+use leptos_router::NavigateOptions;
 use leptos_router::hooks::use_navigate;
 use serde_json::{Value, json};
 use wasm_bindgen::JsCast;
 
-const KINDS: &[(&str, &str)] = &[
+pub(crate) const KINDS: &[(&str, &str)] = &[
     ("", "全部"),
     ("run_done", "运行完成"),
     ("run_failed", "运行失败"),
     ("approval", "等你批准"),
     ("question", "待回答"),
+    ("denied", "被拦下"),
     ("bot_reply", "bot 回复"),
     ("autopilot_paused", "自动化已暂停"),
     ("rate_limit", "额度告警"),
@@ -32,38 +33,56 @@ const KINDS: &[(&str, &str)] = &[
     ("alert", "提醒规则"),
 ];
 
+pub(crate) const ALL: &str = "/?inbox=all";
+
 #[derive(Clone, PartialEq)]
-struct Item {
-    id: String,
-    kind: String,
-    workspace: String,
-    label: String,
-    title: String,
-    body: String,
-    raw: String,
-    href: String,
-    read: bool,
-    archived: bool,
-    resolved: String,
-    ref_id: String,
-    created: String,
-    failure: Option<Failure>,
-    handled: bool,
+pub struct Item {
+    pub id: String,
+    pub kind: String,
+    pub workspace: String,
+    pub thread: String,
+    pub session: String,
+    pub label: String,
+    pub title: String,
+    pub body: String,
+    pub raw: String,
+    pub href: String,
+    pub read: bool,
+    pub archived: bool,
+    pub resolved: String,
+    pub ref_id: String,
+    pub created: String,
+    pub failure: Option<Failure>,
+    pub handled: bool,
 }
 
 impl Item {
-    fn open_request(&self) -> bool {
+    pub fn open_request(&self) -> bool {
         matches!(self.kind.as_str(), "approval" | "question")
             && !self.archived
             && self.resolved.is_empty()
             && !self.ref_id.is_empty()
+    }
+
+    pub fn open_denial(&self) -> bool {
+        self.kind == "denied"
+            && !self.archived
+            && self.resolved.is_empty()
+            && !self.ref_id.is_empty()
+            && !self.session.is_empty()
+    }
+
+    pub fn needs_you(&self) -> bool {
+        self.open_request()
+            || self.open_denial()
+            || (self.kind == "run_failed" && !self.handled && !self.archived)
     }
 }
 
 fn href_of(it: &Value, k: &str, ws: &str, thread: &str, chats: bool) -> String {
     if chats {
         return if thread.is_empty() {
-            "/chats".into()
+            "/".into()
         } else {
             format!("/chats/{}", api::enc(thread))
         };
@@ -96,11 +115,11 @@ fn href_of(it: &Value, k: &str, ws: &str, thread: &str, chats: bool) -> String {
     } else if !ws.is_empty() {
         format!("/w/{}", api::enc(ws))
     } else {
-        "/inbox".into()
+        ALL.into()
     }
 }
 
-fn item_of(it: &Value, assistant: Option<&str>) -> Item {
+pub fn item_of(it: &Value, assistant: Option<&str>) -> Item {
     let k = s(it, "kind");
     let ws = s(it, "workspace_id");
     let thread = s(it, "thread_id");
@@ -120,11 +139,14 @@ fn item_of(it: &Value, assistant: Option<&str>) -> Item {
     let handled = it["handled"].as_bool() == Some(true) || !s(it, "resolved_at").is_empty();
     let human = match &failure {
         Some(f) => f.headline(),
+        None if k == "denied" => raw.clone(),
         None => crate::vocab::error(&raw, None),
     };
     Item {
         id: s(it, "id"),
         workspace: ws.clone(),
+        thread: thread.clone(),
+        session: s(it, "session_id"),
         label: KINDS
             .iter()
             .find(|(key, _)| *key == k)
@@ -144,6 +166,20 @@ fn item_of(it: &Value, assistant: Option<&str>) -> Item {
         failure,
         handled,
     }
+}
+
+pub fn mark_inbox(action: &str, ids: Vec<String>, done: impl Fn() + 'static) {
+    let action = action.to_owned();
+    spawn_local(async move {
+        let mut body = json!({"action":action});
+        if !ids.is_empty() {
+            body["ids"] = json!(ids);
+        }
+        match api::send::<Value>("POST", "/api/inbox", &body).await {
+            Ok(_) => done(),
+            Err(e) => toast(e.to_string()),
+        }
+    });
 }
 
 fn failure_actions(it: &Item) -> Option<Failure> {
@@ -223,8 +259,109 @@ fn pick_approval(ctx: Ctx, key: &str, a: &Value, workspace: String) {
     }
 }
 
+fn decide_denial(ctx: Ctx, it: &Item, allow: bool) {
+    let key = format!("{}:{}", it.session, it.ref_id);
+    if !ctx.gate.write().begin(&key) {
+        return;
+    }
+    let (sid, tid, ws, thread) = (
+        it.session.clone(),
+        it.ref_id.clone(),
+        it.workspace.clone(),
+        it.thread.clone(),
+    );
+    spawn_local(async move {
+        let r = api::send::<Value>(
+            "POST",
+            &format!("/api/sessions/{sid}/denials"),
+            &json!({ "tool_use_id": tid, "allow": allow }),
+        )
+        .await;
+        let _ = ctx.gate.try_update(|g| {
+            g.complete(&key, false);
+        });
+        match r {
+            Ok(r) if r["recorded"].as_bool() == Some(true) => {
+                if allow && let Some(text) = r["text"].as_str() {
+                    let body = json!({
+                        "text": text, "resume": true, "resume_session": thread,
+                        "permission_mode": "auto", "images": [], "wait_secs": 20,
+                    });
+                    match api::send::<Value>("POST", &format!("/api/workspaces/{ws}/prompt"), &body)
+                        .await
+                    {
+                        Ok(r) if r["admitted"] == json!(false) => toast(
+                            r["reason"]
+                                .as_str()
+                                .unwrap_or("这个对话正在忙，稍后再重试")
+                                .to_owned(),
+                        ),
+                        Ok(_) => toast("已允许，正在重试"),
+                        Err(e) => toast(format!("已允许，但没能重试：{e}")),
+                    }
+                } else if !allow {
+                    toast("已跳过");
+                }
+            }
+            Ok(r) => toast(
+                r["reason"]
+                    .as_str()
+                    .unwrap_or("这条操作已经决定过了")
+                    .to_owned(),
+            ),
+            Err(e) => toast(format!("没能记录：{e}")),
+        }
+        refresh(ctx.rev);
+    });
+}
+
+fn denied_panel(ctx: Ctx, it: &Item) -> AnyView {
+    let key = format!("{}:{}", it.session, it.ref_id);
+    let (k1, k2) = (key.clone(), key);
+    let (a, n) = (it.clone(), it.clone());
+    view! {
+        <div class="inbox-act" data-ui-guard="">
+            <code class="inbox-cmd" title=it.body.clone()>
+                {it.body.clone()}
+            </code>
+            <button
+                type="button"
+                class="btn small primary"
+                disabled=move || ctx.gate.with(|g| g.busy(&k1))
+                on:click=move |_| decide_denial(ctx, &a, true)
+            >
+                "允许这一次并重试"
+            </button>
+            <button
+                type="button"
+                class="btn small"
+                disabled=move || ctx.gate.with(|g| g.busy(&k2))
+                on:click=move |_| decide_denial(ctx, &n, false)
+            >
+                "不用了"
+            </button>
+        </div>
+    }
+    .into_any()
+}
+
 #[component]
 pub fn InboxPage() -> impl IntoView {
+    let navigate = use_navigate();
+    Effect::new(move |_| {
+        navigate(
+            ALL,
+            NavigateOptions {
+                replace: true,
+                ..Default::default()
+            },
+        );
+    });
+    view! { <LoadingState text="正在打开中控台…" /> }
+}
+
+#[component]
+pub fn InboxAll() -> impl IntoView {
     let saved =
         storage::load::<Value>("blazar.inboxview").unwrap_or(json!({"filter":"all","kind":""}));
     let filter = RwSignal::new(s(&saved, "filter"));
@@ -232,8 +369,6 @@ pub fn InboxPage() -> impl IntoView {
     let rev = work_revision("inbox");
     let busy = RwSignal::new(false);
     let app = use_app();
-    let go = StoredValue::new_local(use_navigate());
-    let list_el = NodeRef::<html::Div>::new();
     let data = LocalResource::new(move || {
         rev.track();
         let (filter, kind) = (filter.get(), kind.get());
@@ -263,21 +398,122 @@ pub fn InboxPage() -> impl IntoView {
             })
             .unwrap_or_default()
     });
+    let has_any = move || {
+        data.with(|d| {
+            d.as_ref()
+                .and_then(|r| r.as_ref().ok())
+                .is_some_and(|r| r["total"].as_u64().unwrap_or(1) > 0)
+        })
+    };
+    let read_all = move |_| {
+        if busy.get_untracked() {
+            return;
+        }
+        busy.set(true);
+        mark_inbox("read", vec![], move || {
+            refresh(rev);
+            let _ = busy.try_set(false);
+        });
+    };
+    view! {
+        <div class="inbox-all">
+            <div class="inbox-tools">
+                <Show when=has_any>
+                    <div class="work-filters">
+                        {filter_select(
+                            "显示",
+                            filter,
+                            &[("unread", "未读"), ("all", "全部"), ("archived", "已归档")],
+                        )} {filter_select("类型", kind, KINDS)}
+                    </div>
+                </Show>
+                <span class="grow"></span>
+                <Show when=move || { has_any() && app.inbox_unread.get() > 0 }>
+                    <button type="button" class="linkbtn" disabled=move || busy.get() on:click=read_all>
+                        "全部已读"
+                    </button>
+                </Show>
+            </div>
+            {move || match data.get() {
+                None => view! { <LoadingState text="加载通知…" /> }.into_any(),
+                Some(Err(e)) => {
+                    view! {
+                        <InlineError
+                            message=e.to_string()
+                            retry=Callback::new(move |_| refresh(rev))
+                        />
+                    }
+                        .into_any()
+                }
+                Some(Ok(r)) => {
+                    let list = items.get();
+                    if list.is_empty() {
+                        if r["total"].as_u64() == Some(0) {
+                            return view! {
+                                <Blank
+                                    icon=icon::INBOX
+                                    title=empty::never("通知")
+                                    detail="工作跑完、出错或需要你批准时，会在这里通知你。"
+                                    inset=true
+                                />
+                            }
+                                .into_any();
+                        }
+                        if !kind.get().is_empty() || filter.get() == "archived" {
+                            return view! {
+                                <Blank
+                                    icon=icon::FILTER
+                                    title=empty::unmatched("通知")
+                                    detail="换个类型，或者看看全部通知。"
+                                    action=Action::clear(move || {
+                                        filter.set("all".into());
+                                        kind.set(String::new());
+                                    })
+                                    inset=true
+                                />
+                            }
+                                .into_any();
+                        }
+                        return view! {
+                            <Blank
+                                icon=icon::CHECK
+                                title=empty::DONE
+                                detail="新的结果和请求会出现在这里。"
+                                inset=true
+                            />
+                        }
+                            .into_any();
+                    }
+                    view! {
+                        <ListGroup>
+                            <InboxCards items=Signal::from(items) rev label="通知" />
+                        </ListGroup>
+                    }
+                        .into_any()
+                }
+            }}
+        </div>
+    }
+}
+
+#[component]
+pub fn InboxCards(
+    items: Signal<Vec<Item>>,
+    rev: RwSignal<u32>,
+    #[prop(default = "通知")] label: &'static str,
+) -> impl IntoView {
+    let app = use_app();
+    let go = StoredValue::new_local(use_navigate());
+    let list_el = NodeRef::<html::Div>::new();
+    let busy = RwSignal::new(false);
     let mark = Callback::new(move |(action, ids): (String, Vec<String>)| {
         if busy.get_untracked() {
             return;
         }
         busy.set(true);
-        spawn_local(async move {
-            let mut body = json!({"action":action});
-            if !ids.is_empty() {
-                body["ids"] = json!(ids);
-            }
-            match api::send::<Value>("POST", "/api/inbox", &body).await {
-                Ok(_) => refresh(rev),
-                Err(e) => toast(e.to_string()),
-            }
-            busy.try_set(false);
+        mark_inbox(&action, ids, move || {
+            refresh(rev);
+            let _ = busy.try_set(false);
         });
     });
     let ctx = Ctx {
@@ -318,13 +554,6 @@ pub fn InboxPage() -> impl IntoView {
             ctx.sel.set(n - 1);
         }
     });
-    let has_any = move || {
-        data.with(|d| {
-            d.as_ref()
-                .and_then(|r| r.as_ref().ok())
-                .is_some_and(|r| r["total"].as_u64().unwrap_or(1) > 0)
-        })
-    };
     let focus_row = move |i: usize| {
         if let Some(list) = list_el.try_get_untracked().flatten()
             && let Ok(Some(row)) = list.query_selector(&format!(".inbox-row[data-index=\"{i}\"]"))
@@ -343,7 +572,7 @@ pub fn InboxPage() -> impl IntoView {
         }
         go.with_value(|n| n(&it.href, Default::default()));
     };
-    let keys = window_event_listener(ev::keydown, move |e| {
+    let keys = move |e: ev::KeyboardEvent| {
         if e.default_prevented() || e.is_composing() || overlay_open() {
             return;
         }
@@ -399,128 +628,47 @@ pub fn InboxPage() -> impl IntoView {
             }
             _ => {}
         }
-    });
-    on_cleanup(move || keys.remove());
+    };
     view! {
-        <div class="page work-page inbox-page">
-            <PageHead
-                title="收件箱"
-                status=move || {
-                    let n = app.inbox_unread.get();
-                    (n != 0).then(|| view! { <span class="page-note">{format!("{n} 条未读")}</span> })
-                }
-            >
-                <Show when=move || { has_any() && app.inbox_unread.get() > 0 }>
-                    <button
-                        type="button"
-                        class="btn"
-                        disabled=move || busy.get()
-                        on:click=move |_| mark.run(("read".into(), vec![]))
-                    >
-                        "全部已读"
-                    </button>
-                </Show>
-            </PageHead>
-            <Show when=has_any>
-                <div class="work-filters">
-                    {filter_select(
-                        "显示",
-                        filter,
-                        &[("unread", "未读"), ("all", "全部"), ("archived", "已归档")],
-                    )} {filter_select("类型", kind, KINDS)}
-                </div>
-            </Show>
-            {move || match data.get() {
-                None => view! { <LoadingState text="加载通知…" /> }.into_any(),
-                Some(Err(e)) => {
-                    view! {
-                        <InlineError
-                            message=e.to_string()
-                            retry=Callback::new(move |_| refresh(rev))
-                        />
-                    }
-                        .into_any()
-                }
-                Some(Ok(r)) => {
-                    let list = items.get();
-                    if list.is_empty() {
-                        if r["total"].as_u64() == Some(0) {
-                            return view! {
-                                <Blank
-                                    icon=icon::INBOX
-                                    title=empty::never("通知")
-                                    detail="工作跑完、出错或需要你批准时，会在这里通知你。"
-                                />
-                            }
-                                .into_any();
-                        }
-                        if !kind.get().is_empty() || filter.get() == "archived" {
-                            return view! {
-                                <Blank
-                                    icon=icon::FILTER
-                                    title=empty::unmatched("通知")
-                                    detail="换个类型，或者看看全部通知。"
-                                    action=Action::clear(move || {
-                                        filter.set("all".into());
-                                        kind.set(String::new());
-                                    })
-                                />
-                            }
-                                .into_any();
-                        }
-                        return view! {
-                            <Blank
-                                icon=icon::CHECK
-                                title=empty::DONE
-                                detail="新的结果和请求会出现在这里。"
-                            />
-                        }
-                            .into_any();
-                    }
-                    let rows = list
-                        .into_iter()
-                        .enumerate()
-                        .map(|(i, it)| {
-                            let pending = pending_of(&it);
-                            row_view(ctx, i, it, pending)
-                        })
-                        .collect_view();
-                    view! {
-                        <ListGroup>
-                            <div
-                                class="inbox-list"
-                                role="list"
-                                aria-label="通知"
-                                aria-busy=move || busy.get().to_string()
-                                node_ref=list_el
-                            >
-                                {rows}
-                            </div>
-                        </ListGroup>
-                    }
-                        .into_any()
-                }
-            }}
+        <div
+            class="inbox-list"
+            role="list"
+            aria-label=label
+            aria-busy=move || busy.get().to_string()
+            node_ref=list_el
+            on:keydown=keys
+        >
             {move || {
-                ctx.menu
+                items
                     .get()
-                    .and_then(|at| {
-                        items
-                            .with(|it| it.get(at.index).cloned())
-                            .map(|it| {
-                                let pending = pending_of(&it);
-                                view! {
-                                    <RowMenu
-                                        at
-                                        label="通知的操作"
-                                        groups=inbox_menu(ctx, it, pending)
-                                        on_close=Callback::new(move |()| ctx.menu.set(None))
-                                    />
-                                }
-                            })
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, it)| {
+                        let pending = pending_of(&it);
+                        row_view(ctx, i, it, pending)
                     })
+                    .collect_view()
             }}
         </div>
+        {move || {
+            ctx.menu
+                .get()
+                .and_then(|at| {
+                    items
+                        .with(|it| it.get(at.index).cloned())
+                        .map(|it| {
+                            let pending = pending_of(&it);
+                            view! {
+                                <RowMenu
+                                    at
+                                    label="通知的操作"
+                                    groups=inbox_menu(ctx, it, pending)
+                                    on_close=Callback::new(move |()| ctx.menu.set(None))
+                                />
+                            }
+                        })
+                })
+        }}
     }
 }
 
@@ -601,13 +749,15 @@ fn row_view(ctx: Ctx, i: usize, it: Item, pending: Option<Value>) -> impl IntoVi
     let href = it.href.clone();
     let read = it.read;
     let id_read = it.id.clone();
-    let body_in_panel = pending.is_some() && it.kind == "approval";
+    let denial = it.open_denial();
+    let body_in_panel = (pending.is_some() && it.kind == "approval") || denial;
     let acts = failure_actions(&it).map(failure_panel);
     let resolved_label = if it.kind == "run_failed" {
         "已处理"
     } else {
         "已解决"
     };
+    let denied = denial.then(|| denied_panel(ctx, &it));
     let panel = pending.map(|a| {
         let aid = a["id"].as_str().unwrap_or("").to_owned();
         if is_question(&a) {
@@ -651,6 +801,7 @@ fn row_view(ctx: Ctx, i: usize, it: Item, pending: Option<Value>) -> impl IntoVi
             data-kind=it.kind.clone()
             data-unread=(!read).to_string()
             data-archived=it.archived.to_string()
+            data-needs=it.needs_you().to_string()
             data-sel=move || (ctx.sel.get() == i).to_string()
             data-menu=move || ctx.menu.with(|m| m.is_some_and(|m| m.index == i)).to_string()
             tabindex=move || if ctx.sel.get() == i { "0" } else { "-1" }
@@ -680,6 +831,7 @@ fn row_view(ctx: Ctx, i: usize, it: Item, pending: Option<Value>) -> impl IntoVi
                         .then(|| view! { <small class="inbox-raw">{it.raw.clone()}</small> })}
                 </a>
                 {panel}
+                {denied}
                 {acts}
             </div>
             <small class="inbox-meta">
@@ -733,8 +885,20 @@ fn inbox_menu(ctx: Ctx, item: Item, pending: Option<Value>) -> Vec<Vec<RowAction
             acts
         })
         .unwrap_or_default();
+    let denied = if item.open_denial() {
+        let (a, n) = (item.clone(), item.clone());
+        vec![
+            RowAction::new("允许这一次并重试", move || {
+                decide_denial(ctx, &a, true)
+            }),
+            RowAction::new("不用了", move || decide_denial(ctx, &n, false)),
+        ]
+    } else {
+        Vec::new()
+    };
     vec![
         failing,
+        denied,
         approval
             .map(|a| {
                 let (a1, a2, a3) = (a.clone(), a.clone(), a);

@@ -13,6 +13,7 @@ pub(crate) const NOTIFY_KINDS: &[(&str, &str)] = &[
     ("run_failed", "运行失败"),
     ("approval", "等你批准"),
     ("question", "需要回答"),
+    ("denied", "被拦下"),
     ("autopilot_paused", "自动化暂停"),
     ("rate_limit", "额度告警"),
     ("job", "后台任务"),

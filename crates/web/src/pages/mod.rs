@@ -3,7 +3,7 @@ mod apps;
 mod autopilots;
 mod bots;
 mod chats;
-mod inbox;
+pub(crate) mod inbox;
 mod jobs;
 mod nodes;
 pub mod runtimes;
@@ -33,7 +33,7 @@ pub fn NotFound() -> impl IntoView {
     view! {
         <div class="page">
             <crate::components::page_head::PageHead title="页面不存在" />
-            <div class="empty">"链接可能已失效。"<a href="/">"返回工作区"</a></div>
+            <div class="empty">"链接可能已失效。"<a href="/">"返回中控台"</a></div>
         </div>
     }
 }
@@ -41,6 +41,6 @@ pub use agents::{AgentCreatePage, AgentProfilePage, AgentsPage};
 pub use apps::{AppDetailPage, AppsPage};
 pub use autopilots::AutopilotsPage;
 pub use bots::{BotPage, BotsPage};
-pub use chats::{ChatPage, ChatsPage};
+pub use chats::{ChatsPage, ConsolePage};
 pub use inbox::InboxPage;
 pub use jobs::JobsPage;

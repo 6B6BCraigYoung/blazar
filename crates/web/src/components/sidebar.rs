@@ -53,6 +53,18 @@ fn section(
     urgent: Signal<bool>,
     paths: &'static [&'static str],
 ) -> impl IntoView {
+    section_with_pill(href, ic, label, count, urgent, paths, false)
+}
+
+fn section_with_pill(
+    href: &'static str,
+    ic: &'static str,
+    label: &'static str,
+    count: Signal<String>,
+    urgent: Signal<bool>,
+    paths: &'static [&'static str],
+    pill: bool,
+) -> impl IntoView {
     let location = use_location();
     let on = move || {
         location.pathname.with(|p| {
@@ -65,7 +77,12 @@ fn section(
         <a href=href class="nav" title=rail_tip(label) aria-current=move || on().then_some("page")>
             <span class="ic" inner_html=icon::svg(ic)></span>
             <span class="nm">{label}</span>
-            <span class="n">{move || count.get()}</span>
+            <span
+                class="n"
+                data-pill=move || (pill && urgent.get() && count.with(|c| !c.is_empty())).to_string()
+            >
+                {move || count.get()}
+            </span>
             {badge(count, urgent)}
         </a>
     }
@@ -189,7 +206,7 @@ fn MainNav(keys: RwSignal<u32>) -> impl IntoView {
     let none = Signal::derive(String::new);
     let calm = Signal::derive(|| false);
     let waiting = Signal::derive(move || app.attention_count() > 0);
-    let chats_waiting = Signal::derive(move || app.chats_waiting() > 0);
+    let needs_you = Signal::derive(move || app.pending_count() > 0);
     let projects = move || {
         let mut m: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
         for w in top() {
@@ -216,29 +233,22 @@ fn MainNav(keys: RwSignal<u32>) -> impl IntoView {
             <span class="n">{palette_key}</span>
         </button>
         <div class="grp">
-            {section(
-                "/chats",
-                icon::CHAT,
-                "对话",
-                Signal::derive(move || n(app.chats_waiting())),
-                chats_waiting,
-                &["/chats"],
-            )}
-            {nav(
-                "/inbox",
-                icon::INBOX,
-                "收件箱",
-                Signal::derive(move || n(usize::try_from(app.inbox_unread.get()).unwrap_or(0))),
-                calm,
-                false,
-            )}
-            {section(
+            {section_with_pill(
                 "/",
+                icon::CONSOLE,
+                "中控台",
+                Signal::derive(move || n(app.pending_count())),
+                needs_you,
+                &["/", "/chats", "/inbox"],
+                true,
+            )}
+            {section(
+                "/workspaces",
                 icon::FOLDER,
                 "工作区",
                 Signal::derive(move || n(app.attention_count())),
                 waiting,
-                &["/", "/running", "/waiting", "/workspaces", "/w", "/project"],
+                &["/running", "/waiting", "/workspaces", "/w", "/project"],
             )}
             {section("/bots", icon::BOT, "bot", none, calm, &["/bots"])}
             {section(

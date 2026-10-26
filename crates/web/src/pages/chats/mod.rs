@@ -1,3 +1,5 @@
+mod pulse;
+mod rail;
 mod room;
 
 use leptos::prelude::*;
@@ -16,7 +18,7 @@ use crate::components::toast::toast;
 use crate::components::undo::{self, Request};
 use crate::{fmt, vocab};
 
-pub use room::ChatPage;
+pub use room::ConsolePage;
 
 pub(crate) const NEW: &str = "/chats/new";
 
@@ -109,7 +111,7 @@ pub fn ChatsPage() -> impl IntoView {
     };
     view! {
         <div class="page work-page chats-page">
-            <PageHead title="对话">
+            <PageHead title="全部对话" parent=("中控台", "/")>
                 <button type="button" class="btn primary" on:click=move |_| new_chat()>
                     "新对话"
                     <kbd>{crate::shortcuts::label(&crate::shortcuts::current("newchat"))}</kbd>
