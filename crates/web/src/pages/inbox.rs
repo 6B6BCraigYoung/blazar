@@ -9,6 +9,7 @@ use crate::components::toast::toast;
 use crate::failure::{self, Failure};
 use crate::pages::workspaces::retry_workspace;
 use crate::{api, app_state::use_app, fmt, storage};
+use blazar_core_types::api::Ask;
 use blazar_core_types::failure::FailureCause;
 use leptos::ev;
 use leptos::html;
@@ -54,9 +55,15 @@ pub struct Item {
     pub created: String,
     pub failure: Option<Failure>,
     pub handled: bool,
+    pub place: String,
+    pub ask: Option<Ask>,
 }
 
 impl Item {
+    pub fn asking(&self) -> bool {
+        self.ref_id.starts_with("ask:") && self.open_request()
+    }
+
     pub fn open_request(&self) -> bool {
         matches!(self.kind.as_str(), "approval" | "question")
             && !self.archived
@@ -137,11 +144,34 @@ pub fn item_of(it: &Value, assistant: Option<&str>) -> Item {
         resets_at: Some(s(it, "resets_at")).filter(|r| !r.is_empty()),
     });
     let handled = it["handled"].as_bool() == Some(true) || !s(it, "resolved_at").is_empty();
-    let human = match &failure {
-        Some(f) => f.headline(),
-        None if k == "denied" => raw.clone(),
-        None => crate::vocab::error(&raw, None),
+    let place = if chats {
+        "对话".to_owned()
+    } else {
+        fmt::ws_label_of(it)
     };
+    let stored = s(it, "title");
+    let stored = stored
+        .strip_prefix(&format!("{place} · "))
+        .filter(|_| !place.is_empty())
+        .unwrap_or(&stored)
+        .to_owned();
+    let title = match &failure {
+        Some(f) if f.cause != FailureCause::Other || stored.is_empty() => f.line(),
+        _ => stored,
+    };
+    let (body, raw) = match (&failure, k.as_str()) {
+        (Some(_), _) | (None, "run_done") => (String::new(), raw),
+        (None, "denied") => (raw, String::new()),
+        (None, _) => {
+            let human = crate::vocab::error(&raw, None);
+            if human == raw {
+                (raw, String::new())
+            } else {
+                (human, raw)
+            }
+        }
+    };
+    let ask = serde_json::from_value::<Ask>(it["ask"].clone()).ok();
     Item {
         id: s(it, "id"),
         workspace: ws.clone(),
@@ -153,9 +183,9 @@ pub fn item_of(it: &Value, assistant: Option<&str>) -> Item {
             .map(|(_, v)| *v)
             .unwrap_or("通知")
             .to_string(),
-        title: s(it, "title"),
-        body: human.clone(),
-        raw: if human == raw { String::new() } else { raw },
+        title,
+        body,
+        raw,
         href: href_of(it, &k, &ws, &thread, chats),
         read: it["read"].as_bool() == Some(true),
         archived: it["archived"].as_bool() == Some(true),
@@ -165,7 +195,114 @@ pub fn item_of(it: &Value, assistant: Option<&str>) -> Item {
         kind: k,
         failure,
         handled,
+        place,
+        ask,
     }
+}
+
+pub fn resolve_item(id: String, done: impl Fn() + 'static) {
+    spawn_local(async move {
+        match api::send::<Value>("POST", &format!("/api/inbox/{id}/resolve"), &json!({})).await {
+            Ok(_) => done(),
+            Err(e) => toast(e.to_string()),
+        }
+    });
+}
+
+fn answer_ask(ctx: Ctx, it: &Item, text: String) {
+    let text = text.trim().to_owned();
+    if text.is_empty() {
+        return;
+    }
+    let key = format!("ask:{}", it.id);
+    if !ctx.gate.write().begin(&key) {
+        return;
+    }
+    let (id, ws, thread) = (it.id.clone(), it.workspace.clone(), it.thread.clone());
+    spawn_local(async move {
+        let body = json!({
+            "text": text, "resume": true, "resume_session": thread, "images": [], "wait_secs": 0,
+        });
+        let r = api::send::<Value>("POST", &format!("/api/workspaces/{ws}/prompt"), &body).await;
+        let _ = ctx.gate.try_update(|g| {
+            g.complete(&key, false);
+        });
+        match r {
+            Ok(r) if r["admitted"] == json!(false) => toast(
+                r["reason"]
+                    .as_str()
+                    .unwrap_or("这个对话正在忙，稍后再回")
+                    .to_owned(),
+            ),
+            Ok(_) => {
+                toast("已回复");
+                resolve_item(id, move || refresh(ctx.rev));
+            }
+            Err(e) => toast(format!("没能回复：{e}")),
+        }
+    });
+}
+
+fn ask_panel(ctx: Ctx, it: &Item) -> AnyView {
+    let options = it
+        .ask
+        .as_ref()
+        .map(|a| a.options.clone())
+        .unwrap_or_default();
+    let reply = RwSignal::new(String::new());
+    let key = format!("ask:{}", it.id);
+    let (k1, k2) = (key.clone(), key);
+    let item = it.clone();
+    let send = move |text: String| answer_ask(ctx, &item, text);
+    let pick = send.clone();
+    let done_id = it.id.clone();
+    view! {
+        <div class="inbox-act" data-ui-guard="">
+            {options
+                .into_iter()
+                .map(|label| {
+                    let pick = pick.clone();
+                    let shown = label.clone();
+                    let waiting = k1.clone();
+                    view! {
+                        <button
+                            type="button"
+                            class="btn small"
+                            disabled=move || ctx.gate.with(|g| g.busy(&waiting))
+                            on:click=move |_| pick(label.clone())
+                        >
+                            {shown}
+                        </button>
+                    }
+                })
+                .collect_view()}
+            <input
+                class="inbox-reply"
+                aria-label="回复"
+                placeholder="回复…"
+                disabled=move || ctx.gate.with(|g| g.busy(&k2))
+                prop:value=move || reply.get()
+                on:input=move |e| reply.set(event_target_value(&e))
+                on:keydown=move |e: ev::KeyboardEvent| {
+                    if e.key() == "Enter" && !e.is_composing() {
+                        e.prevent_default();
+                        e.stop_propagation();
+                        send(reply.get_untracked());
+                    }
+                }
+            />
+            <button
+                type="button"
+                class="btn small"
+                on:click=move |_| {
+                    resolve_item(done_id.clone(), move || refresh(ctx.rev));
+                }
+            >
+                "标为已处理"
+            </button>
+        </div>
+    }
+    .into_any()
 }
 
 pub fn mark_inbox(action: &str, ids: Vec<String>, done: impl Fn() + 'static) {
@@ -538,7 +675,7 @@ pub fn InboxCards(
         }
     });
     let pending_of = move |it: &Item| -> Option<Value> {
-        if !it.open_request() {
+        if !it.open_request() || it.asking() {
             return None;
         }
         let id = it.ref_id.clone();
@@ -758,6 +895,15 @@ fn row_view(ctx: Ctx, i: usize, it: Item, pending: Option<Value>) -> impl IntoVi
         "已解决"
     };
     let denied = denial.then(|| denied_panel(ctx, &it));
+    let asking = it.asking().then(|| ask_panel(ctx, &it));
+    let place = it.place.clone();
+    let meta = move |label: &str, created: &str| {
+        if place.is_empty() {
+            format!("{label} · {}", fmt::ago(created))
+        } else {
+            format!("{place} · {label} · {}", fmt::ago(created))
+        }
+    };
     let panel = pending.map(|a| {
         let aid = a["id"].as_str().unwrap_or("").to_owned();
         if is_question(&a) {
@@ -818,6 +964,7 @@ fn row_view(ctx: Ctx, i: usize, it: Item, pending: Option<Value>) -> impl IntoVi
                     class="inbox-main"
                     href=href
                     tabindex="-1"
+                    title=it.raw.clone()
                     on:click=move |_| {
                         if !read {
                             ctx.mark.run(("read".into(), vec![id_read.clone()]));
@@ -827,15 +974,14 @@ fn row_view(ctx: Ctx, i: usize, it: Item, pending: Option<Value>) -> impl IntoVi
                     <strong>{it.title.clone()}</strong>
                     {(!it.body.is_empty() && !body_in_panel)
                         .then(|| view! { <span class="inbox-body">{it.body.clone()}</span> })}
-                    {(!it.raw.is_empty())
-                        .then(|| view! { <small class="inbox-raw">{it.raw.clone()}</small> })}
                 </a>
                 {panel}
+                {asking}
                 {denied}
                 {acts}
             </div>
             <small class="inbox-meta">
-                {format!("{} · {}", it.label, fmt::ago(&it.created))}
+                {meta(&it.label, &it.created)}
                 {(!it.resolved.is_empty())
                     .then(|| {
                         view! {
@@ -893,6 +1039,11 @@ fn inbox_menu(ctx: Ctx, item: Item, pending: Option<Value>) -> Vec<Vec<RowAction
             }),
             RowAction::new("不用了", move || decide_denial(ctx, &n, false)),
         ]
+    } else if item.asking() {
+        let id = item.id.clone();
+        vec![RowAction::new("标为已处理", move || {
+            resolve_item(id.clone(), move || refresh(ctx.rev));
+        })]
     } else {
         Vec::new()
     };

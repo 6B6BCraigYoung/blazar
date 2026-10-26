@@ -301,7 +301,9 @@ impl AppData {
     }
 
     pub fn shown_activity(self, w: &WorkspaceView) -> String {
-        if w.activity == "completed" && !self.unseen(w) {
+        if w.ask.is_some() && matches!(w.activity.as_str(), "completed" | "idle") {
+            "asking".into()
+        } else if w.activity == "completed" && !self.unseen(w) {
             "idle".into()
         } else {
             w.activity.clone()

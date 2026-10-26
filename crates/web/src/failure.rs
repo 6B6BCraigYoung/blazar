@@ -53,6 +53,10 @@ impl Failure {
         )
     }
 
+    pub fn line(&self) -> String {
+        format!("{}，{}", self.headline(), self.cause.advice())
+    }
+
     pub fn primary(&self) -> &'static str {
         vocab::next_step(self.cause)
     }

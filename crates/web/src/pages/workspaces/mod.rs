@@ -589,8 +589,8 @@ fn card_view(ctx: Ctx, i: usize, row: Row, pending: Option<Value>) -> impl IntoV
         }
         None => (
             match Failure::of_workspace(&subject).filter(|_| row.state == "errored") {
-                Some(f) => StepText::plain(f.headline()),
-                None => home_rows::step_text(subject.step.as_ref(), &row.state, &subject.path),
+                Some(f) => StepText::plain(f.line()),
+                None => home_rows::card_line(&subject, &row.state, &subject.path),
             },
             None,
         ),

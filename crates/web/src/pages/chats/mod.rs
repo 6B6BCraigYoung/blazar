@@ -171,11 +171,7 @@ fn row_view(rows: Rows, i: usize, t: ChatThread) -> impl IntoView {
     let href = format!("/chats/{}", t.id);
     let when = fmt::ago(t.when());
     let title = title_of(&t);
-    let summary = if t.state() == "failed" && !t.summary.is_empty() {
-        format!("失败：{}", vocab::cause(&t.summary))
-    } else {
-        t.summary.clone()
-    };
+    let summary = t.line();
     view! {
         <a
             class="chat-row lrow"

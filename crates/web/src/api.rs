@@ -268,6 +268,8 @@ pub struct ChatThread {
     #[serde(default)]
     pub summary: String,
     #[serde(default)]
+    pub ask: Option<blazar_core_types::api::Ask>,
+    #[serde(default)]
     pub created_at: String,
     #[serde(default)]
     pub last_at: Option<String>,
@@ -276,6 +278,14 @@ pub struct ChatThread {
 }
 
 impl ChatThread {
+    pub fn line(&self) -> String {
+        match (&self.ask, self.state()) {
+            (Some(a), "done" | "idle" | "completed") => format!("在问你：{}", a.question),
+            (_, "failed") if !self.summary.is_empty() => self.summary.clone(),
+            _ => self.summary.clone(),
+        }
+    }
+
     pub fn when(&self) -> &str {
         self.last_at
             .as_deref()
@@ -286,6 +296,7 @@ impl ChatThread {
     pub fn state(&self) -> &str {
         match self.status.as_deref().unwrap_or_default() {
             "failed" if self.handled => "done",
+            "done" | "completed" | "idle" if self.ask.is_some() => "asking",
             s => s,
         }
     }
