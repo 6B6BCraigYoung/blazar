@@ -150,6 +150,50 @@ README_NEW = README.replace(
 Invalid paging parameters return `400` with a JSON error body.
 '''
 
+APP_PY_NEW = '''from fastapi import FastAPI
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+
+from atlas.routes import users
+
+app = FastAPI(title="atlas-api")
+app.include_router(users.router)
+
+
+@app.exception_handler(RequestValidationError)
+def bad_request(_, exc):
+    return JSONResponse(status_code=400, content={"error": "invalid_params", "detail": exc.errors()})
+
+
+@app.get("/health")
+def health():
+    return {"ok": True}
+'''
+
+THEME_TS_NEW = '''export const themes = ["light", "dark"] as const;
+
+export const dark = {
+  button: "#3b82f6",
+  buttonText: "#f8fafc",
+  buttonHover: "#2563eb",
+};
+'''
+
+CONTRAST_TS = '''import { dark } from "./theme";
+
+function luminance(hex: string): number {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+export function contrast(a: string, b: string): number {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+console.assert(contrast(dark.button, dark.buttonText) >= 4.5);
+'''
+
 TEST_PAGINATION = '''import pytest
 
 from atlas.testing import client, seed_users
@@ -296,6 +340,12 @@ def cat_n(text):
     return "\n".join(f"{i:>6}\t{line}" for i, line in enumerate(text.splitlines(), 1))
 
 
+def edited(path, text, lo, hi):
+    lines = text.splitlines()[lo - 1:hi]
+    body = "\n".join(f"{i:>6}\t{line}" for i, line in enumerate(lines, lo))
+    return f"The file {path} has been updated. Here's the result of running `cat -n` on a snippet of the edited file:\n{body}"
+
+
 def long_thread(cwd):
     p = f"{cwd}/src/atlas/routes/users.py"
     turns = []
@@ -314,7 +364,7 @@ def long_thread(cwd):
         ev("tool", name="Edit", input={"file_path": p,
             "old_string": '@router.get("")\ndef list_users(db: Session):\n    rows = db.query(User).order_by(User.id).all()\n    return {"items": [u.to_dict() for u in rows]}',
             "new_string": '@router.get("")\ndef list_users(\n    db: Session,\n    limit: int = Query(20, ge=1, le=MAX_LIMIT),\n    offset: int = Query(0, ge=0),\n):\n    total = db.query(User).count()\n    rows = db.query(User).order_by(User.id).offset(offset).limit(limit).all()\n    return {"items": [u.to_dict() for u in rows], "total": total, "limit": limit, "offset": offset}'},
-            result=f"The file {p} has been updated."),
+            result=edited(p, USERS_PY_NEW, 7, 23)),
         ev("tool", name="Bash", input={"command": "python -m pytest -q tests/test_users.py", "description": "跑用户接口测试"},
            result=".                                                                        [100%]\n1 passed in 0.41s"),
         ev("tool", name="TodoWrite", input={"todos": [
@@ -341,13 +391,13 @@ def long_thread(cwd):
         ev("tool", name="Edit", input={"file_path": f"{cwd}/src/atlas/app.py",
             "old_string": 'app = FastAPI(title="atlas-api")\napp.include_router(users.router)',
             "new_string": 'app = FastAPI(title="atlas-api")\napp.include_router(users.router)\n\n\n@app.exception_handler(RequestValidationError)\ndef bad_request(_, exc):\n    return JSONResponse(status_code=400, content={"error": "invalid_params", "detail": exc.errors()})'},
-            result=f"The file {cwd}/src/atlas/app.py has been updated."),
+            result=edited(f"{cwd}/src/atlas/app.py", APP_PY_NEW, 1, 14)),
         ev("tool", name="Bash", input={"command": "python -m pytest -q tests/test_pagination.py", "description": "再跑分页测试"},
            result="......                                                                   [100%]\n6 passed in 0.58s"),
         ev("tool", name="Edit", input={"file_path": f"{cwd}/README.md",
             "old_string": "| GET | /users | list users |",
             "new_string": "| GET | /users | list users, `limit` 1-100 (default 20) and `offset` |"},
-            result=f"The file {cwd}/README.md has been updated."),
+            result=edited(f"{cwd}/README.md", README_NEW, 5, 12)),
         ev("finish", text="改好了，非法分页参数现在返回 400：\n\n```python\nfrom fastapi.exceptions import RequestValidationError\nfrom fastapi.responses import JSONResponse\n\n\n@app.exception_handler(RequestValidationError)\ndef bad_request(_, exc):\n    return JSONResponse(\n        status_code=400,\n        content={\"error\": \"invalid_params\", \"detail\": exc.errors()},\n    )\n```\n\n测试覆盖了这几种输入：\n\n| 输入 | 之前 | 现在 |\n| --- | --- | --- |\n| `limit=0` | 422 | 400 |\n| `limit=101` | 422 | 400 |\n| `offset=-1` | 422 | 400 |\n| `limit=x` | 422 | 400 |\n\nREADME 的接口表也更新了。注意这个处理器是全局的，其他接口的参数校验失败也会变成 400。"),
     ]
     pytest_out = "\n".join(
@@ -637,6 +687,11 @@ def seed_rows(db):
         (c.tick(4), {"type": "thinking", "text": "先读主题文件，再对照 WCAG AA 的 4.5:1 对比度要求挑颜色。"}, None),
         (c.tick(3), {"type": "tool_use", "id": "toolu_demo_live1", "name": "Read", "input": {"file_path": str(DEMO / "nebula-web/src/theme.ts")}}, None),
         (c.tick(1), {"type": "tool_result", "id": "toolu_demo_live1", "ok": True, "content": cat_n("export const themes = [\"light\", \"dark\"] as const;")}, None),
+        (c.tick(6), {"type": "tool_use", "id": "toolu_demo_live2", "name": "Edit", "input": {"file_path": str(DEMO / "nebula-web/src/theme.ts"),
+                     "old_string": "export const themes = [\"light\", \"dark\"] as const;", "new_string": THEME_TS_NEW.rstrip("\n")}}, None),
+        (c.tick(1), {"type": "tool_result", "id": "toolu_demo_live2", "ok": True, "content": edited(str(DEMO / "nebula-web/src/theme.ts"), THEME_TS_NEW, 1, 7)}, None),
+        (c.tick(5), {"type": "tool_use", "id": "toolu_demo_live3", "name": "Write", "input": {"file_path": str(DEMO / "nebula-web/src/contrast.ts"), "content": CONTRAST_TS}}, None),
+        (c.tick(1), {"type": "tool_result", "id": "toolu_demo_live3", "ok": True, "content": f"File created successfully at: {DEMO / 'nebula-web/src/contrast.ts'}"}, None),
         (c.tick(2), {"type": "progress", "message_id": "msg_demo_live", "output_tokens": 412}, None),
     ]
     add_session(db, did(12, 1), WS["nebula-web"], ago(minutes=3), "claude_cli", "暗色模式按钮对比度", did(12, 1), "done", nebula, AGENTS["backend"])
