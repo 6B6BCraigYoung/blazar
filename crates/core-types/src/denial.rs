@@ -13,6 +13,86 @@ pub fn reason_of(content: &str) -> Option<String> {
     (!reason.is_empty()).then(|| reason.to_owned())
 }
 
+const REASON_NAMES: &[(&str, &str)] = &[
+    ("remote shell writes", "远程命令写操作"),
+    ("remote shell", "远程命令"),
+    ("destructive git", "破坏性的 git 操作"),
+    ("destructive operations", "破坏性操作"),
+    ("destructive", "破坏性操作"),
+    ("credential access", "读取凭据"),
+    ("credential", "凭据"),
+    ("data exfiltration", "数据外传"),
+    ("exfiltration", "数据外传"),
+    ("privilege escalation", "提权"),
+    ("package installation", "安装软件包"),
+    ("network requests", "网络请求"),
+    ("system modification", "改系统设置"),
+    ("file deletion", "删除文件"),
+];
+
+const REASON_WORDS: &[(&str, &str)] = &[
+    ("remote", "远程"),
+    ("shell", "命令"),
+    ("writes", "写操作"),
+    ("write", "写操作"),
+    ("reads", "读取"),
+    ("read", "读取"),
+    ("deletion", "删除"),
+    ("delete", "删除"),
+    ("destructive", "破坏性"),
+    ("git", "git"),
+    ("credential", "凭据"),
+    ("credentials", "凭据"),
+    ("secret", "密钥"),
+    ("secrets", "密钥"),
+    ("network", "网络"),
+    ("exfiltration", "外传"),
+    ("install", "安装"),
+    ("installation", "安装"),
+    ("package", "软件包"),
+    ("packages", "软件包"),
+    ("sudo", "sudo"),
+    ("privilege", "权限"),
+    ("escalation", "提升"),
+    ("system", "系统"),
+    ("config", "配置"),
+    ("configuration", "配置"),
+    ("modification", "修改"),
+    ("file", "文件"),
+    ("files", "文件"),
+    ("access", "访问"),
+    ("operations", "操作"),
+    ("operation", "操作"),
+    ("execution", "执行"),
+    ("commands", "命令"),
+    ("command", "命令"),
+];
+
+#[must_use]
+pub fn reason_label(reason: &str) -> String {
+    let lower = reason.trim().to_ascii_lowercase();
+    if lower.is_empty() {
+        return "安全检查".to_owned();
+    }
+    if let Some((_, zh)) = REASON_NAMES.iter().find(|(en, _)| *en == lower) {
+        return (*zh).to_owned();
+    }
+    let words: Vec<String> = lower
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .map(|w| {
+            REASON_WORDS
+                .iter()
+                .find(|(en, _)| *en == w)
+                .map_or_else(|| w.to_owned(), |(_, zh)| (*zh).to_owned())
+        })
+        .collect();
+    if words.iter().all(|w| w.is_ascii()) {
+        return format!("安全规则「{}」", reason.trim());
+    }
+    words.join("")
+}
+
 #[must_use]
 pub fn is_shell(tool_name: &str) -> bool {
     let short = tool_name
@@ -75,6 +155,15 @@ mod tests {
         assert_eq!(reason_of(text).as_deref(), Some("Remote Shell Writes"));
         assert_eq!(reason_of("Permission denied"), None);
         assert_eq!(reason_of("Reason: []"), None);
+    }
+
+    #[test]
+    fn classifier_rules_read_in_chinese() {
+        assert_eq!(reason_label("Remote Shell Writes"), "远程命令写操作");
+        assert_eq!(reason_label("Credential Access"), "读取凭据");
+        assert_eq!(reason_label("Network Secret Reads"), "网络密钥读取");
+        assert_eq!(reason_label("Foo Bar"), "安全规则「Foo Bar」");
+        assert_eq!(reason_label(""), "安全检查");
     }
 
     #[test]

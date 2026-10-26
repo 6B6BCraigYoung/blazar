@@ -212,6 +212,36 @@ impl FailureCause {
     pub const fn is_account(self) -> bool {
         matches!(self, Self::Login | Self::Quota)
     }
+
+    #[must_use]
+    pub const fn headline(self) -> &'static str {
+        match self {
+            Self::Network => "网络断了，没做完",
+            Self::Busy => "服务繁忙，没做完",
+            Self::Node => "机器连不上，没做完",
+            Self::Login => "账号没登录，没做完",
+            Self::Quota => "额度用完了，没做完",
+            Self::Resume => "上一段对话接不上了",
+            Self::Other => "出错了，没做完",
+        }
+    }
+
+    #[must_use]
+    pub const fn advice(self) -> &'static str {
+        match self {
+            Self::Network | Self::Busy => "可以继续",
+            Self::Node => "先把机器连上",
+            Self::Login => "先登录",
+            Self::Quota => "可以换个账号",
+            Self::Resume => "可以重新开始",
+            Self::Other => "可以重试",
+        }
+    }
+
+    #[must_use]
+    pub fn one_liner(self) -> String {
+        format!("{}，{}", self.headline(), self.advice())
+    }
 }
 
 #[cfg(test)]
