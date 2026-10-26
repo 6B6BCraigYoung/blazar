@@ -625,7 +625,6 @@ pub fn DiffView(
                                 }
                             }
                         >
-                            <b class=format!("mk {cls}")>{mk}</b>
                             <span class="nm">{name}<span class="dir">{dir}</span></span>
                             {(n > 0).then(|| view! { <span class="cm">{n}</span> })}
                             <span class="st">
@@ -633,6 +632,7 @@ pub fn DiffView(
                                 " "
                                 <i class="bad">{format!("−{}", f.removed)}</i>
                             </span>
+                            <span class=format!("ch {cls}")>{mk}</span>
                         </button>
                     }
                 })

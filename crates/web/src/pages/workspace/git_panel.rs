@@ -781,14 +781,20 @@ pub fn GitView(git: Git, files: Files, draft: RwSignal<Option<String>>) -> impl 
                 .map(|f| {
                     let (mk, cls) = code_mark(&f.code);
                     let p = f.path.clone();
+                    let (name, dir) = f
+                        .path
+                        .rsplit_once('/')
+                        .map_or((f.path.clone(), String::new()), |(d, n)| {
+                            (n.to_owned(), d.to_owned())
+                        });
                     view! {
                         <button
                             class="gp-file"
                             title=f.path.clone()
                             on:click=move |_| files.open(p.clone(), 0)
                         >
-                            <b class=format!("mk {cls}")>{mk}</b>
-                            <span>{f.path.clone()}</span>
+                            <span class="nm">{name}<span class="dir">{dir}</span></span>
+                            <span class=format!("ch {cls}")>{mk}</span>
                         </button>
                     }
                 })

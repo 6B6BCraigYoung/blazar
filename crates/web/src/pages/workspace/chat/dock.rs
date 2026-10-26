@@ -280,7 +280,9 @@ fn ApprovalCard(chat: Chat, p: Pending) -> impl IntoView {
                                                 '-' => "ddel",
                                                 _ => "dgap",
                                             }>
-                                                <span class="dm">{c.to_string()}</span>
+                                                <span class="dm">
+                                                    {if c == '-' { "−".to_owned() } else { c.to_string() }}
+                                                </span>
                                                 {l}
                                             </div>
                                         }

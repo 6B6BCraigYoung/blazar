@@ -240,7 +240,13 @@ fn diff_view(rows: Vec<(char, String)>, more: usize, opened: Opened, key: String
         };
         view! {
             <div class=cls>
-                <span class="dm">{if *c == '⋯' { ' ' } else { *c }}</span>
+                <span class="dm">
+                    {match *c {
+                        '⋯' => ' ',
+                        '-' => '−',
+                        c => c,
+                    }}
+                </span>
                 {if *c == '⋯' { "⋯".to_owned() } else { l.clone() }}
             </div>
         }

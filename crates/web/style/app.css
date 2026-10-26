@@ -209,8 +209,6 @@ body.drag-y, body.drag-y * { cursor: row-resize !important; user-select: none; }
 .tn[data-ign="true"] .ic { color: var(--fg-4); opacity: .7; }
 .tn .chev svg { width: 10px; height: 10px; transition: transform var(--duration-caret); }
 .tn[data-open="true"] .chev svg { transform: rotate(90deg); }
-.tn .nm { overflow: hidden; text-overflow: ellipsis; }
-.tn .ch { margin-left: auto; font: var(--font-size-caption) var(--font-mono); color: var(--fg-4); }
 .tn .chg { margin-left: auto; width: 5px; height: 5px; flex: 0 0 auto; border-radius: 50%; background: var(--fg-4); }
 .tn.root { height: 24px; font-size: var(--font-size-caption); font-weight: var(--font-weight-semibold); letter-spacing: var(--tracking-caption); text-transform: uppercase; color: var(--fg-2); }
 .tn.root .nm { overflow: hidden; text-overflow: ellipsis; }
@@ -298,12 +296,14 @@ b.bad, i.bad { color: var(--err-fg); font-style: normal; font-weight: var(--font
 .diffwrap { flex: 1; min-height: 0; display: flex; }
 .difftree-flow { display: flex; flex-direction: column; }
 .difftree { width: 240px; flex: 0 0 auto; display: flex; flex-direction: column; overflow: auto; overscroll-behavior: contain; border-right: 1px solid var(--line); padding-bottom: var(--space-md); }
-.dt-row { all: unset; cursor: pointer; display: flex; align-items: center; gap: var(--space-sm); padding: var(--space-xs) var(--space-control); font-size: var(--font-size-label); }
-.dt-row:hover { background: var(--bg-hover); }
-.dt-row .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg); }
-.dt-row .dir { margin-left: var(--space-sm); color: var(--fg-4); font-size: var(--font-size-caption); }
+.dt-row, .gp-file { all: unset; box-sizing: border-box; cursor: pointer; display: flex; align-items: center; gap: var(--space-sm); width: 100%; padding: var(--space-xs) var(--space-control); font: var(--font-size-label) var(--font-sans); color: var(--fg); }
+.gp-file { padding: var(--space-label) var(--space-sm); border-radius: var(--r-sm); }
+.dt-row:hover, .gp-file:hover { background: var(--bg-hover); }
+.dt-row .nm, .gp-file .nm, .tn .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg); font-weight: var(--font-weight-regular); }
+.dt-row .dir, .gp-file .dir { margin-left: var(--space-sm); color: var(--fg-4); font-size: var(--font-size-caption); }
 .dt-row .cm { padding: 0 var(--space-icon); border-radius: var(--radius-counter); background: var(--control-track); color: var(--fg-2); font-size: var(--font-size-counter); }
-.dt-row .st { font: var(--font-size-caption) var(--font-mono); white-space: nowrap; }
+.dt-row .st, .gp-file .st { font: var(--font-size-caption) var(--font-mono); white-space: nowrap; }
+.dt-row .ch, .gp-file .ch, .tn .ch { width: 12px; flex: 0 0 auto; text-align: center; font: var(--font-size-caption) var(--font-mono); color: var(--fg-4); }
 b.mk { font: var(--font-weight-semibold) var(--font-size-caption) var(--font-mono); width: 12px; text-align: center; flex: 0 0 auto; color: var(--fg-4); }
 .diffview { flex: 1; min-width: 0; overflow: auto; overscroll-behavior: contain; font: var(--font-size-label)/var(--line-height-body) var(--font-mono); }
 .diffview .empty { font-family: var(--font-sans); }
@@ -365,9 +365,6 @@ b.mk { font: var(--font-weight-semibold) var(--font-size-caption) var(--font-mon
 .gp-prt { color: var(--fg-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 420px; }
 .gp-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, var(--phi)); gap: var(--space-section); }
 .gp-col h5 { margin: var(--space-xs) 0 var(--space-sm); font-size: var(--font-size-caption-readable); font-weight: var(--font-weight-medium); color: var(--fg-3); }
-.gp-file { all: unset; cursor: pointer; display: flex; align-items: center; gap: var(--space-sm); width: 100%; padding: var(--space-label) var(--space-sm); border-radius: var(--r-sm); font: var(--font-size-label) var(--font-mono); color: var(--fg-2); }
-.gp-file:hover { background: var(--bg-hover); color: var(--fg); }
-.gp-file span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gp-commit { display: grid; grid-template-columns: 70px minmax(0, 1fr) auto; gap: var(--space-control); align-items: baseline; padding: var(--space-label) 0; }
 .gp-commit code { font: var(--font-size-caption-readable) var(--font-mono); color: var(--fg-3); }
 .gp-commit .sj { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
