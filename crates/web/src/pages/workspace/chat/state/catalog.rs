@@ -36,7 +36,7 @@ impl Chat {
         let rt = a.strip_prefix("r:").unwrap_or("");
         self.agents
             .with(|l| l.iter().find(|x| x.id == rt).map(|x| x.label.clone()))
-            .unwrap_or_else(|| "Choose agent".into())
+            .unwrap_or_else(|| "选择角色".into())
     }
 
     pub fn modes(self) -> &'static [Mode] {

@@ -351,13 +351,17 @@ pub fn Composer(
             )),
         );
         if !chat.running.get_untracked() {
-            toast(if on { "Fast mode on" } else { "Fast mode off" });
+            toast(if on {
+                "已开启快速模式"
+            } else {
+                "已关闭快速模式"
+            });
         }
     };
     let usage = move || {
         let windows = chat.transcript.with_untracked(|t| t.rate.clone());
         let body = if windows.is_empty() {
-            "No usage data yet. It appears after the first Claude turn.".to_owned()
+            "还没有用量数据，Claude 跑完第一轮后才会有。".to_owned()
         } else {
             windows
                 .iter()
@@ -391,18 +395,14 @@ pub fn Composer(
                 .collect()
         });
         if users.is_empty() {
-            toast("Nothing to rewind. Checkpoints are only created in Git workspaces.");
+            toast("没有可回退的点：只有 Git 工作区才会建检查点。");
             return;
         }
         chat.spawn(async move {
-            let mut ch = vec![Choice::plain("Cancel")];
+            let mut ch = vec![Choice::plain("取消")];
             ch.extend(users.iter().map(|u| Choice::plain(u.1.clone())));
-            if let Some(i) = dialog::ask(
-                "Rewind",
-                "Pick a message to restore files to the state before it was sent.",
-                ch,
-            )
-            .await
+            if let Some(i) =
+                dialog::ask("回退", "选一条消息，把文件恢复到它发出之前的状态。", ch).await
                 && i > 0
             {
                 chat.rewind(users[i - 1].0.clone(), true);
@@ -451,7 +451,7 @@ pub fn Composer(
     let add_image = move |f: web_sys::File| {
         let t = f.type_();
         if !["image/png", "image/jpeg", "image/gif", "image/webp"].contains(&t.as_str()) {
-            toast("Only PNG, JPEG, GIF and WebP images are supported");
+            toast("只支持 PNG、JPEG、GIF 和 WebP 图片");
             return;
         }
         if f.size() > 5.0 * 1024.0 * 1024.0 {
@@ -800,9 +800,9 @@ pub fn Composer(
                                         let n = review_n();
                                         chat.spawn(async move {
                                             if dialog::ask(
-                                                    "Discard review comments",
-                                                    &format!("Discard {n} unsent review comments?"),
-                                                    vec![Choice::plain("Cancel"), Choice::danger("Discard")],
+                                                    "丢弃审阅批注",
+                                                    &format!("丢弃 {n} 条还没发出的审阅批注？"),
+                                                    vec![Choice::plain("取消"), Choice::danger("丢弃")],
                                                 )
                                                 .await == Some(1)
                                             {
@@ -1060,12 +1060,12 @@ pub fn Composer(
                             "机器连上后才能发送"
                         } else if running.get() {
                             if matches!(chat.runtime().as_str(), "claude" | "codex") {
-                                "Message the agent while it works…"
+                                "它在干活，可以边跑边说…"
                             } else {
-                                "Queue another message…"
+                                "排队再发一条…"
                             }
                         } else {
-                            "⌘ Esc to focus or unfocus Claude"
+                            "⌘ Esc 聚焦或离开输入框"
                         }
                     }
                     prop:value=move || chat.prompt.get()
