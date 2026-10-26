@@ -1,9 +1,13 @@
 use std::collections::HashSet;
 
+use leptos::ev;
+use leptos::html;
 use leptos::prelude::*;
+use wasm_bindgen::JsCast;
 
 use crate::components::empty::Blank;
 use crate::components::icon;
+use crate::components::menu::menu_keydown;
 use crate::components::status::{InlineError, LoadingState};
 use leptos::task::spawn_local;
 use serde::{Deserialize, Serialize};
@@ -15,7 +19,9 @@ use crate::storage;
 
 use super::files::Files;
 use super::git_panel::Git;
-use super::layout::{Changes, LayoutState};
+use super::layout::{Changes, LayoutState, Tab};
+
+const CHEV_DOWN: &str = r#"<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6.5 8 10.5l4-4"/></svg>"#;
 
 mod latest;
 
@@ -167,6 +173,72 @@ pub fn DiffBar(
     state: LayoutState,
 ) -> impl IntoView {
     let sub = move |c: Changes| move || (state.lay.get().changes == c).to_string();
+    let empty = move || d.files.with(Vec::is_empty);
+    let all_folded = move || !empty() && collapsed.with(HashSet::len) >= d.files.with(Vec::len);
+    let fold_all = move || {
+        let all = d
+            .files
+            .with_untracked(|f| f.iter().map(|x| x.path.clone()).collect::<HashSet<_>>());
+        collapsed.update(|c| {
+            if c.len() >= all.len() {
+                c.clear()
+            } else {
+                *c = all
+            }
+        });
+    };
+    let act = move |what: &str| {
+        match what {
+            "diffview" => d.set_prefs(|p| {
+                p.view = if p.view == "split" {
+                    "unified"
+                } else {
+                    "split"
+                }
+                .into();
+            }),
+            "diffws" => d.set_prefs(|p| p.w = !p.w),
+            "diffwrap" => d.set_prefs(|p| p.wrap = !p.wrap),
+            "difflist" => d.set_prefs(|p| p.tree = !p.tree),
+            "difffold" => fold_all(),
+            _ => return false,
+        }
+        true
+    };
+    let keys = window_event_listener(ev::keydown, move |e| {
+        let shown = state.lay.try_with_untracked(|l| {
+            l.inspect && l.tab == Tab::Changes && l.changes == Changes::Diff
+        });
+        if shown != Some(true)
+            || e.target()
+                .and_then(|t| t.dyn_into::<web_sys::Element>().ok())
+                .is_some_and(|t| t.closest(".monaco-editor, .xterm").ok().flatten().is_some())
+        {
+            return;
+        }
+        if let Some(a) = crate::shortcuts::action(&e)
+            && act(a)
+        {
+            e.prevent_default();
+        }
+    });
+    on_cleanup(move || keys.remove());
+    let open = RwSignal::new(false);
+    let root = NodeRef::<html::Div>::new();
+    let button = NodeRef::<html::Button>::new();
+    let close = Callback::new(move |()| {
+        open.set(false);
+        if let Some(b) = button.get_untracked() {
+            let _ = b.focus();
+        }
+    });
+    let pick = move |what: &'static str| {
+        move |_| {
+            open.set(false);
+            act(what);
+        }
+    };
+    let hint = |id: &str| crate::shortcuts::label(&crate::shortcuts::current(id));
     let review = move |_| {
         let n = d.files.with_untracked(Vec::len);
         let base = d.base.get_untracked();
@@ -217,14 +289,6 @@ pub fn DiffBar(
                 </button>
             </span>
             <Show when=move || state.lay.get().changes == Changes::Diff>
-                <button
-                    class="laybtn"
-                    aria-label="切换改动文件列表"
-                    title="改动文件列表"
-                    aria-pressed=move || p().tree.to_string()
-                    on:click=move |_| d.set_prefs(|p| p.tree = !p.tree)
-                    inner_html=super::ICON_LEFT
-                ></button>
                 <span class="seg" title="和谁比">
                     <button
                         data-on=move || (p().base == "head").to_string()
@@ -247,36 +311,6 @@ pub fn DiffBar(
                         }}
                     </button>
                 </span>
-                <span class="seg">
-                    <button
-                        data-on=move || (p().view == "unified").to_string()
-                        on:click=move |_| d.set_prefs(|p| p.view = "unified".into())
-                    >
-                        "统一"
-                    </button>
-                    <button
-                        data-on=move || (p().view == "split").to_string()
-                        on:click=move |_| d.set_prefs(|p| p.view = "split".into())
-                    >
-                        "并排"
-                    </button>
-                </span>
-                <label class="chk">
-                    <input
-                        type="checkbox"
-                        prop:checked=move || p().w
-                        on:change=move |_| d.set_prefs(|p| p.w = !p.w)
-                    />
-                    "忽略空白"
-                </label>
-                <label class="chk">
-                    <input
-                        type="checkbox"
-                        prop:checked=move || p().wrap
-                        on:change=move |_| d.set_prefs(|p| p.wrap = !p.wrap)
-                    />
-                    "自动换行"
-                </label>
                 <span class="sum">
                     {move || {
                         let (n, a, r) = sums();
@@ -294,41 +328,118 @@ pub fn DiffBar(
                     (n > 0)
                         .then(|| {
                             view! {
-                                <span class="pill-note" title="随下一条消息一起发给 agent">
+                                <span class="pill-note" title="随下一条消息一起发给智能体">
                                     {format!("{n} 条意见待发")}
                                 </span>
                             }
                         })
                 }}
-                <button
-                    class="btn small"
-                    disabled=move || d.files.with(Vec::is_empty)
-                    on:click=move |_| {
-                        let all = d
-                            .files
-                            .with_untracked(|f| {
-                                f.iter().map(|x| x.path.clone()).collect::<HashSet<_>>()
-                            });
-                        collapsed.update(|c| if c.len() >= all.len() { c.clear() } else { *c = all });
+                <span
+                    class="more"
+                    on:focusout=move |e| {
+                        let inside = e
+                            .related_target()
+                            .and_then(|t| t.dyn_into::<web_sys::Node>().ok())
+                            .zip(
+                                e.current_target().and_then(|t| t.dyn_into::<web_sys::Node>().ok()),
+                            )
+                            .is_some_and(|(t, me)| me.contains(Some(&t)));
+                        if !inside {
+                            open.set(false);
+                        }
                     }
                 >
-                    {move || {
-                        if !d.files.with(Vec::is_empty)
-                            && collapsed.with(HashSet::len) >= d.files.with(Vec::len)
-                        {
-                            "全部展开"
-                        } else {
-                            "全部折叠"
-                        }
-                    }}
-                </button>
+                    <button
+                        type="button"
+                        class="dv-btn"
+                        node_ref=button
+                        aria-haspopup="menu"
+                        aria-expanded=move || open.get().to_string()
+                        on:click=move |_| open.update(|o| *o = !*o)
+                    >
+                        "显示"
+                        <span class="chev" aria-hidden="true" inner_html=CHEV_DOWN></span>
+                    </button>
+                    <Show when=move || open.get()>
+                        <div
+                            class="menu dv-menu"
+                            node_ref=root
+                            role="menu"
+                            aria-label="显示"
+                            on:keydown=move |event| {
+                                if let Some(r) = root.get_untracked() {
+                                    menu_keydown(&event, r.unchecked_ref(), close);
+                                }
+                            }
+                        >
+                            <button
+                                type="button"
+                                role="menuitemradio"
+                                aria-checked=move || (p().view != "split").to_string()
+                                on:click=pick("diffview")
+                            >
+                                <span>"统一"</span>
+                                <kbd>{hint("diffview")}</kbd>
+                            </button>
+                            <button
+                                type="button"
+                                role="menuitemradio"
+                                aria-checked=move || (p().view == "split").to_string()
+                                on:click=pick("diffview")
+                            >
+                                <span>"并排"</span>
+                                <kbd>{hint("diffview")}</kbd>
+                            </button>
+                            <div class="menu-sep"></div>
+                            <button
+                                type="button"
+                                role="menuitemcheckbox"
+                                aria-checked=move || p().w.to_string()
+                                on:click=pick("diffws")
+                            >
+                                <span>"忽略空白"</span>
+                                <kbd>{hint("diffws")}</kbd>
+                            </button>
+                            <button
+                                type="button"
+                                role="menuitemcheckbox"
+                                aria-checked=move || p().wrap.to_string()
+                                on:click=pick("diffwrap")
+                            >
+                                <span>"自动换行"</span>
+                                <kbd>{hint("diffwrap")}</kbd>
+                            </button>
+                            <button
+                                type="button"
+                                role="menuitemcheckbox"
+                                aria-checked=move || p().tree.to_string()
+                                on:click=pick("difflist")
+                            >
+                                <span>"改动文件列表"</span>
+                                <kbd>{hint("difflist")}</kbd>
+                            </button>
+                            <div class="menu-sep"></div>
+                            <button
+                                type="button"
+                                role="menuitem"
+                                disabled=empty
+                                on:click=pick("difffold")
+                            >
+                                <span>
+                                    {move || if all_folded() { "全部展开" } else { "全部折叠" }}
+                                </span>
+                                <kbd>{hint("difffold")}</kbd>
+                            </button>
+                        </div>
+                    </Show>
+                </span>
                 <button
                     class="btn small"
-                    disabled=move || d.files.with(Vec::is_empty)
-                    title="开一个新对话，让 agent 只审阅不改代码"
+                    disabled=empty
+                    title="开一个新对话，把这些改动交给智能体只审阅、不改代码"
                     on:click=review
                 >
-                    "审阅改动"
+                    "让智能体审阅…"
                 </button>
                 <button
                     class="laybtn"

@@ -35,7 +35,6 @@ use layout::{Changes, Edge, LayoutState, Splitter, Tab};
 use term_panel::{TermPane, TermTabs, Terms};
 use tree::{TreeActs, TreePane};
 
-pub(crate) const ICON_LEFT: &str = r#"<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.1"><rect class="fill" x="2" y="3" width="4" height="10" fill="currentColor" stroke="none"/><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><path d="M6 2.5v11"/></svg>"#;
 pub(crate) const ICON_FILES: &str = r#"<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.1"><path class="fill" d="M2 6.5h12V13a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1z" fill="currentColor" stroke="none"/><path d="M1.5 4A1.5 1.5 0 0 1 3 2.5h3.2l1.5 1.5H13A1.5 1.5 0 0 1 14.5 5.5V13a1.5 1.5 0 0 1-1.5 1.5H3A1.5 1.5 0 0 1 1.5 13z"/><path d="M1.5 6.5h13"/></svg>"#;
 pub(crate) const ICON_REFRESH: &str = r#"<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>"#;
 
