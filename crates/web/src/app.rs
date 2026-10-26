@@ -5,6 +5,7 @@ use leptos_router::path;
 use crate::components::dialog::{self, DialogHost};
 use crate::components::new_workspace::NewWorkspace;
 use crate::components::palette::{AlertsDialog, Palette};
+use crate::components::popups::{self, PopHost};
 use crate::components::sidebar::Sidebar;
 use crate::components::term_dialog::{self, TermDialogHost};
 use crate::components::toast::{self, ToastHost};
@@ -20,6 +21,7 @@ pub fn App() -> impl IntoView {
     dialog::provide();
     crate::files_js::install_leave_confirm();
     toast::provide();
+    popups::provide();
     undo::provide();
     term_dialog::provide();
     let side = move || {
@@ -91,6 +93,7 @@ pub fn App() -> impl IntoView {
             <TermDialogHost />
             <DialogHost />
             <ToastHost />
+            <PopHost />
             <UndoHost />
         </Router>
     }

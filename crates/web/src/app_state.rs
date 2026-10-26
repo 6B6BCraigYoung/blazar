@@ -233,7 +233,15 @@ impl AppData {
             };
             let _ = self.inbox_seen.try_set_value(Some(ids));
             let _ = self.inbox.try_set(items);
-            let _ = fresh;
+            if !fresh.is_empty() && !self.rail_shown.try_get_untracked().unwrap_or(true) {
+                let assistant = self.assistant().map(|w| w.id);
+                crate::components::popups::arrived(
+                    fresh
+                        .iter()
+                        .map(|it| crate::pages::inbox::item_of(it, assistant.as_deref()))
+                        .collect(),
+                );
+            }
         });
     }
 

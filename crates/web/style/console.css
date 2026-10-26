@@ -72,6 +72,22 @@
 .console-rail[data-mode="all"] .inbox-row { flex-wrap: wrap; padding: var(--space-md) var(--space-lg); }
 .console-rail[data-mode="all"] .inbox-meta { width: 100%; padding: 0 0 0 calc(8px + var(--space-md)); color: var(--fg-3); }
 
+.pops { position: fixed; top: 60px; right: var(--space-2xl); z-index: var(--layer-toast); width: 384px; max-width: calc(100vw - 48px); display: flex; flex-direction: column; gap: var(--space-control); pointer-events: none; }
+.pop { position: relative; pointer-events: auto; border-radius: var(--r-lg); background: var(--bg-panel); box-shadow: var(--shadow-menu); animation: popin var(--duration-control) ease-out; }
+.pop.card .inbox-row { box-shadow: none; padding-right: calc(var(--space-card) + 20px); }
+.pop.card .inbox-row[data-needs="true"], .pop.card .inbox-row[data-kind="run_failed"] { box-shadow: none; }
+.pop-x { all: unset; position: absolute; top: 8px; right: 8px; width: 20px; height: 20px; display: grid; place-items: center; border-radius: 50%; color: var(--fg-3); font-size: var(--font-size-card-title); line-height: 1; cursor: pointer; }
+.pop-x:hover { background: var(--bg-hover); color: var(--fg); }
+.pop-x:focus-visible { outline: var(--focus-ring); }
+.pop.mini { display: flex; align-items: center; gap: var(--space-md); padding: var(--space-toolbar) var(--space-card); font-size: var(--font-size-label-readable); color: var(--fg-2); }
+.pop.mini .ic { flex: 0 0 auto; width: 14px; height: 14px; display: inline-grid; place-items: center; color: var(--fg-3); }
+.pop.mini .ic svg { width: 14px; height: 14px; }
+.pop.mini .pop-line { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: inherit; text-decoration: none; }
+.pop.mini time { flex: 0 0 auto; font-size: var(--font-size-caption-readable); color: var(--fg-3); }
+.pops-more { pointer-events: auto; align-self: flex-end; display: inline-flex; align-items: center; gap: var(--space-sm); padding: var(--space-xs) var(--space-lg); border-radius: var(--radius-pill); background: var(--bg-panel); box-shadow: var(--shadow-card); font-size: var(--font-size-label-readable); color: var(--fg-2); }
+.pops-more a { color: var(--accent); text-decoration: none; }
+@keyframes popin { from { opacity: 0; transform: translateY(-6px); } }
+
 .side .nav .n[data-pill="true"] { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; display: inline-grid; place-items: center; background: var(--status-attention); color: #fff; font-size: var(--font-size-caption); font-weight: var(--font-weight-semibold); line-height: 1; }
 
 @media (max-width: 1100px) {
