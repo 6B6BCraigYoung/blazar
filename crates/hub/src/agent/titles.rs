@@ -11,6 +11,31 @@ use crate::state::ServerEvent;
 
 const MAX_CHARS: usize = 40;
 
+const ERROR_MARKS: &[&str] = &[
+    "not logged in",
+    "please run /login",
+    "api error",
+    "invalid api key",
+    "unauthorized",
+    "authentication_error",
+    "authentication failed",
+    "rate limit",
+    "usage limit",
+    "未登录",
+    "登录已失效",
+];
+
+#[must_use]
+pub fn looks_like_error(text: &str) -> bool {
+    let first = text
+        .lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    ERROR_MARKS.iter().any(|m| first.contains(m))
+}
+
 fn clean(raw: &str) -> Option<String> {
     let line = raw
         .lines()
@@ -18,10 +43,51 @@ fn clean(raw: &str) -> Option<String> {
         .find(|l| !l.is_empty())?
         .trim_matches(|c: char| "\"'“”「」『』《》。．.".contains(c))
         .trim();
-    if line.is_empty() || line.starts_with('/') {
+    if line.is_empty() || line.starts_with('/') || looks_like_error(line) {
         return None;
     }
     Some(line.chars().take(MAX_CHARS).collect())
+}
+
+pub struct Brain {
+    pub program: String,
+    pub env: Vec<(String, String)>,
+}
+
+pub(crate) async fn brain(st: &Shared, account: Option<&str>) -> Brain {
+    let program = crate::api::local_program(st, "claude").await;
+    let mut chosen = None;
+    for requested in [account, None] {
+        if chosen.is_none() {
+            chosen = crate::accounts::resolve(st, "claude", "local", requested, None, None, &[])
+                .await
+                .ok()
+                .flatten();
+        }
+    }
+    let mut env = Vec::new();
+    if let Some(c) = chosen {
+        if let Some((k, v)) = c.env {
+            env.push((k, v));
+        }
+        if let Some((k, p)) = c.token_file
+            && let Ok(token) = tokio::fs::read_to_string(&p).await
+            && !token.trim().is_empty()
+        {
+            env.push((k, token.trim().to_owned()));
+        }
+    }
+    Brain { program, env }
+}
+
+async fn account_of(st: &Shared, sid: SessionId) -> Option<String> {
+    sqlx::query_scalar::<_, Option<String>>("SELECT account_id FROM sessions WHERE id = ?1")
+        .bind(sid.to_string())
+        .fetch_optional(st.db.pool())
+        .await
+        .ok()
+        .flatten()
+        .flatten()
 }
 
 async fn opening(st: &Shared, sid: SessionId) -> Option<(String, String)> {
@@ -56,15 +122,16 @@ async fn opening(st: &Shared, sid: SessionId) -> Option<(String, String)> {
     Some((user, assistant.unwrap_or_default()))
 }
 
-async fn summarize(program: &str, user: &str, assistant: &str) -> Option<String> {
+async fn summarize(brain: &Brain, user: &str, assistant: &str) -> Option<String> {
     let prompt = format!(
         "用对话本身的语言（用户用中文就用中文），不超过 12 个字或 6 个英文单词，概括下面这段对话在做什么，\
          作为标签页标题。只输出标题本身，不要引号、句号或解释。\n\n用户：{user}\n\n助手：{assistant}"
     );
-    clean(&ask_haiku(program, &prompt, 45).await?)
+    clean(&ask_haiku(brain, &prompt, 45).await?)
 }
 
-pub(crate) async fn ask_haiku(program: &str, prompt: &str, secs: u64) -> Option<String> {
+pub(crate) async fn ask_haiku(brain: &Brain, prompt: &str, secs: u64) -> Option<String> {
+    let program = brain.program.as_str();
     let dir = std::env::temp_dir();
     let mut child = tokio::process::Command::new(program)
         .args([
@@ -76,6 +143,7 @@ pub(crate) async fn ask_haiku(program: &str, prompt: &str, secs: u64) -> Option<
             "--tools",
             "",
         ])
+        .envs(brain.env.iter().map(|(k, v)| (k.as_str(), v.as_str())))
         .current_dir(dir)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -103,12 +171,22 @@ pub(crate) async fn ask_haiku(program: &str, prompt: &str, secs: u64) -> Option<
         }
     };
     let text = String::from_utf8_lossy(&out.stdout).trim().to_owned();
-    if text.is_empty() {
+    if text.is_empty() || !out.status.success() {
         let err: String = String::from_utf8_lossy(&out.stderr)
             .chars()
             .take(300)
             .collect();
-        tracing::warn!(target: "blazar::titles", "{program} 没有输出（{}）：{}", out.status, err.trim());
+        tracing::warn!(
+            target: "blazar::titles",
+            "{program} 没有可用输出（{}）：{} {}",
+            out.status,
+            text.chars().take(120).collect::<String>(),
+            err.trim()
+        );
+        return None;
+    }
+    if looks_like_error(&text) {
+        tracing::warn!(target: "blazar::titles", "{program} 回了一条报错而不是内容：{}", text.chars().take(160).collect::<String>());
         return None;
     }
     Some(text)
@@ -144,9 +222,9 @@ pub async fn maybe_title(st: Shared, sid: SessionId, ws: WorkspaceId) {
     let Some((user, assistant)) = opening(&st, sid).await else {
         return;
     };
-    let program = crate::api::local_program(&st, "claude").await;
-    let Some(title) = summarize(&program, &user, &assistant).await else {
-        tracing::warn!(target: "blazar::titles", "会话 {sid} 没总结出标题（{program} 不可用或没有输出）");
+    let brain = brain(&st, account_of(&st, sid).await.as_deref()).await;
+    let Some(title) = summarize(&brain, &user, &assistant).await else {
+        tracing::warn!(target: "blazar::titles", "会话 {sid} 没总结出标题（{} 不可用或没有输出）", brain.program);
         return;
     };
     set_title(&st, sid, ws, &title).await;
@@ -207,6 +285,9 @@ mod tests {
         );
         assert_eq!(clean("\n\n").as_deref(), None);
         assert_eq!(clean("/context").as_deref(), None);
+        assert_eq!(clean("Not logged in · Please run /login").as_deref(), None);
+        assert!(looks_like_error("API Error: 401 unauthorized\n"));
+        assert!(!looks_like_error("修复登录超时"));
         let long = "很".repeat(100);
         assert_eq!(clean(&long).unwrap().chars().count(), MAX_CHARS);
     }

@@ -698,8 +698,8 @@ echo "[diff]"; git --no-pager diff HEAD | head -c 60000"#
              用代码注释和已有内容里的主要语言。只输出提交信息本身，不要解释，不要代码围栏。\n\n{material}"
         )
     };
-    let program = crate::api::local_program(&st, "claude").await;
-    let Some(text) = crate::titles::ask_haiku(&program, &prompt, 60).await else {
+    let brain = crate::titles::brain(&st, None).await;
+    let Some(text) = crate::titles::ask_haiku(&brain, &prompt, 60).await else {
         return fail(
             StatusCode::BAD_GATEWAY,
             "本机的 Claude 没给出内容（没装、没登录或超时），自己写一段吧",
