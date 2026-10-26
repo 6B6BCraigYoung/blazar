@@ -487,8 +487,13 @@ def short_session(db, sid, ws, when, runtime, title, ask, reply, status, cost, c
     add_session(db, sid, ws, when, runtime, title, sid, status, evs, agent)
 
 
+def tables(db):
+    return {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+
+
 def clean(db):
     like = PREFIX + "%"
+    present = tables(db)
     for table, col in [("approvals", "id"), ("denial_decisions", "session_id"), ("events", "session_id"), ("sessions", "id"),
                        ("task_comments", "task_id"),
                        ("rate_limit_snapshots", "account_id"), ("accounts", "id"),
@@ -497,17 +502,22 @@ def clean(db):
                        ("skill_files", "skill_id"), ("skills", "id"), ("memories", "id"), ("inbox", "id"),
                        ("jobs", "id"), ("snippets", "id"), ("hooks", "id"), ("approval_rules", "id"),
                        ("workspace_scripts", "workspace_id"), ("workspaces", "id"), ("projects", "id")]:
-        db.execute(f"DELETE FROM {table} WHERE {col} LIKE ?", (like,))
-    db.execute("DELETE FROM jobs WHERE label IN (?, ?)", JOB_LABELS)
-    db.execute("DELETE FROM facts WHERE key LIKE 'demo/%'")
-    db.execute("DELETE FROM fact_history WHERE key LIKE 'demo/%'")
+        if table in present:
+            db.execute(f"DELETE FROM {table} WHERE {col} LIKE ?", (like,))
+
+    def wipe(table, where, args=()):
+        if table in present:
+            db.execute(f"DELETE FROM {table} WHERE {where}", args)
+
+    wipe("jobs", "label IN (?, ?)", JOB_LABELS)
+    wipe("facts", "key LIKE 'demo/%'")
+    wipe("fact_history", "key LIKE 'demo/%'")
     for ref in (like, f"rule:%:{like}", f"rule:%:{NODE}%", "rule:%:demo%"):
-        db.execute("DELETE FROM inbox WHERE ref_id LIKE ?", (ref,))
-    db.execute("DELETE FROM inbox WHERE title LIKE '%演示：%' OR title LIKE '%demo-%' OR title LIKE '%demo/%' OR title LIKE ?",
-               (f"%{NODE}%",))
-    db.execute("DELETE FROM rule_alerts WHERE subject = ? OR subject LIKE 'demo%' OR subject LIKE ?"
-               " OR (inbox_id IS NOT NULL AND inbox_id NOT IN (SELECT id FROM inbox))", (NODE, like))
-    db.execute("DELETE FROM nodes WHERE id = ? OR name = ?", (NODE_ID, NODE))
+        wipe("inbox", "ref_id LIKE ?", (ref,))
+    wipe("inbox", "title LIKE '%演示：%' OR title LIKE '%demo-%' OR title LIKE '%demo/%' OR title LIKE ?", (f"%{NODE}%",))
+    wipe("rule_alerts", "subject = ? OR subject LIKE 'demo%' OR subject LIKE ?"
+         " OR (inbox_id IS NOT NULL AND inbox_id NOT IN (SELECT id FROM inbox))", (NODE, like))
+    wipe("nodes", "id = ? OR name = ?", (NODE_ID, NODE))
 
 
 def stopped():
