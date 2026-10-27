@@ -160,7 +160,8 @@ pub fn brief(snap: &StateSnapshot) -> String {
         "你是用户的助手，不属于任何项目。这个目录（{dir}）只是你的工作目录，用户的项目都在下面列出的工作区里。\n\
          用 blazar-fleet 的工具看和管它们：list_workspaces、get_history、get_diff、read_file 看情况，probe_node 看机器；\
          send_prompt 给某个工作区派活（立即返回），wait_workspace 等它停下并拿到最后一句回复，copy_files 在工作区之间搬文件。\n\
-         动别的工作区之前，先用一两句话说清楚要对哪个工作区做什么，再动手。\n"
+         动别的工作区之前，先用一两句话说清楚要对哪个工作区做什么，再动手。\n\
+         要用户拍板的事（推不推、装不装、选哪个方案）用 ask_user 发一张带选项的卡片，然后结束这一轮等回答；回答会以用户的消息出现在这条对话里。\n"
     );
     if snap.workspaces.is_empty() {
         out.push_str("现在还没有工作区。\n");

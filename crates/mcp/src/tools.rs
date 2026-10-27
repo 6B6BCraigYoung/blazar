@@ -814,6 +814,35 @@ pub const TOOLS: &[Tool] = &[
         schema: || obj(json!({}), &[]),
         build: |_| Ok(("GET", "/api/usage".into(), None)),
     },
+    Tool {
+        name: "ask_user",
+        description: "把要用户拍板的事做成一张带选项的卡片，放进用户的「需要你处理」。立即返回卡片 id，不等回答：发完就结束这一轮；用户点选或回复后，原话会以新的用户消息出现在这条对话里。一次只问一件事，选项 2～6 个、每个一句话。",
+        schema: || {
+            obj(
+                json!({
+                    "question": s("string", "要用户决定的问题，一句话"),
+                    "options": {
+                        "type": "array",
+                        "description": "可选的答案，2～6 个短句；用户也可以自己打字回复",
+                        "items": { "type": "string" },
+                    },
+                    "context": s("string", "一两句背景：为什么要定、各选项的后果"),
+                }),
+                &["question"],
+            )
+        },
+        build: |v| {
+            Ok((
+                "POST",
+                "/api/asks".into(),
+                Some(json!({
+                    "question": arg(v, "question")?,
+                    "options": v.get("options").cloned().unwrap_or_else(|| json!([])),
+                    "context": v.get("context").and_then(Value::as_str).unwrap_or_default(),
+                })),
+            ))
+        },
+    },
 ];
 
 #[must_use]
@@ -958,6 +987,19 @@ mod tests {
         let (_, url, _) =
             (find("list_jobs").unwrap().build)(&json!({ "status": "running" })).unwrap();
         assert_eq!(url, "/api/jobs?status=running");
+    }
+
+    #[test]
+    fn ask_user_posts_the_card() {
+        let (m, url, body) = (find("ask_user").unwrap().build)(&json!({
+            "question": "推不推？", "options": ["推", "不推"], "context": "两批一起"
+        }))
+        .unwrap();
+        assert_eq!((m, url.as_str()), ("POST", "/api/asks"));
+        let body = body.unwrap();
+        assert_eq!(body["options"][1], "不推");
+        assert_eq!(body["context"], "两批一起");
+        assert!((find("ask_user").unwrap().build)(&json!({ "options": ["a"] })).is_err());
     }
 
     #[test]

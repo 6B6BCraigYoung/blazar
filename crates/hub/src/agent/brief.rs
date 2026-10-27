@@ -390,7 +390,7 @@ pub async fn store(st: &Shared, sid: SessionId, ws: WorkspaceId, brief: &Brief) 
         .ask
         .as_ref()
         .and_then(|a| serde_json::to_string(a).ok());
-    let _ = sqlx::query("UPDATE sessions SET summary = ?2, ask = ?3 WHERE id = ?1")
+    let _ = sqlx::query("UPDATE sessions SET summary = ?2, ask = COALESCE(ask, ?3) WHERE id = ?1")
         .bind(sid.to_string())
         .bind(&brief.summary)
         .bind(ask)
