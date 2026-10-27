@@ -74,6 +74,31 @@ pub struct NewAccount {
     pub label: String,
     #[serde(default)]
     pub token: Option<String>,
+    #[serde(default)]
+    pub token_file: Option<String>,
+}
+
+fn valid_token_file(s: &str) -> Result<PathBuf, String> {
+    let path = PathBuf::from(s.trim());
+    if !path.is_absolute() || path.file_name().and_then(|n| n.to_str()) != Some(TOKEN_FILE) {
+        return Err(format!("只能引用别的 Blazar 账号目录里的 {TOKEN_FILE}"));
+    }
+    let text = std::fs::read_to_string(&path).map_err(|e| format!("读不了要引用的 token：{e}"))?;
+    valid_token(&text)
+        .map_err(|_| "要引用的文件里不是 claude setup-token 生成的 token".to_owned())?;
+    Ok(path)
+}
+
+fn link_token(dir: &FsPath, target: &FsPath) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(target, dir.join(TOKEN_FILE))
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (dir, target);
+        Err(std::io::Error::other("这个平台不支持引用别处的 token"))
+    }
 }
 
 pub fn valid_token(s: &str) -> Result<String, String> {
@@ -93,6 +118,14 @@ pub fn valid_token(s: &str) -> Result<String, String> {
 
 fn write_token(path: &FsPath, token: &str) -> std::io::Result<()> {
     use std::io::Write;
+    if path
+        .symlink_metadata()
+        .is_ok_and(|m| m.file_type().is_symlink())
+    {
+        return Err(std::io::Error::other(
+            "这个账号引用的是别处的 token，要换就去源头那个 hub 改",
+        ));
+    }
     let mut opts = std::fs::OpenOptions::new();
     opts.write(true).create(true).truncate(true);
     #[cfg(unix)]
@@ -135,16 +168,31 @@ pub async fn create(State(st): State<Shared>, Json(req): Json<NewAccount>) -> Re
             Err(e) => return fail(StatusCode::BAD_REQUEST, e),
         },
     };
+    let link = match req.token_file.as_deref().filter(|t| !t.trim().is_empty()) {
+        None => None,
+        Some(_) if req.provider != "claude" => {
+            return fail(StatusCode::BAD_REQUEST, "只有 Claude Code 支持长期 token");
+        }
+        Some(_) if token.is_some() => {
+            return fail(StatusCode::BAD_REQUEST, "token 和 token_file 只能给一个");
+        }
+        Some(p) => match valid_token_file(p) {
+            Ok(p) => Some(p),
+            Err(e) => return fail(StatusCode::BAD_REQUEST, e),
+        },
+    };
     let id = uuid::Uuid::now_v7().to_string();
     let dir = root(&st).join(&req.provider).join(&id);
     let shared = st.services.local(|| default_home(&req.provider)).flatten();
     let (provider, d) = (req.provider.clone(), dir.clone());
     let tok = token.clone();
+    let target = link.clone();
     let made = tokio::task::spawn_blocking(move || {
         prepare_dir(&provider, &d, shared.as_deref())?;
-        match tok {
-            Some(t) => write_token(&d.join(TOKEN_FILE), &t),
-            None => Ok(()),
+        match (tok, target) {
+            (Some(t), _) => write_token(&d.join(TOKEN_FILE), &t),
+            (None, Some(p)) => link_token(&d, &p),
+            (None, None) => Ok(()),
         }
     })
     .await;
@@ -167,7 +215,11 @@ pub async fn create(State(st): State<Shared>, Json(req): Json<NewAccount>) -> Re
     .bind(&label)
     .bind(dir.display().to_string())
     .bind(Utc::now().to_rfc3339())
-    .bind(if token.is_some() { "token" } else { "cli" })
+    .bind(if token.is_some() || link.is_some() {
+        "token"
+    } else {
+        "cli"
+    })
     .execute(st.db.pool())
     .await;
     if let Err(e) = res {
@@ -178,7 +230,7 @@ pub async fn create(State(st): State<Shared>, Json(req): Json<NewAccount>) -> Re
     let Some(a) = get(&st, &id).await else {
         return fail(StatusCode::INTERNAL_SERVER_ERROR, "账号写入后读不回来");
     };
-    let a = if token.is_some() {
+    let a = if token.is_some() || link.is_some() {
         check(&st, &a).await.unwrap_or(a)
     } else {
         a
@@ -201,6 +253,12 @@ pub async fn set_token(
     };
     if a.provider != "claude" {
         return fail(StatusCode::CONFLICT, "只有 Claude Code 账号能用长期 token");
+    }
+    if a.linked.is_some() {
+        return fail(
+            StatusCode::CONFLICT,
+            "这个账号引用的是别处的 token，要换就去源头那个 hub 改",
+        );
     }
     let token = match valid_token(&req.token) {
         Ok(t) => t,
@@ -414,6 +472,36 @@ mod tests {
         );
         assert!(valid_token("sk-ant-oat01-abc def").is_err());
         assert!(valid_token("export CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-x").is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_linked_token_is_read_through_but_never_overwritten() {
+        let tmp = tempfile::tempdir().unwrap();
+        let source = tmp.path().join("host-account");
+        std::fs::create_dir_all(&source).unwrap();
+        std::fs::write(source.join(TOKEN_FILE), "sk-ant-oat01-host\n").unwrap();
+        let mine = tmp.path().join("mine");
+        std::fs::create_dir_all(&mine).unwrap();
+        let target = valid_token_file(&source.join(TOKEN_FILE).display().to_string()).unwrap();
+        link_token(&mine, &target).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(mine.join(TOKEN_FILE))
+                .unwrap()
+                .trim(),
+            "sk-ant-oat01-host"
+        );
+        assert_eq!(
+            super::super::linked_from(&mine.display().to_string()).as_deref(),
+            Some(target.display().to_string().as_str())
+        );
+        assert!(write_token(&mine.join(TOKEN_FILE), "sk-ant-oat01-new").is_err());
+        assert_eq!(
+            std::fs::read_to_string(source.join(TOKEN_FILE)).unwrap(),
+            "sk-ant-oat01-host\n"
+        );
+        assert!(valid_token_file("relative/.blazar-oauth-token").is_err());
+        assert!(valid_token_file(&tmp.path().join("other.txt").display().to_string()).is_err());
     }
 
     #[cfg(unix)]

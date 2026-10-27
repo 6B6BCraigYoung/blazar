@@ -429,6 +429,7 @@ mod tests {
             created_at: String::new(),
             builtin: false,
             kind: kind.into(),
+            linked: None,
         }
     }
 

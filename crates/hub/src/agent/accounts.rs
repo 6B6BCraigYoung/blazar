@@ -162,6 +162,8 @@ pub struct Account {
     pub builtin: bool,
 
     pub kind: String,
+
+    pub linked: Option<String>,
 }
 
 impl Account {
@@ -185,9 +187,23 @@ impl Account {
     }
 }
 
+fn linked_from(dir: &str) -> Option<String> {
+    std::fs::read_link(PathBuf::from(dir).join(TOKEN_FILE))
+        .ok()
+        .map(|p| p.display().to_string())
+}
+
 fn from_row(r: &sqlx::sqlite::SqliteRow) -> Account {
     let config_dir: Option<String> = r.try_get("config_dir").ok().flatten();
+    let kind = match r.try_get::<String, _>("auth_mode").as_deref() {
+        Ok("token") => "token",
+        _ => "login",
+    };
     Account {
+        linked: config_dir
+            .as_deref()
+            .filter(|_| kind == "token")
+            .and_then(linked_from),
         id: r.try_get("id").unwrap_or_default(),
         provider: r.try_get("provider").unwrap_or_default(),
         label: r.try_get("display_name").unwrap_or_default(),
@@ -199,11 +215,7 @@ fn from_row(r: &sqlx::sqlite::SqliteRow) -> Account {
         disabled: r.try_get::<i64, _>("disabled").unwrap_or(0) != 0,
         checked_at: r.try_get("checked_at").ok().flatten(),
         created_at: r.try_get("created_at").unwrap_or_default(),
-        kind: match r.try_get::<String, _>("auth_mode").as_deref() {
-            Ok("token") => "token",
-            _ => "login",
-        }
-        .to_owned(),
+        kind: kind.to_owned(),
     }
 }
 
