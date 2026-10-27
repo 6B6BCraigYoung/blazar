@@ -25,7 +25,8 @@ use crate::fmt;
 use crate::home_rows::{self, Group, Move, Row, StepText};
 
 use super::work_shared::{
-    allow_always, approval_key_hint, approval_summary, decide_approval, list_keys_apply,
+    allow_always, approval_key_hint, approval_line, approval_summary, decide_approval,
+    list_keys_apply,
 };
 pub use inspector::{
     Inspector, InspectorHost, remove_workspace, rename_workspace, retry_workspace,
@@ -583,10 +584,14 @@ fn card_view(ctx: Ctx, i: usize, row: Row, pending: Option<Value>) -> impl IntoV
     let child_title = row.child.as_ref().map(|c| fmt::ws_title(&c.name, &c.node));
     let tone = crate::vocab::state(&row.state).1.key();
     let (step, ask) = match &pending {
-        Some(a) => {
+        Some(a) if is_question(a) => {
             let (label, code) = approval_summary(&a["request"], &subject.path);
-            (StepText { label, code }, Some(is_question(a)))
+            (StepText { label, code }, Some(true))
         }
+        Some(a) => (
+            StepText::plain(format!("等你批准：{}", approval_line(&a["request"]))),
+            Some(false),
+        ),
         None => (
             match Failure::of_workspace(&subject).filter(|_| row.state == "errored") {
                 Some(f) => StepText::plain(f.line_or(subject.summary.as_deref())),

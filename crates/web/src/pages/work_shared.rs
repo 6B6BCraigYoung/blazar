@@ -102,6 +102,44 @@ pub fn approval_summary(request: &Value, root: &str) -> (String, String) {
     (label, crate::chat_model::approval_what(request, root))
 }
 
+pub fn approval_line(request: &Value) -> String {
+    let tool = crate::chat_model::tool_name(request["tool_name"].as_str().unwrap_or(""));
+    let input = &request["input"];
+    let field = |k: &str| {
+        input[k]
+            .as_str()
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .map(|v| v.lines().next().unwrap_or_default().to_owned())
+    };
+    if crate::chat_model::SHELL_TOOLS.contains(&tool.as_str()) {
+        return match (field("description"), field("command")) {
+            (Some(d), _) => d,
+            (None, Some(c)) => format!("运行 {}", c.chars().take(60).collect::<String>()),
+            (None, None) => "运行一条命令".to_owned(),
+        };
+    }
+    let file = field("file_path")
+        .or_else(|| field("notebook_path"))
+        .or_else(|| field("path"));
+    let base = |f: String| f.rsplit('/').next().unwrap_or(&f).to_owned();
+    match tool.as_str() {
+        "Edit" | "MultiEdit" | "Write" | "NotebookEdit" => {
+            file.map_or_else(|| "改一个文件".to_owned(), |f| format!("改 {}", base(f)))
+        }
+        "Read" => file.map_or_else(|| "读一个文件".to_owned(), |f| format!("读 {}", base(f))),
+        "WebFetch" | "WebSearch" => "访问网页".to_owned(),
+        _ => {
+            let (label, what) = approval_summary(request, "");
+            if what.is_empty() {
+                label
+            } else {
+                format!("{label} {what}")
+            }
+        }
+    }
+}
+
 pub fn s(v: &Value, key: &str) -> String {
     v[key].as_str().unwrap_or_default().to_owned()
 }
@@ -428,5 +466,38 @@ pub async fn copy(text: String) {
     {
         Ok(_) => crate::components::toast::toast("已复制"),
         Err(_) => crate::components::toast::toast("复制失败，请手动选中复制"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn approvals_read_as_one_short_line() {
+        let req = |tool: &str, input: Value| json!({ "tool_name": tool, "input": input });
+        assert_eq!(
+            approval_line(&req(
+                "Bash",
+                json!({ "command": "python train.py --config a.yaml", "description": "跑一轮训练" })
+            )),
+            "跑一轮训练"
+        );
+        assert_eq!(
+            approval_line(&req(
+                "Bash",
+                json!({ "command": "python train.py --config a.yaml" })
+            )),
+            "运行 python train.py --config a.yaml"
+        );
+        assert_eq!(
+            approval_line(&req("Edit", json!({ "file_path": "/srv/app/src/main.rs" }))),
+            "改 main.rs"
+        );
+        assert_eq!(
+            approval_line(&req("WebFetch", json!({ "url": "https://x.invalid" }))),
+            "访问网页"
+        );
+        assert_eq!(approval_line(&req("Read", json!({}))), "读一个文件");
     }
 }
