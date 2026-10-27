@@ -111,7 +111,8 @@ pub async fn resolve_session(st: &Shared, sid: blazar_core_types::SessionId) {
     let now = Utc::now().to_rfc3339();
     let r = sqlx::query(
         "UPDATE inbox SET read_at = COALESCE(read_at, ?2), archived_at = ?2
-         WHERE session_id = ?1 AND archived_at IS NULL AND kind IN ('approval', 'question')",
+         WHERE session_id = ?1 AND archived_at IS NULL AND kind IN ('approval', 'question')
+           AND (ref_id IS NULL OR ref_id NOT LIKE 'ask:%')",
     )
     .bind(sid.to_string())
     .bind(now)
@@ -120,6 +121,17 @@ pub async fn resolve_session(st: &Shared, sid: blazar_core_types::SessionId) {
     if r.is_ok_and(|r| r.rows_affected() > 0) {
         changed(st);
     }
+}
+
+pub async fn has_open_ask(st: &Shared, sid: &str) -> bool {
+    sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM inbox WHERE ref_id = ?1 AND archived_at IS NULL AND resolved_at IS NULL",
+    )
+    .bind(format!("ask:{sid}"))
+    .fetch_one(st.db.pool())
+    .await
+    .unwrap_or(0)
+        > 0
 }
 
 pub async fn resolve_asks(st: &Shared, thread: &str) {
@@ -256,7 +268,10 @@ pub async fn on_run_finished(
         },
     )
     .await;
-    if ok && let Some(ask) = &brief.ask {
+    if ok
+        && let Some(ask) = &brief.ask
+        && !has_open_ask(&st, &sid.to_string()).await
+    {
         push(
             &st,
             Item {

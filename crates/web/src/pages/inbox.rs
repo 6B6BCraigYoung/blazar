@@ -160,7 +160,14 @@ pub fn item_of(it: &Value, assistant: Option<&str>) -> Item {
         None => stored,
     };
     let (body, raw) = match (&failure, k.as_str()) {
-        (Some(_), _) | (None, "run_done" | "question") => (String::new(), raw),
+        (Some(_), _) | (None, "run_done") => (String::new(), raw),
+        (None, "question") => {
+            if s(it, "ref_id").starts_with("ask:") && !raw.trim().is_empty() {
+                (raw, String::new())
+            } else {
+                (String::new(), raw)
+            }
+        }
         (None, "denied") => (raw, String::new()),
         (None, _) => {
             let human = crate::vocab::error(&raw, None);
@@ -218,17 +225,19 @@ fn answer_ask(ctx: Ctx, it: &Item, text: String) {
     if !ctx.gate.write().begin(&key) {
         return;
     }
-    let (id, ws, thread) = (it.id.clone(), it.workspace.clone(), it.thread.clone());
+    let id = it.id.clone();
     spawn_local(async move {
-        let body = json!({
-            "text": text, "resume": true, "resume_session": thread, "images": [], "wait_secs": 0,
-        });
-        let r = api::send::<Value>("POST", &format!("/api/workspaces/{ws}/prompt"), &body).await;
+        let r = api::send::<Value>(
+            "POST",
+            &format!("/api/asks/{id}/answer"),
+            &json!({ "text": text }),
+        )
+        .await;
         let _ = ctx.gate.try_update(|g| {
             g.complete(&key, false);
         });
         match r {
-            Ok(r) if r["admitted"] == json!(false) => toast(
+            Ok(r) if r["delivered"] == json!(false) => toast(
                 r["reason"]
                     .as_str()
                     .unwrap_or("这个对话正在忙，稍后再回")
@@ -236,7 +245,7 @@ fn answer_ask(ctx: Ctx, it: &Item, text: String) {
             ),
             Ok(_) => {
                 toast("已回复");
-                resolve_item(id, move || refresh(ctx.rev));
+                refresh(ctx.rev);
             }
             Err(e) => toast(format!("没能回复：{e}")),
         }
@@ -566,7 +575,12 @@ pub fn InboxAll() -> impl IntoView {
                 </Show>
                 <span class="grow"></span>
                 <Show when=move || { has_any() && app.inbox_unread.get() > 0 }>
-                    <button type="button" class="linkbtn" disabled=move || busy.get() on:click=read_all>
+                    <button
+                        type="button"
+                        class="linkbtn"
+                        disabled=move || busy.get()
+                        on:click=read_all
+                    >
                         "全部已读"
                     </button>
                 </Show>
