@@ -222,6 +222,7 @@ async fn pick(
     match mode.as_str() {
         "" | "default" => Ok(fallback().await),
         "auto" => {
+            super::probe::recheck(st, true, Some(provider)).await;
             let now = Utc::now();
             let windows = windows_of(st).await;
             let running = running_of(st).await;

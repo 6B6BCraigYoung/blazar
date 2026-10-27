@@ -29,7 +29,9 @@ pub use mode::{
     GlobalBody, MenuChoice, MenuProvider, Mode, choose, global_get, global_put, menu_state,
     set_global, set_mode,
 };
-pub use probe::{Probe, parse_claude_status, parse_codex_status, probe};
+pub use probe::{
+    FRESH_HOURS, Probe, check_on_start, fresh, parse_claude_status, parse_codex_status, probe,
+};
 pub use quota::{
     Quota, parse_codex_rate_limits, parse_oauth_usage, parse_quota_headers, quota, quota_all,
 };

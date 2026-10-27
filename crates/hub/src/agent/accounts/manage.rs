@@ -40,6 +40,7 @@ pub async fn list(State(st): State<Shared>) -> Response {
     for a in all(&st, None).await {
         let w = windows.get(&a.id).cloned().unwrap_or_default();
         let mut v = serde_json::to_value(&a).unwrap_or_default();
+        v["stale"] = json!(!super::probe::fresh(a.checked_at.as_deref(), now));
         v["score"] = json!(score(&w, now));
         v["windows"] = json!(w.iter().filter(|x| x.live(now)).collect::<Vec<_>>());
         v["running"] = json!(running.get(&a.id).copied().unwrap_or(0));

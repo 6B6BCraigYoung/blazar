@@ -88,6 +88,37 @@ pub async fn probe(a: &Account) -> Probe {
     }
 }
 
+pub const FRESH_HOURS: i64 = 1;
+
+#[must_use]
+pub fn fresh(checked_at: Option<&str>, now: chrono::DateTime<Utc>) -> bool {
+    checked_at
+        .and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok())
+        .is_some_and(|t| t.with_timezone(&Utc) + chrono::Duration::hours(FRESH_HOURS) > now)
+}
+
+pub(super) async fn recheck(st: &Shared, only_stale: bool, provider: Option<&str>) -> usize {
+    if st.services == crate::services::Services::Isolated {
+        return 0;
+    }
+    let now = Utc::now();
+    let due: Vec<Account> = super::all(st, provider)
+        .await
+        .into_iter()
+        .filter(|a| !a.disabled && (!only_stale || !fresh(a.checked_at.as_deref(), now)))
+        .collect();
+    let n = due.len();
+    futures::future::join_all(due.iter().map(|a| check(st, a))).await;
+    n
+}
+
+pub async fn check_on_start(st: Shared) {
+    let n = recheck(&st, false, None).await;
+    if n > 0 {
+        tracing::info!(target: "blazar::accounts", "启动时重新检查了 {n} 个账号的登录状态");
+    }
+}
+
 pub(super) async fn check(st: &Shared, a: &Account) -> Option<Account> {
     if st.services == crate::services::Services::Isolated {
         return None;
@@ -132,6 +163,16 @@ mod tests {
         let out = r#"{"loggedIn": false, "authMethod": "none"}"#;
         assert_eq!(parse_claude_status(out).logged_in, Some(false));
         assert_eq!(parse_claude_status("command not found").logged_in, None);
+    }
+
+    #[test]
+    fn a_check_counts_as_fresh_for_one_hour() {
+        let now = Utc::now();
+        let at = |m: i64| (now - chrono::Duration::minutes(m)).to_rfc3339();
+        assert!(fresh(Some(&at(50)), now));
+        assert!(!fresh(Some(&at(61)), now));
+        assert!(!fresh(None, now));
+        assert!(!fresh(Some("2026-10-13"), now));
     }
 
     #[test]
