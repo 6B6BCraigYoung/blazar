@@ -72,7 +72,7 @@ pub async fn takes_over(st: &Shared, sid: SessionId) -> bool {
 
 #[must_use]
 pub fn continue_request(mut req: Value, thread: &str) -> Value {
-    req["text"] = json!("继续");
+    req["text"] = json!("Continue");
     req["images"] = json!([]);
     req["context_file"] = Value::Null;
     req["resume"] = json!(true);
@@ -182,8 +182,8 @@ async fn note(st: &Shared, sid: SessionId, ws: &str, message: String) {
     }
 }
 
-async fn give_up(st: &Shared, sid: SessionId, f: &Failed, why: &str) {
-    note(st, sid, &f.ws, format!("自动续跑停了：{why}")).await;
+async fn give_up(st: &Shared, sid: SessionId, f: &Failed, why: &str, why_en: &str) {
+    note(st, sid, &f.ws, format!("Auto-resume stopped: {why_en}")).await;
     let label = sqlx::query_as::<_, (String, String)>(
         "SELECT w.name, n.name FROM workspaces w JOIN nodes n ON n.id = w.node_id WHERE w.id = ?1",
     )
@@ -223,19 +223,36 @@ pub async fn on_run_finished(st: Shared, sid: SessionId, status: &'static str) {
         .as_deref()
         .and_then(|r| serde_json::from_str::<Value>(r).ok())
     else {
-        give_up(&st, sid, &f, "没有留下原始请求").await;
+        give_up(
+            &st,
+            sid,
+            &f,
+            "没有留下原始请求",
+            "the original request was not saved",
+        )
+        .await;
         return;
     };
     let start = streak(&st, &f).await;
     if exhausted(start, limit) {
-        give_up(&st, sid, &f, &format!("已连续自动续跑 {start} 次")).await;
+        give_up(
+            &st,
+            sid,
+            &f,
+            &format!("已连续自动续跑 {start} 次"),
+            &format!("already auto-resumed {start} times in a row"),
+        )
+        .await;
         return;
     }
     note(
         &st,
         sid,
         &f.ws,
-        format!("网络恢复后会自动继续（最多再试 {} 次）", limit - start),
+        format!(
+            "Will continue automatically once the network is back (up to {} more attempts)",
+            limit - start
+        ),
     )
     .await;
     let mut attempt = start;
@@ -252,14 +269,21 @@ pub async fn on_run_finished(st: Shared, sid: SessionId, status: &'static str) {
         let Ok(parsed) =
             serde_json::from_value::<PromptRequest>(continue_request(req.clone(), &f.thread))
         else {
-            give_up(&st, sid, &f, "原始请求读不回来").await;
+            give_up(
+                &st,
+                sid,
+                &f,
+                "原始请求读不回来",
+                "the original request could not be read",
+            )
+            .await;
             return;
         };
         note(
             &st,
             sid,
             &f.ws,
-            format!("网络恢复了，自动继续（第 {attempt} 次）"),
+            format!("Network is back. Continuing automatically (attempt {attempt})"),
         )
         .await;
         match send_again(st.clone(), f.ws.clone(), parsed).await {
@@ -274,7 +298,14 @@ pub async fn on_run_finished(st: Shared, sid: SessionId, status: &'static str) {
             Err(e) => tracing::warn!(target: "blazar::auto_resume", "{sid} 自动继续失败：{e}"),
         }
     }
-    give_up(&st, sid, &f, &format!("试了 {limit} 次网络都没恢复")).await;
+    give_up(
+        &st,
+        sid,
+        &f,
+        &format!("试了 {limit} 次网络都没恢复"),
+        &format!("the network did not come back after {limit} attempts"),
+    )
+    .await;
 }
 
 #[cfg(test)]
@@ -341,7 +372,7 @@ mod tests {
     fn continuing_keeps_the_permission_mode() {
         let stored = json!({ "text": "改一下", "permission_mode": "acceptEdits", "images": [{}], "model": "opus" });
         let r = continue_request(stored, "t1");
-        assert_eq!(r["text"], "继续");
+        assert_eq!(r["text"], "Continue");
         assert_eq!(r["resume"], true);
         assert_eq!(r["resume_session"], "t1");
         assert_eq!(r["permission_mode"], "acceptEdits");

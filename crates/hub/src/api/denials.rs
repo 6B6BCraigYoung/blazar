@@ -174,7 +174,8 @@ mod tests {
         assert_eq!(r["reason"], "Remote Shell Writes");
         assert_eq!(
             r["text"],
-            "我同意执行刚才被拦下的这条命令，请原样重试一次，不要改动：\n```\nssh edge.invalid 'systemctl restart demo-agent'\n```"
+            "I approve the command that was just blocked. Please retry it once, exactly as \
+            written:\n```\nssh edge.invalid 'systemctl restart demo-agent'\n```"
         );
         let saved = st.db.denial_decision(sid, "t1").await.unwrap().unwrap();
         assert_eq!(
