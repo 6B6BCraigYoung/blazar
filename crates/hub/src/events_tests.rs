@@ -157,12 +157,17 @@ async fn replay_and_live_events_meet_without_loss_or_duplicates() {
     let (st, _root) = state_with(db).await;
     let boot = booted(&st).await;
     const TOTAL: usize = 400;
+    let halfway = Arc::new(tokio::sync::Barrier::new(5));
 
     let writers: Vec<_> = (0..4)
         .map(|w| {
             let st = st.clone();
+            let halfway = halfway.clone();
             tokio::spawn(async move {
                 for n in 0..TOTAL / 4 {
+                    if n == TOTAL / 8 {
+                        halfway.wait().await;
+                    }
                     st.emit(titled(w * 1000 + n));
                     st.emit(ServerEvent::QueueChanged {
                         workspace_id: WorkspaceId::new(),
@@ -177,10 +182,17 @@ async fn replay_and_live_events_meet_without_loss_or_duplicates() {
 
     let mut clients = Vec::new();
     for k in 0..24 {
-        tokio::time::sleep(Duration::from_micros(300 + k * 150)).await;
+        if k == 12 {
+            settle(&st, boot + TOTAL as i64 / 2).await;
+        } else {
+            tokio::time::sleep(Duration::from_micros(300 + k * 150)).await;
+        }
         let now = head(&st.db).await.unwrap();
         let since = (now - (k as i64 % 5) * 3).max(boot);
         clients.push((since, connect(&st, Some(since))));
+        if k == 12 {
+            halfway.wait().await;
+        }
     }
     for w in writers {
         w.await.unwrap();

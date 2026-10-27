@@ -38,7 +38,10 @@ pub(crate) async fn forward<S>(
     let mut replayed = 0;
     if let Some(since) = since {
         let frames = match crate::events::replay(&st.db, since, st.events.boot()).await {
-            Ok(crate::events::Replay::Events(frames)) => frames,
+            Ok(crate::events::Replay::Events(frames)) => {
+                replayed = since;
+                frames
+            }
             Ok(crate::events::Replay::Gap) => {
                 vec![crate::state::EventFrame::live(resync::lag_notification())]
             }
