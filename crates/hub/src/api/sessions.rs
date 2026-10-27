@@ -79,6 +79,12 @@ pub struct PromptRequest {
 
 const MAX_STORED_REQUEST: usize = 2 * 1024 * 1024;
 
+const INHERITED_API_ENV: [&str; 3] = [
+    "ANTHROPIC_BASE_URL",
+    "ANTHROPIC_AUTH_TOKEN",
+    "ANTHROPIC_API_KEY",
+];
+
 pub(crate) fn with_editor_context(text: &str, file: Option<&str>) -> String {
     let file = file
         .map(str::trim)
@@ -509,6 +515,8 @@ async fn prompt_inner(
         };
         env.extend(req.env);
         spec.env = env;
+        spec.env_unset
+            .extend(INHERITED_API_ENV.iter().map(|k| (*k).to_owned()));
         spec.disallowed_tools = req.disallowed_tools;
         spec.permission_mode = req.permission_mode;
 

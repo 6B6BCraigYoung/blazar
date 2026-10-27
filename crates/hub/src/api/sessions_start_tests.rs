@@ -236,6 +236,9 @@ async fn assistant_sessions_always_carry_the_fleet_tools_and_briefing() {
         .unwrap_or_else(|error| panic!("{}", error.message()));
     let plain = launched_command(&fake);
     assert!(!plain.contains("blazar-fleet"), "{plain}");
+    for k in INHERITED_API_ENV {
+        assert!(plain.contains(&format!("unset {k}\n")), "{plain}");
+    }
     let assistant = crate::api::assistant::ensure(&st)
         .await
         .unwrap_or_else(|error| panic!("{}", error.message()));
