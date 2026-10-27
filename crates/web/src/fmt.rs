@@ -35,6 +35,10 @@ pub fn ws_label_of(v: &serde_json::Value) -> String {
     }
 }
 
+pub fn older_than(iso: &str, secs: f64) -> bool {
+    parse_ms(iso).is_none_or(|t| js_sys::Date::now() - t > secs * 1000.0)
+}
+
 pub fn ago(iso: &str) -> String {
     parse_ms(iso).map_or_else(String::new, |t| {
         let d = (js_sys::Date::now() - t) / 1000.0;
