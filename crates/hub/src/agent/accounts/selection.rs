@@ -3,13 +3,20 @@ use std::path::PathBuf;
 
 use chrono::{DateTime, Duration, Utc};
 use serde::Serialize;
+use serde_json::{Value, json};
 use sqlx::Row;
 
 use crate::api::Shared;
 
 use super::{Account, TOKEN_ENV, all, default_id, env_key, get, mode_of};
 
-const SWITCH_AT: f64 = 0.9;
+pub const DEFAULT_THRESHOLD: f64 = 0.85;
+
+const SHORT_WEIGHT: f64 = 0.6;
+
+const LONG_WEIGHT: f64 = 0.4;
+
+pub const RUN_PENALTY: f64 = 0.03;
 
 const BLOCKED_MINUTES: i64 = 60;
 
@@ -44,13 +51,55 @@ impl Window {
     }
 }
 
+fn long_window(name: &str) -> bool {
+    name.starts_with("seven_day") || name.contains("week")
+}
+
 #[must_use]
-pub fn score(windows: &[Window], now: DateTime<Utc>) -> f64 {
+pub fn peak(windows: &[Window], now: DateTime<Utc>) -> f64 {
     windows
         .iter()
         .filter(|w| w.live(now))
         .map(|w| w.utilization)
         .fold(0.0, f64::max)
+}
+
+#[must_use]
+pub fn score(windows: &[Window], now: DateTime<Utc>) -> f64 {
+    let top = peak(windows, now);
+    if top >= 1.0 {
+        return 1.0;
+    }
+    let max_of = |long: bool| {
+        windows
+            .iter()
+            .filter(|w| w.live(now) && w.name != "blocked" && long_window(&w.name) == long)
+            .map(|w| w.utilization)
+            .fold(0.0, f64::max)
+    };
+    SHORT_WEIGHT * max_of(false) + LONG_WEIGHT * max_of(true)
+}
+
+#[must_use]
+pub fn threshold_of(saved: &Value) -> f64 {
+    saved["quota"]["threshold"]
+        .as_f64()
+        .filter(|t| (0.05..=1.0).contains(t))
+        .unwrap_or(DEFAULT_THRESHOLD)
+}
+
+pub fn merge(cur: &mut Value, body: &Value) -> Result<(), String> {
+    if let Some(t) = body["quota"].get("threshold") {
+        match t.as_f64().filter(|t| (0.05..=1.0).contains(t)) {
+            Some(t) => cur["quota"]["threshold"] = json!(t),
+            None => return Err("额度阈值要在 5% 到 100% 之间".into()),
+        }
+    }
+    Ok(())
+}
+
+pub async fn threshold(st: &Shared) -> f64 {
+    threshold_of(&crate::office::kv_get(st, "prefs").await)
 }
 
 pub(super) async fn windows_of(st: &Shared) -> HashMap<String, Vec<Window>> {
@@ -91,14 +140,37 @@ pub(super) async fn running_of(st: &Shared) -> HashMap<String, i64> {
 pub struct Candidate {
     pub id: String,
     pub score: f64,
+    pub peak: f64,
     pub running: i64,
+}
+
+impl Candidate {
+    #[must_use]
+    pub fn load(&self) -> f64 {
+        #[allow(clippy::cast_precision_loss)]
+        let running = self.running.max(0) as f64;
+        self.score + RUN_PENALTY * running
+    }
 }
 
 #[must_use]
 pub fn best(cands: &[Candidate]) -> Option<&Candidate> {
-    cands
+    cands.iter().min_by(|a, b| {
+        a.load()
+            .total_cmp(&b.load())
+            .then(a.running.cmp(&b.running))
+    })
+}
+
+#[must_use]
+pub fn spread(cands: &[Candidate], threshold: f64) -> Option<&Candidate> {
+    let under: Vec<Candidate> = cands
         .iter()
-        .min_by(|a, b| a.score.total_cmp(&b.score).then(a.running.cmp(&b.running)))
+        .filter(|c| c.peak < threshold)
+        .cloned()
+        .collect();
+    let id = best(&under).or_else(|| best(cands))?.id.clone();
+    cands.iter().find(|c| c.id == id)
 }
 
 #[derive(Debug, Clone)]
@@ -243,6 +315,7 @@ async fn pick(
                 })
                 .map(|a| Candidate {
                     score: windows.get(&a.id).map_or(0.0, |w| score(w, now)),
+                    peak: windows.get(&a.id).map_or(0.0, |w| peak(w, now)),
                     running: running.get(&a.id).copied().unwrap_or(0),
                     id: a.id,
                 })
@@ -252,8 +325,9 @@ async fn pick(
                 .filter(|c| can_run(&c.id) && (exclude.is_empty() || c.score < 1.0))
                 .cloned()
                 .collect();
-            let sticky = prior.and_then(|p| fit.iter().find(|c| c.id == p && c.score < SWITCH_AT));
-            let pick = match sticky.or_else(|| best(&fit)) {
+            let limit = threshold(st).await;
+            let sticky = prior.and_then(|p| fit.iter().find(|c| c.id == p && c.peak < limit));
+            let pick = match sticky.or_else(|| spread(&fit, limit)) {
                 Some(c) => Some(c.id.clone()),
                 None if !exclude.is_empty() => {
                     return Err(
@@ -308,7 +382,7 @@ mod tests {
             ),
             w("seven_day", 0.4, Some(now + Duration::days(3)), now),
         ];
-        assert!((score(&ws, now) - 0.4).abs() < f64::EPSILON);
+        assert!((score(&ws, now) - LONG_WEIGHT * 0.4).abs() < 1e-9);
     }
 
     #[test]
@@ -327,14 +401,90 @@ mod tests {
 
     #[test]
     fn best_prefers_headroom_then_fewer_runs() {
-        let c = |id: &str, score: f64, running: i64| Candidate {
-            id: id.into(),
-            score,
-            running,
-        };
-        let list = [c("a", 0.7, 0), c("b", 0.2, 3), c("c", 0.2, 1)];
+        let list = [cand("a", 0.7, 0), cand("b", 0.2, 3), cand("c", 0.2, 1)];
         assert_eq!(best(&list).unwrap().id, "c");
         assert!(best(&[]).is_none());
+    }
+
+    fn cand(id: &str, score: f64, running: i64) -> Candidate {
+        Candidate {
+            id: id.into(),
+            score,
+            peak: score,
+            running,
+        }
+    }
+
+    #[test]
+    fn score_blends_both_windows() {
+        let now = Utc::now();
+        let later = Some(now + Duration::hours(3));
+        let short_heavy = [
+            w("five_hour", 0.8, later, now),
+            w("seven_day", 0.1, later, now),
+        ];
+        let long_heavy = [
+            w("five_hour", 0.1, later, now),
+            w("seven_day", 0.8, later, now),
+        ];
+        let s = score(&short_heavy, now);
+        let l = score(&long_heavy, now);
+        assert!((s - (0.6 * 0.8 + 0.4 * 0.1)).abs() < 1e-9);
+        assert!((l - (0.6 * 0.1 + 0.4 * 0.8)).abs() < 1e-9);
+        assert!(s > l);
+        let both = [
+            w("five_hour", 0.5, later, now),
+            w("seven_day", 0.5, later, now),
+        ];
+        let one = [
+            w("five_hour", 0.5, later, now),
+            w("seven_day", 0.0, later, now),
+        ];
+        assert!(score(&both, now) > score(&one, now));
+        let full = [
+            w("five_hour", 1.0, later, now),
+            w("seven_day", 0.2, later, now),
+        ];
+        assert!((score(&full, now) - 1.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn accounts_over_the_threshold_get_no_new_sessions() {
+        let mut hot = cand("hot", 0.3, 0);
+        hot.peak = 0.9;
+        let list = [hot, cand("cool", 0.5, 0)];
+        assert_eq!(spread(&list, DEFAULT_THRESHOLD).unwrap().id, "cool");
+        assert_eq!(spread(&list, 0.95).unwrap().id, "hot");
+    }
+
+    #[test]
+    fn when_every_account_is_hot_the_lowest_still_runs() {
+        let mut a = cand("a", 0.9, 0);
+        a.peak = 0.95;
+        let mut b = cand("b", 0.7, 0);
+        b.peak = 0.88;
+        assert_eq!(spread(&[a, b], DEFAULT_THRESHOLD).unwrap().id, "b");
+        assert!(spread(&[], DEFAULT_THRESHOLD).is_none());
+    }
+
+    #[test]
+    fn running_sessions_add_a_light_penalty() {
+        let list = [cand("busy", 0.30, 4), cand("idle", 0.35, 0)];
+        assert_eq!(best(&list).unwrap().id, "idle");
+        let list = [cand("busy", 0.10, 1), cand("idle", 0.40, 0)];
+        assert_eq!(best(&list).unwrap().id, "busy");
+    }
+
+    #[test]
+    fn threshold_reads_from_settings() {
+        assert!((threshold_of(&json!({})) - DEFAULT_THRESHOLD).abs() < f64::EPSILON);
+        assert!(
+            (threshold_of(&json!({ "quota": { "threshold": 0.7 } })) - 0.7).abs() < f64::EPSILON
+        );
+        let mut cur = json!({});
+        assert!(merge(&mut cur, &json!({ "quota": { "threshold": 1.5 } })).is_err());
+        merge(&mut cur, &json!({ "quota": { "threshold": 0.6 } })).unwrap();
+        assert_eq!(cur["quota"]["threshold"], 0.6);
     }
 
     #[test]

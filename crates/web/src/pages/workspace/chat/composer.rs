@@ -1239,13 +1239,11 @@ pub fn Composer(
                                     (ACC_RUNTIMES.contains(&rt.as_str())
                                         && chat.agent.get().starts_with("r:"))
                                         .then(|| {
-                                            chat.current_account(&rt)
-                                                .and_then(|id| chat.account(&id))
-                                                .map(|a| {
-                                                    view! {
-                                                        <span class="muted">{format!(" · {}", a.label)}</span>
-                                                    }
-                                                })
+                                            let label = match chat.current_account(&rt) {
+                                                Some(id) => chat.account(&id).map(|a| a.label)?,
+                                                None => "自动分摊".to_owned(),
+                                            };
+                                            Some(view! { <span class="muted">{format!(" · {label}")}</span> })
                                         })
                                         .flatten()
                                 }}

@@ -487,12 +487,29 @@ pub(super) fn agent_pop(chat: Chat, pop: RwSignal<Option<Pop>>) -> impl IntoView
                 })
                 .unwrap_or_default()
         });
+        let spread_v = format!("r:{rt}");
         let on_id = if current {
             untrack(move || chat.current_account(&rt))
         } else {
             None
         };
-        list.into_iter()
+        let spread_on = current && on_id.is_none();
+        let spread = (list.iter().filter(|a| a.usable()).count() > 1).then(|| {
+            view! {
+                <button
+                    class="cp-row cp-sub"
+                    on:click=move |_| pick(spread_v.clone(), Some("auto".into()))
+                >
+                    <span class="cp-t">
+                        <b>"自动分摊"</b>
+                    </span>
+                    <span class="cp-r">"按额度挑最空的账号"</span>
+                    {spread_on.then(|| view! { <span class="cp-ok">"✓"</span> })}
+                </button>
+            }
+        });
+        let rows = list
+            .into_iter()
             .map(|a| {
                 let away = remote && claude && a.kind != "token";
                 let off = !a.usable() || away;
@@ -526,8 +543,12 @@ pub(super) fn agent_pop(chat: Chat, pop: RwSignal<Option<Pop>>) -> impl IntoView
                     </button>
                 }
             })
-            .collect_view()
-            .into_any()
+            .collect_view();
+        view! {
+            {spread}
+            {rows}
+        }
+        .into_any()
     };
     let none = profiles.is_empty() && rts.is_empty();
     view! {

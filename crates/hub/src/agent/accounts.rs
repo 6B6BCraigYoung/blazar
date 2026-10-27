@@ -15,7 +15,7 @@ mod manage;
 mod mode;
 mod probe;
 mod quota;
-mod selection;
+pub mod selection;
 
 pub use failover::{
     CONTINUE_TEXT, model_only_limit, note_failure, note_rate_limit, on_run_finished, retry_request,

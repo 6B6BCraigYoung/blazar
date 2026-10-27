@@ -51,7 +51,7 @@ fn parse(v: &Value) -> Listing {
 
 fn chosen(h: &Hub, provider: &str) -> String {
     if h.accounts.modes.get(provider).is_some_and(|m| m == "auto") {
-        return "自动轮换".to_owned();
+        return "自动分摊".to_owned();
     }
     match active_account(&h.accounts, provider) {
         Some(a) if a.builtin => "默认登录".to_owned(),
@@ -63,7 +63,7 @@ fn chosen(h: &Hub, provider: &str) -> String {
 fn mode_line(h: &Hub, provider: &str) -> String {
     let mode = h.accounts.modes.get(provider).cloned().unwrap_or_default();
     if mode == "auto" {
-        return "自动轮换：每次开始前挑额度最充裕的账号".to_owned();
+        return "自动分摊：每次开始前挑额度最充裕的账号".to_owned();
     }
     let Some(a) = active_account(&h.accounts, provider) else {
         return "绑定的账号已经不存在，去那边重新选一个".to_owned();
@@ -210,7 +210,7 @@ pub fn NodeHubs(name: String, online: Signal<bool>) -> impl IntoView {
                                     .cloned()
                                     .unwrap_or_default();
                                 let choices: Vec<(String, String)> = [
-                                    ("auto".to_owned(), "自动轮换".to_owned()),
+                                    ("auto".to_owned(), "自动分摊".to_owned()),
                                     (String::new(), "默认登录".to_owned()),
                                 ]
                                     .into_iter()

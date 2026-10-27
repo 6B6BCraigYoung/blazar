@@ -101,7 +101,7 @@ pub(super) fn AutoResumeSettings() -> impl IntoView {
                     </PrefRow>
                 </PrefGroup>
             }
-                .into_any()
+            .into_any()
         }
     }
 }
