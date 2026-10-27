@@ -36,6 +36,7 @@ struct Prompt {
     label: String,
     initial: String,
     ok: String,
+    cancel: String,
     reply: oneshot::Sender<Option<String>>,
 }
 
@@ -79,6 +80,20 @@ pub async fn prompt(title: &str, label: &str, initial: &str) -> Option<String> {
 }
 
 pub async fn prompt_with(title: &str, label: &str, initial: &str, ok: &str) -> Option<String> {
+    prompt_full(title, label, initial, ok, "取消").await
+}
+
+pub async fn prompt_en(title: &str, label: &str, initial: &str, ok: &str) -> Option<String> {
+    prompt_full(title, label, initial, ok, "Cancel").await
+}
+
+async fn prompt_full(
+    title: &str,
+    label: &str,
+    initial: &str,
+    ok: &str,
+    cancel: &str,
+) -> Option<String> {
     let d = dialogs();
     let (tx, rx) = oneshot::channel();
     if let Some(old) = d.prompt.write().replace(Prompt {
@@ -86,6 +101,7 @@ pub async fn prompt_with(title: &str, label: &str, initial: &str, ok: &str) -> O
         label: label.to_owned(),
         initial: initial.to_owned(),
         ok: ok.to_owned(),
+        cancel: cancel.to_owned(),
         reply: tx,
     }) {
         let _ = old.reply.send(None);
@@ -147,6 +163,7 @@ pub fn DialogHost() -> impl IntoView {
                 let title = p.title.clone();
                 let label = p.label.clone();
                 let ok = p.ok.clone();
+                let cancel = p.cancel.clone();
                 let value = RwSignal::new(p.initial.clone());
                 let empty = move || value.with(|v| v.trim().is_empty());
                 let submit = move || {
@@ -176,7 +193,7 @@ pub fn DialogHost() -> impl IntoView {
                         </label>
                         <div class="dlg-foot">
                             <button type="button" class="btn" on:click=move |_| finish(d, None)>
-                                "取消"
+                                {cancel}
                             </button>
                             <button
                                 type="button"

@@ -21,35 +21,44 @@ fn read_only(s: &Step) -> Option<&Tool> {
     }
 }
 
-fn verb(name: &str) -> (&'static str, &'static str) {
+type Verb = (&'static str, &'static str, &'static str, &'static str);
+
+fn verb(name: &str) -> Verb {
     match name {
-        "Read" => ("读取", "个文件"),
-        "Grep" | "Glob" => ("搜索", "次"),
-        "LS" => ("列出", "个目录"),
-        "WebFetch" => ("抓取", "个网页"),
-        _ => ("联网搜索", "次"),
+        "Read" => ("read", "reading", "file", "files"),
+        "Grep" | "Glob" => ("searched for", "searching for", "pattern", "patterns"),
+        "LS" => ("listed", "listing", "directory", "directories"),
+        "WebFetch" => ("fetched", "fetching", "page", "pages"),
+        _ => ("searched the web", "searching the web", "time", "times"),
     }
 }
 
 fn reads_summary(tools: &[Tool]) -> (String, St) {
-    let mut parts: Vec<(&str, &str, usize)> = Vec::new();
+    let mut parts: Vec<(Verb, usize)> = Vec::new();
     for t in tools {
-        let (v, unit) = verb(&t.name);
+        let v = verb(&t.name);
         match parts.iter_mut().find(|p| p.0 == v) {
-            Some(p) => p.2 += 1,
-            None => parts.push((v, unit, 1)),
+            Some(p) => p.1 += 1,
+            None => parts.push((v, 1)),
         }
     }
     let running = tools.iter().any(|t| t.state == St::Run);
     let errs = tools.iter().filter(|t| t.state == St::Err).count();
-    let done = if running { "" } else { "了" };
     let mut text = parts
         .iter()
-        .map(|(v, unit, n)| format!("{v}{done} {n} {unit}"))
+        .map(|((done, doing, one, many), n)| {
+            let v = if running { doing } else { done };
+            let unit = if *n == 1 { one } else { many };
+            format!("{v} {n} {unit}")
+        })
         .collect::<Vec<_>>()
-        .join("，");
+        .join(", ");
+    let mut first = text.chars();
+    text = first
+        .next()
+        .map_or_else(String::new, |c| c.to_uppercase().chain(first).collect());
     if running {
-        text = format!("正在{text}…");
+        text = format!("{text}…");
     }
     if let [only] = tools
         && !only.arg.is_empty()
@@ -57,7 +66,7 @@ fn reads_summary(tools: &[Tool]) -> (String, St) {
         text = format!("{text} · {}", only.arg);
     }
     if errs > 0 {
-        text = format!("{text} · {errs} 次失败");
+        text = format!("{text} · {errs} failed");
     }
     let state = if running {
         St::Run
@@ -169,15 +178,15 @@ mod tests {
             g.iter().map(|(i, _)| *i).collect::<Vec<_>>(),
             [0, 4, 5, 6, 7, 8]
         );
-        assert_eq!(summary(&g[0].1), ("读取了 2 个文件，搜索了 2 次", St::Ok));
-        assert!(matches!(&g[1].1, Group::One(Step::Tool(t)) if t.name == "Edit"));
         assert_eq!(
-            summary(&g[2].1),
-            ("读取了 1 个文件 · c.rs · 1 次失败", St::Err)
+            summary(&g[0].1),
+            ("Read 2 files, searched for 2 patterns", St::Ok)
         );
+        assert!(matches!(&g[1].1, Group::One(Step::Tool(t)) if t.name == "Edit"));
+        assert_eq!(summary(&g[2].1), ("Read 1 file · c.rs · 1 failed", St::Err));
         assert_eq!(
             summary(&g[5].1),
-            ("正在抓取 1 个网页… · https://x.invalid", St::Run)
+            ("Fetching 1 page… · https://x.invalid", St::Run)
         );
         assert_ne!(group_sig(&g[0].1), group_sig(&g[2].1));
     }

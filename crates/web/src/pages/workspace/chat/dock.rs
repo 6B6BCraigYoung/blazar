@@ -91,7 +91,7 @@ fn ApprovalCard(chat: Chat, p: Pending) -> impl IntoView {
         chat_model::fleet_ask(&r, name.as_deref())
     });
     let title = if plan {
-        "要按这个计划继续吗？".to_owned()
+        "Would you like to proceed with this plan?".to_owned()
     } else if let Some(f) = &fleet {
         f.title.clone()
     } else {
@@ -244,7 +244,7 @@ fn ApprovalCard(chat: Chat, p: Pending) -> impl IntoView {
                 .then(|| view! { <blockquote class="aquote">{f.quote.clone()}</blockquote> })}
             {f.ws.clone().map(ws_chip)}
             <details class="ui-detail">
-                <summary>"详情"</summary>
+                <summary>"Details"</summary>
                 <pre>{raw}</pre>
             </details>
         }
@@ -305,7 +305,7 @@ fn ApprovalCard(chat: Chat, p: Pending) -> impl IntoView {
                 _ => None,
             }}
             {desc.map(|d| view! { <div class="adesc">{d}</div> })}
-            {blocked.map(|b| view! { <div class="adesc">{format!("路径：{b}")}</div> })}
+            {blocked.map(|b| view! { <div class="adesc">{format!("Path: {b}")}</div> })}
         }
         .into_any()
     };
@@ -323,9 +323,9 @@ fn ApprovalCard(chat: Chat, p: Pending) -> impl IntoView {
                 <span class="ah">{title}</span>
                 <button
                     class="afold"
-                    aria-label="折叠或展开"
+                    aria-label="Collapse or expand"
                     aria-expanded=move || (!folded.get()).to_string()
-                    title="折叠或展开"
+                    title="Collapse or expand"
                     inner_html=CHEVRON
                     on:click=move |_| folded.update(|f| *f = !*f)
                 ></button>
@@ -353,14 +353,14 @@ fn ApprovalCard(chat: Chat, p: Pending) -> impl IntoView {
                     .collect_view()}
                 <input
                     class="areject"
-                    aria-label="告诉 Claude 换个做法"
+                    aria-label="Tell Claude what to do differently"
                     placeholder=ph
                     on:focus=move |_| sel.set(n_opts)
                     prop:value=move || reject.get()
                     on:input=move |e| reject.set(event_target_value(&e))
                 />
             </div>
-            <div class="ahint">"按 1–3 选择 · ↑↓ 移动 · ↩ 确认 · Esc 拒绝"</div>
+            <div class="ahint">"1–3 to select · ↑↓ to move · ↩ to confirm · Esc to cancel"</div>
         </div>
     }
 }
@@ -384,7 +384,7 @@ fn AskCard(chat: Chat, p: Pending) -> impl IntoView {
                     header: q["header"]
                         .as_str()
                         .filter(|h| !h.is_empty())
-                        .map_or_else(|| format!("问题 {}", i + 1), str::to_owned),
+                        .map_or_else(|| format!("Question {}", i + 1), str::to_owned),
                     question: q["question"].as_str().unwrap_or("").to_owned(),
                     multi: q["multiSelect"].as_bool().unwrap_or(false),
                     options: q["options"]
@@ -484,7 +484,7 @@ fn AskCard(chat: Chat, p: Pending) -> impl IntoView {
             if labels.is_empty() {
                 go(qi);
                 toast(format!(
-                    "请先回答：{}",
+                    "Please answer: {}",
                     if q.header.is_empty() {
                         &q.question
                     } else {
@@ -605,13 +605,13 @@ fn AskCard(chat: Chat, p: Pending) -> impl IntoView {
                     .collect_view()} <span class="grow"></span>
                 <button
                     class="afold"
-                    aria-label="折叠或展开"
+                    aria-label="Collapse or expand"
                     aria-expanded=move || (!folded.get()).to_string()
-                    title="折叠或展开"
+                    title="Collapse or expand"
                     inner_html=CHEVRON
                     on:click=move |_| folded.update(|f| *f = !*f)
                 ></button>
-                <button class="afold" aria-label="跳过" title="跳过（Esc）" on:click=move |_| skip()>
+                <button class="afold" aria-label="Skip" title="Skip (Esc)" on:click=move |_| skip()>
                     "×"
                 </button>
             </div>
@@ -627,7 +627,7 @@ fn AskCard(chat: Chat, p: Pending) -> impl IntoView {
                                     .multi
                                     .then(|| {
                                         view! {
-                                            <span class="muted">"（可多选）"</span>
+                                            <span class="muted">" (select all that apply)"</span>
                                         }
                                     })}
                             </div>
@@ -666,13 +666,13 @@ fn AskCard(chat: Chat, p: Pending) -> impl IntoView {
                                     <span class="ak">{n_opts + 1}</span>
                                     <span class="ck"></span>
                                     <span class="at">
-                                        <b>"其他"</b>
+                                        <b>"Other"</b>
                                     </span>
                                 </button>
                                 <input
                                     class="askother"
-                                    aria-label="其他回答"
-                                    placeholder="输入你的回答…"
+                                    aria-label="Other answer"
+                                    placeholder="Type your answer…"
                                     hidden=move || !picked.with(|p| p[qi].contains(&n_opts))
                                     prop:value=move || other.with(|o| o[qi].clone())
                                     on:input=move |e| {
@@ -688,11 +688,11 @@ fn AskCard(chat: Chat, p: Pending) -> impl IntoView {
             <div class="aopts">
                 <button class="aopt primary" data-ask-ok on:click=move |_| submit()>
                     <span class="ak">"⏎"</span>
-                    "提交"
+                    "Submit"
                 </button>
             </div>
             <div class="ahint">
-                "←→ 切换问题 · 数字键选择 · ↩ 提交 · Esc 跳过"
+                "←→ switch question · number to pick · ↩ to submit · Esc to skip"
             </div>
         </div>
     }

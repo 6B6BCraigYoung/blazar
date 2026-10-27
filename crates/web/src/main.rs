@@ -63,6 +63,8 @@ mod ui_driver;
 mod undo_ledger;
 #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 mod vocab;
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+mod vocab_en;
 
 #[cfg(target_arch = "wasm32")]
 fn main() {

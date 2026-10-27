@@ -324,7 +324,7 @@ fn a_late_denial_decision_reaches_a_frozen_card() {
     for (seq, kind) in [
         (
             1,
-            json!({"type":"user_message","text":"我同意执行刚才被拦下的这条命令"}),
+            json!({"type":"user_message","text":"I approve the command that was just blocked."}),
         ),
         (
             2,

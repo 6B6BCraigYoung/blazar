@@ -348,6 +348,7 @@ fn failure_panel(f: Failure) -> AnyView {
             app,
             ws.clone(),
             Some(session.clone()).filter(|s| !s.is_empty()),
+            false,
         );
     };
     view! {
@@ -1057,6 +1058,7 @@ fn inbox_menu(ctx: Ctx, item: Item, pending: Option<Value>) -> Vec<Vec<RowAction
                     app,
                     fws.clone(),
                     Some(session.clone()).filter(|s| !s.is_empty()),
+                    false,
                 );
             }));
             acts

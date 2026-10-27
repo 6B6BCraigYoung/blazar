@@ -26,7 +26,7 @@ pub fn ConsolePage() -> impl IntoView {
     });
     view! {
         {move || match assistant.get() {
-            None => view! { <LoadingState text="正在打开中控台…" /> }.into_any(),
+            None => view! { <LoadingState text="Loading conversation…" /> }.into_any(),
             Some(Err(e)) => view! { <InlineError message=e.to_string() /> }.into_any(),
             Some(Ok(a)) => {
                 match a.id {
@@ -47,7 +47,10 @@ pub fn ConsolePage() -> impl IntoView {
                         });
                         view! { <Room id path=a.path thread /> }.into_any()
                     }
-                    None => view! { <InlineError message="对话没能打开，稍后再试" /> }.into_any(),
+                    None => {
+                        view! { <InlineError message="Couldn't open the conversation. Try again shortly" /> }
+                            .into_any()
+                    }
                 }
             }
         }}
@@ -126,12 +129,12 @@ fn Room(id: String, path: String, thread: Signal<Option<String>>) -> impl IntoVi
             && let Some((n, max)) = crate::home_rows::retrying(w.step.as_ref())
         {
             return Some((
-                format!("重试中 {}", vocab::retry_round(n, max)),
+                format!("Retrying {}", crate::vocab_en::retry_round(n, max)),
                 crate::vocab::Tone::Run,
             ));
         }
-        let (label, tone) = vocab::state(&state);
-        Some((label.to_owned(), tone))
+        let (_, tone) = vocab::state(&state);
+        Some((crate::vocab_en::state(&state).to_owned(), tone))
     });
     let go = Callback::new(move |href: String| {
         navigate.with_value(|n| n(&href, Default::default()));
@@ -178,7 +181,7 @@ fn Room(id: String, path: String, thread: Signal<Option<String>>) -> impl IntoVi
                         chat.show_aux.run(());
                     }
                 >
-                    "新对话"
+                    "New conversation"
                     {(!hint.is_empty()).then(|| view! { <kbd>{hint.clone()}</kbd> })}
                 </button>
             </header>
@@ -188,7 +191,7 @@ fn Room(id: String, path: String, thread: Signal<Option<String>>) -> impl IntoVi
                     <div class="ws-body">
                         <div class="ws-stage">
                             <div class="ws-row">
-                                <section class="ws-chat" aria-label="对话">
+                                <section class="ws-chat" aria-label="Conversation">
                                     <ChatPane chat tree_files draft mention thread ready />
                                 </section>
                             </div>
@@ -243,9 +246,13 @@ fn ChatPicker(chat: Chat, go: Callback<String>) -> impl IntoView {
         };
         let cur = chat.thread_title(Some(&id));
         chat.spawn(async move {
-            if let Some(name) =
-                crate::components::dialog::prompt_with("重命名对话", "对话名称", &cur, "重命名")
-                    .await
+            if let Some(name) = crate::components::dialog::prompt_en(
+                "Rename conversation",
+                "Conversation name",
+                &cur,
+                "Rename",
+            )
+            .await
             {
                 chat.rename(id, name);
             }
@@ -260,7 +267,7 @@ fn ChatPicker(chat: Chat, go: Callback<String>) -> impl IntoView {
                 node_ref=button
                 aria-haspopup="menu"
                 aria-expanded=move || open.get().to_string()
-                title="切换对话"
+                title="Switch conversation"
                 on:click=move |_| open.update(|o| *o = !*o)
             >
                 <span class="t">{title}</span>
@@ -271,7 +278,7 @@ fn ChatPicker(chat: Chat, go: Callback<String>) -> impl IntoView {
                     class="menu ws-threads"
                     node_ref=root
                     role="menu"
-                    aria-label="对话"
+                    aria-label="Conversations"
                     on:keydown=move |event| {
                         if let Some(r) = root.get_untracked() {
                             menu_keydown(&event, r.unchecked_ref(), close);
@@ -286,7 +293,7 @@ fn ChatPicker(chat: Chat, go: Callback<String>) -> impl IntoView {
                             chat.new_chat();
                         }
                     >
-                        <span>"新对话"</span>
+                        <span>"New conversation"</span>
                         {(!hint.is_empty()).then(|| view! { <kbd>{hint.clone()}</kbd> })}
                     </button>
                     <Show when=move || chat.view.get().is_some()>
@@ -298,7 +305,7 @@ fn ChatPicker(chat: Chat, go: Callback<String>) -> impl IntoView {
                                 rename();
                             }
                         >
-                            <span>"重命名对话…"</span>
+                            <span>"Rename conversation…"</span>
                         </button>
                     </Show>
                     {move || {
@@ -313,8 +320,8 @@ fn ChatPicker(chat: Chat, go: Callback<String>) -> impl IntoView {
                                         .map(|t| {
                                             let on = current.as_deref() == Some(t.id.as_str());
                                             let href = format!("/chats/{}", t.id);
-                                            let (label, _) = vocab::state(t.state());
-                                            let sub = format!("{label} · {}", crate::fmt::ago(t.when()));
+                                            let label = crate::vocab_en::state(t.state());
+                                            let sub = format!("{label} · {}", crate::fmt::ago_en(t.when()));
                                             view! {
                                                 <button
                                                     type="button"

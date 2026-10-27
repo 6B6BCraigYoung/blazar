@@ -34,13 +34,13 @@ pub(super) fn icon(k: &str) -> String {
 }
 
 const EFF_LABEL: [(&str, &str); 7] = [
-    ("minimal", "最低"),
-    ("low", "低"),
-    ("medium", "中"),
-    ("high", "高"),
-    ("xhigh", "特高"),
-    ("max", "最高"),
-    ("ultra", "极高"),
+    ("minimal", "Minimal"),
+    ("low", "Low"),
+    ("medium", "Medium"),
+    ("high", "High"),
+    ("xhigh", "Extra high"),
+    ("max", "Max"),
+    ("ultra", "Ultra"),
 ];
 
 pub(super) fn eff_label(e: &str) -> String {

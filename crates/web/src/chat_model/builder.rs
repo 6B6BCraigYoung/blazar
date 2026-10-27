@@ -46,7 +46,7 @@ pub fn looks_like_account_problem(why: &str) -> bool {
 }
 
 pub fn human_error(message: &str) -> String {
-    let head = crate::vocab::error(message, None);
+    let head = crate::vocab_en::error(message, None);
     if head == message {
         head
     } else {
@@ -56,16 +56,16 @@ pub fn human_error(message: &str) -> String {
 
 pub fn retry_why(status: Option<u16>, error: &str) -> String {
     let why = match (status, error) {
-        (Some(529), _) | (_, "overloaded_error") => "服务繁忙",
-        (Some(429), _) | (_, "rate_limit") => "请求太频繁",
-        (Some(401), _) | (_, "authentication_failed") => "登录已失效",
-        (_, "billing_error") => "额度不足",
-        (Some(s), _) if s >= 500 => "服务出错了",
-        (_, "server_error") => "服务出错了",
-        _ => "请求没有成功",
+        (Some(529), _) | (_, "overloaded_error") => "Overloaded",
+        (Some(429), _) | (_, "rate_limit") => "Rate limited",
+        (Some(401), _) | (_, "authentication_failed") => "Not logged in",
+        (_, "billing_error") => "Credit balance too low",
+        (Some(s), _) if s >= 500 => "Server error",
+        (_, "server_error") => "Server error",
+        _ => "Request failed",
     };
     match status {
-        Some(code) => format!("{why}（{code}）"),
+        Some(code) => format!("{why} ({code})"),
         None => why.to_owned(),
     }
 }
@@ -363,7 +363,7 @@ impl<'a> Builder<'a> {
                 body: BBody::Rewound { items, .. },
                 ..
             }) => items,
-            _ => unreachable!("上面刚确认过"),
+            _ => unreachable!("checked just above"),
         }
     }
 
@@ -397,7 +397,8 @@ impl<'a> Builder<'a> {
             self.push(
                 key,
                 BBody::Meta {
-                    text: "原来的会话记录找不到了，Blazar 已自动重新接上".into(),
+                    text: "The previous session could not be found, so Blazar started a fresh one"
+                        .into(),
                     bad: false,
                 },
             );
@@ -439,7 +440,7 @@ impl<'a> Builder<'a> {
                 body: BBody::Fold(steps),
                 ..
             }) => steps,
-            _ => unreachable!("刚放进去的就是折叠行"),
+            _ => unreachable!("just pushed a fold"),
         }
     }
 
@@ -659,16 +660,14 @@ impl<'a> Builder<'a> {
                     self.bg_order.push((task_id.clone(), status.clone()));
                     let bad = matches!(status.as_str(), "killed" | "stopped" | "failed");
                     let end = match status.as_str() {
-                        "completed" => "已完成",
-                        "killed" => "已被结束",
-                        "failed" => "失败",
-                        "stopped" => "已停止",
-                        _ => "状态有变化",
+                        "completed" => "completed".to_owned(),
+                        "killed" | "stopped" | "failed" => format!("stopped ({status})"),
+                        other => other.to_owned(),
                     };
                     self.push(
                         key,
                         BBody::Meta {
-                            text: format!("后台任务「{what}」{end}"),
+                            text: format!("Background task \"{what}\" {end}"),
                             bad,
                         },
                     );
@@ -749,7 +748,7 @@ impl<'a> Builder<'a> {
             *start = edit_start(content, rows);
         }
         if let Some(raw) = self.tools[t].tool.raw.as_mut()
-            && !raw.contains("\n输出\n")
+            && !raw.contains("\nOutput\n")
         {
             raw.push_str(&raw_output(content));
         }
@@ -813,7 +812,7 @@ impl<'a> Builder<'a> {
             Outcome::Interrupted => self.push(
                 key,
                 BBody::Meta {
-                    text: "已中断".into(),
+                    text: "Interrupted".into(),
                     bad: false,
                 },
             ),

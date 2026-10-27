@@ -27,17 +27,17 @@ pub(super) fn QueueBand(chat: Chat) -> impl IntoView {
                             <span class="cq-dot" data-held=m.held.is_some().to_string()></span>
                             <b>{if m.held.is_some() { "Paused" } else { "Queued" }}</b>
                             <span class="muted">
-                                {m.held.clone().unwrap_or_else(|| "这一轮结束后发送".into())}
+                                {m.held.clone().unwrap_or_else(|| "Sends after this turn".into())}
                             </span>
                             <span class="grow"></span>
                             {if running {
                                 view! {
                                     <button
                                         class="linkbtn"
-                                        title="现在就插进当前这一轮"
+                                        title="Add to the current turn now"
                                         on:click=move |_| chat.queue_act("steer", m1.clone())
                                     >
-                                        "立即发送"
+                                        "Send now"
                                     </button>
                                 }
                                     .into_any()

@@ -93,7 +93,9 @@ pub fn ChatPane(
             chat.new_chat();
             chat.prompt.set(text);
             chat.show_aux.run(());
-            crate::components::toast::toast("草稿已放进新对话，选好智能体后发送。");
+            crate::components::toast::toast(
+                "Draft added to a new conversation. Pick an agent and send.",
+            );
         }
     });
 

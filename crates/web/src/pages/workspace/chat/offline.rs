@@ -8,8 +8,8 @@ use super::state::Chat;
 
 fn reason(status: &str) -> &'static str {
     match status {
-        "offline" => "机器离线",
-        other => crate::vocab::state(other).0,
+        "offline" => "Machine offline",
+        other => crate::vocab_en::state(other),
     }
 }
 
@@ -33,9 +33,9 @@ pub fn Offline(chat: Chat) -> impl IntoView {
         let (status, seen) = info.get().unwrap_or_default();
         let seen = seen
             .filter(|s| !s.is_empty())
-            .map(|s| crate::fmt::ago(&s))
+            .map(|s| crate::fmt::ago_en(&s))
             .filter(|s| !s.is_empty())
-            .map(|s| format!("上次在线 {s}"));
+            .map(|s| format!("Last seen {s}"));
         [seen, Some(reason(&status).to_owned())]
             .into_iter()
             .flatten()
@@ -59,15 +59,15 @@ pub fn Offline(chat: Chat) -> impl IntoView {
             let _ = retrying.try_set(false);
             if let Err(e) = probed {
                 toast(format!(
-                    "还是连不上：{}",
-                    crate::vocab::error(&e.to_string(), None)
+                    "Still can't connect: {}",
+                    crate::vocab_en::error(&e.to_string(), None)
                 ));
             }
         });
     };
     view! {
         <div class="blank cc-offline" role="status">
-            <h2 class="blank-title">{format!("{machine} 连不上")}</h2>
+            <h2 class="blank-title">{format!("Can't reach {machine}")}</h2>
             <p class="blank-detail">{sub}</p>
             <div class="cc-offline-acts">
                 <button
@@ -76,10 +76,10 @@ pub fn Offline(chat: Chat) -> impl IntoView {
                     disabled=move || retrying.get()
                     on:click=move |_| retry()
                 >
-                    {move || if retrying.get() { "正在重试…" } else { "重试" }}
+                    {move || if retrying.get() { "Retrying…" } else { "Retry" }}
                 </button>
                 <a class="btn" href=href>
-                    "打开机器页"
+                    "Open machine"
                 </a>
             </div>
         </div>
