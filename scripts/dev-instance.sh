@@ -59,7 +59,7 @@ start() {
     u=$(url || true)
     if [ -n "$p" ] && [ -n "$u" ] && curl -fsS -o /dev/null "$u/" 2>/dev/null; then
       [ "${BLAZAR_UI_DRIVER:-1}" = 1 ] && wait_page
-      [ "${BLAZAR_DEV_LINK_ACCOUNT:-1}" = 1 ] && link_account
+      [ "${BLAZAR_DEV_LINK_ACCOUNT:-0}" = 1 ] && link_account
       echo "已启动：pid $p，$u"
       return 0
     fi
@@ -174,5 +174,8 @@ case "${1:-status}" in
   shot) shot "${2:-}" ;;
   ui) ui "${2:?用法：dev-instance.sh ui '<JSON 命令>'}" ;;
   link) link_account ;;
-  *) echo "用法：dev-instance.sh build|start|stop|restart|status|url|shot [文件名]|ui '<JSON>'|link" >&2; exit 2 ;;
+  *)
+    echo "用法：dev-instance.sh build|start|stop|restart|status|url|shot [文件名]|ui '<JSON>'|link" >&2
+    echo "环境变量：BLAZAR_DEV_LINK_ACCOUNT=1 让 start 自动引用所在 hub 的 token 账号（默认 0 不引用；link 随时可手动引用）" >&2
+    exit 2 ;;
 esac
