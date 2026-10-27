@@ -113,12 +113,18 @@ async fn discover(st: &Shared, node: &str) -> ApiResult<Vec<PeerHub>> {
         .collect())
 }
 
+const READ_ONLY: &str = "这是开发实例，别的 Blazar 的账号只能看，要改请到正式的 Blazar 里改";
+
+fn listing(st: &AppState, hubs: Vec<PeerHub>) -> serde_json::Value {
+    serde_json::json!({ "hubs": hubs, "read_only": st.dev_instance })
+}
+
 pub async fn node_hubs(
     State(st): State<Shared>,
     Path(name): Path<String>,
 ) -> ApiResult<Json<serde_json::Value>> {
     let hubs = discover(&st, &name).await?;
-    Ok(Json(serde_json::json!({ "hubs": hubs })))
+    Ok(Json(listing(&st, hubs)))
 }
 
 #[derive(Debug, Deserialize)]
@@ -133,6 +139,9 @@ pub async fn node_hub_mode(
     Path(name): Path<String>,
     Json(body): Json<PeerMode>,
 ) -> ApiResult<Json<serde_json::Value>> {
+    if st.dev_instance {
+        return Err(ApiError::bad_request(READ_ONLY));
+    }
     if !crate::accounts::PROVIDERS.contains(&body.provider.as_str()) {
         return Err(ApiError::bad_request(format!(
             "不支持的运行时 {}",
@@ -215,5 +224,35 @@ mod tests {
         );
         assert!(s.contains("f='/tmp/it'\\''s/hub.session'"));
         assert!(s.contains("PUT /api/accounts/mode '{\"mode\":\"auto\",\"provider\":\"claude\"}'"));
+    }
+
+    async fn hub(dev_instance: bool) -> (Shared, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let mut st = crate::state::AppState::with_services(
+            blazar_db::Db::open_in_memory().await.unwrap(),
+            "local".into(),
+            None,
+            crate::mesh::MeshCtx::new(None, dir.path().join("mesh")),
+            crate::services::Services::Isolated,
+        );
+        std::sync::Arc::get_mut(&mut st).unwrap().dev_instance = dev_instance;
+        (st, dir)
+    }
+
+    #[tokio::test]
+    async fn the_dev_instance_only_looks_at_other_hubs() {
+        let (st, _dir) = hub(false).await;
+        assert_eq!(listing(&st, Vec::new())["read_only"], false);
+        let (st, _dir) = hub(true).await;
+        assert_eq!(listing(&st, Vec::new())["read_only"], true);
+        let body = PeerMode {
+            session: "/tmp/elsewhere/hub.session".into(),
+            provider: "claude".into(),
+            mode: "auto".into(),
+        };
+        let err = node_hub_mode(State(st), Path("local".into()), Json(body))
+            .await
+            .unwrap_err();
+        assert_eq!(err.message(), READ_ONLY);
     }
 }

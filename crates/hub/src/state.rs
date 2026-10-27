@@ -17,6 +17,10 @@ pub fn ssh_control_dir() -> std::path::PathBuf {
         .join("ssh-cm")
 }
 
+pub fn dev_instance() -> bool {
+    std::env::var("BLAZAR_DEV_INSTANCE").is_ok_and(|v| v == "1")
+}
+
 pub struct RunningSession {
     pub workspace_id: WorkspaceId,
     pub task: tokio::task::JoinHandle<()>,
@@ -61,6 +65,8 @@ pub struct AppState {
     pub bots: crate::bots::BotsState,
 
     pub ui_driver: crate::ui_driver::UiDriver,
+
+    pub dev_instance: bool,
 }
 
 impl AppState {
@@ -105,6 +111,7 @@ impl AppState {
             sims: crate::sims::SimsState::default(),
             bots: crate::bots::BotsState::default(),
             ui_driver: crate::ui_driver::UiDriver::from_env(),
+            dev_instance: dev_instance(),
         })
     }
 
