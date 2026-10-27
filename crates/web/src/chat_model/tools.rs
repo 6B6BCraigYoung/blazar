@@ -229,9 +229,13 @@ pub fn tool_title(name: &str, input: &Value, root: &str) -> (String, String) {
                     .unwrap_or_default(),
                 100,
             ),
-            "probe_node" | "discover_agents" => machine_en(s(input, "node")).to_owned(),
+            "probe_node" | "discover_agents" => crate::vocab_en::machine(s(input, "node")),
             "create_workspace" => {
-                format!("{} · {}", machine_en(s(input, "node")), s(input, "path"))
+                format!(
+                    "{} · {}",
+                    crate::vocab_en::machine(s(input, "node")),
+                    s(input, "path")
+                )
             }
             _ => short(&input.to_string(), 100),
         }
@@ -415,14 +419,6 @@ fn count(n: usize, one: &str, none: &str) -> String {
     }
 }
 
-fn machine_en(node: &str) -> &str {
-    if node == "local" {
-        "this machine"
-    } else {
-        node
-    }
-}
-
 fn names(list: &[Value], key: &str, max: usize) -> String {
     let all: Vec<&str> = list
         .iter()
@@ -432,7 +428,7 @@ fn names(list: &[Value], key: &str, max: usize) -> String {
     let mut out = all
         .iter()
         .take(max)
-        .map(|n| machine_en(n))
+        .map(|n| crate::vocab_en::machine(n))
         .collect::<Vec<_>>()
         .join(", ");
     if all.len() > max {

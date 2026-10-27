@@ -3,6 +3,15 @@ use blazar_core_types::failure::FailureCause;
 use crate::vocab::{ErrorKind, error_kind, http_code};
 
 #[must_use]
+pub fn machine(node: &str) -> String {
+    if node == "local" {
+        "this machine".to_owned()
+    } else {
+        blazar_core_types::api::machine_label(node).to_owned()
+    }
+}
+
+#[must_use]
 pub fn state(raw: &str) -> &'static str {
     match raw {
         "running" | "in_progress" | "busy" => "Running",

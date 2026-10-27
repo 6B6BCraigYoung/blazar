@@ -414,7 +414,7 @@ pub(super) fn ws_chip(id: String) -> impl IntoView {
                 <a class="cc-ws" href=href.clone() title=w.path.clone()>
                     <span class="dot" data-tone=crate::vocab::state(&shown).1.key()></span>
                     <span class="nm">{crate::fmt::ws_title(&w.name, &w.node)}</span>
-                    <span class="ws-machine">{crate::fmt::machine(&w.node)}</span>
+                    <span class="ws-machine">{crate::vocab_en::machine(&w.node)}</span>
                 </a>
             }
             .into_any()

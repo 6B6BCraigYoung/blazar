@@ -17,7 +17,7 @@ fn reason(status: &str) -> &'static str {
 pub fn Offline(chat: Chat) -> impl IntoView {
     let app = use_app();
     let node = chat.node.get_value();
-    let machine = crate::fmt::machine(&node);
+    let machine = crate::vocab_en::machine(&node);
     let href = format!("/nodes/{}", crate::api::enc(&node));
     let retrying = RwSignal::new(false);
     let info = {
