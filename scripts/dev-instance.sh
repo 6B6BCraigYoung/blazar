@@ -59,6 +59,7 @@ start() {
     u=$(url || true)
     if [ -n "$p" ] && [ -n "$u" ] && curl -fsS -o /dev/null "$u/" 2>/dev/null; then
       [ "${BLAZAR_UI_DRIVER:-1}" = 1 ] && wait_page
+      [ "${BLAZAR_DEV_LINK_ACCOUNT:-1}" = 1 ] && link_account
       echo "已启动：pid $p，$u"
       return 0
     fi
@@ -117,13 +118,50 @@ wait_page() {
 }
 
 ui() {
-  local session="$DATA/hub.session" base token
-  [ -n "$(pid)" ] && [ -f "$session" ] || { echo "开发实例没有运行" >&2; return 1; }
+  [ -n "$(pid)" ] || { echo "开发实例没有运行" >&2; return 1; }
+  hub_api "$DATA/hub.session" POST /api/dev/ui "$1"
+  echo
+}
+
+hub_api() {
+  local session="$1" base token
+  [ -f "$session" ] || return 1
   base=$(plutil -extract url raw -o - "$session")
   token=$(plutil -extract token raw -o - "$session")
-  curl -sS -X POST "$base/api/dev/ui" -H "Authorization: Bearer $token" \
-    -H 'Content-Type: application/json' --data "$1"
-  echo
+  curl -sS -m 10 -X "$2" "$base$3" -H "Authorization: Bearer $token" \
+    -H 'Content-Type: application/json' ${4:+--data "$4"}
+}
+
+host_session() {
+  local root="$HOME/Library/Application Support/ai.blazar.Blazar" f
+  for f in "$root/hub/hub.session" "$root/profiles/default/hub.session"; do
+    [ "$f" = "$DATA/hub.session" ] && continue
+    [ -f "$f" ] || continue
+    hub_api "$f" GET /api/about >/dev/null 2>&1 && { echo "$f"; return 0; }
+  done
+  return 1
+}
+
+link_account() {
+  local host src dir label mine id
+  host=$(host_session) || { echo "所在机器上没有在运行的正式 hub，Claude 账号保持原样" >&2; return 0; }
+  src=$(hub_api "$host" GET /api/accounts | jq -r '
+    .accounts
+    | map(select(.provider == "claude" and .kind == "token" and (.disabled | not) and .config_dir != null and .linked == null))
+    | (map(select(.status == "ok")) + .)[0]
+    | if . then [.config_dir, .label] | @tsv else empty end' || true)
+  [ -n "$src" ] || { echo "所在 hub 没有可用的 token 账号，Claude 账号保持原样" >&2; return 0; }
+  IFS=$'\t' read -r dir label <<<"$src"
+  mine=$(hub_api "$DATA/hub.session" GET /api/accounts || true)
+  id=$(jq -r --arg f "$dir/.blazar-oauth-token" '.accounts[]? | select(.linked == $f) | .id' <<<"$mine" | head -1)
+  if [ -z "$id" ]; then
+    id=$(hub_api "$DATA/hub.session" POST /api/accounts \
+      "$(jq -cn --arg l "$label（引用）" --arg f "$dir/.blazar-oauth-token" '{provider: "claude", label: $l, token_file: $f}')" \
+      | jq -r '.id // empty' || true)
+  fi
+  [ -n "$id" ] || { echo "建不了引用账号，Claude 账号保持原样" >&2; return 0; }
+  hub_api "$DATA/hub.session" PUT /api/accounts/mode "$(jq -cn --arg id "$id" '{provider: "claude", mode: $id}')" >/dev/null
+  echo "Claude 账号：引用所在 hub 的「$label」"
 }
 
 case "${1:-status}" in
@@ -135,5 +173,6 @@ case "${1:-status}" in
   url) url ;;
   shot) shot "${2:-}" ;;
   ui) ui "${2:?用法：dev-instance.sh ui '<JSON 命令>'}" ;;
-  *) echo "用法：dev-instance.sh build|start|stop|restart|status|url|shot [文件名]|ui '<JSON>'" >&2; exit 2 ;;
+  link) link_account ;;
+  *) echo "用法：dev-instance.sh build|start|stop|restart|status|url|shot [文件名]|ui '<JSON>'|link" >&2; exit 2 ;;
 esac
