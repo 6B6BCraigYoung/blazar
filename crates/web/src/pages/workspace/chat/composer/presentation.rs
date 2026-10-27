@@ -43,6 +43,41 @@ const EFF_LABEL: [(&str, &str); 7] = [
     ("ultra", "Ultra"),
 ];
 
+pub fn model_name(id: &str) -> String {
+    let (base, wide) = id.strip_suffix("[1m]").map_or((id, false), |b| (b, true));
+    let Some(rest) = base.strip_prefix("claude-").or_else(|| {
+        ["opus", "sonnet", "haiku", "fable"]
+            .contains(&base)
+            .then_some(base)
+    }) else {
+        return id.to_owned();
+    };
+    let mut family = String::new();
+    let mut version = Vec::new();
+    for part in rest.split('-') {
+        if part.chars().all(|c| c.is_ascii_digit()) {
+            if part.len() < 4 {
+                version.push(part);
+            }
+        } else if family.is_empty() {
+            let mut c = part.chars();
+            family = c
+                .next()
+                .map(|f| f.to_uppercase().chain(c).collect())
+                .unwrap_or_default();
+        }
+    }
+    let mut out = if version.is_empty() {
+        family
+    } else {
+        format!("{family} {}", version.join("."))
+    };
+    if wide {
+        out.push_str(" (1M context)");
+    }
+    out
+}
+
 pub(super) fn eff_label(e: &str) -> String {
     EFF_LABEL
         .iter()

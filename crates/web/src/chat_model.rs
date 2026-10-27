@@ -273,6 +273,7 @@ pub struct Transcript {
     pub todos: Option<Vec<Todo>>,
     pub mcp: Vec<McpServerStatus>,
     pub rate: Vec<RateLimitWindow>,
+    pub model: Option<String>,
 
     pub last_session: Option<String>,
 

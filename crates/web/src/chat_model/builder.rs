@@ -138,6 +138,7 @@ struct Carry {
     mcp: Vec<McpServerStatus>,
     rate: Vec<RateLimitWindow>,
     mode: String,
+    model: String,
     refusals: HashMap<String, String>,
 }
 
@@ -599,8 +600,12 @@ impl<'a> Builder<'a> {
             EntryKind::SessionStarted {
                 mcp_servers,
                 permission_mode,
+                model,
                 ..
             } => {
+                if let Some(m) = model.as_deref().filter(|m| !m.is_empty()) {
+                    m.clone_into(&mut self.carry.model);
+                }
                 self.carry.mcp = mcp_servers.clone();
                 self.carry.mode = permission_mode.clone().unwrap_or_default();
             }
@@ -913,6 +918,7 @@ impl<'a> Builder<'a> {
             todos: carry.todos,
             mcp: carry.mcp,
             rate: carry.rate,
+            model: Some(carry.model).filter(|m| !m.is_empty()),
             last_session: rows.last().map(|r| r.session_id.clone()),
             turn_tokens,
         };

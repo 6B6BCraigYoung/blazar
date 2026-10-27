@@ -40,6 +40,9 @@ impl Chat {
         self.spawn(async move {
             match api::send::<Value>("POST", &format!("/api/sessions/{sid}/control"), &body).await {
                 Ok(r) if r["accepted"].as_bool() == Some(true) => {
+                    if let Some(m) = body["model"].as_str() {
+                        let _ = self.model_live.try_set(Some((sid.clone(), m.to_owned())));
+                    }
                     toast(format!("{what} applied to the current turn"))
                 }
                 Ok(r) => toast(format!(
@@ -47,6 +50,26 @@ impl Chat {
                     r["reason"].as_str().unwrap_or("")
                 )),
                 Err(_) => toast(format!("{what} takes effect next turn")),
+            }
+        });
+    }
+
+    pub fn use_default_model(self) {
+        let Some(sid) = self.transcript.with_untracked(|t| t.last_session.clone()) else {
+            return;
+        };
+        let body = json!({ "model": "" });
+        self.spawn(async move {
+            match api::send::<Value>("POST", &format!("/api/sessions/{sid}/control"), &body).await {
+                Ok(r) if r["accepted"].as_bool() == Some(true) => {
+                    let _ = self.model_live.try_set(Some((sid, String::new())));
+                    toast("Switched this session to the default model");
+                }
+                Ok(r) => toast(format!(
+                    "The default model takes effect next turn ({})",
+                    r["reason"].as_str().unwrap_or("")
+                )),
+                Err(_) => toast("The default model takes effect next turn"),
             }
         });
     }

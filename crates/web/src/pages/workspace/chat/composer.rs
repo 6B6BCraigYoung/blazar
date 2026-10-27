@@ -24,7 +24,7 @@ mod queue;
 mod status;
 
 use pickers::{FilesPop, agent_pop, mcp_pop, mode_pop, model_pop, plus_pop, slash_pop, style_pop};
-use presentation::{eff_label, icon, svg};
+use presentation::{eff_label, icon, model_name, svg};
 use queue::{FailedEditor, QueueBand, QueueEditor};
 use status::{RateBanner, Tray};
 
@@ -687,7 +687,18 @@ pub fn Composer(
             })
             .filter(|n| !n.is_empty() && n != "Default")
             .unwrap_or_else(|| "Default".to_owned());
-        (name, s.effort.map(|e| eff_label(&e)))
+        let running = (!chat.fresh.get())
+            .then(|| chat.running_model())
+            .flatten()
+            .filter(|_| s.model.is_none() || chat.running.get())
+            .and_then(|m| {
+                if m.is_empty() {
+                    chat.default_model_now(&rt)
+                } else {
+                    Some(model_name(&m))
+                }
+            });
+        (running.unwrap_or(name), s.effort.map(|e| eff_label(&e)))
     };
 
     let review_n = move || chat.diff.comments.with(Vec::len);
@@ -1154,7 +1165,13 @@ pub fn Composer(
                     <button
                         class="cb-btn cb-trigger cb-model"
                         aria-label="Model"
-                        title="Switch model and effort"
+                        title=move || {
+                            if chat.running_model().is_some() && !chat.fresh.get() {
+                                format!("Running {} · switch model and effort", model_label().0)
+                            } else {
+                                "Switch model and effort".to_owned()
+                            }
+                        }
                         on:click=move |_| {
                             pop.update(|p| {
                                 *p = if *p == Some(Pop::Model) { None } else { Some(Pop::Model) };

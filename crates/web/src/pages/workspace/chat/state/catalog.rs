@@ -62,6 +62,28 @@ impl Chat {
         storage::load(&format!("blazar.model.{rt}")).unwrap_or_default()
     }
 
+    pub fn running_model(self) -> Option<String> {
+        let (sid, model) = self
+            .transcript
+            .with(|t| (t.last_session.clone(), t.model.clone()));
+        match self.model_live.get() {
+            Some((s, m)) if sid.as_deref() == Some(s.as_str()) => Some(m),
+            _ => model,
+        }
+    }
+
+    pub fn default_model_now(self, rt: &str) -> Option<String> {
+        let desc = self
+            .models_for(rt)
+            .into_iter()
+            .find(|m| m.id.is_empty())?
+            .desc;
+        let at = desc.find("currently ")? + "currently ".len();
+        let rest = &desc[at..];
+        let name = rest[..rest.find(')').unwrap_or(rest.len())].trim();
+        (!name.is_empty()).then(|| name.to_owned())
+    }
+
     pub fn set_model_sel(self, rt: &str, v: &ModelSel) {
         let prev = self.model_sel(rt);
         storage::save(&format!("blazar.model.{rt}"), v);
