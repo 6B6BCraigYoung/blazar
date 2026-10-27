@@ -809,7 +809,21 @@ pub fn InboxCards(
     }
 }
 
-fn question_panel(ctx: Ctx, aid: String, a: &Value, href: String) -> AnyView {
+fn handled_button(ctx: Ctx, item_id: String) -> impl IntoView {
+    view! {
+        <button
+            type="button"
+            class="btn small"
+            on:click=move |_| {
+                resolve_item(item_id.clone(), move || refresh(ctx.rev));
+            }
+        >
+            "标为已处理"
+        </button>
+    }
+}
+
+fn question_panel(ctx: Ctx, aid: String, a: &Value, href: String, item_id: String) -> AnyView {
     let questions = a["request"]["input"]["questions"]
         .as_array()
         .cloned()
@@ -820,6 +834,7 @@ fn question_panel(ctx: Ctx, aid: String, a: &Value, href: String) -> AnyView {
                 <a class="btn small primary" href=href>
                     "去回答"
                 </a>
+                {handled_button(ctx, item_id)}
             </div>
         }
         .into_any();
@@ -877,6 +892,7 @@ fn question_panel(ctx: Ctx, aid: String, a: &Value, href: String) -> AnyView {
                     }
                 }
             />
+            {handled_button(ctx, item_id)}
         </div>
     }
     .into_any()
@@ -904,10 +920,11 @@ fn row_view(ctx: Ctx, i: usize, it: Item, pending: Option<Value>) -> impl IntoVi
             format!("{place} · {label} · {}", fmt::ago(created))
         }
     };
+    let item_id = it.id.clone();
     let panel = pending.map(|a| {
         let aid = a["id"].as_str().unwrap_or("").to_owned();
         if is_question(&a) {
-            question_panel(ctx, aid, &a, href.clone())
+            question_panel(ctx, aid, &a, href.clone(), item_id)
         } else {
             let (label, what) = approval_summary(&a["request"], "");
             let (a1, a2, a3, a4) = (aid.clone(), aid.clone(), aid.clone(), aid);
