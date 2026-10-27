@@ -19,6 +19,7 @@ use wasm_bindgen::closure::Closure;
 
 mod advanced;
 mod detail;
+mod hubs;
 mod invites;
 mod mesh;
 mod roles;

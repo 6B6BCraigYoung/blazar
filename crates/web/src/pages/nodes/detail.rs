@@ -686,6 +686,7 @@ fn NodeDetail(name: String) -> impl IntoView {
                         }
                     }}
                 </PrefGroup>
+                <super::hubs::NodeHubs name=nm.get_value() online=Signal::derive(online) />
                 <PrefGroup title="维护" note="查找已不属于工作区的目录，确认后删除。">
                     <PrefRow label="残留目录" detail="磁盘上未被 Blazar 记录的隔离工作区和私有目录。">
                         {offline_note}
