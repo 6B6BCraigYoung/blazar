@@ -137,7 +137,7 @@ pub fn retry_message(tool_name: &str, what: &str) -> String {
     };
     let longest = what
         .lines()
-        .map(|l| l.chars().take_while(|c| *c == '`').count())
+        .map(|l| l.trim_start().chars().take_while(|c| *c == '`').count())
         .max()
         .unwrap_or(0);
     let fence = "`".repeat(longest.max(2) + 1);
@@ -201,3 +201,5 @@ mod tests {
         assert!(!is_shell("Edit"));
     }
 }
+        let indented = retry_message("Bash", "cat <<'EOF'\n  ```sh\n  x\n  ```\nEOF");
+        assert!(indented.contains("\n````\ncat <<'EOF'"));
