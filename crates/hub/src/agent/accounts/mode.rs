@@ -67,7 +67,7 @@ pub async fn menu_state(st: &Shared) -> (bool, Vec<MenuProvider>) {
     for p in PROVIDERS {
         let mut choices = vec![MenuChoice {
             mode: "auto".into(),
-            label: "自动轮换".into(),
+            label: "自动分摊".into(),
         }];
         for a in all(st, Some(p)).await.into_iter().filter(|a| !a.disabled) {
             let label = match a

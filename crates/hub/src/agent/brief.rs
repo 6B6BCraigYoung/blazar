@@ -414,6 +414,9 @@ pub async fn on_run_finished(st: Shared, sid: SessionId, ws: WorkspaceId, status
     };
     let brief = merge(status, &turn, model);
     store(&st, sid, ws, &brief).await;
+    if status == "failed" && crate::auto_resume::takes_over(&st, sid).await {
+        return;
+    }
     crate::inbox::on_run_finished(st, sid, status, &brief).await;
 }
 

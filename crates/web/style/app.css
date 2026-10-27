@@ -528,6 +528,8 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 .runtimes-page .runtime-details summary .status { margin-left: var(--space-lg); }
 .runtimes-page .runtime-details p { margin: var(--space-md) 0 0; overflow-wrap: anywhere; }
 .runtimes-page .runtime-quota-bars { display: grid; gap: var(--space-sm); }
+.settings-page .runtime-quota-bars { display: grid; gap: var(--space-sm); }
+.settings-page .qbar { grid-template-columns: 4rem 10rem 2.5rem 6.5rem; white-space: nowrap; }
 .runtimes-page .quota { padding-right: var(--space-2xl); }
 .runtimes-page .qbar { grid-template-columns: 6.5rem minmax(3rem, 1fr) 2.5rem 6.5rem; white-space: nowrap; }
 .runtimes-page .qbar .l, .runtimes-page .qbar .r { overflow: hidden; text-overflow: ellipsis; }

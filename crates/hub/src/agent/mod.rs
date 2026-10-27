@@ -1,5 +1,6 @@
 pub mod accounts;
 pub mod agents;
+pub mod auto_resume;
 pub mod brief;
 pub mod catalog;
 pub mod chat;

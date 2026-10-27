@@ -60,7 +60,7 @@ fn status(a: &Account) -> impl IntoView + use<> {
     }
 }
 
-fn quota(a: &Account) -> AnyView {
+pub(crate) fn quota(a: &Account) -> AnyView {
     if a.windows.is_empty() {
         let hint = if a.kind == "token" || a.provider == "codex" {
             "还没查过 —— 「⋯」里点「刷新额度」"

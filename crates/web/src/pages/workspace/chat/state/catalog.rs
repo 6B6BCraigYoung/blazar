@@ -104,7 +104,10 @@ impl Chat {
 
     pub fn current_account(self, rt: &str) -> Option<String> {
         let sel = self.acc_sel();
-        if !sel.is_empty() && sel != "auto" {
+        if sel == "auto" {
+            return None;
+        }
+        if !sel.is_empty() {
             return Some(sel);
         }
         let policy = self

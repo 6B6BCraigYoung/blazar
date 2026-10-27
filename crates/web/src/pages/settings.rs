@@ -18,6 +18,8 @@ mod hooks;
 mod hub;
 mod notify;
 mod platforms;
+mod quota;
+mod resume;
 mod rules;
 mod shortcuts;
 mod snippets;
@@ -31,6 +33,8 @@ use hub::HubSettings;
 pub(super) use notify::NOTIFY_KINDS;
 use notify::NotifySettings;
 use platforms::PlatformSettings;
+use quota::QuotaSettings;
+use resume::AutoResumeSettings;
 use rules::RuleSettings;
 use shortcuts::ShortcutSettings;
 use snippets::SnippetSettings;
@@ -38,6 +42,7 @@ use snippets::SnippetSettings;
 pub(crate) const SECTIONS: &[(&str, &str, &str)] = &[
     ("appearance", "外观", icon::PALETTE),
     ("chat", "对话与编辑", icon::CHAT),
+    ("quota", "额度分摊", icon::CHART),
     ("notify", "提醒", icon::BELL),
     ("shortcuts", "快捷键", icon::KEYBOARD),
     ("rules", "自动批准", icon::CHECK),
@@ -152,10 +157,12 @@ pub fn SettingsPage() -> impl IntoView {
                     "chat" => {
                         view! {
                             <ChatSettings />
+                            <AutoResumeSettings />
                             <FleetSettings />
                         }
                             .into_any()
                     }
+                    "quota" => view! { <QuotaSettings /> }.into_any(),
                     "notify" => view! { <NotifySettings /> }.into_any(),
                     "shortcuts" => view! { <ShortcutSettings /> }.into_any(),
                     "rules" => view! { <RuleSettings /> }.into_any(),

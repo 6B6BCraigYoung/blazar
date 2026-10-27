@@ -13,7 +13,7 @@ use crate::realtime::use_bus;
 use super::agents;
 
 mod account_form;
-mod accounts;
+pub(crate) mod accounts;
 mod detail;
 mod global_sync;
 mod overview;
