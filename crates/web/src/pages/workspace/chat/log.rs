@@ -1233,6 +1233,10 @@ fn denial_card(chat: Chat, c: DeniedCall, place: (String, String)) -> AnyView {
     let detail = c.detail.clone();
     let hard = c.hard;
     let (where_, root) = place;
+    let target = c
+        .shell()
+        .then(|| blazar_core_types::denial::ssh_target(&c.what))
+        .flatten();
     view! {
         <div class="cc-deny" data-state=state>
             <div class="cd-head">
@@ -1258,6 +1262,12 @@ fn denial_card(chat: Chat, c: DeniedCall, place: (String, String)) -> AnyView {
             </div>
             <div class="cd-meta">
                 <span title=root>{where_}</span>
+                {target
+                    .map(|h| {
+                        view! {
+                            <span title="命令实际在这台机器上执行">{format!("目标 {h}")}</span>
+                        }
+                    })}
                 {reason
                     .map(|r| {
                         view! {

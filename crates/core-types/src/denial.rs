@@ -101,6 +101,33 @@ pub fn is_shell(tool_name: &str) -> bool {
     SHELL_TOOLS.contains(&short)
 }
 
+const SSH_VALUE_FLAGS: [&str; 20] = [
+    "-o", "-p", "-i", "-l", "-F", "-J", "-b", "-c", "-D", "-E", "-e", "-I", "-L", "-m", "-O", "-Q",
+    "-R", "-S", "-W", "-w",
+];
+
+#[must_use]
+pub fn ssh_target(command: &str) -> Option<String> {
+    let mut words = command.split_whitespace();
+    words.by_ref().find(|w| *w == "ssh")?;
+    while let Some(w) = words.next() {
+        if SSH_VALUE_FLAGS.contains(&w) {
+            words.next();
+            continue;
+        }
+        if w.starts_with('-') {
+            continue;
+        }
+        let host = w
+            .rsplit('@')
+            .next()
+            .unwrap_or(w)
+            .trim_matches(|c| c == '\'' || c == '"' || c == ';');
+        return (!host.is_empty()).then(|| host.to_owned());
+    }
+    None
+}
+
 #[must_use]
 pub fn what_of(tool_name: &str, input: &Value) -> String {
     let picked = ["command", "file_path", "path", "url", "pattern"]
@@ -197,9 +224,27 @@ mod tests {
         let nested = retry_message("Bash", "cat <<'EOF'\n```\nx\n```\nEOF");
         assert!(nested.contains("\n````\ncat <<'EOF'"));
         assert!(nested.ends_with("EOF\n````"));
+        let indented = retry_message("Bash", "cat <<'EOF'\n  ```sh\n  x\n  ```\nEOF");
+        assert!(indented.contains("\n````\ncat <<'EOF'"));
         assert!(is_shell("mcp__blazar__Bash"));
         assert!(!is_shell("Edit"));
     }
+
+    #[test]
+    fn the_ssh_target_is_read_off_the_command() {
+        assert_eq!(
+            ssh_target("ssh edge.invalid 'systemctl restart demo-agent'").as_deref(),
+            Some("edge.invalid")
+        );
+        assert_eq!(
+            ssh_target("ssh -o BatchMode=yes -p 2222 ops@gpu-a.invalid ls").as_deref(),
+            Some("gpu-a.invalid")
+        );
+        assert_eq!(
+            ssh_target("cd /srv && ssh -tt lab.invalid; echo done").as_deref(),
+            Some("lab.invalid")
+        );
+        assert_eq!(ssh_target("ls -la"), None);
+        assert_eq!(ssh_target("ssh -p 22"), None);
+    }
 }
-        let indented = retry_message("Bash", "cat <<'EOF'\n  ```sh\n  x\n  ```\nEOF");
-        assert!(indented.contains("\n````\ncat <<'EOF'"));
