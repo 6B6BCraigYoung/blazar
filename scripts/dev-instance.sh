@@ -48,7 +48,8 @@ url() {
 start() {
   [ -x "$BIN" ] || build
   stop
-  open -n -g -a "$DEV" --env "BLAZAR_PROFILE=$PROFILE" --env BLAZAR_DEV_INSTANCE=1 \
+  env -u ANTHROPIC_BASE_URL -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_API_KEY \
+    open -n -g -a "$DEV" --env "BLAZAR_PROFILE=$PROFILE" --env BLAZAR_DEV_INSTANCE=1 \
     --env "BLAZAR_UI_DRIVER=${BLAZAR_UI_DRIVER:-1}" \
     --env "BLAZAR_MESH_DISCOVERY=${BLAZAR_MESH_DISCOVERY:-0}" \
     ${BLAZAR_WINDOW_SIZE:+--env "BLAZAR_WINDOW_SIZE=$BLAZAR_WINDOW_SIZE"}
