@@ -9,7 +9,7 @@ use crate::components::menu::menu_keydown;
 use crate::components::toast::toast;
 use crate::fmt;
 
-use super::{Form, WITH_ACCOUNTS, account_status, login, patch};
+use super::{Form, WITH_ACCOUNTS, account_status, account_status_hint, login, patch};
 
 pub(super) fn provider_label(p: &str) -> &str {
     WITH_ACCOUNTS.iter().find(|x| x.0 == p).map_or(p, |x| x.1)
@@ -52,13 +52,7 @@ fn model_label(m: &str) -> String {
 
 fn status(a: &Account) -> impl IntoView + use<> {
     let (text, tone) = account_status(a);
-    let title = if a.kind == "token" && a.status == "ok" {
-        "首次运行时验证凭据；失效后会提示重新配置"
-    } else if text == "待检查" {
-        "暂未获取登录状态"
-    } else {
-        ""
-    };
+    let title = account_status_hint(a);
     view! {
         <span class="status" data-tone=tone.key() title=title>
             {text}
@@ -141,7 +135,9 @@ pub(super) fn AccountRow(
             .clone()
             .map(|p| plan_label(&p).to_owned())
             .unwrap_or_default(),
-        if tok {
+        if a.linked.is_some() {
+            "引用别处的长期 token".into()
+        } else if tok {
             "长期 token".into()
         } else {
             "浏览器登录".into()
@@ -277,6 +273,7 @@ pub(super) fn AccountRow(
     let aid = a.id.clone();
     let email = a.email.clone().filter(|e| !e.is_empty());
     let signed_out = !a.disabled && a.status == "logged_out";
+    let expired = signed_out && a.checked_at.is_some();
     let a_login = a.clone();
     let sign_in = move |_| {
         if busy.get_untracked() {
@@ -363,7 +360,7 @@ pub(super) fn AccountRow(
                     .then(|| {
                         view! {
                             <button class="btn small" disabled=move || busy.get() on:click=sign_in>
-                                "登录…"
+                                {if expired { "重新登录" } else { "登录…" }}
                             </button>
                         }
                     })}

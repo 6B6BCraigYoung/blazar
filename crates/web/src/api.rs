@@ -176,6 +176,12 @@ pub struct Account {
     pub plan: Option<String>,
     pub status: String,
     #[serde(default)]
+    pub stale: bool,
+    #[serde(default)]
+    pub checked_at: Option<String>,
+    #[serde(default)]
+    pub linked: Option<String>,
+    #[serde(default)]
     pub disabled: bool,
     #[serde(default)]
     pub builtin: bool,

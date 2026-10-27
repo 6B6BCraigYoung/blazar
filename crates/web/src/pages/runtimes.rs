@@ -29,12 +29,28 @@ pub const WITH_ACCOUNTS: [(&str, &str); 2] = [("claude", "Claude Code"), ("codex
 pub fn account_status(a: &Account) -> (&'static str, Tone) {
     if a.disabled {
         ("已停用", Tone::Other)
-    } else if a.status == "ok" {
-        ("已登录", Tone::Other)
+    } else if a.status == "logged_out" && a.checked_at.is_some() {
+        ("登录已失效", Tone::Attention)
     } else if a.status == "logged_out" {
         ("未登录", Tone::Attention)
+    } else if a.status == "ok" && !a.stale {
+        ("已登录", Tone::Other)
     } else {
-        ("待检查", Tone::Other)
+        ("未检查", Tone::Other)
+    }
+}
+
+pub fn account_status_hint(a: &Account) -> String {
+    let checked = a
+        .checked_at
+        .as_deref()
+        .map(|t| format!("上次检查：{}", crate::fmt::ago(t)));
+    match (a.status.as_str(), a.stale, checked) {
+        ("logged_out", _, Some(c)) => format!("凭据已经失效，重新登录后才会进入轮换。{c}"),
+        ("ok", true, Some(c)) => format!("{c}，超过 1 小时的结果不再当真，用之前会重新检查"),
+        ("ok", false, Some(c)) if a.kind == "token" => format!("{c}。token 失效后会提示重新配置"),
+        (_, _, Some(c)) => c,
+        _ => "还没有检查过登录状态".to_owned(),
     }
 }
 
