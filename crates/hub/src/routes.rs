@@ -343,6 +343,8 @@ pub fn build_router(st: Arc<AppState>) -> Router {
             "/api/nodes/{name}/login/{runtime}/ws",
             get(accounts::node_login_ws),
         )
+        .route("/api/nodes/{name}/hubs", get(api::node_hubs))
+        .route("/api/nodes/{name}/hubs/mode", put(api::node_hub_mode))
         .route("/api/nodes/{name}/cli-versions", get(remote_cli::versions))
         .route(
             "/api/nodes/{name}/update/{runtime}",
