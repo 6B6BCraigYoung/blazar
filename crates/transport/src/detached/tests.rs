@@ -210,11 +210,17 @@ fn cmd_sh_execs_the_agent_so_signals_reach_it() {
             .arg("-p")
             .arg("it's")
             .cwd("/w x")
-            .env("K", "v 1"),
+            .env("K", "v 1")
+            .env_unset("ANTHROPIC_BASE_URL"),
     )
     .unwrap();
     assert!(c.contains("cd '/w x' || exit 96"));
     assert!(c.contains("export K='v 1'"));
+    assert!(
+        c.find("unset ANTHROPIC_BASE_URL\n")
+            .is_some_and(|i| c.find("export K=").is_some_and(|j| i < j)),
+        "继承来的变量先清掉，再设显式的: {c}"
+    );
     assert!(
         c.contains("exec 'claude' '-p' 'it'\\''s'"),
         "要 exec 替换掉 bash，否则 TERM 只杀到 bash: {c}"

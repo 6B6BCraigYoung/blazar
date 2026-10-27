@@ -188,6 +188,9 @@ impl CliRuntime {
         for (k, p) in &session.env_files {
             e = e.env_file(k, p);
         }
+        for k in &session.env_unset {
+            e = e.env_unset(k);
+        }
         e
     }
 
@@ -402,6 +405,9 @@ impl CliRuntime {
         for (k, p) in &session.env_files {
             spec = spec.env_file(k, p);
         }
+        for k in &session.env_unset {
+            spec = spec.env_unset(k);
+        }
         DetachedPlan {
             spec,
             mode: RunMode::Relay,
@@ -456,6 +462,9 @@ impl CliRuntime {
         }
         for (k, p) in &session.env_files {
             spec = spec.env_file(k, p);
+        }
+        for k in &session.env_unset {
+            spec = spec.env_unset(k);
         }
         DetachedPlan {
             spec,

@@ -1,6 +1,6 @@
 pub mod detached;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
@@ -121,6 +121,8 @@ pub struct ExecSpec {
 
     pub env_files: BTreeMap<String, PathBuf>,
 
+    pub env_unset: BTreeSet<String>,
+
     pub stdin: Option<Vec<u8>>,
 }
 
@@ -132,6 +134,7 @@ impl ExecSpec {
             cwd: None,
             env: BTreeMap::new(),
             env_files: BTreeMap::new(),
+            env_unset: BTreeSet::new(),
             stdin: None,
         }
     }
@@ -176,8 +179,19 @@ impl ExecSpec {
         self
     }
 
+    #[must_use]
+    pub fn env_unset(mut self, k: impl Into<String>) -> Self {
+        self.env_unset.insert(k.into());
+        self
+    }
+
     pub fn validate(&self) -> Result<()> {
-        for key in self.env.keys().chain(self.env_files.keys()) {
+        for key in self
+            .env
+            .keys()
+            .chain(self.env_files.keys())
+            .chain(self.env_unset.iter())
+        {
             validate_env_key(key)?;
         }
         Ok(())
@@ -186,6 +200,12 @@ impl ExecSpec {
     pub(crate) fn to_shell(&self) -> Result<String> {
         self.validate()?;
         let mut parts = Vec::new();
+        if !self.env_unset.is_empty() {
+            parts.push(format!(
+                "unset {};",
+                self.env_unset.iter().cloned().collect::<Vec<_>>().join(" ")
+            ));
+        }
         if let Some(cwd) = &self.cwd {
             parts.push(format!("cd {} &&", shell_quote(&cwd.display().to_string())));
         }
@@ -476,6 +496,9 @@ impl LocalTransport {
         cmd.args(&spec.args).stdin(Stdio::null());
         if let Some(cwd) = &spec.cwd {
             cmd.current_dir(cwd);
+        }
+        for k in &spec.env_unset {
+            cmd.env_remove(k);
         }
         for (k, v) in &spec.env {
             cmd.env(k, v);
@@ -1046,6 +1069,33 @@ mod tests {
         let spec = ExecSpec::new("codex").env("CODEX_HOME", "/dev/shm/x");
         let rendered = spec.to_shell().unwrap();
         assert!(rendered.starts_with("CODEX_HOME='/dev/shm/x' 'codex'"));
+        let cleared = ExecSpec::new("claude")
+            .env("ANTHROPIC_BASE_URL", "http://127.0.0.1:1")
+            .env_unset("ANTHROPIC_BASE_URL")
+            .env_unset("ANTHROPIC_API_KEY")
+            .to_shell()
+            .unwrap();
+        assert!(
+            cleared.starts_with("unset ANTHROPIC_API_KEY ANTHROPIC_BASE_URL; ANTHROPIC_BASE_URL=")
+        );
+        assert!(ExecSpec::new("true").env_unset("A-B").to_shell().is_err());
+    }
+
+    #[tokio::test]
+    async fn unset_keys_do_not_reach_local_children() {
+        let spec = ExecSpec::new("sh")
+            .arg("-c")
+            .arg("printf '%s|%s' \"${BLAZAR_TEST_DROP:-gone}\" \"${BLAZAR_TEST_KEEP:-}\"")
+            .env("BLAZAR_TEST_KEEP", "kept")
+            .env_unset("BLAZAR_TEST_DROP");
+        let mut cmd = LocalTransport.build(&spec).unwrap();
+        cmd.env("BLAZAR_TEST_DROP", "inherited");
+        let out = cmd.output().await.unwrap();
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "inherited|kept");
+        let mut cmd = LocalTransport.build(&spec).unwrap();
+        cmd.env_remove("BLAZAR_TEST_DROP");
+        let out = cmd.output().await.unwrap();
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "gone|kept");
     }
 
     #[test]

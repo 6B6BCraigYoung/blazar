@@ -63,6 +63,9 @@ impl ClaudeCliRuntime {
         for (k, p) in &spec.env_files {
             e = e.env_file(k, p);
         }
+        for k in &spec.env_unset {
+            e = e.env_unset(k);
+        }
         e
     }
 

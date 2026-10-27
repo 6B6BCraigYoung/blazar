@@ -149,6 +149,9 @@ fn render_cmd(spec: &ExecSpec) -> Result<String> {
             shell_quote(&cwd.display().to_string())
         ));
     }
+    for k in &spec.env_unset {
+        s.push_str(&format!("unset {k}\n"));
+    }
     for (k, v) in &spec.env {
         s.push_str(&format!("export {k}={}\n", shell_quote(v)));
     }
