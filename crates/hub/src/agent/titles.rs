@@ -36,17 +36,100 @@ pub fn looks_like_error(text: &str) -> bool {
     ERROR_MARKS.iter().any(|m| first.contains(m))
 }
 
+const ECHO_CUES: [&str; 8] = [
+    "做什么",
+    "标题",
+    "摘要",
+    "概括",
+    "总结",
+    "一句话",
+    "summary",
+    "title",
+];
+
+#[must_use]
+pub fn strip_echo(line: &str) -> &str {
+    let line = line.trim_start();
+    let Some(i) = line.find(['：', ':']) else {
+        return line;
+    };
+    let (head, rest) = line.split_at(i);
+    let rest = rest.trim_start_matches(['：', ':']).trim_start();
+    let head = head.trim_end().to_lowercase();
+    let echoed = head.chars().count() <= 14 && ECHO_CUES.iter().any(|c| head.ends_with(c));
+    if echoed && !rest.is_empty() {
+        rest
+    } else {
+        line
+    }
+}
+
+const OPENERS: [char; 7] = ['（', '(', '「', '『', '【', '《', '['];
+const CLOSERS: [char; 7] = ['）', ')', '」', '』', '】', '》', ']'];
+const BREAKS: &str = "。！？；，、,;!?: ：";
+
+fn unmatched_opener(chars: &[char]) -> Option<usize> {
+    let mut stack: Vec<usize> = Vec::new();
+    for (i, c) in chars.iter().enumerate() {
+        if OPENERS.contains(c) {
+            stack.push(i);
+        } else if CLOSERS.contains(c) {
+            stack.pop();
+        }
+    }
+    stack.first().copied()
+}
+
+#[must_use]
+pub fn fit(text: &str, max: usize) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    if chars.len() <= max {
+        return text.to_owned();
+    }
+    let room = max.saturating_sub(1);
+    let floor = room / 2;
+    let at_break = |i: usize| {
+        i > 0
+            && i <= chars.len()
+            && (BREAKS.contains(chars[i - 1])
+                || chars
+                    .get(i)
+                    .is_some_and(|c| BREAKS.contains(*c) || OPENERS.contains(c)))
+    };
+    let mut cut = (floor..=room).rev().find(|&i| at_break(i)).unwrap_or(room);
+    if cut == room {
+        let mut back = room;
+        while back > floor
+            && chars[back - 1].is_ascii_alphanumeric()
+            && chars.get(back).is_some_and(char::is_ascii_alphanumeric)
+        {
+            back -= 1;
+        }
+        if back > floor {
+            cut = back;
+        }
+    }
+    if let Some(open) = unmatched_opener(&chars[..cut]) {
+        cut = open;
+    }
+    let mut out: String = chars[..cut].iter().collect();
+    let trimmed = out
+        .trim_end_matches(|c: char| BREAKS.contains(c) || OPENERS.contains(&c))
+        .len();
+    out.truncate(trimmed);
+    out.push('…');
+    out
+}
+
 fn clean(raw: &str) -> Option<String> {
-    let line = raw
-        .lines()
-        .map(str::trim)
-        .find(|l| !l.is_empty())?
+    let line = raw.lines().map(str::trim).find(|l| !l.is_empty())?;
+    let line = strip_echo(line)
         .trim_matches(|c: char| "\"'“”「」『』《》。．.".contains(c))
         .trim();
     if line.is_empty() || line.starts_with('/') || looks_like_error(line) {
         return None;
     }
-    Some(line.chars().take(MAX_CHARS).collect())
+    Some(fit(line, MAX_CHARS))
 }
 
 pub struct Brain {
@@ -124,8 +207,10 @@ async fn opening(st: &Shared, sid: SessionId) -> Option<(String, String)> {
 
 async fn summarize(brain: &Brain, user: &str, assistant: &str) -> Option<String> {
     let prompt = format!(
-        "用对话本身的语言（用户用中文就用中文），不超过 12 个字或 6 个英文单词，概括下面这段对话在做什么，\
-         作为标签页标题。只输出标题本身，不要引号、句号或解释。\n\n用户：{user}\n\n助手：{assistant}"
+        "给下面这段对话起一个标签页标题：用对话本身的语言（用户用中文就用中文），\
+         不超过 12 个字或 6 个英文单词，说清楚在做什么。\
+         直接输出标题这几个字，不要加「标题」「这段对话在做什么」之类的前缀，不要引号、句号或解释。\
+         \n\n用户：{user}\n\n助手：{assistant}"
     );
     clean(&ask_haiku(brain, &prompt, 45).await?)
 }
@@ -290,5 +375,47 @@ mod tests {
         assert!(!looks_like_error("修复登录超时"));
         let long = "很".repeat(100);
         assert_eq!(clean(&long).unwrap().chars().count(), MAX_CHARS);
+    }
+
+    #[test]
+    fn echoed_prompt_prefixes_are_dropped_before_storing() {
+        assert_eq!(
+            strip_echo("这段对话在做什么：在 lab-3.invalid 上为真机试验做准备"),
+            "在 lab-3.invalid 上为真机试验做准备"
+        );
+        assert_eq!(strip_echo("标题: 修复登录超时"), "修复登录超时");
+        assert_eq!(strip_echo("Summary: paginate users"), "paginate users");
+        assert_eq!(strip_echo("标题改好了：测试通过"), "标题改好了：测试通过");
+        assert_eq!(strip_echo("摘要："), "摘要：");
+        assert_eq!(
+            clean("这段对话在做什么：在 lab-3.invalid 上为真机试验做准备").as_deref(),
+            Some("在 lab-3.invalid 上为真机试验做准备")
+        );
+    }
+
+    #[test]
+    fn long_titles_end_on_a_whole_word_with_brackets_paired() {
+        let text = "在 lab-3.invalid 上为真机试验做准备（方案丙，A/B/C 三组对照）再汇总结果";
+        assert_eq!(fit(text, 100), text);
+        let cut = fit(text, 30);
+        assert_eq!(cut, "在 lab-3.invalid 上为真机试验做准备…");
+        assert!(fit(text, 40).chars().count() <= 40);
+        assert_eq!(
+            fit("请求在 lab-3.invalid 上跑 benchmark-suite 然后汇总", 24),
+            "请求在 lab-3.invalid 上跑…"
+        );
+        assert_eq!(
+            fit("改好了分页，测试通过，没有推送", 12),
+            "改好了分页，测试通过…"
+        );
+        let cjk = "很".repeat(100);
+        assert_eq!(fit(&cjk, MAX_CHARS).chars().count(), MAX_CHARS);
+        for s in [fit(text, 30), fit(text, 36), fit(text, 44)] {
+            assert_eq!(
+                s.chars().filter(|c| OPENERS.contains(c)).count(),
+                s.chars().filter(|c| CLOSERS.contains(c)).count(),
+                "{s}"
+            );
+        }
     }
 }

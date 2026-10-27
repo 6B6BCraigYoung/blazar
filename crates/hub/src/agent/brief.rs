@@ -74,7 +74,8 @@ pub fn tidy(line: &str, max: usize) -> String {
         .find(|l| !l.is_empty())
         .unwrap_or_default()
         .trim_start_matches(|c: char| "-*•#>".contains(c))
-        .trim()
+        .trim();
+    let line = crate::titles::strip_echo(line)
         .trim_matches(|c: char| "\"'“”「」『』《》`".contains(c))
         .trim_end_matches(|c: char| "。．.,，;；".contains(c))
         .trim();
@@ -83,7 +84,7 @@ pub fn tidy(line: &str, max: usize) -> String {
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ");
-    head(&joined, max)
+    crate::titles::fit(&joined, max)
 }
 
 fn paragraphs(text: &str) -> Vec<String> {
@@ -296,7 +297,8 @@ fn model_prompt(status: &str, turn: &Turn) -> String {
              只输出一个 JSON 对象，不要别的内容：\n\
              {{\"summary\": \"\", \"asking\": false, \"question\": \"\", \"options\": []}}\n\
              summary 用中文写一句话（不超过 30 个字），说清楚为什么失败、下一步可以做什么；\
-             不要路径、提交号、命令和引号。\n\n用户指令：\n{prompt}\n\n失败原因：\n{}",
+             只写那句话本身，不要加「摘要」之类的前缀，不要路径、提交号、命令和引号。\
+             \n\n用户指令：\n{prompt}\n\n失败原因：\n{}",
             head(turn.failure.trim(), 600)
         );
     }
@@ -305,7 +307,7 @@ fn model_prompt(status: &str, turn: &Turn) -> String {
          只输出一个 JSON 对象，不要别的内容：\n\
          {{\"summary\": \"\", \"asking\": false, \"question\": \"\", \"options\": []}}\n\
          - summary：用中文写一句话（不超过 30 个字），说清楚这一轮做成了什么，或者卡在哪里；\
-         不要路径、提交号、命令和引号。\n\
+         只写那句话本身，不要加「摘要」「这段对话在做什么」之类的前缀，不要路径、提交号、命令和引号。\n\
          - asking：只看回复的最后一段，助手是不是在等用户回答或拍板（例如结尾是问句，\
          或者出现「可以吗 / 要不要 / 请确认」）。普通的汇报写 false。\n\
          - question：asking 为 true 时，用一句话（不超过 30 个字）写清楚助手在问什么，否则留空。\n\
@@ -481,6 +483,26 @@ mod tests {
             "已提交：3f9c2ab feat(users): paginate。没有推送"
         );
         assert_eq!(fallback("done", &Turn::default()).summary, "跑完了");
+    }
+
+    #[test]
+    fn summaries_drop_echoed_prefixes_and_end_on_whole_words() {
+        let model = parse_model(
+            "{\"summary\": \"这段对话在做什么：请求在 lab-3.invalid 上为真机试验做准备（方案丙，A/B/C 三组对照，每组各跑五轮再汇总）\", \"asking\": false}",
+        )
+        .unwrap();
+        assert!(model.summary.starts_with("请求在 lab-3.invalid 上"));
+        assert!(model.summary.chars().count() <= SUMMARY_MAX);
+        assert!(!model.summary.contains("这段对话"));
+        assert_eq!(
+            model.summary.matches('（').count(),
+            model.summary.matches('）').count()
+        );
+        assert!(!model.summary.ends_with("A/B/C…"));
+        assert_eq!(
+            tidy("摘要：改完了，测试通过。", SUMMARY_MAX),
+            "改完了，测试通过"
+        );
     }
 
     #[test]
