@@ -21,8 +21,8 @@ mod skills;
 pub mod transfer;
 mod work;
 pub use agent::{
-    accounts, agents, brief, catalog, chat, checkpoint, codex_proxy, proxy, remote_cli, resume,
-    run, titles,
+    accounts, agents, auto_resume, brief, catalog, chat, checkpoint, codex_proxy, proxy,
+    remote_cli, resume, run, titles,
 };
 pub use skills::{library, skillhub};
 pub use work::{analytics, autopilot, failures, inbox, rules, scripts, snippets, tasks};

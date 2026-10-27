@@ -18,6 +18,7 @@ mod hooks;
 mod hub;
 mod notify;
 mod platforms;
+mod resume;
 mod rules;
 mod shortcuts;
 mod snippets;
@@ -31,6 +32,7 @@ use hub::HubSettings;
 pub(super) use notify::NOTIFY_KINDS;
 use notify::NotifySettings;
 use platforms::PlatformSettings;
+use resume::AutoResumeSettings;
 use rules::RuleSettings;
 use shortcuts::ShortcutSettings;
 use snippets::SnippetSettings;
@@ -152,6 +154,7 @@ pub fn SettingsPage() -> impl IntoView {
                     "chat" => {
                         view! {
                             <ChatSettings />
+                            <AutoResumeSettings />
                             <FleetSettings />
                         }
                             .into_any()

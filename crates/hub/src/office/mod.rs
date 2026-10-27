@@ -70,6 +70,7 @@ pub async fn prefs(st: &Shared) -> Value {
         "bots": {
             "max_concurrent": crate::bots::dispatch::max_concurrent_of(&saved),
         },
+        "auto_resume": crate::auto_resume::settings_of(&saved),
     })
 }
 
@@ -141,6 +142,9 @@ pub async fn put_prefs(State(st): State<Shared>, Json(b): Json<Value>) -> Respon
                 );
             }
         }
+    }
+    if let Err(e) = crate::auto_resume::merge(&mut cur, &b) {
+        return fail(StatusCode::BAD_REQUEST, e);
     }
     if !b["rules"].is_null()
         && let Err(e) = crate::bots::rules::merge(&mut cur["rules"], &b["rules"])
