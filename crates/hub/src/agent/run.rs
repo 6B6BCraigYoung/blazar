@@ -163,6 +163,7 @@ pub async fn send_to_idle(
     st: &Shared,
     ws: WorkspaceId,
     thread: Option<&str>,
+    runtime: Option<&str>,
     text: &str,
     sent: &str,
     images: &[ImageInput],
@@ -179,14 +180,14 @@ pub async fn send_to_idle(
             return None;
         }
     }
-    let its_thread: String =
-        sqlx::query_scalar("SELECT COALESCE(thread_id, id) FROM sessions WHERE id = ?1")
+    let (its_thread, its_runtime): (String, String) =
+        sqlx::query_as("SELECT COALESCE(thread_id, id), runtime_kind FROM sessions WHERE id = ?1")
             .bind(sid.to_string())
             .fetch_optional(st.db.pool())
             .await
             .ok()
             .flatten()?;
-    if thread.is_some_and(|t| t != its_thread) {
+    if thread.is_some_and(|t| t != its_thread) || runtime.is_some_and(|r| r != its_runtime) {
         return None;
     }
     live.state.lock().await.idle = false;

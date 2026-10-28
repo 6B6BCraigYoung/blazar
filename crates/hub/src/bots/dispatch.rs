@@ -182,7 +182,7 @@ pub async fn dispatch_one(st: &Shared, bot: &Bot) {
             return;
         };
         let delivered = if live.idle {
-            crate::run::send_to_idle(st, ws, None, &text, &text, &[])
+            crate::run::send_to_idle(st, ws, None, None, &text, &text, &[])
                 .await
                 .is_some()
         } else {

@@ -491,6 +491,11 @@ pub(super) fn agent_pop(chat: Chat, pop: RwSignal<Option<Pop>>) -> impl IntoView
     let remote = chat.remote();
     let pick = move |v: String, acc: Option<String>| {
         pop.set(None);
+        if let Some(id) = chat.view.get_untracked()
+            && untrack(move || chat.thread_agent(&id)).is_some_and(|a| a != v)
+        {
+            chat.new_chat();
+        }
         chat.set_agent(v);
         if let Some(a) = acc {
             chat.set_acc_sel(&a, chat.view.get_untracked().as_deref());

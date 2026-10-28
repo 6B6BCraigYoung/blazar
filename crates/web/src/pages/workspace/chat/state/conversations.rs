@@ -60,6 +60,17 @@ impl Chat {
         }
     }
 
+    pub fn thread_agent(self, id: &str) -> Option<String> {
+        self.threads.with(|t| {
+            t.iter()
+                .find(|x| x.id == id)
+                .and_then(|x| match x.profile.as_deref() {
+                    Some(p) if !p.is_empty() => Some(format!("p:{p}")),
+                    _ => (!x.runtime.is_empty()).then(|| format!("r:{}", x.runtime)),
+                })
+        })
+    }
+
     pub fn thread_running(self, id: &str) -> bool {
         self.threads.with(|t| {
             t.iter()
@@ -502,5 +513,16 @@ impl Chat {
             }
         });
         Effect::new(move |_| self.rebuild_transcript());
+        Effect::new(move |_| {
+            let Some(id) = self.view.get() else { return };
+            if self.fresh.get() {
+                return;
+            }
+            if let Some(agent) = self.thread_agent(&id)
+                && agent != self.agent.get_untracked()
+            {
+                self.agent.set(agent);
+            }
+        });
     }
 }

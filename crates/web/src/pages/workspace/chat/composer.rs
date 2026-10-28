@@ -687,7 +687,14 @@ pub fn Composer(
             })
             .filter(|n| !n.is_empty() && n != "Default")
             .unwrap_or_else(|| "Default".to_owned());
-        let running = (!chat.fresh.get())
+        let same_runtime = chat.view.get().is_none_or(|id| {
+            chat.threads.with(|t| {
+                t.iter()
+                    .find(|x| x.id == id)
+                    .is_none_or(|x| x.runtime.is_empty() || x.runtime == rt)
+            })
+        });
+        let running = (!chat.fresh.get() && same_runtime)
             .then(|| chat.running_model())
             .flatten()
             .filter(|_| s.model.is_none() || chat.running.get())

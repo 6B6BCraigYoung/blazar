@@ -203,6 +203,16 @@ async fn prompt_using(
         .map_err(ApiError::from)?
 }
 
+async fn requested_runtime(st: &Shared, req: &PromptRequest) -> String {
+    let profile = match req.profile.as_deref().filter(|p| !p.is_empty()) {
+        Some(pid) => crate::agents::get(st, pid).await.map(|p| p.runtime),
+        None => None,
+    };
+    profile
+        .or_else(|| req.agent.clone())
+        .unwrap_or_else(|| "claude".into())
+}
+
 async fn prompt_inner(
     st: Shared,
     id: String,
@@ -230,16 +240,22 @@ async fn prompt_inner(
     let _admit = match st.admit(workspace_id).await {
         Ok(g) => g,
         Err(reason) => {
-            if let Some((sid, thread)) = crate::run::send_to_idle(
-                &st,
-                workspace_id,
-                req.resume_session.as_deref().filter(|s| !s.is_empty()),
-                &req.text,
-                &with_editor_context(&req.text, req.context_file.as_deref()),
-                &req.images,
-            )
-            .await
-            {
+            let joined = if req.resume {
+                let wanted = requested_runtime(&st, &req).await;
+                crate::run::send_to_idle(
+                    &st,
+                    workspace_id,
+                    req.resume_session.as_deref().filter(|s| !s.is_empty()),
+                    Some(&wanted),
+                    &req.text,
+                    &with_editor_context(&req.text, req.context_file.as_deref()),
+                    &req.images,
+                )
+                .await
+            } else {
+                None
+            };
+            if let Some((sid, thread)) = joined {
                 return Ok(Json(serde_json::json!({
                     "session_id": sid.to_string(),
                     "thread_id": thread,
