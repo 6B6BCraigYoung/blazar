@@ -11,6 +11,8 @@ mod app_state;
 #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code, unused_imports))]
 mod chat_model;
 #[cfg(target_arch = "wasm32")]
+mod client_log;
+#[cfg(target_arch = "wasm32")]
 mod components;
 #[cfg(target_arch = "wasm32")]
 mod desktop;
@@ -68,13 +70,10 @@ mod vocab_en;
 
 #[cfg(target_arch = "wasm32")]
 fn main() {
+    client_log::install();
     std::panic::set_hook(Box::new(|info| {
+        client_log::panicked(&info.to_string());
         console_error_panic_hook::hook(info);
-        if let Some(window) = web_sys::window() {
-            let _ = window
-                .navigator()
-                .send_beacon_with_opt_str("/api/client/panic", Some(&info.to_string()));
-        }
     }));
     pages::apply_ui_preferences();
     leptos::mount::mount_to_body(app::App);

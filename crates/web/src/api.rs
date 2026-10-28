@@ -66,9 +66,17 @@ impl std::fmt::Display for ApiError {
     }
 }
 
-async fn read<T: DeserializeOwned>(resp: Result<Response, gloo_net::Error>) -> Result<T, ApiError> {
-    let resp = resp.map_err(|_| ApiError::new("连不上 Blazar 后台服务，请确认它在运行"))?;
+async fn read<T: DeserializeOwned>(
+    method: &str,
+    path: &str,
+    resp: Result<Response, gloo_net::Error>,
+) -> Result<T, ApiError> {
+    let resp = resp.map_err(|_| {
+        crate::client_log::api_failed(method, path, None);
+        ApiError::new("连不上 Blazar 后台服务，请确认它在运行")
+    })?;
     if !resp.ok() {
+        crate::client_log::api_failed(method, path, Some(resp.status()));
         if resp.status() == 401 {
             reset_session();
         }
@@ -96,7 +104,7 @@ async fn read<T: DeserializeOwned>(resp: Result<Response, gloo_net::Error>) -> R
 
 pub async fn get<T: DeserializeOwned>(path: &str) -> Result<T, ApiError> {
     session().await?;
-    read(Request::get(path).send().await).await
+    read("GET", path, Request::get(path).send().await).await
 }
 
 pub async fn send<T: DeserializeOwned>(
@@ -114,7 +122,7 @@ pub async fn send<T: DeserializeOwned>(
     let req = b
         .json(body)
         .map_err(|e| ApiError::new(format!("请求编不出来：{e}")))?;
-    read(req.send().await).await
+    read(method, path, req.send().await).await
 }
 
 pub async fn post_text<T: DeserializeOwned>(path: &str, body: String) -> Result<T, ApiError> {
@@ -123,7 +131,7 @@ pub async fn post_text<T: DeserializeOwned>(path: &str, body: String) -> Result<
         .header("Content-Type", "application/json")
         .body(body)
         .map_err(|e| ApiError::new(format!("请求编不出来：{e}")))?;
-    read(req.send().await).await
+    read("POST", path, req.send().await).await
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
