@@ -28,15 +28,15 @@ build() {
 }
 
 stop() {
-  local p
-  p=$(pid)
-  [ -z "$p" ] && return 0
-  kill -TERM "$p"
+  local ps p
+  ps=$(pgrep -f "^$BIN" || true)
+  [ -z "$ps" ] && return 0
+  kill -TERM $ps 2>/dev/null || true
   for _ in $(seq 1 40); do
-    kill -0 "$p" 2>/dev/null || return 0
+    [ -z "$(pgrep -f "^$BIN" || true)" ] && return 0
     sleep 0.25
   done
-  kill -KILL "$p" 2>/dev/null || true
+  for p in $(pgrep -f "^$BIN" || true); do kill -KILL "$p" 2>/dev/null || true; done
 }
 
 url() {
@@ -54,7 +54,8 @@ start() {
     --env "BLAZAR_MESH_DISCOVERY=${BLAZAR_MESH_DISCOVERY:-0}" \
     ${BLAZAR_DEV_HOME:+--env "HOME=$BLAZAR_DEV_HOME"} \
     ${RUST_LOG:+--env "RUST_LOG=$RUST_LOG"} \
-    ${BLAZAR_WINDOW_SIZE:+--env "BLAZAR_WINDOW_SIZE=$BLAZAR_WINDOW_SIZE"}
+    ${BLAZAR_WINDOW_SIZE:+--env "BLAZAR_WINDOW_SIZE=$BLAZAR_WINDOW_SIZE"} \
+    --args -ApplePersistenceIgnoreState YES
   for _ in $(seq 1 120); do
     local p u
     p=$(pid)
