@@ -28,7 +28,7 @@ def main():
             kind = json.loads(line).get("type")
         except ValueError:
             continue
-        if kind in ("result", "control_request", "control_response"):
+        if kind in ("control_request", "control_response") or (kind == "result" and not CONF.get("keep_results")):
             continue
         sys.stdout.write(line + "\n")
         sys.stdout.flush()
