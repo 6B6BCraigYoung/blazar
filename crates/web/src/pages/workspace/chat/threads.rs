@@ -68,13 +68,9 @@ pub fn ThreadPicker(chat: Chat, open: RwSignal<bool>) -> impl IntoView {
         };
         let cur = chat.thread_title(Some(&id));
         chat.spawn(async move {
-            if let Some(name) = crate::components::dialog::prompt_en(
-                "Rename conversation",
-                "Conversation name",
-                &cur,
-                "Rename",
-            )
-            .await
+            if let Some(name) =
+                crate::components::dialog::prompt_with("重命名对话", "对话名称", &cur, "重命名")
+                    .await
             {
                 chat.rename(id, name);
             }
@@ -91,7 +87,7 @@ pub fn ThreadPicker(chat: Chat, open: RwSignal<bool>) -> impl IntoView {
                 node_ref=button
                 aria-haspopup="menu"
                 aria-expanded=move || open.get().to_string()
-                title="Switch conversation"
+                title="切换对话"
                 on:click=move |_| open.update(|o| *o = !*o)
             >
                 <span class="t">{title}</span>
@@ -102,7 +98,7 @@ pub fn ThreadPicker(chat: Chat, open: RwSignal<bool>) -> impl IntoView {
                     class="menu ws-threads"
                     node_ref=root
                     role="menu"
-                    aria-label="Conversations"
+                    aria-label="对话"
                     on:keydown=move |event| {
                         if let Some(r) = root.get_untracked() {
                             menu_keydown(&event, r.unchecked_ref(), close);
@@ -138,7 +134,7 @@ pub fn ThreadPicker(chat: Chat, open: RwSignal<bool>) -> impl IntoView {
                                 >
                                     <b>{label}</b>
                                     <span class="muted small">
-                                        {move || if live() { "Running" } else { "Open" }}
+                                        {move || if live() { "运行中" } else { "已打开" }}
                                     </span>
                                 </button>
                             }
@@ -153,7 +149,7 @@ pub fn ThreadPicker(chat: Chat, open: RwSignal<bool>) -> impl IntoView {
                             chat.new_chat();
                         }
                     >
-                        <span>"New conversation"</span>
+                        <span>"新对话"</span>
                         {hint("newchat").map(|k| view! { <kbd>{k}</kbd> })}
                     </button>
                     <Show when=move || chat.view.get().is_some()>
@@ -165,7 +161,7 @@ pub fn ThreadPicker(chat: Chat, open: RwSignal<bool>) -> impl IntoView {
                                 rename();
                             }
                         >
-                            <span>"Rename conversation…"</span>
+                            <span>"重命名对话…"</span>
                         </button>
                         <button
                             type="button"
@@ -175,7 +171,7 @@ pub fn ThreadPicker(chat: Chat, open: RwSignal<bool>) -> impl IntoView {
                                 chat.close_tab(chat.view.get_untracked());
                             }
                         >
-                            <span>"Close conversation"</span>
+                            <span>"关闭对话"</span>
                         </button>
                     </Show>
                     {move || {
@@ -201,7 +197,7 @@ pub fn ThreadPicker(chat: Chat, open: RwSignal<bool>) -> impl IntoView {
                                             let sub = format!(
                                                 "{} · {}",
                                                 runtime_name(&t.runtime),
-                                                crate::fmt::ago_en(&when),
+                                                crate::fmt::ago(&when),
                                             );
                                             view! {
                                                 <button
@@ -218,7 +214,7 @@ pub fn ThreadPicker(chat: Chat, open: RwSignal<bool>) -> impl IntoView {
                                                             .title
                                                             .clone()
                                                             .filter(|x| !x.is_empty())
-                                                            .unwrap_or_else(|| "Untitled".into())}
+                                                            .unwrap_or_else(|| "未命名".into())}
                                                     </b>
                                                     <span class="muted small">{sub}</span>
                                                 </button>

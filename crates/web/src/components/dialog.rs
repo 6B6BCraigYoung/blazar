@@ -83,10 +83,6 @@ pub async fn prompt_with(title: &str, label: &str, initial: &str, ok: &str) -> O
     prompt_full(title, label, initial, ok, "取消").await
 }
 
-pub async fn prompt_en(title: &str, label: &str, initial: &str, ok: &str) -> Option<String> {
-    prompt_full(title, label, initial, ok, "Cancel").await
-}
-
 async fn prompt_full(
     title: &str,
     label: &str,

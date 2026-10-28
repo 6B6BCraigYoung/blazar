@@ -51,12 +51,12 @@ impl Chat {
 
     pub fn thread_title(self, id: Option<&str>) -> String {
         match id {
-            None => "Untitled".to_owned(),
+            None => "新对话".to_owned(),
             Some(id) => self
                 .threads
                 .with(|t| t.iter().find(|x| x.id == id).and_then(|x| x.title.clone()))
                 .filter(|t| !t.is_empty())
-                .unwrap_or_else(|| "Conversation".to_owned()),
+                .unwrap_or_else(|| "对话".to_owned()),
         }
     }
 
