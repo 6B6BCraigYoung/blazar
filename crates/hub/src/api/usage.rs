@@ -142,7 +142,11 @@ pub async fn workspace_sessions(
     Path(id): Path<String>,
 ) -> ApiResult<Json<Vec<serde_json::Value>>> {
     let rows = sqlx::query(
-        "SELECT t.thread, r.runtime_kind, r.agent_profile, r.title, r.created_at,
+        "SELECT t.thread, r.title, r.created_at,
+                (SELECT x.runtime_kind FROM sessions x WHERE COALESCE(x.thread_id, x.id) = t.thread
+                   ORDER BY x.created_at DESC LIMIT 1) AS runtime_kind,
+                (SELECT x.agent_profile FROM sessions x WHERE COALESCE(x.thread_id, x.id) = t.thread
+                   ORDER BY x.created_at DESC LIMIT 1) AS agent_profile,
                 (SELECT x.status FROM sessions x WHERE COALESCE(x.thread_id, x.id) = t.thread
                    ORDER BY x.created_at DESC LIMIT 1) AS status,
                 (SELECT x.id FROM sessions x WHERE COALESCE(x.thread_id, x.id) = t.thread

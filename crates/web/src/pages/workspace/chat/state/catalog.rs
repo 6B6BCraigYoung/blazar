@@ -18,7 +18,10 @@ impl Chat {
     }
 
     pub fn runtime(self) -> String {
-        let a = self.agent.get();
+        self.runtime_of(&self.agent.get())
+    }
+
+    pub fn runtime_of(self, a: &str) -> String {
         if let Some(id) = a.strip_prefix("p:") {
             return self
                 .profiles
