@@ -6,7 +6,7 @@ SRC="$ROOT/target/release/bundle/macos/Blazar.app"
 PROFILE="${BLAZAR_DEV_PROFILE:-dev}"
 DEV="$ROOT/target/dev-instance/$PROFILE/Blazar Dev.app"
 BIN="$DEV/Contents/MacOS/blazar-desktop"
-DATA="$HOME/Library/Application Support/ai.blazar.Blazar/profiles/$PROFILE"
+DATA="${BLAZAR_DEV_HOME:-$HOME}/Library/Application Support/ai.blazar.Blazar/profiles/$PROFILE"
 LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
 
 pid() {
@@ -52,6 +52,8 @@ start() {
     open -n -g -a "$DEV" --env "BLAZAR_PROFILE=$PROFILE" --env BLAZAR_DEV_INSTANCE=1 \
     --env "BLAZAR_UI_DRIVER=${BLAZAR_UI_DRIVER:-1}" \
     --env "BLAZAR_MESH_DISCOVERY=${BLAZAR_MESH_DISCOVERY:-0}" \
+    ${BLAZAR_DEV_HOME:+--env "HOME=$BLAZAR_DEV_HOME"} \
+    ${RUST_LOG:+--env "RUST_LOG=$RUST_LOG"} \
     ${BLAZAR_WINDOW_SIZE:+--env "BLAZAR_WINDOW_SIZE=$BLAZAR_WINDOW_SIZE"}
   for _ in $(seq 1 120); do
     local p u

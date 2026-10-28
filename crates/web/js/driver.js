@@ -266,6 +266,39 @@ function colours(command) {
   return { url: location.pathname + location.search, text: list(text), dots: list(dots) };
 }
 
+function watchFrames() {
+  const rec = { gaps: [], mutations: 0, lastMutation: performance.now(), stopped: false };
+  const observer = new MutationObserver(list => {
+    rec.mutations += list.length;
+    rec.lastMutation = performance.now();
+  });
+  observer.observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true });
+  let last = 0;
+  const loop = now => {
+    if (rec.stopped) return;
+    if (last) rec.gaps.push(now - last);
+    last = now;
+    requestAnimationFrame(loop);
+  };
+  requestAnimationFrame(loop);
+  rec.done = () => {
+    rec.stopped = true;
+    observer.disconnect();
+    const gaps = rec.gaps;
+    const sorted = [...gaps].sort((a, b) => a - b);
+    const budget = Math.min(Math.max(sorted[Math.floor(sorted.length / 2)] || 16.7, 8), 17.5);
+    const dropped = gaps.reduce((n, g) => n + Math.max(0, Math.round(g / budget) - 1), 0);
+    return {
+      frames: gaps.length,
+      dropped,
+      long_frames: gaps.filter(g => g > 50).length,
+      max_gap: Math.round(sorted[sorted.length - 1] || 0),
+      mutations: rec.mutations,
+    };
+  };
+  return rec;
+}
+
 async function run(command) {
   install();
   const settle = command.settle_ms ?? 150;
@@ -437,6 +470,45 @@ async function run(command) {
       }
       const shot = await invoke('snapshot_webview', { name: command.name || null, width: innerWidth, height: innerHeight });
       return { ok: true, path: shot.path, width: shot.width, height: shot.height, viewport: [innerWidth, innerHeight] };
+    }
+    case 'frames': {
+      const rec = watchFrames();
+      await sleep(Math.min(command.ms ?? 5000, 60000));
+      return { ok: true, ...rec.done() };
+    }
+    case 'measure': {
+      if (!command.then || typeof command.then !== 'object' || command.then.action === 'measure') throw new Error('measure 需要 then（要计时的命令）');
+      const rec = watchFrames();
+      const t0 = performance.now();
+      const limit = t0 + Math.min(command.timeout_ms ?? 10000, 60000);
+      const result = await run({ settle_ms: 0, ...command.then });
+      if (command.until) {
+        while (performance.now() < limit && ![...document.querySelectorAll(command.until)].some(shown)) await sleep(16);
+      }
+      const ready = performance.now() - t0;
+      const quiet = command.quiet_ms ?? 300;
+      while (performance.now() < limit && performance.now() - rec.lastMutation < quiet) await sleep(25);
+      const stats = rec.done();
+      return { ok: true, result, ready_ms: Math.round(ready), settle_ms: Math.round(Math.max(rec.lastMutation, t0 + ready) - t0), ...stats };
+    }
+    case 'sweep': {
+      const el = guard(find(command));
+      const ms = Math.min(command.ms ?? 2000, 30000);
+      const from = el.scrollTop;
+      const target = () => (command.to === 'start' ? 0 : el.scrollHeight - el.clientHeight);
+      const rec = watchFrames();
+      const t0 = performance.now();
+      await new Promise(done => {
+        const step = now => {
+          const k = Math.min(1, (now - t0) / ms);
+          el.scrollTop = from + (target() - from) * k;
+          if (k < 1) requestAnimationFrame(step);
+          else done();
+        };
+        requestAnimationFrame(step);
+      });
+      await sleep(command.settle_ms ?? 150);
+      return { ok: true, from: Math.round(from), top: Math.round(el.scrollTop), height: el.scrollHeight, ...rec.done() };
     }
     default:
       throw new Error(`不认识的 action：${command.action}`);
