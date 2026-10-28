@@ -318,7 +318,7 @@ def flag(args, name):
 def save(result):
     OUT.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%m%d-%H%M%S")
-    kind = "ops" if "ops" in result else "idle"
+    kind = "ops" if "ops" in result else "memory" if "memory" in result else "idle"
     path = OUT / f"{kind}-{result['label']}-{stamp}.json"
     path.write_text(json.dumps(result, ensure_ascii=False, indent=1))
     print(path)
@@ -487,12 +487,65 @@ def print_ops(r):
         print("页面报错：", *r["errors"], sep="\n  ")
 
 
+def web_memory(pid):
+    out = subprocess.run(["footprint", "-p", str(pid)], capture_output=True, text=True).stdout
+    mb = lambda v, u: float(v) * {"B": 1 / (1 << 20), "KB": 1 / 1024, "MB": 1, "GB": 1024}[u]
+    res = {"footprint": None, "graphics": 0.0, "malloc": 0.0}
+    m = re.search(r"Footprint:\s*([\d.]+)\s*([KMG]?B)", out)
+    if m:
+        res["footprint"] = round(mb(*m.groups()), 1)
+    for line in out.splitlines():
+        m = re.match(r"\s*([\d.]+)\s*([KMG]?B)\s", line)
+        if not m:
+            continue
+        if "(graphics)" in line:
+            res["graphics"] += mb(*m.groups())
+        elif "WebKit malloc" in line:
+            res["malloc"] += mb(*m.groups())
+    return {k: round(v, 1) if v is not None else None for k, v in res.items()}
+
+
+def memory(args):
+    label = flag(args, "--label") or "memory"
+    cycles = int(flag(args, "--cycles") or 10)
+    css = flag(args, "--css")
+    (a, _, _), (b, _, _) = biggest_workspace()
+    routes = (flag(args, "--routes") or f"/,/w/{a},/chats,/nodes,/runtimes,/workspaces,/w/{b}").split(",")
+    found = find_pids()
+    if css:
+        ui({"action": "css", "value": css})
+    for r in routes:
+        ui({"action": "navigate", "path": r, "settle_ms": 800})
+    time.sleep(3)
+    start = web_memory(found["webcontent"])
+    marks = []
+    for i in range(cycles):
+        for r in routes:
+            ui({"action": "navigate", "path": r, "settle_ms": 600})
+        if (i + 1) % max(1, cycles // 2) == 0:
+            marks.append({"cycles": i + 1, **web_memory(found["webcontent"])})
+    time.sleep(5)
+    end = web_memory(found["webcontent"])
+    result = {"label": label, "memory": True, "routes": routes, "cycles": cycles, "css": css,
+              "start": start, "marks": marks, "end": end,
+              "at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+    if css:
+        ui({"action": "css", "value": ""})
+    save(result)
+    print(f"切页 {cycles} 圈（{len(routes)} 页/圈）网页进程内存 MB：")
+    for name, m in [("开始", start), *[(f"{x['cycles']} 圈", x) for x in marks], ("结束+5s", end)]:
+        print(f"  {name:<8} 总 {m['footprint']:>7}  显存 {m['graphics']:>7}  JS/DOM {m['malloc']:>7}")
+
+
 def compare(args):
     if len(args) != 2:
         die("用法：perf.sh compare <结果1.json> <结果2.json>")
     a, b = (json.loads(Path(x).read_text()) for x in args)
     rows = []
-    if "groups" in a:
+    if "memory" in a:
+        for k in ("footprint", "graphics", "malloc"):
+            rows.append((f"growth.{k}", round(a["end"][k] - a["start"][k], 1), round(b["end"][k] - b["start"][k], 1)))
+    elif "groups" in a:
         for name in a["groups"]:
             for k in ("cpu_pct", "wakeups_per_s", "power"):
                 rows.append((f"{name}.{k}", a["groups"][name].get(k), b["groups"].get(name, {}).get(k)))
@@ -510,7 +563,7 @@ def compare(args):
         print(f"{name:<36}{'' if x is None else x:>12}{'' if y is None else y:>12}{delta:>10}")
 
 
-COMMANDS = {"prepare": prepare, "pids": pids, "idle": idle, "ops": ops, "compare": compare}
+COMMANDS = {"prepare": prepare, "pids": pids, "idle": idle, "ops": ops, "memory": memory, "compare": compare}
 
 if __name__ == "__main__":
     if len(sys.argv) < 2 or sys.argv[1] not in COMMANDS:
