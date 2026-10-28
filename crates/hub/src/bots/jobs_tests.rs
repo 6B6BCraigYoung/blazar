@@ -512,6 +512,7 @@ async fn session_jobs_resume_an_idle_thread_and_interject_into_a_running_one() {
                 user_no: 0,
                 eof_sent: false,
                 interrupt_requested: false,
+                interrupted_at: None,
                 bg: Default::default(),
                 idle: false,
                 app: Default::default(),

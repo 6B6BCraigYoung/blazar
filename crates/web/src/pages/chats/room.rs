@@ -2,7 +2,7 @@ use leptos::ev;
 use leptos::html;
 use leptos::prelude::*;
 use leptos_router::NavigateOptions;
-use leptos_router::hooks::{use_location, use_navigate, use_params_map, use_query_map};
+use leptos_router::hooks::{use_location, use_navigate, use_query_map};
 use serde_json::json;
 use wasm_bindgen::JsCast;
 
@@ -19,40 +19,50 @@ use super::{NEW, title_of};
 
 #[component]
 pub fn ConsolePage() -> impl IntoView {
-    let params = use_params_map();
+    let app = use_app();
     let location = use_location();
-    let assistant = LocalResource::new(|| async move {
-        api::send::<api::Assistant>("POST", "/api/assistant", &json!({})).await
+    let failed = RwSignal::new(None::<String>);
+    leptos::task::spawn_local(async move {
+        match api::send::<api::Assistant>("POST", "/api/assistant", &json!({})).await {
+            Ok(a) if a.id.is_some() => {
+                let _ = app.chats.try_set(a);
+            }
+            Ok(_) => {
+                let _ = failed.try_set(Some("打不开对话，请稍后再试".to_owned()));
+            }
+            Err(e) => {
+                let _ = failed.try_set(Some(e.to_string()));
+            }
+        }
+    });
+    let opened = Memo::new(move |_| {
+        app.chats
+            .with(|a| a.id.clone().map(|id| (id, a.path.clone())))
     });
     view! {
-        {move || match assistant.get() {
-            None => view! { <LoadingState text="Loading conversation…" /> }.into_any(),
-            Some(Err(e)) => view! { <InlineError message=e.to_string() /> }.into_any(),
-            Some(Ok(a)) => {
-                match a.id {
-                    Some(id) => {
-                        let latest = a
-                            .threads
-                            .iter()
-                            .max_by(|x, y| x.when().cmp(y.when()))
-                            .map(|t| t.id.clone());
-                        let thread = Signal::derive(move || {
-                            params
-                                .read()
-                                .get("thread")
-                                .filter(|t| !t.is_empty() && t != "new")
-                                .or_else(|| {
-                                    location.pathname.with(|p| p == "/").then(|| latest.clone()).flatten()
-                                })
-                        });
-                        view! { <Room id path=a.path thread /> }.into_any()
-                    }
-                    None => {
-                        view! { <InlineError message="Couldn't open the conversation. Try again shortly" /> }
-                            .into_any()
-                    }
-                }
+        {move || match opened.get() {
+            Some((id, path)) => {
+                let latest = app.chats.with_untracked(|a| {
+                    a.threads
+                        .iter()
+                        .max_by(|x, y| x.when().cmp(y.when()))
+                        .map(|t| t.id.clone())
+                });
+                let thread = Signal::derive(move || {
+                    location.pathname.with(|p| {
+                        p.strip_prefix("/chats/")
+                            .map(|t| t.trim_end_matches('/'))
+                            .filter(|t| !t.is_empty() && *t != "new")
+                            .map(str::to_owned)
+                            .or_else(|| (p == "/").then(|| latest.clone()).flatten())
+                    })
+                });
+                view! { <Room id path thread /> }.into_any()
             }
+            None => match failed.get() {
+                Some(e) => view! { <InlineError message=e /> }.into_any(),
+                None => view! { <LoadingState text="正在加载对话…" /> }.into_any(),
+            },
         }}
     }
 }

@@ -348,8 +348,8 @@ async fn pick(
                 .ok_or("The bound account was deleted; pick another one on the Accounts page")?;
             if a.provider != provider {
                 return Err(format!(
-                    "Account \"{}\" is not a {provider} account",
-                    a.label
+                    "Account \"{}\" belongs to {}, not {provider}. Pick a {provider} account or Auto-balance in the agent menu, then send again",
+                    a.label, a.provider
                 ));
             }
             if a.disabled {

@@ -1,5 +1,5 @@
 use leptos::prelude::*;
-use leptos_router::components::{Route, Router, Routes};
+use leptos_router::components::{ParentRoute, Route, Router, Routes};
 use leptos_router::path;
 
 use crate::components::dialog::{self, DialogHost};
@@ -52,7 +52,10 @@ pub fn App() -> impl IntoView {
                 <Sidebar />
                 <main class="main">
                     <Routes fallback=NotFound>
-                        <Route path=path!("/") view=ConsolePage />
+                        <ParentRoute path=path!("") view=ConsolePage>
+                            <Route path=path!("/") view=|| () />
+                            <Route path=path!("/chats/:thread") view=|| () />
+                        </ParentRoute>
                         <Route path=path!("/running") view=WorkspacesPage />
                         <Route path=path!("/waiting") view=WorkspacesPage />
                         <Route path=path!("/project/:name") view=ProjectPage />
@@ -62,7 +65,6 @@ pub fn App() -> impl IntoView {
                         <Route path=path!("/nodes") view=NodesPage />
                         <Route path=path!("/nodes/:name") view=NodeDetailPage />
                         <Route path=path!("/chats") view=ChatsPage />
-                        <Route path=path!("/chats/:thread") view=ConsolePage />
                         <Route path=path!("/inbox") view=InboxPage />
                         <Route path=path!("/tasks") view=TasksPage />
                         <Route path=path!("/autopilots") view=AutopilotsPage />

@@ -34,6 +34,7 @@ pub struct LiveState {
     pub user_no: u32,
     pub eof_sent: bool,
     pub interrupt_requested: bool,
+    pub interrupted_at: Option<String>,
 
     pub bg: std::collections::HashSet<String>,
     pub idle: bool,
@@ -691,11 +692,13 @@ async fn finalize(ctx: &Ctx, code: Option<i32>, p: &mut Progress) -> Result<(), 
         status,
     ));
 
+    let interrupted_at = ctx.live.state.lock().await.interrupted_at.clone();
     ctx.st.services.spawn(crate::chat::on_run_finished(
         ctx.st.clone(),
         ctx.ws,
         ctx.sid,
         status,
+        interrupted_at,
     ));
     ctx.st.services.spawn(crate::auto_resume::on_run_finished(
         ctx.st.clone(),
@@ -742,6 +745,9 @@ pub async fn interject(
 
         if s.eof_sent {
             return Err("This turn has already finished; start a new one".into());
+        }
+        if s.interrupt_requested {
+            return Err("This turn is being interrupted; the message will start a new turn".into());
         }
         s.user_no += 1;
         let id = format!("u-{}", s.user_no);
@@ -1099,6 +1105,8 @@ pub async fn interrupt(st: &Shared, live: Arc<Live>, sid: SessionId) {
     let soft = {
         let mut s = live.state.lock().await;
         s.interrupt_requested = true;
+        s.interrupted_at
+            .get_or_insert_with(|| Utc::now().to_rfc3339());
         if live.interactive && !s.eof_sent {
             let id = format!("i-{}", uuid::Uuid::now_v7());
             if s.app.enabled {
@@ -1215,6 +1223,7 @@ pub async fn reattach_all(st: Shared) {
                 user_no: u32::try_from(users).unwrap_or(0),
                 eof_sent: false,
                 interrupt_requested: false,
+                interrupted_at: None,
                 bg,
                 idle: false,
                 app: recovered,

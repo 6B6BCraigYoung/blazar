@@ -180,7 +180,10 @@ impl Chat {
         );
         let acc = (agent.starts_with("r:") && ACC_RUNTIMES.contains(&rt.as_str()))
             .then(|| untrack(move || self.acc_sel()))
-            .filter(|a| !a.is_empty());
+            .filter(|a| !a.is_empty())
+            .filter(|a| {
+                a == "auto" || untrack(|| self.account(a)).is_none_or(|x| x.provider == rt)
+            });
         o.insert("account".into(), json!(acc));
         if rt == "claude" {
             let p = self.prefs.get_untracked();
@@ -386,6 +389,7 @@ impl Chat {
                 Ok(r) if r["admitted"] == json!(false) => {
                     let running = r["running_session_id"].as_str().map(str::to_owned);
                     let same_turn = r["running_interactive"] == json!(true)
+                        && body["resume"] != json!(false)
                         && running.is_some()
                         && self.transcript.with_untracked(|t| t.last_session.clone()) == running
                         && self.context_is_current(&context);

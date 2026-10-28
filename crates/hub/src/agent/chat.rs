@@ -343,7 +343,13 @@ async fn dispatch(st: Shared, ws: WorkspaceId, thread: Option<String>) {
     }
 }
 
-pub async fn on_run_finished(st: Shared, ws: WorkspaceId, sid: SessionId, status: &'static str) {
+pub async fn on_run_finished(
+    st: Shared,
+    ws: WorkspaceId,
+    sid: SessionId,
+    status: &'static str,
+    interrupted_at: Option<String>,
+) {
     let thread: Option<String> =
         sqlx::query_scalar("SELECT COALESCE(thread_id, id) FROM sessions WHERE id = ?1")
             .bind(sid.to_string())
@@ -361,14 +367,23 @@ pub async fn on_run_finished(st: Shared, ws: WorkspaceId, sid: SessionId, status
         "The previous turn did not finish normally, so this was not sent automatically"
     };
     let r = sqlx::query(
-        "UPDATE queued_messages SET held = ?2 WHERE workspace_id = ?1 AND held IS NULL",
+        "UPDATE queued_messages SET held = ?2 WHERE workspace_id = ?1 AND held IS NULL
+           AND (?3 IS NULL OR created_at < ?3)",
     )
     .bind(ws.to_string())
     .bind(why)
+    .bind(
+        interrupted_at
+            .as_deref()
+            .filter(|_| status == "interrupted"),
+    )
     .execute(st.db.pool())
     .await;
     if r.is_ok_and(|r| r.rows_affected() > 0) {
         changed(&st, ws);
+    }
+    if status == "interrupted" && interrupted_at.is_some() {
+        dispatch(st, ws, thread).await;
     }
 }
 
@@ -613,13 +628,14 @@ pub async fn retry(
         }
     }
 
+    let stamp = Utc::now().to_rfc3339();
     let _ = sqlx::query(
         "UPDATE sessions SET rewound_at = ?3
          WHERE COALESCE(thread_id, id) = ?1 AND created_at >= ?2 AND rewound_at IS NULL",
     )
     .bind(&thread)
     .bind(&created)
-    .bind(Utc::now().to_rfc3339())
+    .bind(&stamp)
     .execute(st.db.pool())
     .await;
 
@@ -679,6 +695,7 @@ pub async fn retry(
     let parsed: PromptRequest = match serde_json::from_value(req) {
         Ok(p) => p,
         Err(e) => {
+            take_back(&st, &thread, &stamp, undo.as_deref()).await;
             return fail(
                 StatusCode::BAD_REQUEST,
                 format!("Invalid send options: {e}"),
@@ -686,13 +703,37 @@ pub async fn retry(
         }
     };
     match crate::api::prompt(State(st.clone()), Path(id), Json(parsed)).await {
+        Ok(Json(mut v)) if v["admitted"] == json!(false) => {
+            take_back(&st, &thread, &stamp, undo.as_deref()).await;
+            v["files_restored"] = json!(false);
+            Json(v).into_response()
+        }
         Ok(Json(mut v)) => {
             v["files_restored"] = json!(cp.is_some());
             v["undo"] = json!(undo);
             Json(v).into_response()
         }
-        Err(e) => fail(StatusCode::BAD_GATEWAY, e.message()),
+        Err(e) => {
+            take_back(&st, &thread, &stamp, undo.as_deref()).await;
+            fail(StatusCode::BAD_GATEWAY, e.message())
+        }
     }
+}
+
+async fn take_back(st: &Shared, thread: &str, stamp: &str, undo: Option<&str>) {
+    let _ = sqlx::query(
+        "UPDATE sessions SET rewound_at = NULL WHERE COALESCE(thread_id, id) = ?1 AND rewound_at = ?2",
+    )
+    .bind(thread)
+    .bind(stamp)
+    .execute(st.db.pool())
+    .await;
+    if let Some(u) = undo
+        && let Err((_, e)) = crate::checkpoint::restore_to(st, u).await
+    {
+        tracing::warn!(target: "blazar::chat", "重试没开起来，文件也没能改回去：{e}");
+    }
+    st.emit(ServerEvent::WorkspacesChanged);
 }
 
 #[cfg(test)]

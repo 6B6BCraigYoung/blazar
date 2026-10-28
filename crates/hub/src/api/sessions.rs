@@ -750,6 +750,7 @@ async fn prompt_inner(
                 user_no: 1,
                 eof_sent: false,
                 interrupt_requested: false,
+                interrupted_at: None,
                 bg: std::collections::HashSet::new(),
                 idle: false,
                 app: crate::run::AppTurn {

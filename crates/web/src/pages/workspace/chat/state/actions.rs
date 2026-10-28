@@ -31,7 +31,7 @@ impl Chat {
     }
 
     pub fn live(self, body: Value, what: &'static str) {
-        if !self.running.get_untracked() {
+        if !self.running.get_untracked() || self.fresh.get_untracked() {
             return;
         }
         let Some(sid) = self.transcript.with_untracked(|t| t.last_session.clone()) else {
@@ -310,12 +310,18 @@ impl Chat {
             )
             .await
             {
-                Ok(r) if r["admitted"] == json!(false) => toast(
-                    r["reason"]
-                        .as_str()
-                        .unwrap_or("The workspace is busy with another operation")
-                        .to_owned(),
-                ),
+                Ok(r) if r["admitted"] == json!(false) => {
+                    toast(format!(
+                        "{}. Nothing was changed",
+                        r["reason"]
+                            .as_str()
+                            .unwrap_or("The workspace is busy with another operation")
+                            .trim_end_matches('.')
+                    ));
+                    if self.context_is_current(&context) {
+                        self.load_history();
+                    }
+                }
                 Ok(r) => {
                     if r["session_id"].is_string() {
                         self.note_sent_in(
@@ -335,7 +341,8 @@ impl Chat {
                     });
                 }
                 Err(e) => {
-                    toast(format!("Retry failed: {e}"));
+                    toast(format!("Retry failed, nothing was changed: {e}"));
+                    self.git.changed.update(|n| *n += 1);
                     if self.context_is_current(&context) {
                         self.load_history();
                     }

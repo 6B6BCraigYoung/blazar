@@ -122,6 +122,7 @@ impl Fixture {
                 user_no: 0,
                 eof_sent: false,
                 interrupt_requested: false,
+                interrupted_at: None,
                 bg: Default::default(),
                 idle: false,
                 app: Default::default(),

@@ -397,6 +397,7 @@ fn live(dir: &std::path::Path, sid: &str, idle: bool) -> Arc<crate::run::Live> {
             user_no: 0,
             eof_sent: false,
             interrupt_requested: false,
+            interrupted_at: None,
             bg: Default::default(),
             idle,
             app: Default::default(),

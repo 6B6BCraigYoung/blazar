@@ -522,6 +522,17 @@ impl Chat {
                 && agent != self.agent.get_untracked()
             {
                 self.agent.set(agent);
+                self.perm.set(String::new());
+            }
+        });
+        Effect::new(move |_| {
+            let rt = self.runtime();
+            let acc = self.acc_sel();
+            if acc.is_empty() || acc == "auto" {
+                return;
+            }
+            if self.account(&acc).is_some_and(|a| a.provider != rt) {
+                self.set_acc_sel("", self.view.get_untracked().as_deref());
             }
         });
     }
