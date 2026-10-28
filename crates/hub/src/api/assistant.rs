@@ -91,12 +91,15 @@ async fn describe(st: &Shared, id: &str) -> ApiResult<serde_json::Value> {
 
 async fn summary(st: &AppState, thread: &str) -> String {
     let payload: Option<String> = sqlx::query_scalar(
-        "SELECT e.payload FROM events e JOIN sessions x ON x.id = e.session_id
-         WHERE COALESCE(x.thread_id, x.id) = ?1 AND e.parent_tool_id IS NULL
-           AND (e.payload LIKE '{\"type\":\"assistant_message\"%'
-             OR e.payload LIKE '{\"type\":\"finished\"%'
-             OR e.payload LIKE '{\"type\":\"user_message\"%')
-         ORDER BY x.created_at DESC, e.seq DESC LIMIT 1",
+        "SELECT (SELECT e.payload FROM events e
+                  WHERE e.session_id = x.id AND e.parent_tool_id IS NULL
+                    AND (e.payload LIKE '{\"type\":\"assistant_message\"%'
+                      OR e.payload LIKE '{\"type\":\"finished\"%'
+                      OR e.payload LIKE '{\"type\":\"user_message\"%')
+                  ORDER BY e.seq DESC LIMIT 1) AS payload
+         FROM sessions x
+         WHERE COALESCE(x.thread_id, x.id) = ?1 AND payload IS NOT NULL
+         ORDER BY x.created_at DESC LIMIT 1",
     )
     .bind(thread)
     .fetch_optional(st.db.pool())
