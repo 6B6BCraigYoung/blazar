@@ -18,7 +18,7 @@ mod announce;
 mod launch;
 mod watch;
 
-pub use announce::{Wake, announce, route, summary, took};
+pub use announce::{Wake, announce, route, summary, summary_en, took};
 pub use launch::{Register, Spawn, check_waits, kill, log, may_kill, register, root, spawn};
 pub use watch::{missing_paths, sweep, verdict, watch};
 
@@ -269,10 +269,10 @@ pub async fn list(st: &Shared, f: &Filter, by: Option<&Caller>) -> Result<Vec<Jo
     if let Some(s) = status
         && !STATUSES.contains(&s)
     {
-        return Err(format!("未知状态 {s}，可用 {}", STATUSES.join(" / ")));
+        return Err(format!("Unknown status {s}; use {}", STATUSES.join(" / ")));
     }
     let bot = match nonempty(f.bot.as_deref()) {
-        Some(b) => Some(super::get(st, b).await.ok_or("没有这个 bot")?.id),
+        Some(b) => Some(super::get(st, b).await.ok_or("No such bot")?.id),
         None => None,
     };
     let only = by.filter(|c| !c.is_lead()).map(|c| c.bot.clone());

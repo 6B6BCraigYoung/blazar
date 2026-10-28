@@ -881,7 +881,7 @@ async fn claim_expiry_follows_its_switch_and_release_threshold() {
     run_once(&h.st).await;
     let mail = h.rule_mail(&b).await;
     assert_eq!(mail.len(), 1);
-    assert!(mail[0].body.contains("2 小时"), "{}", mail[0].body);
+    assert!(mail[0].body.contains("2 hours"), "{}", mail[0].body);
     h.sql("UPDATE claims SET notified_at = '2000-01-01T00:00:00+00:00'")
         .await;
     run_once(&h.st).await;

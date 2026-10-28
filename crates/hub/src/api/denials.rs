@@ -46,12 +46,16 @@ pub async fn decide_denial(
         .fetch_optional(st.db.pool())
         .await?;
     let Some(ws) = ws else {
-        return Err(ApiError(anyhow::Error::new(NotFound("会话不存在".into()))));
+        return Err(ApiError(anyhow::Error::new(NotFound(
+            "Session not found".into(),
+        ))));
     };
     let ws = WorkspaceId(ws.parse()?);
     let events = st.db.events_since(sid, 0).await?;
     let Some(denial) = find_denial(&events, &req.tool_use_id) else {
-        return Err(ApiError::bad_request("这条操作不在被拦下的列表里"));
+        return Err(ApiError::bad_request(
+            "This action isn't in the blocked list",
+        ));
     };
     let what = denial.what();
     let text = denial::retry_message(&denial.tool_name, &what);
@@ -63,6 +67,7 @@ pub async fn decide_denial(
     if st.running.read().await.contains_key(&sid) {
         return Ok(Json(serde_json::json!({
             "recorded": false, "reason": "这一轮还没结束，等它停下再决定",
+            "reason_en": "This turn hasn't finished yet; decide once it stops",
         })));
     }
     let by = decided_by();
@@ -82,6 +87,7 @@ pub async fn decide_denial(
     if !st.db.record_denial_decision(&decision).await? {
         return Ok(Json(serde_json::json!({
             "recorded": false, "reason": "这条操作已经决定过了",
+            "reason_en": "This action has already been decided",
         })));
     }
     let entry = NormalizedEntry {

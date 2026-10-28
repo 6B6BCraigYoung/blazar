@@ -26,7 +26,7 @@ pub struct AnswerRequest {
 pub(crate) fn normalize(req: &AskRequest) -> Result<Ask, String> {
     let question = req.question.trim();
     if question.is_empty() {
-        return Err("问题不能是空的".into());
+        return Err("Question can't be empty".into());
     }
     let mut options: Vec<String> = Vec::new();
     for option in &req.options {
@@ -55,7 +55,7 @@ pub async fn create_ask(
         .and_then(|v| v.to_str().ok())
         .map(str::trim)
         .filter(|s| !s.is_empty())
-        .ok_or_else(|| ApiError::bad_request("只有会话能发这张卡片"))?;
+        .ok_or_else(|| ApiError::bad_request("Only a session can post this card"))?;
     let ask = normalize(&req).map_err(ApiError::bad_request)?;
     let context: String = req.context.trim().chars().take(CONTEXT_MAX).collect();
     let id = post(&st, sid, &ask, &context).await?;
@@ -63,7 +63,7 @@ pub async fn create_ask(
         "id": id,
         "question": ask.question,
         "options": ask.options,
-        "hint": "卡片已放进「需要你处理」。现在结束这一轮等用户回答，回答会以新的用户消息出现在这条对话里。",
+        "hint": "The card is in the user's Needs you list. End this turn now and wait; the answer will arrive as a new user message in this conversation.",
     })))
 }
 

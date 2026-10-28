@@ -36,12 +36,12 @@ pub(super) async fn ensure_installed(st: &Shared, node: &str, agent_id: &str) ->
         .map(|a| a.label.as_str())
         .collect();
     let hint = if usable.is_empty() {
-        "这台机器上一个智能体 CLI 都没找到".to_owned()
+        "No agent CLI was found on this machine".to_owned()
     } else {
-        format!("这台机器上能用的是 {}", usable.join("、"))
+        format!("Available on this machine: {}", usable.join(", "))
     };
     Err(ApiError(anyhow::anyhow!(
-        "{node} 上没有装 {label}，Blazar 也没法自动装它。{hint}；换一个智能体，或手动装上再试"
+        "{label} isn't installed on {node}, and Blazar can't install it automatically. {hint}. Pick another agent, or install it manually and retry"
     )))
 }
 

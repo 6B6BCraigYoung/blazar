@@ -113,8 +113,9 @@ impl Chat {
             match result {
                 Ok(_) if delivered => {}
                 Ok(result) => toast(
-                    result["reason"]
+                    result["reason_en"]
                         .as_str()
+                        .or_else(|| result["reason"].as_str())
                         .unwrap_or("The decision was not delivered, please retry")
                         .to_owned(),
                 ),
@@ -146,8 +147,9 @@ impl Chat {
                     }
                 }
                 Ok(r) => toast(
-                    r["reason"]
+                    r["reason_en"]
                         .as_str()
+                        .or_else(|| r["reason"].as_str())
                         .unwrap_or("This action was already decided")
                         .to_owned(),
                 ),

@@ -23,7 +23,7 @@ fn check_notify(n: Option<&str>) -> Result<String, String> {
     if NOTIFY.contains(&n) {
         Ok(n.to_owned())
     } else {
-        Err(format!("notify 只能是 {}", NOTIFY.join(" / ")))
+        Err(format!("notify must be one of {}", NOTIFY.join(" / ")))
     }
 }
 
@@ -33,48 +33,52 @@ fn deadline(mins: Option<i64>) -> Result<Option<String>, String> {
         Some(m) if (1..=MAX_DEADLINE_MINS).contains(&m) => Ok(Some(
             (Utc::now() + chrono::Duration::minutes(m)).to_rfc3339(),
         )),
-        Some(_) => Err(format!("deadline_mins 要在 1 到 {MAX_DEADLINE_MINS} 之间")),
+        Some(_) => Err(format!(
+            "deadline_mins must be between 1 and {MAX_DEADLINE_MINS}"
+        )),
     }
 }
 
 pub async fn check_waits(st: &Shared, items: &[Value]) -> Result<String, String> {
     if items.len() > MAX_WAITS {
-        return Err(format!("waits_for 最多 {MAX_WAITS} 项"));
+        return Err(format!("waits_for allows at most {MAX_WAITS} items"));
     }
     let mut out = Vec::new();
     for item in items {
-        let fields = item
-            .as_object()
-            .filter(|o| o.len() == 1)
-            .ok_or_else(|| format!("waits_for 的每一项只能有一个键：{}", WAIT_KINDS.join(" / ")))?;
-        let (kind, value) = fields.iter().next().ok_or("waits_for 有空项")?;
+        let fields = item.as_object().filter(|o| o.len() == 1).ok_or_else(|| {
+            format!(
+                "Each waits_for item must have exactly one key: {}",
+                WAIT_KINDS.join(" / ")
+            )
+        })?;
+        let (kind, value) = fields.iter().next().ok_or("waits_for has an empty item")?;
         let value = value
             .as_str()
             .map(str::trim)
             .filter(|v| !v.is_empty())
-            .ok_or_else(|| format!("waits_for 里 {kind} 的值要是非空字符串"))?;
+            .ok_or_else(|| format!("waits_for {kind} must be a non-empty string"))?;
         match kind.as_str() {
             "node" => {
                 node_id(st, value).await?;
             }
             "fact" => {
                 if !crate::bots::facts::valid_key(value) {
-                    return Err(format!("事实 key 不合法：{value}"));
+                    return Err(format!("Invalid fact key: {value}"));
                 }
             }
             "path" => {
                 if !value.starts_with('/') {
-                    return Err(format!("waits_for 里的 path 要用绝对路径：{value}"));
+                    return Err(format!("waits_for path must be absolute: {value}"));
                 }
             }
             "job" => {
                 get(st, value)
                     .await
-                    .ok_or_else(|| format!("没有这个后台任务 {value}"))?;
+                    .ok_or_else(|| format!("No such background job {value}"))?;
             }
             other => {
                 return Err(format!(
-                    "waits_for 不认识 {other}，可用 {}",
+                    "waits_for doesn't support {other}; use {}",
                     WAIT_KINDS.join(" / ")
                 ));
             }
@@ -103,13 +107,13 @@ pub async fn root(st: &Shared, node: &str) -> Result<PathBuf, String> {
                 .arg("printf '__BLAZAR_JOBS_ROOT__ %s\\n' \"$HOME/.blazar/jobs\""),
         )
         .await
-        .map_err(|e| format!("连不上 {node}：{e}"))?;
+        .map_err(|e| format!("Can't reach {node}: {e}"))?;
     out.stdout
         .lines()
         .find_map(|l| l.strip_prefix("__BLAZAR_JOBS_ROOT__ "))
         .map(PathBuf::from)
         .filter(|p| p.is_absolute())
-        .ok_or_else(|| format!("无法确定 {node} 上的任务目录"))
+        .ok_or_else(|| format!("Couldn't determine the job directory on {node}"))
 }
 
 async fn node_id(st: &Shared, node: &str) -> Result<String, String> {
@@ -118,7 +122,7 @@ async fn node_id(st: &Shared, node: &str) -> Result<String, String> {
         .fetch_optional(st.db.pool())
         .await
         .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("没有这台机器 {node}"))
+        .ok_or_else(|| format!("No such machine {node}"))
 }
 
 struct NewJob {
@@ -201,10 +205,10 @@ fn label_of(label: Option<&str>, fallback: &str) -> String {
 pub async fn spawn(st: &Shared, req: Spawn, owner: &Owner) -> Result<Job, String> {
     let command = req.command.trim();
     if command.is_empty() {
-        return Err("command 不能为空".into());
+        return Err("command can't be empty".into());
     }
     if command.chars().count() > MAX_COMMAND {
-        return Err(format!("command 最多 {MAX_COMMAND} 字"));
+        return Err(format!("command is limited to {MAX_COMMAND} characters"));
     }
     let notify = check_notify(req.notify.as_deref())?;
     let deadline_at = deadline(req.deadline_mins)?;
@@ -229,7 +233,7 @@ pub async fn spawn(st: &Shared, req: Spawn, owner: &Owner) -> Result<Job, String
     let spec = ExecSpec::new("bash").arg("-lc").arg(script);
     let run = DetachedRun::launch_in(st.transport(&node), &root, &id, &spec, None, RunMode::Null)
         .await
-        .map_err(|e| format!("在 {node} 上启动失败：{e}"))?;
+        .map_err(|e| format!("Failed to start on {node}: {e}"))?;
     let saved = insert(
         st,
         NewJob {
@@ -252,10 +256,14 @@ pub async fn spawn(st: &Shared, req: Spawn, owner: &Owner) -> Result<Job, String
     .await;
     if let Err(e) = saved {
         let _ = run.hard_kill().await;
-        return Err(format!("登记失败，已停掉刚起的进程：{e}"));
+        return Err(format!(
+            "Failed to record the job; stopped the process that was just started: {e}"
+        ));
     }
     changed(st);
-    get(st, &id).await.ok_or_else(|| "任务读不回来".into())
+    get(st, &id)
+        .await
+        .ok_or_else(|| "Couldn't read the job back".into())
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -286,7 +294,7 @@ async fn register_target(
     let asked = nonempty(req.node.as_deref());
     if let Some(c) = by.filter(|c| !c.is_lead()) {
         let ws = ws.ok_or(
-            "worker 登记后台任务要给 workspace_id，而且要在你的认领或家工作区里；机器从工作区推出来",
+            "Workers registering a background job must pass a workspace_id from their claims or home workspace; the machine is derived from it",
         )?;
         crate::bots::claims::may_use(st, c, ws).await?;
     }
@@ -296,12 +304,12 @@ async fn register_target(
                 .await
                 .map_err(|e| e.to_string())?;
             if let Some(n) = asked.filter(|n| *n != node) {
-                return Err(format!("工作区 {ws} 在 {node} 上，不在 {n} 上"));
+                return Err(format!("Workspace {ws} is on {node}, not {n}"));
             }
             Ok((node, Some(ws.to_owned())))
         }
         None => {
-            let node = asked.ok_or("要给 workspace_id（或 node）")?;
+            let node = asked.ok_or("Pass workspace_id (or node)")?;
             let ws = match owner {
                 Owner::Session { workspace, .. } if !workspace.is_empty() => {
                     Some(workspace.clone())
@@ -315,10 +323,10 @@ async fn register_target(
 
 pub fn may_kill(job: &Job, by: Option<&Caller>) -> Result<(), String> {
     if !visible_to(job, by) {
-        return Err("worker 只能结束自己发起的后台任务".into());
+        return Err("Workers can only kill background jobs they started".into());
     }
     if job.kind == "register" && by.is_some_and(|c| !c.is_lead()) {
-        return Err("登记来的后台任务只有总控 bot 和用户能结束".into());
+        return Err("Only the lead bot and the user can kill registered background jobs".into());
     }
     Ok(())
 }
@@ -331,18 +339,18 @@ pub async fn register(
 ) -> Result<Job, String> {
     let label = req.label.trim();
     if label.is_empty() {
-        return Err("label 不能为空".into());
+        return Err("label can't be empty".into());
     }
     let pid = u32::try_from(req.pid)
         .ok()
         .filter(|p| *p > 1)
-        .ok_or("pid 无效")?;
+        .ok_or("Invalid pid")?;
     let notify = check_notify(req.notify.as_deref())?;
     let deadline_at = deadline(req.deadline_mins)?;
     let waits_for = check_waits(st, &req.waits_for).await?;
     let log_path = nonempty(req.log_path.as_deref()).map(str::to_owned);
     if log_path.as_deref().is_some_and(|p| !p.starts_with('/')) {
-        return Err("日志路径要用绝对路径".into());
+        return Err("Log path must be absolute".into());
     }
     let (node, workspace_id) = register_target(st, &req, owner, by).await?;
     let node = node.as_str();
@@ -351,7 +359,7 @@ pub async fn register(
     let root = root(st, node).await?;
     let run = DetachedRun::adopt(st.transport(node), &root, &id, pid)
         .await
-        .map_err(|e| format!("在 {node} 上登记失败：{e}"))?;
+        .map_err(|e| format!("Failed to register on {node}: {e}"))?;
     insert(
         st,
         NewJob {
@@ -373,7 +381,9 @@ pub async fn register(
     )
     .await?;
     changed(st);
-    get(st, &id).await.ok_or_else(|| "任务读不回来".into())
+    get(st, &id)
+        .await
+        .ok_or_else(|| "Couldn't read the job back".into())
 }
 
 pub(super) async fn finish(
@@ -417,9 +427,9 @@ pub async fn log(st: &Shared, job: &Job, lines: usize) -> Result<String, String>
                 .arg(file),
         )
         .await
-        .map_err(|e| format!("连不上 {}：{e}", job.node))?;
+        .map_err(|e| format!("Can't reach {}: {e}", job.node))?;
     if out.code != 0 && out.stdout.is_empty() {
-        return Err(format!("读不到日志：{}", out.stderr.trim()));
+        return Err(format!("Couldn't read the log: {}", out.stderr.trim()));
     }
     Ok(out.stdout)
 }
@@ -430,19 +440,19 @@ pub async fn kill(
     by: Option<&Caller>,
     killer: &Owner,
 ) -> Result<Job, String> {
-    let job = get(st, id).await.ok_or("没有这个后台任务")?;
+    let job = get(st, id).await.ok_or("No such background job")?;
     may_kill(&job, by)?;
     if job.status != "running" {
-        return Err(format!("这个任务已经是 {} 状态", job.status));
+        return Err(format!("This job is already {}", job.status));
     }
-    let dir = job.run_dir.clone().ok_or("这个任务没有任务目录")?;
+    let dir = job.run_dir.clone().ok_or("This job has no job directory")?;
     let run = DetachedRun::attach(st.transport(&job.node), dir, job.id.clone());
     let stopped = if job.kind == "register" {
         run.stop_adopted().await
     } else {
         run.hard_kill().await
     };
-    stopped.map_err(|e| format!("结束失败：{e}"))?;
+    stopped.map_err(|e| format!("Failed to kill: {e}"))?;
     if finish(st, &job.id, "killed", None, None).await {
         changed(st);
         if let Some(done) = get(st, &job.id).await
@@ -452,5 +462,7 @@ pub async fn kill(
             announce(st, &done, &tail).await;
         }
     }
-    get(st, id).await.ok_or_else(|| "任务读不回来".into())
+    get(st, id)
+        .await
+        .ok_or_else(|| "Couldn't read the job back".into())
 }

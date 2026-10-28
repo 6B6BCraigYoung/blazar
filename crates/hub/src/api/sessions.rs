@@ -91,7 +91,9 @@ pub(crate) fn with_editor_context(text: &str, file: Option<&str>) -> String {
         .filter(|f| !f.is_empty() && f.chars().count() <= 400 && !f.chars().any(char::is_control));
     match file {
         Some(f) if !is_slash_command(text) => {
-            format!("{text}\n\n（我在编辑器里正打开着 `{f}`，仅供参考；和问题无关就忽略。）")
+            format!(
+                "{text}\n\n(I have `{f}` open in my editor, for reference only; ignore it if it's unrelated.)"
+            )
         }
         _ => text.to_owned(),
     }
@@ -100,22 +102,22 @@ pub(crate) fn with_editor_context(text: &str, file: Option<&str>) -> String {
 pub(crate) fn check_images(images: &[blazar_runtime::ImageInput]) -> Result<(), String> {
     const TYPES: &[&str] = &["image/png", "image/jpeg", "image/gif", "image/webp"];
     if images.len() > 8 {
-        return Err("一次最多 8 张图片".into());
+        return Err("At most 8 images per message".into());
     }
     for i in images {
         if !TYPES.contains(&i.media_type.as_str()) {
-            return Err(format!("不支持的图片类型 {}", i.media_type));
+            return Err(format!("Unsupported image type {}", i.media_type));
         }
 
         if i.data.len() > 5 * 1024 * 1024 * 4 / 3 + 16 {
-            return Err("单张图片不能超过 5MB".into());
+            return Err("Each image must be 5MB or smaller".into());
         }
         if !i
             .data
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'/' | b'='))
         {
-            return Err("图片数据不是合法的 base64".into());
+            return Err("Image data is not valid base64".into());
         }
     }
     Ok(())
@@ -294,7 +296,7 @@ async fn prompt_inner(
             return Ok(Json(serde_json::json!({
                 "admitted": false,
                 "reason": reason,
-                "hint": "先中断正在跑的那个会话，或等它结束",
+                "hint": "Interrupt the running session first, or wait for it to finish",
                 "running_session_id": running_session.as_ref().map(|x| x.0.clone()),
                 "running_interactive": running_session.is_some_and(|x| x.1),
             })));
@@ -333,12 +335,12 @@ async fn prompt_inner(
     };
     let profile = match req.profile.as_deref().filter(|p| !p.is_empty()) {
         Some(pid) => {
-            let p = crate::agents::get(&st, pid)
-                .await
-                .ok_or_else(|| ApiError(anyhow::anyhow!("没有这个 Agent（可能已被删除）")))?;
+            let p = crate::agents::get(&st, pid).await.ok_or_else(|| {
+                ApiError(anyhow::anyhow!("No such agent (it may have been deleted)"))
+            })?;
             if p.archived_at.is_some() {
                 return Err(ApiError(anyhow::anyhow!(
-                    "Agent「{}」已归档，恢复后才能用",
+                    "Agent \"{}\" is archived; restore it to use it",
                     p.name
                 )));
             }
@@ -367,7 +369,7 @@ async fn prompt_inner(
 
     if local_brain && !blazar_runtime::supports_remote_hands(agent_id) {
         return Err(ApiError(anyhow::anyhow!(
-            "{} 只能用于本机工作区：它没法把文件与命令送到 {node} 上执行",
+            "{} only works in local workspaces: it can't send files and commands to {node}",
             blazar_runtime::spec::find(agent_id).map_or(agent_id, |s| s.label)
         )));
     }
@@ -489,7 +491,7 @@ async fn prompt_inner(
                     &st,
                     &p.0,
                     &now,
-                    "此前由另一个 AI 助手完成，工作区里的文件就是它改过之后的样子。",
+                    "Earlier turns were handled by another AI assistant; the workspace files reflect its changes.",
                 )
                 .await
             }
@@ -634,7 +636,7 @@ async fn prompt_inner(
         }
         if local_brain {
             let exe = std::env::current_exe()
-                .map_err(|e| ApiError(anyhow::anyhow!("找不到本程序路径，无法挂远端工具: {e}")))?;
+                .map_err(|e| ApiError(anyhow::anyhow!("Can't find this program's path to attach remote tools: {e}")))?;
             spec.remote_hands = Some(blazar_runtime::RemoteHands {
                 node: node.clone(),
                 root: path.clone(),
@@ -650,7 +652,7 @@ async fn prompt_inner(
         }
 
         let mut runtime = CliRuntime::by_id(transport_for(&run_node), agent_id)
-            .ok_or_else(|| ApiError(anyhow::anyhow!("未知 agent: {agent_id}")))?;
+            .ok_or_else(|| ApiError(anyhow::anyhow!("Unknown agent: {agent_id}")))?;
 
         if let Some(p) = cfg.as_ref().and_then(|c| c.program_path.clone()) {
             runtime = runtime.with_program(p);
@@ -762,7 +764,7 @@ async fn prompt_inner(
             plan.mode,
         )
         .await
-        .map_err(|e| ApiError(anyhow::anyhow!("在 {run_node} 上启动 agent 失败: {e}")))?;
+        .map_err(|e| ApiError(anyhow::anyhow!("Failed to start agent on {run_node}: {e}")))?;
         crate::tasks::on_run_started(&st, &thread_id).await;
         crate::inbox::resolve_asks(&st, &thread_id).await;
         st.services
@@ -780,11 +782,11 @@ async fn prompt_inner(
                 }),
 
                 Ok(Err(_)) => serde_json::json!({
-                    "started": false, "stalled": true, "reason": "会话在产出任何事件前就结束了",
+                    "started": false, "stalled": true, "reason": "The session ended before producing any events",
                 }),
                 Err(_) => serde_json::json!({
                     "started": false, "stalled": true,
-                    "reason": format!("{} 秒内未观察到 agent 活动（检查 CLI 是否安装、凭据与网络出口）",
+                    "reason": format!("No agent activity within {} seconds (check that the CLI is installed, credentials, and network egress)",
                                       req.wait_secs),
                 }),
             }
@@ -813,14 +815,14 @@ async fn prompt_inner(
         {
             crate::run::register(ctx, 0, None).await;
             return Err(ApiError(anyhow::anyhow!(
-                "{}；停止启动中的进程失败: {cleanup}。已保留运行记录并继续检查，请勿重复启动",
+                "{}; failed to stop the starting process: {cleanup}. The run record is kept and still being checked; don't start it again",
                 error.message(),
             )));
         }
         if let Err(compensation) = fail_start(&st, session_id, workspace_id, &error.message()).await
         {
             return Err(ApiError(anyhow::anyhow!(
-                "{}；保存启动失败状态时出错: {}",
+                "{}; failed to save the start failure: {}",
                 error.message(),
                 compensation.message()
             )));
@@ -847,7 +849,11 @@ async fn resolve_run_root(
         .find_map(|line| line.strip_prefix("__BLAZAR_RUNS_ROOT__ "))
         .map(std::path::PathBuf::from)
         .filter(|path| path.is_absolute())
-        .ok_or_else(|| ApiError(anyhow::anyhow!("无法确定 {node} 的运行目录")))?;
+        .ok_or_else(|| {
+            ApiError(anyhow::anyhow!(
+                "Couldn't determine the run directory on {node}"
+            ))
+        })?;
     Ok(root)
 }
 
@@ -888,8 +894,11 @@ pub(crate) fn brain_dir(st: &Shared, workspace: &str) -> ApiResult<String> {
         .parent()
         .map_or_else(std::env::temp_dir, std::path::Path::to_path_buf);
     let dir = base.join("brain").join(workspace);
-    std::fs::create_dir_all(&dir)
-        .map_err(|e| ApiError(anyhow::anyhow!("创建本机占位目录失败: {e}")))?;
+    std::fs::create_dir_all(&dir).map_err(|e| {
+        ApiError(anyhow::anyhow!(
+            "Failed to create the local placeholder directory: {e}"
+        ))
+    })?;
     Ok(dir.display().to_string())
 }
 

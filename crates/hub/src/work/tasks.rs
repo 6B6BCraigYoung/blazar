@@ -602,7 +602,7 @@ pub async fn start(
     let extra = body.and_then(|b| b.0.text).filter(|t| !t.trim().is_empty());
     let text = match (&extra, task["thread_id"].as_str()) {
         (Some(t), _) => t.clone(),
-        (None, Some(_)) => "继续这个任务。".to_owned(),
+        (None, Some(_)) => "Continue this task.".to_owned(),
         (None, None) => {
             let d = task["description"].as_str().unwrap_or_default().trim();
             let title = task["title"].as_str().unwrap_or_default();

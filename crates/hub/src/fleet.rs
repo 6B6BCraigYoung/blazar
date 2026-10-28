@@ -346,14 +346,14 @@ pub fn briefing(parent: &str, children: &[Child]) -> String {
         return String::new();
     }
     let mut out = format!(
-        "这个工作区（id {parent}）挂了下面这些子工作区，都是可以把活派过去的机器。\
-         用 blazar-fleet 的工具操作：send_prompt 派活（立即返回），wait_workspace 等它停下并拿到最后一句回复，\
-         get_history / read_file / get_diff 看它做了什么，copy_files 在工作区之间搬文件；派活前可以先 probe_node 看机器状态。\
-         子工作区：\n"
+        "This workspace (id {parent}) has the sub-workspaces below, each a machine you can hand work to. \
+         Use the blazar-fleet tools: send_prompt to hand off work (returns immediately), wait_workspace to wait until it stops and get its last reply, \
+         get_history / read_file / get_diff to see what it did, copy_files to move files between workspaces; run probe_node first to check a machine's state. \
+         Sub-workspaces:\n"
     );
     for c in children {
         out.push_str(&format!(
-            "- {}：机器 {}，目录 {}，工作区 id {}\n",
+            "- {}: machine {}, directory {}, workspace id {}\n",
             c.name, c.node, c.path, c.id
         ));
     }
@@ -521,7 +521,7 @@ fn grant_of(st: &Shared, headers: &HeaderMap) -> Option<Grant> {
 
 pub async fn mcp_http(State(st): State<Shared>, headers: HeaderMap, body: Bytes) -> Response {
     let Ok(request) = serde_json::from_slice::<Value>(&body) else {
-        return (StatusCode::BAD_REQUEST, "无法解析 JSON-RPC").into_response();
+        return (StatusCode::BAD_REQUEST, "Invalid JSON-RPC").into_response();
     };
     let grant = grant_of(&st, &headers);
     let messages = match request {
@@ -559,7 +559,7 @@ async fn handle(st: &Shared, grant: Option<&Grant>, req: &Value) -> Option<Value
         "tools/list" => Ok(blazar_mcp::tools::manifest()),
         "tools/call" => call(st, grant, req.get("params")).await,
         "ping" => Ok(json!({})),
-        other => Err(format!("不支持的方法: {other}")),
+        other => Err(format!("Unsupported method: {other}")),
     };
     Some(match result {
         Ok(result) => json!({ "jsonrpc": "2.0", "id": id, "result": result }),
@@ -582,7 +582,9 @@ fn workspace_args(name: &str, args: &Value) -> Result<Vec<String>, String> {
                 .map(str::trim)
                 .filter(|v| !v.is_empty())
                 .map(str::to_owned)
-                .ok_or_else(|| format!("worker 用 {name} 要给 {k}，而且要在你的认领里"))
+                .ok_or_else(|| {
+                    format!("Workers must pass {k} to {name}, and it must be in your claims")
+                })
         })
         .collect()
 }
@@ -593,7 +595,7 @@ pub async fn allowed(st: &Shared, caller: &Caller, name: &str, args: &Value) -> 
     }
     if WORKER_DENIED_TOOLS.contains(&name) {
         return Err(format!(
-            "worker 不能用 {name}；要派活请 send_message 给总控 bot"
+            "Workers can't use {name}; to hand off work, send_message to the lead bot"
         ));
     }
     if WORKER_OWN_JOB_TOOLS.contains(&name) {
@@ -604,7 +606,7 @@ pub async fn allowed(st: &Shared, caller: &Caller, name: &str, args: &Value) -> 
         let job = crate::bots::jobs::get(st, id).await;
         if job.as_ref().and_then(|j| j.bot_id.as_deref()) != Some(caller.bot.as_str()) {
             return Err(format!(
-                "后台任务 {id} 不是你发起的；worker 只能看、只能停自己的后台任务"
+                "Background job {id} wasn't started by you; workers can only view and stop their own background jobs"
             ));
         }
         if name == "job_kill"
@@ -622,17 +624,17 @@ pub async fn allowed(st: &Shared, caller: &Caller, name: &str, args: &Value) -> 
 }
 
 async fn call(st: &Shared, grant: Option<&Grant>, params: Option<&Value>) -> Result<Value, String> {
-    let params = params.ok_or("tools/call 缺少 params")?;
+    let params = params.ok_or("tools/call is missing params")?;
     let name = params
         .get("name")
         .and_then(Value::as_str)
-        .ok_or("缺少工具名")?;
+        .ok_or("Missing tool name")?;
     let args = params.get("arguments").cloned().unwrap_or(json!({}));
     let caller = grant.and_then(|g| g.caller.clone());
     if let Some(c) = &caller {
         allowed(st, c, name, &args).await?;
     }
-    let tool = blazar_mcp::tools::find(name).ok_or_else(|| format!("未知工具: {name}"))?;
+    let tool = blazar_mcp::tools::find(name).ok_or_else(|| format!("Unknown tool: {name}"))?;
     let (method, path, body) = (tool.build)(&args).map_err(|error| error.to_string())?;
     let mut extra = Vec::new();
     if let Some(c) = &caller {
@@ -659,11 +661,13 @@ async fn internal_request(
     body: Option<Value>,
     extra_headers: &[(String, String)],
 ) -> Result<(bool, String), String> {
-    let base = crate::office::HUB_URL.get().ok_or("hub 地址还没就绪")?;
-    let token = st.auth.get().ok_or("hub 会话还没就绪")?.token();
+    let base = crate::office::HUB_URL
+        .get()
+        .ok_or("Hub address is not ready yet")?;
+    let token = st.auth.get().ok_or("Hub session is not ready yet")?.token();
     let method: reqwest::Method = method
         .parse()
-        .map_err(|_| format!("不支持的方法 {method}"))?;
+        .map_err(|_| format!("Unsupported method {method}"))?;
     let mut request = reqwest::Client::new()
         .request(method, format!("{base}{path}"))
         .bearer_auth(token);
@@ -678,16 +682,16 @@ async fn internal_request(
     let response = request
         .send()
         .await
-        .map_err(|error| format!("连不上 hub：{error}"))?;
+        .map_err(|error| format!("Can't reach the hub: {error}"))?;
     let status = response.status();
     let text = response
         .text()
         .await
-        .map_err(|error| format!("读 hub 回复失败：{error}"))?;
+        .map_err(|error| format!("Failed to read the hub response: {error}"))?;
     if status.is_success() {
         Ok((true, text))
     } else {
-        Ok((false, format!("hub 返回 {status}: {}", text.trim())))
+        Ok((false, format!("Hub returned {status}: {}", text.trim())))
     }
 }
 

@@ -41,7 +41,7 @@ fn restore_script(root: &str, commit: &str) -> String {
     format!(
         r#"set -e
 cd {root} 2>/dev/null || exit 3
-git cat-file -e {c}^{{commit}} 2>/dev/null || {{ echo '检查点已不存在（可能被 git gc 清掉了）'; exit 5; }}
+git cat-file -e {c}^{{commit}} 2>/dev/null || {{ echo 'Checkpoint no longer exists (it may have been removed by git gc)'; exit 5; }}
 tmp=$(mktemp "${{TMPDIR:-/tmp}}/blazar-idx.XXXXXX")
 trap 'rm -f "$tmp"' EXIT
 export GIT_INDEX_FILE="$tmp"
@@ -164,7 +164,7 @@ pub async fn restore_to(st: &Shared, id: &str) -> Result<Option<String>, (Status
     .fetch_optional(st.db.pool())
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-    .ok_or((StatusCode::NOT_FOUND, "没有这个检查点".to_owned()))?;
+    .ok_or((StatusCode::NOT_FOUND, "No such checkpoint".to_owned()))?;
     let ws: String = row.try_get("workspace_id").unwrap_or_default();
     let sha: String = row.try_get("commit_sha").unwrap_or_default();
     let node: String = row.try_get("node").unwrap_or_default();
@@ -179,14 +179,14 @@ pub async fn restore_to(st: &Shared, id: &str) -> Result<Option<String>, (Status
     if busy {
         return Err((
             StatusCode::CONFLICT,
-            "agent 还在运行，先中断再回退".to_owned(),
+            "Agent is still running; interrupt it before rewinding".to_owned(),
         ));
     }
 
     let undo = snapshot(st, &node, &path).await.ok_or_else(|| {
         (
             StatusCode::BAD_GATEWAY,
-            "无法保存回退前的文件，已取消回退；请检查仓库状态和磁盘空间后重试".to_owned(),
+            "Couldn't save files before rewinding, so the rewind was cancelled; check the repository state and disk space, then retry".to_owned(),
         )
     })?;
     persist_record(st, &ws, &undo, None, None, "回退前")
@@ -194,7 +194,7 @@ pub async fn restore_to(st: &Shared, id: &str) -> Result<Option<String>, (Status
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!("无法记录回退前的检查点，已取消回退：{e}"),
+                format!("Couldn't record a checkpoint before rewinding, so the rewind was cancelled: {e}"),
             )
         })?;
     let spec = ExecSpec::new("bash")
@@ -204,13 +204,13 @@ pub async fn restore_to(st: &Shared, id: &str) -> Result<Option<String>, (Status
         match tokio::time::timeout(Duration::from_secs(60), st.transport(&node).exec(spec)).await {
             Ok(Ok(o)) => o,
             Ok(Err(e)) => return Err((StatusCode::BAD_GATEWAY, e.to_string())),
-            Err(_) => return Err((StatusCode::GATEWAY_TIMEOUT, "回退超时".to_owned())),
+            Err(_) => return Err((StatusCode::GATEWAY_TIMEOUT, "Rewind timed out".to_owned())),
         };
     if out.code != 0 {
         return Err((
             StatusCode::BAD_GATEWAY,
             format!(
-                "回退失败：{}",
+                "Rewind failed: {}",
                 format!("{}{}", out.stdout, out.stderr).trim()
             ),
         ));

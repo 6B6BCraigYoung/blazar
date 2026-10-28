@@ -138,6 +138,7 @@ pub fn error_kind(raw: &str, status: Option<u16>) -> Option<ErrorKind> {
         if has(&[
             "机器连不上",
             "退出码 255",
+            "exit code 255",
             "ssh:",
             "could not resolve hostname",
             "no route to host",

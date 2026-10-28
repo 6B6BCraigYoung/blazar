@@ -330,7 +330,7 @@ mod tests {
             "Not logged in · Please run /login",
             "No message found with message.uuid of: x",
             "ssh: connect to host gpu-1 port 22: No route to host",
-            "agent 异常退出（退出码 1）",
+            "agent exited unexpectedly (exit code 1)",
         ];
         for m in miss {
             assert!(!eligible(FailureCause::of(m, true)), "{m}");

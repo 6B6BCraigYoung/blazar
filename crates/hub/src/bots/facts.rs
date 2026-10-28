@@ -95,10 +95,10 @@ pub struct Put {
 
 pub async fn put(st: &Shared, key: &str, p: Put, by: Option<&Caller>) -> Result<Fact, String> {
     if !valid_key(key) {
-        return Err("事实的 key 用 run/q01、gpu/gpu-1/0 这样的写法，最长 200 字符".into());
+        return Err("Fact keys look like run/q01 or gpu/gpu-1/0, up to 200 characters".into());
     }
     if p.value.to_string().len() > 64 * 1024 {
-        return Err("事实的值最多 64KB".into());
+        return Err("Fact values are limited to 64KB".into());
     }
     let existing = get(st, key).await;
     let ttl = match p.ttl_secs {
@@ -117,7 +117,7 @@ pub async fn put(st: &Shared, key: &str, p: Put, by: Option<&Caller>) -> Result<
                 .to_owned()
         });
     if !KINDS.contains(&kind.as_str()) {
-        return Err(format!("未知类型 {kind}，可用 {}", KINDS.join(" / ")));
+        return Err(format!("Unknown kind {kind}; use {}", KINDS.join(" / ")));
     }
     let owner = match (&existing, by) {
         (Some(f), Some(c)) => {
@@ -125,7 +125,7 @@ pub async fn put(st: &Shared, key: &str, p: Put, by: Option<&Caller>) -> Result<
                 && o != &c.bot
             {
                 return Err(format!(
-                    "{key} 是 bot:{} 负责的事实，别直接改，发邮件告诉它",
+                    "{key} is owned by bot:{}; don't change it directly, mail it instead",
                     f.owner_handle.as_deref().unwrap_or("?")
                 ));
             }
@@ -169,17 +169,19 @@ pub async fn put(st: &Shared, key: &str, p: Put, by: Option<&Caller>) -> Result<
         .await;
     }
     st.emit(ServerEvent::FactsChanged);
-    get(st, key).await.ok_or_else(|| "事实读不回来".into())
+    get(st, key)
+        .await
+        .ok_or_else(|| "Couldn't read the fact back".into())
 }
 
 pub async fn remove(st: &Shared, key: &str, by: Option<&Caller>) -> Result<(), String> {
-    let f = get(st, key).await.ok_or("没有这条事实")?;
+    let f = get(st, key).await.ok_or("No such fact")?;
     if let (Some(c), Some(o)) = (by, &f.owner_bot)
         && o != &c.bot
         && !c.is_lead()
     {
         return Err(format!(
-            "{key} 是 bot:{} 负责的事实",
+            "{key} is owned by bot:{}",
             f.owner_handle.as_deref().unwrap_or("?")
         ));
     }
@@ -256,10 +258,10 @@ pub async fn sweep(st: &Shared, notify: bool) {
                     owner,
                     super::NewMail {
                         body: format!(
-                            "你负责的事实 {} 已经 {} 秒没更新，超过心跳间隔的 5 倍，被标成 lost。确认一下对应的任务还在不在，并更新或删掉这条事实。",
+                            "Your fact {} hasn't been updated for {} seconds, more than 5x its heartbeat interval, so it was marked lost. Check whether the underlying task is still running, then update or delete the fact.",
                             f.key, age
                         ),
-                        subject: Some(format!("事实 {} 失联", f.key)),
+                        subject: Some(format!("Fact {} lost", f.key)),
                         from_kind: "rule".into(),
                         from_ref: "fact_stale".into(),
                         ..super::NewMail::default()

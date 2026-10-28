@@ -118,7 +118,9 @@ impl AppState {
     pub async fn admit(self: &Arc<Self>, workspace: WorkspaceId) -> Result<AdmitGuard, String> {
         let running = self.running.read().await;
         if let Some((sid, _)) = running.iter().find(|(_, r)| r.workspace_id == workspace) {
-            return Err(format!("该工作区已有会话 {sid} 在运行"));
+            return Err(format!(
+                "Session {sid} is already running in this workspace"
+            ));
         }
         let guard = self.quiesce(workspace)?;
         drop(running);
@@ -129,20 +131,28 @@ impl AppState {
         .bind(workspace.to_string())
         .fetch_optional(self.db.pool())
         .await
-        .map_err(|e| format!("无法确认工作区的运行状态，请恢复数据库后重试: {e}"))?;
+        .map_err(|e| format!("Couldn't confirm the workspace's run state; restore the database and retry: {e}"))?;
         let Some(persisted) = persisted else {
-            return Err("工作区已不存在".to_owned());
+            return Err("The workspace no longer exists".to_owned());
         };
         if let Some(sid) = persisted {
-            return Err(format!("该工作区已有会话 {sid} 在运行或等待重新连接"));
+            return Err(format!(
+                "Session {sid} is already running or waiting to reconnect in this workspace"
+            ));
         }
         Ok(guard)
     }
 
     pub fn quiesce(&self, workspace: WorkspaceId) -> Result<AdmitGuard, String> {
-        let mut pending = self.pending.lock().map_err(|_| "准入表已损坏".to_owned())?;
+        let mut pending = self
+            .pending
+            .lock()
+            .map_err(|_| "Admission table is corrupted".to_owned())?;
         if !pending.insert(workspace) {
-            return Err("该工作区正有会话启动或其他操作正在进行".to_owned());
+            return Err(
+                "A session is starting or another operation is in progress in this workspace"
+                    .to_owned(),
+            );
         }
         Ok(AdmitGuard {
             pending: self.pending.clone(),

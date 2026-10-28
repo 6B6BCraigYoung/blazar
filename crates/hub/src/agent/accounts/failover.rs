@@ -294,8 +294,7 @@ pub fn retry_request(mut req: Value, midway: bool, exclude: &[String], thread: &
     req
 }
 
-pub const CONTINUE_TEXT: &str =
-    "（上一个账号额度用尽，已换账号接着做）请从刚才中断的地方继续，把没做完的工作完成。";
+pub const CONTINUE_TEXT: &str = "(The previous account hit its usage limit, so this continues on another account.) Pick up where you left off and finish the remaining work.";
 
 fn send_again<'a>(
     st: &'a Shared,

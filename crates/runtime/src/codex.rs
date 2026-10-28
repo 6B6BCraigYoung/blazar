@@ -53,7 +53,7 @@ pub fn parse_line(line: &str) -> Vec<EntryKind> {
                 .get("error")
                 .and_then(|e| e.get("message").and_then(Value::as_str))
                 .or_else(|| v.get("message").and_then(Value::as_str))
-                .unwrap_or("turn 失败")
+                .unwrap_or("Turn failed")
                 .to_owned(),
         })],
 

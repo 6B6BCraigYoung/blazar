@@ -102,8 +102,9 @@ fn jwt(payload: &Value) -> String {
 async fn read_auth(home: &Path) -> Result<Value, String> {
     let raw = tokio::fs::read(home.join("auth.json"))
         .await
-        .map_err(|_| "这个 Codex 账号还没登录（找不到 auth.json）".to_owned())?;
-    serde_json::from_slice(&raw).map_err(|_| "这个 Codex 账号的 auth.json 格式不对".to_owned())
+        .map_err(|_| "This Codex account is not logged in (auth.json not found)".to_owned())?;
+    serde_json::from_slice(&raw)
+        .map_err(|_| "This Codex account's auth.json is malformed".to_owned())
 }
 
 fn token<'a>(auth: &'a Value, key: &str) -> Option<&'a str> {
@@ -111,7 +112,8 @@ fn token<'a>(auth: &'a Value, key: &str) -> Option<&'a str> {
 }
 
 pub fn placeholder(secret: &str, auth: &Value) -> Result<Value, String> {
-    let account = token(auth, "account_id").ok_or("这个 Codex 账号不是 ChatGPT 登录")?;
+    let account =
+        token(auth, "account_id").ok_or("This Codex account is not signed in with ChatGPT")?;
     let plan = token(auth, "id_token").and_then(claims).and_then(|c| {
         c[AUTH_CLAIM]["chatgpt_plan_type"]
             .as_str()
@@ -171,8 +173,8 @@ pub async fn remote_auth(st: &Shared, account: &str) -> Result<String, String> {
             .fetch_optional(st.db.pool())
             .await
             .map_err(|e| e.to_string())?;
-    let home = home_of(dir.ok_or("没有这个 Codex 账号")?.as_deref())
-        .ok_or("找不到这个 Codex 账号的目录")?;
+    let home = home_of(dir.ok_or("No such Codex account")?.as_deref())
+        .ok_or("Couldn't find this Codex account's directory")?;
     let auth = read_auth(&home).await?;
     let secret = crate::proxy::secret(st, account).await?;
     Ok(placeholder(&secret, &auth)?.to_string())
@@ -184,7 +186,8 @@ async fn refresh(client: &reqwest::Client, home: &Path, used: &str) -> Result<()
     if token(&auth, "access_token") != Some(used) {
         return Ok(());
     }
-    let rt = token(&auth, "refresh_token").ok_or("Codex 账号没有 refresh token，需要重新登录")?;
+    let rt =
+        token(&auth, "refresh_token").ok_or("Codex account has no refresh token; log in again")?;
     let resp = client
         .post(REFRESH_URL)
         .header("content-type", "application/json")
@@ -199,10 +202,10 @@ async fn refresh(client: &reqwest::Client, home: &Path, used: &str) -> Result<()
         )
         .send()
         .await
-        .map_err(|e| format!("刷新 Codex 登录失败：{e}"))?;
+        .map_err(|e| format!("Failed to refresh Codex login: {e}"))?;
     if !resp.status().is_success() {
         return Err(format!(
-            "刷新 Codex 登录失败（{}），需要在本机重新登录这个账号",
+            "Failed to refresh Codex login ({}); log in to this account again on this machine",
             resp.status()
         ));
     }
@@ -211,7 +214,7 @@ async fn refresh(client: &reqwest::Client, home: &Path, used: &str) -> Result<()
         .await
         .ok()
         .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
-        .ok_or("刷新 Codex 登录的返回格式不对")?;
+        .ok_or("Codex login refresh returned an unexpected format")?;
     for key in ["id_token", "access_token", "refresh_token"] {
         if let Some(v) = fresh[key].as_str().filter(|v| !v.is_empty()) {
             auth["tokens"][key] = json!(v);
@@ -271,13 +274,13 @@ pub async fn forward(st: &Shared, client: &reqwest::Client, key: &[u8], req: Req
     let Some(secret) = presented else {
         return deny(
             StatusCode::UNAUTHORIZED,
-            "Blazar 凭据代理没认出这个 Codex 账号",
+            "Blazar credential proxy did not recognize this Codex account",
         );
     };
     let Some(home) = account_home(st, key, &secret).await else {
         return deny(
             StatusCode::UNAUTHORIZED,
-            "Blazar 不认识这个账号暗号（账号可能已删除或停用）",
+            "Blazar does not recognize this account key (the account may have been deleted or disabled)",
         );
     };
     for h in [
@@ -301,7 +304,10 @@ pub async fn forward(st: &Shared, client: &reqwest::Client, key: &[u8], req: Req
         let (Some(access), Some(account)) =
             (token(&auth, "access_token"), token(&auth, "account_id"))
         else {
-            return deny(StatusCode::UNAUTHORIZED, "这个 Codex 账号不是 ChatGPT 登录");
+            return deny(
+                StatusCode::UNAUTHORIZED,
+                "This Codex account is not signed in with ChatGPT",
+            );
         };
         let up = client
             .request(method.clone(), &url)
@@ -316,7 +322,7 @@ pub async fn forward(st: &Shared, client: &reqwest::Client, key: &[u8], req: Req
             Err(e) => {
                 return deny(
                     StatusCode::BAD_GATEWAY,
-                    &format!("Blazar 连不上 ChatGPT：{e}"),
+                    &format!("Blazar could not reach ChatGPT: {e}"),
                 );
             }
         };
@@ -340,7 +346,7 @@ pub async fn forward(st: &Shared, client: &reqwest::Client, key: &[u8], req: Req
         let stream = up.bytes_stream().map_err(std::io::Error::other);
         return out
             .body(Body::from_stream(stream))
-            .unwrap_or_else(|_| deny(StatusCode::BAD_GATEWAY, "转发响应失败"));
+            .unwrap_or_else(|_| deny(StatusCode::BAD_GATEWAY, "Failed to forward the response"));
     }
 }
 
@@ -352,11 +358,14 @@ async fn renew(st: &Shared, key: &[u8], body: &[u8]) -> Response {
     let Some(secret) = presented else {
         return deny(
             StatusCode::UNAUTHORIZED,
-            "Blazar 凭据代理没认出这个 Codex 账号",
+            "Blazar credential proxy did not recognize this Codex account",
         );
     };
     let Some(home) = account_home(st, key, &secret).await else {
-        return deny(StatusCode::UNAUTHORIZED, "Blazar 不认识这个账号暗号");
+        return deny(
+            StatusCode::UNAUTHORIZED,
+            "Blazar does not recognize this account key",
+        );
     };
     let fresh = match read_auth(&home)
         .await

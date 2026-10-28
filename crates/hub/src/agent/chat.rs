@@ -74,16 +74,21 @@ pub async fn put(
     Json(b): Json<QueueBody>,
 ) -> Response {
     let Ok(ws) = id.parse().map(WorkspaceId) else {
-        return fail(StatusCode::BAD_REQUEST, "工作区 id 不对");
+        return fail(StatusCode::BAD_REQUEST, "Invalid workspace id");
     };
     let mut request = b.request;
 
     let parsed: PromptRequest = match serde_json::from_value(request.clone()) {
         Ok(p) => p,
-        Err(e) => return fail(StatusCode::BAD_REQUEST, format!("请求体不对：{e}")),
+        Err(e) => {
+            return fail(
+                StatusCode::BAD_REQUEST,
+                format!("Invalid request body: {e}"),
+            );
+        }
     };
     if parsed.text.trim().is_empty() && parsed.images.is_empty() {
-        return fail(StatusCode::BAD_REQUEST, "空消息不用排队");
+        return fail(StatusCode::BAD_REQUEST, "Empty messages can't be queued");
     }
     let thread = b.thread_id.filter(|t| !t.is_empty());
     let mut tx = match st.db.pool().begin_with("BEGIN IMMEDIATE").await {
@@ -113,7 +118,7 @@ pub async fn put(
         if stored.as_ref() != Some(&expected) {
             return fail(
                 StatusCode::CONFLICT,
-                "排队消息已变化或已发出，请刷新后再编辑",
+                "The queued message changed or was already sent; refresh and edit again",
             );
         }
     }
@@ -123,7 +128,7 @@ pub async fn put(
             Err(e) => {
                 return fail(
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("原排队消息无法读取，未追加新消息：{e}"),
+                    format!("Couldn't read the queued message, so nothing was appended: {e}"),
                 );
             }
         };
@@ -143,7 +148,7 @@ pub async fn put(
     if raw.len() > MAX_QUEUED_BYTES {
         return fail(
             StatusCode::PAYLOAD_TOO_LARGE,
-            "排队的消息太大了（图片太多？）",
+            "Queued message is too large (too many images?)",
         );
     }
     let qid = uuid::Uuid::now_v7().to_string();
@@ -192,9 +197,15 @@ pub async fn remove(
         Err(error) => return fail(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()),
         Ok(result) if result.rows_affected() == 0 => {
             return if expected.is_some() {
-                fail(StatusCode::CONFLICT, "排队消息已变化，未删除新增内容")
+                fail(
+                    StatusCode::CONFLICT,
+                    "The queued message changed; the new content was not removed",
+                )
             } else {
-                fail(StatusCode::NOT_FOUND, "这条排队消息已经不在了")
+                fail(
+                    StatusCode::NOT_FOUND,
+                    "This queued message no longer exists",
+                )
             };
         }
         Ok(_) => {}
@@ -210,12 +221,12 @@ pub async fn send_now(
     Path((id, qid)): Path<(String, String)>,
 ) -> Response {
     let Ok(ws) = id.parse().map(WorkspaceId) else {
-        return fail(StatusCode::BAD_REQUEST, "工作区 id 不对");
+        return fail(StatusCode::BAD_REQUEST, "Invalid workspace id");
     };
     if busy(&st, ws).await {
         return fail(
             StatusCode::CONFLICT,
-            "agent 还在运行：等这一轮结束，或者用「插话」",
+            "Agent is still running: wait for this turn to finish, or send the message mid-turn",
         );
     }
     match dispatch_one(&st, ws, &qid).await {
@@ -265,18 +276,21 @@ where
     .fetch_optional(st.db.pool())
     .await
     .map_err(|e| e.to_string())?;
-    let (raw, queued_thread) = row.ok_or("这条排队消息已经不在了")?;
+    let (raw, queued_thread) = row.ok_or("This queued message no longer exists")?;
     let req: PromptRequest = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
     let sent = send(req).await;
     let v = match sent {
         Ok(Json(v)) => v,
         Err(e) => {
-            hold(st, ws, qid, &raw, &format!("没发出去：{}", e.message())).await;
+            hold(st, ws, qid, &raw, &format!("Not sent: {}", e.message())).await;
             return Err(e.message());
         }
     };
     if v["admitted"] == json!(false) {
-        return Err(v["reason"].as_str().unwrap_or("工作区正忙").to_owned());
+        return Err(v["reason"]
+            .as_str()
+            .unwrap_or("Workspace is busy")
+            .to_owned());
     }
     let _ = sqlx::query(
         "DELETE FROM queued_messages WHERE id = ?1 AND workspace_id = ?2 AND request = ?3",
@@ -342,9 +356,9 @@ pub async fn on_run_finished(st: Shared, ws: WorkspaceId, sid: SessionId, status
         return;
     }
     let why = if status == "interrupted" {
-        "上一轮被中断了，没有自动发出"
+        "The previous turn was interrupted, so this was not sent automatically"
     } else {
-        "上一轮没正常结束，没有自动发出"
+        "The previous turn did not finish normally, so this was not sent automatically"
     };
     let r = sqlx::query(
         "UPDATE queued_messages SET held = ?2 WHERE workspace_id = ?1 AND held IS NULL",
@@ -399,7 +413,7 @@ pub async fn wait(
         .ok()
         .flatten();
         let Some(row) = row else {
-            return fail(StatusCode::NOT_FOUND, "没有这个工作区");
+            return fail(StatusCode::NOT_FOUND, "No such workspace");
         };
         let activity: String = row.try_get("activity").unwrap_or_default();
         let running = activity == "running";
@@ -439,7 +453,7 @@ pub async fn wait(
             return (
                 StatusCode::REQUEST_TIMEOUT,
                 Json(json!({ "reached": false, "stalled": true, "activity": activity, "error_code": "agent_prompt_stalled",
-                             "error": format!("agent 还在跑，但已经 {stall} 秒没有任何动静了") })),
+                             "error": format!("Agent is still running but has shown no activity for {stall}s") })),
             )
                 .into_response();
         }
@@ -447,7 +461,7 @@ pub async fn wait(
             return (
                 StatusCode::OK,
                 Json(json!({ "reached": false, "timed_out": true, "activity": activity, "error_code": "wait_timeout",
-                             "error": format!("等了 {timeout} 秒还没停下来") })),
+                             "error": format!("Still running after waiting {timeout}s") })),
             )
                 .into_response();
         }
@@ -489,13 +503,13 @@ pub(crate) async fn preface(st: &Shared, thread: &str, before: &str, note: &str)
             continue;
         };
         let who = if v["type"] == "user_message" {
-            "用户"
+            "User"
         } else {
-            "助手"
+            "Assistant"
         };
         if let Some(t) = v["text"].as_str().map(str::trim).filter(|t| !t.is_empty()) {
             turns.push(format!(
-                "{who}：{}",
+                "{who}: {}",
                 t.chars().take(1500).collect::<String>()
             ));
         }
@@ -512,7 +526,7 @@ pub(crate) async fn preface(st: &Shared, thread: &str, before: &str, note: &str)
         out = format!("{t}\n\n{out}");
     }
     format!(
-        "（以下是这段对话此前的记录，供你了解上文；{note}）\n\n{}\n（记录结束。下面是用户现在的消息。）\n\n",
+        "(Below is the earlier part of this conversation, for context; {note})\n\n{}\n(End of transcript. The user's current message follows.)\n\n",
         out.trim_end()
     )
 }
@@ -523,10 +537,13 @@ pub async fn retry(
     Json(b): Json<RetryBody>,
 ) -> Response {
     let Ok(ws) = id.parse().map(WorkspaceId) else {
-        return fail(StatusCode::BAD_REQUEST, "工作区 id 不对");
+        return fail(StatusCode::BAD_REQUEST, "Invalid workspace id");
     };
     if busy(&st, ws).await {
-        return fail(StatusCode::CONFLICT, "agent 还在运行，先中断再重试");
+        return fail(
+            StatusCode::CONFLICT,
+            "Agent is still running; interrupt it before retrying",
+        );
     }
     let row = sqlx::query(
         "SELECT COALESCE(thread_id, id) AS thread, created_at, runtime_kind, rewound_at
@@ -537,7 +554,7 @@ pub async fn retry(
     .fetch_optional(st.db.pool())
     .await;
     let Ok(Some(row)) = row else {
-        return fail(StatusCode::NOT_FOUND, "没有这条会话");
+        return fail(StatusCode::NOT_FOUND, "No such session");
     };
     if row
         .try_get::<Option<String>, _>("rewound_at")
@@ -545,7 +562,10 @@ pub async fn retry(
         .flatten()
         .is_some()
     {
-        return fail(StatusCode::CONFLICT, "这条消息已经被回退过了");
+        return fail(
+            StatusCode::CONFLICT,
+            "This message has already been rewound",
+        );
     }
     let thread: String = row.try_get("thread").unwrap_or_default();
     let created: String = row.try_get("created_at").unwrap_or_default();
@@ -570,7 +590,10 @@ pub async fn retry(
         .map(str::to_owned)
         .or(original);
     let Some(text) = text else {
-        return fail(StatusCode::CONFLICT, "找不到那条消息的原文");
+        return fail(
+            StatusCode::CONFLICT,
+            "Couldn't find the original text of that message",
+        );
     };
 
     let cp: Option<String> = sqlx::query_scalar(
@@ -644,12 +667,23 @@ pub async fn retry(
         req["resume"] = json!(false);
         req["text"] = json!(format!(
             "{}{text}",
-            preface(&st, &thread, &created, "文件已经恢复到当时的状态。").await
+            preface(
+                &st,
+                &thread,
+                &created,
+                "Files have been restored to how they were at that point."
+            )
+            .await
         ));
     }
     let parsed: PromptRequest = match serde_json::from_value(req) {
         Ok(p) => p,
-        Err(e) => return fail(StatusCode::BAD_REQUEST, format!("发送选项不对：{e}")),
+        Err(e) => {
+            return fail(
+                StatusCode::BAD_REQUEST,
+                format!("Invalid send options: {e}"),
+            );
+        }
     };
     match crate::api::prompt(State(st.clone()), Path(id), Json(parsed)).await {
         Ok(Json(mut v)) => {
