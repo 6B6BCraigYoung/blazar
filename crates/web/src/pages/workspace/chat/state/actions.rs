@@ -287,7 +287,8 @@ impl Chat {
             let body = format!(
                 "· Files are restored to before this message (current state is backed up)\n· \
                 This message{tail} leave the context\n· Non-Git folders have no checkpoints; \
-                only the conversation restarts"
+                only the conversation restarts\n· If this turn failed after doing work, it continues \
+                in place instead: nothing is rolled back"
             );
             if dialog::ask(
                 &format!("{head}?"),
@@ -334,7 +335,9 @@ impl Chat {
                     if restored {
                         self.git.changed.update(|n| *n += 1);
                     }
-                    toast(if restored {
+                    toast(if r["continued"] == json!(true) {
+                        "Continuing where the failed turn stopped; nothing was rolled back."
+                    } else if restored {
                         "Files restored. Continuing from here."
                     } else {
                         "Continuing from here; no checkpoint, files unchanged."

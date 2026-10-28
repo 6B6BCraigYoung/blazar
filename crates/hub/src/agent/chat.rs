@@ -561,7 +561,7 @@ pub async fn retry(
         );
     }
     let row = sqlx::query(
-        "SELECT COALESCE(thread_id, id) AS thread, created_at, runtime_kind, rewound_at
+        "SELECT COALESCE(thread_id, id) AS thread, created_at, runtime_kind, rewound_at, status
          FROM sessions WHERE id = ?1 AND workspace_id = ?2",
     )
     .bind(&b.session_id)
@@ -585,6 +585,10 @@ pub async fn retry(
     let thread: String = row.try_get("thread").unwrap_or_default();
     let created: String = row.try_get("created_at").unwrap_or_default();
     let runtime: String = row.try_get("runtime_kind").unwrap_or_default();
+    let status: String = row.try_get("status").unwrap_or_default();
+    if b.text.is_none() && status == "failed" && did_work(&st, &b.session_id).await {
+        return continue_failed(&st, &id, b.options, &thread, &created, &runtime).await;
+    }
 
     let original: Option<String> = sqlx::query_scalar(
         "SELECT payload FROM events WHERE session_id = ?1 AND payload LIKE '{\"type\":\"user_message\"%'
@@ -724,6 +728,79 @@ pub async fn retry(
                 format!("{}. Nothing was changed", e.message().trim_end_matches('.')),
             )
         }
+    }
+}
+
+pub const CONTINUE_FAILED_TEXT: &str = "Your previous turn stopped with an error before it finished. Nothing was rolled back: check what is already done, then pick up where you left off and finish the remaining work.";
+
+pub async fn did_work(st: &Shared, sid: &str) -> bool {
+    sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM events WHERE session_id = ?1 AND (
+           payload LIKE '{\"type\":\"assistant_message\"%' OR payload LIKE '{\"type\":\"tool_use\"%')",
+    )
+    .bind(sid)
+    .fetch_one(st.db.pool())
+    .await
+    .is_ok_and(|n| n > 0)
+}
+
+pub async fn superseded(st: &Shared, thread: &str, created: &str) -> bool {
+    sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM sessions
+         WHERE COALESCE(thread_id, id) = ?1 AND created_at > ?2 AND rewound_at IS NULL",
+    )
+    .bind(thread)
+    .bind(created)
+    .fetch_one(st.db.pool())
+    .await
+    .is_ok_and(|n| n > 0)
+}
+
+/// 失败的这一轮已经干过活：不还原文件、不回卷，就在这段会话上接着做。
+async fn continue_failed(
+    st: &Shared,
+    id: &str,
+    options: Value,
+    thread: &str,
+    created: &str,
+    runtime: &str,
+) -> Response {
+    if superseded(st, thread, created).await {
+        return fail(
+            StatusCode::CONFLICT,
+            "This conversation has moved on since that turn failed. Nothing was resent",
+        );
+    }
+    let mut req = if options.is_object() {
+        options
+    } else {
+        json!({})
+    };
+    if req["agent"].is_null() && req["profile"].is_null() {
+        req["agent"] = json!(runtime);
+    }
+    req["text"] = json!(CONTINUE_FAILED_TEXT);
+    req["images"] = json!([]);
+    req["resume"] = json!(true);
+    req["resume_at_last"] = json!(false);
+    req["resume_session"] = json!(thread);
+    req["retry_thread"] = json!(thread);
+    let parsed: PromptRequest = match serde_json::from_value(req) {
+        Ok(p) => p,
+        Err(e) => {
+            return fail(
+                StatusCode::BAD_REQUEST,
+                format!("Invalid send options: {e}"),
+            );
+        }
+    };
+    match crate::api::prompt(State(st.clone()), Path(id.to_owned()), Json(parsed)).await {
+        Ok(Json(mut v)) => {
+            v["files_restored"] = json!(false);
+            v["continued"] = json!(true);
+            Json(v).into_response()
+        }
+        Err(e) => fail(StatusCode::BAD_GATEWAY, e.message()),
     }
 }
 

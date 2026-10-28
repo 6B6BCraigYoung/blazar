@@ -511,6 +511,22 @@ pub async fn supervise(
     }
 }
 
+/// 最后一轮已经正常收尾、之后也没有新消息：进程随后怎么退出的（hub 重启、被杀）
+/// 都不算这段会话失败，否则重试会把干完的活整段回卷。
+async fn last_turn_succeeded(ctx: &Ctx) -> bool {
+    sqlx::query_scalar::<_, String>(
+        "SELECT payload FROM events WHERE session_id = ?1
+           AND (payload LIKE '{\"type\":\"finished\"%' OR payload LIKE '{\"type\":\"user_message\"%')
+         ORDER BY seq DESC LIMIT 1",
+    )
+    .bind(ctx.sid.to_string())
+    .fetch_optional(ctx.st.db.pool())
+    .await
+    .ok()
+    .flatten()
+    .is_some_and(|p| p.starts_with(r#"{"type":"finished","status":"success""#))
+}
+
 async fn drain_remaining(ctx: &Ctx, offset: &mut u64, size: u64, p: &mut Progress) -> bool {
     if *offset == size {
         return true;
@@ -619,7 +635,7 @@ async fn finalize(ctx: &Ctx, code: Option<i32>, p: &mut Progress) -> Result<(), 
     }
     let status = if interrupted {
         "interrupted"
-    } else if code == Some(0) {
+    } else if code == Some(0) || last_turn_succeeded(ctx).await {
         "done"
     } else {
         "failed"

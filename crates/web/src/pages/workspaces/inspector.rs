@@ -98,7 +98,8 @@ pub fn retry_workspace(app: AppData, id: String, session: String) {
     spawn_local(async move {
         let ok = dialog::ask(
             "重试这一轮？",
-            "· 文件会还原到这条消息之前（当前状态会先备份）\n· 用同一条消息重新开始",
+            "· 这一轮如果已经做了一部分才失败，就从停下的地方接着做，不还原文件\n\
+             · 否则文件还原到这条消息之前（当前状态会先备份），用同一条消息重新开始",
             vec![Choice::plain("取消"), Choice::danger("重试")],
         )
         .await;
@@ -118,6 +119,10 @@ pub fn retry_workspace(app: AppData, id: String, session: String) {
                     .unwrap_or("工作区正忙着别的操作")
                     .to_owned(),
             ),
+            Ok(r) if r["continued"] == json!(true) => {
+                toast("已从停下的地方接着做");
+                app.load_state();
+            }
             Ok(_) => {
                 toast("已重新开始");
                 app.load_state();

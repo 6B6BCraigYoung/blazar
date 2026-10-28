@@ -60,6 +60,12 @@ where
     .ok()
     .flatten();
     let (ws, raw, thread, created) = row?;
+    if crate::chat::did_work(st, &sid.to_string()).await
+        || crate::chat::superseded(st, &thread, &created).await
+    {
+        tracing::info!(target: "blazar::resume", "{sid} 已经干过活或对话已往下走，不自动重发，留给失败卡片");
+        return None;
+    }
     let Some(req) = raw.and_then(|r| serde_json::from_str::<Value>(&r).ok()) else {
         tracing::warn!(target: "blazar::resume", "{sid} 的续接点丢了，但没有留下原始请求，没法自动重发");
         return None;
