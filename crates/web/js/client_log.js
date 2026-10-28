@@ -68,7 +68,9 @@ export function install() {
     const at = e.filename ? ` (${e.filename.split('/').pop()}:${e.lineno})` : '';
     note('error', `${e.message}${at}`);
   });
-  window.addEventListener('unhandledrejection', e => note('rejection', e.reason?.message ?? e.reason));
+  window.addEventListener('unhandledrejection', e => {
+    if (e.reason?.name !== 'Canceled') note('rejection', e.reason?.message ?? e.reason);
+  });
   const original = console.error.bind(console);
   console.error = (...args) => {
     const text = args.map(a => a?.message ?? String(a)).join(' ');
