@@ -14,6 +14,35 @@ use crate::pages::*;
 use crate::realtime;
 
 #[component]
+fn Main(children: Children) -> impl IntoView {
+    let main = NodeRef::<leptos::html::Main>::new();
+    let path = leptos_router::hooks::use_location().pathname;
+    Effect::new(move |_| {
+        path.track();
+        if let Some(m) = main.get_untracked() {
+            m.set_scroll_top(0);
+            m.set_scroll_left(0);
+        }
+    });
+    view! {
+        <main
+            class="main"
+            node_ref=main
+            on:scroll=move |_| {
+                if let Some(m) = main.get_untracked()
+                    && m.scroll_left() != 0
+                {
+                    m.set_scroll_left(0);
+                    crate::client_log::note("layout", "main scrolled sideways, reset");
+                }
+            }
+        >
+            {children()}
+        </main>
+    }
+}
+
+#[component]
 pub fn App() -> impl IntoView {
     let bus = realtime::provide();
     let app = crate::app_state::provide(bus);
@@ -50,7 +79,7 @@ pub fn App() -> impl IntoView {
                     "☰"
                 </button>
                 <Sidebar />
-                <main class="main">
+                <Main>
                     <Routes fallback=NotFound>
                         <ParentRoute path=path!("") view=ConsolePage>
                             <Route path=path!("/") view=|| () />
@@ -85,7 +114,7 @@ pub fn App() -> impl IntoView {
                         <Route path=path!("/accounts") view=RuntimesPage />
                         <Route path=path!("/mesh") view=NodesPage />
                     </Routes>
-                </main>
+                </Main>
             </div>
             <NewWorkspace />
             <InspectorHost />
