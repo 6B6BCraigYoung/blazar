@@ -290,8 +290,12 @@ fn start_embedded(rt: &tokio::runtime::Runtime) -> Result<Hub> {
         .ok()
         .and_then(|s| s.trim().parse().ok())
         .unwrap_or(0);
-    let free = saved != 0 && std::net::TcpListener::bind(("127.0.0.1", saved)).is_ok();
-    cfg.bind = ([127, 0, 0, 1], if free { saved } else { 0 }).into();
+    let port = if remote::port_is_free(saved) {
+        saved
+    } else {
+        0
+    };
+    cfg.bind = ([127, 0, 0, 1], port).into();
     let (addr, state) = rt
         .block_on(blazar_hub::spawn(cfg))
         .context("启动内嵌 hub 失败")?;

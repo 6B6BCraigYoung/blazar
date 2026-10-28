@@ -23,8 +23,16 @@ pub fn free_port() -> std::io::Result<u16> {
         .port())
 }
 
-fn port_is_free(port: u16) -> bool {
-    port != 0 && std::net::TcpListener::bind(("127.0.0.1", port)).is_ok()
+/// 和真正监听时一样带上 SO_REUSEADDR：上次留下的 TIME_WAIT 连接不算占用，
+/// 否则 macOS 上重启后探测总失败，端口每次都换。
+pub fn port_is_free(port: u16) -> bool {
+    port != 0
+        && tokio::net::TcpSocket::new_v4()
+            .and_then(|s| {
+                s.set_reuseaddr(true)?;
+                s.bind(([127, 0, 0, 1], port).into())
+            })
+            .is_ok()
 }
 
 pub fn tunnel_port(file: &Path, alias: &str, remote: u16) -> std::io::Result<u16> {
@@ -530,6 +538,17 @@ mod tests {
         assert_ne!(second, first);
         drop(busy);
         assert_eq!(tunnel_port(&file, "hub-host", 7777).unwrap(), second);
+    }
+
+    #[test]
+    fn port_left_in_time_wait_still_counts_as_free() {
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let client = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+        drop(listener.accept().unwrap());
+        drop(client);
+        drop(listener);
+        assert!(port_is_free(port));
     }
 
     #[test]
