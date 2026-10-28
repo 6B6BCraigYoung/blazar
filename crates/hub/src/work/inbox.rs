@@ -306,11 +306,18 @@ async fn push_denials(
     if !auto {
         return;
     }
-    let denials = events.iter().rev().find_map(|e| match &e.kind {
-        EntryKind::Finished(Outcome::Success { denials, .. }) => Some(denials.clone()),
-        _ => None,
-    });
-    for d in denials.unwrap_or_default() {
+    let mut seen = std::collections::HashSet::new();
+    let denials: Vec<_> = events
+        .iter()
+        .filter_map(|e| match &e.kind {
+            EntryKind::Finished(Outcome::Success { denials, .. }) => Some(denials),
+            _ => None,
+        })
+        .flatten()
+        .filter(|d| seen.insert(d.tool_use_id.clone()))
+        .cloned()
+        .collect();
+    for d in denials {
         if st
             .db
             .denial_decision(sid, &d.tool_use_id)
@@ -319,6 +326,17 @@ async fn push_denials(
             .flatten()
             .is_some()
         {
+            continue;
+        }
+        let listed: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM inbox WHERE kind = 'denied' AND session_id = ?1 AND ref_id = ?2",
+        )
+        .bind(sid.to_string())
+        .bind(&d.tool_use_id)
+        .fetch_one(st.db.pool())
+        .await
+        .unwrap_or(0);
+        if listed > 0 {
             continue;
         }
         let what = d.what();
