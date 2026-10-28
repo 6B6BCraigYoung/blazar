@@ -43,7 +43,7 @@ else
   got="$(sha256sum "$work/$zip" | cut -d' ' -f1)"
 fi
 if [[ "$got" != "$want" ]]; then
-  echo "SHA-256 不符！期望 $want，实际 $got —— 拒绝使用" >&2
+  echo "SHA-256 不符！期望 ${want}，实际 $got —— 拒绝使用" >&2
   exit 1
 fi
 

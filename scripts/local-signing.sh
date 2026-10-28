@@ -69,7 +69,7 @@ EOF
 status() {
   if has_identity; then
     security find-certificate -c "$NAME" -Z "$KEYCHAIN" | awk '/SHA-1/ {print "证书指纹（SHA-1）：" $NF}'
-    echo "签名身份：$NAME（$KEYCHAIN）"
+    echo "签名身份：${NAME}（${KEYCHAIN}）"
   else
     echo "没有本地签名证书，打包时使用临时签名"
     return 1

@@ -63,7 +63,7 @@ start() {
     if [ -n "$p" ] && [ -n "$u" ] && curl -fsS -o /dev/null "$u/" 2>/dev/null; then
       [ "${BLAZAR_UI_DRIVER:-1}" = 1 ] && wait_page
       [ "${BLAZAR_DEV_LINK_ACCOUNT:-0}" = 1 ] && link_account
-      echo "已启动：pid $p，$u"
+      echo "已启动：pid ${p}，$u"
       return 0
     fi
     sleep 0.5
@@ -76,7 +76,7 @@ status() {
   local p
   p=$(pid)
   if [ -n "$p" ]; then
-    echo "运行中：pid $p，$(url || echo 无地址)，数据目录 $DATA"
+    echo "运行中：pid ${p}，$(url || echo 无地址)，数据目录 $DATA"
   else
     echo "没有运行"
     return 1
@@ -159,12 +159,12 @@ link_account() {
   id=$(jq -r --arg f "$dir/.blazar-oauth-token" '.accounts[]? | select(.linked == $f) | .id' <<<"$mine" | head -1)
   if [ -z "$id" ]; then
     id=$(hub_api "$DATA/hub.session" POST /api/accounts \
-      "$(jq -cn --arg l "$label（引用）" --arg f "$dir/.blazar-oauth-token" '{provider: "claude", label: $l, token_file: $f}')" \
+      "$(jq -cn --arg l "${label}（引用）" --arg f "$dir/.blazar-oauth-token" '{provider: "claude", label: $l, token_file: $f}')" \
       | jq -r '.id // empty' || true)
   fi
   [ -n "$id" ] || { echo "建不了引用账号，Claude 账号保持原样" >&2; return 0; }
   hub_api "$DATA/hub.session" PUT /api/accounts/mode "$(jq -cn --arg id "$id" '{provider: "claude", mode: $id}')" >/dev/null
-  echo "Claude 账号：引用所在 hub 的「$label」"
+  echo "Claude 账号：引用所在 hub 的「${label}」"
 }
 
 case "${1:-status}" in
