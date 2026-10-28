@@ -442,6 +442,7 @@ dependencies = [
  "blazar-core-types",
  "chrono",
  "libc",
+ "nix",
  "serde",
  "serde_json",
  "sqlx",

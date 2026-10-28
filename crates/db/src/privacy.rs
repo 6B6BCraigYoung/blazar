@@ -47,7 +47,7 @@ pub(crate) fn prepare_database(path: &Path) -> io::Result<()> {
     restrict_sidecars(path)
 }
 
-pub(crate) fn restrict_sidecars(path: &Path) -> io::Result<()> {
+fn restrict_sidecars(path: &Path) -> io::Result<()> {
     for suffix in ["-wal", "-shm", "-journal"] {
         let mut sidecar = path.as_os_str().to_owned();
         sidecar.push(suffix);

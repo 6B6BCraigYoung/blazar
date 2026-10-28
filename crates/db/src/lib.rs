@@ -63,9 +63,10 @@ impl Db {
             .synchronous(SqliteSynchronous::Normal)
             .busy_timeout(std::time::Duration::from_secs(10))
             .foreign_keys(true);
-        let db = Self::connect(options).await?;
-        privacy::restrict_sidecars(path)?;
-        Ok(db)
+        // 连上以后不能再开关这几个文件：关掉任何一个 fd 都会丢掉本进程在它上面的 POSIX 锁，
+        // 外部进程随后打开库会把 -shm 当成没人用而重置，正在映射它的连接就会 SIGBUS。
+        // 新建的 -wal/-shm 由 SQLite 照抄主库的 0600，已有的在上面 prepare_database 里收紧过。
+        Self::connect(options).await
     }
 
     pub async fn open_in_memory() -> Result<Self> {
@@ -528,6 +529,57 @@ mod tests {
         }
         second.pool().close().await;
         first.pool().close().await;
+    }
+
+    const SHM_PROBE: &str = "BLAZAR_SHM_PROBE";
+
+    /// 只在被下面的测试作为子进程拉起时干活：试着独占 -shm 的 DMS 锁字节，拿到了就说明锁丢了。
+    #[cfg(unix)]
+    #[test]
+    fn shm_lock_probe() {
+        let Ok(shm) = std::env::var(SHM_PROBE) else {
+            return;
+        };
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(shm)
+            .unwrap();
+        let lock = libc::flock {
+            l_type: libc::F_WRLCK as _,
+            l_whence: libc::SEEK_SET as _,
+            l_start: 128,
+            l_len: 1,
+            l_pid: 0,
+        };
+        let got = nix::fcntl::fcntl(
+            std::os::fd::AsRawFd::as_raw_fd(&file),
+            nix::fcntl::FcntlArg::F_SETLK(&lock),
+        )
+        .is_ok();
+        assert!(!got, "外部进程拿到了 -shm 的 DMS 锁，打开库的进程已经丢锁");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn open_keeps_sqlite_shm_lock_for_other_processes() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("blazar.sqlite");
+        let db = Db::open(&path).await.unwrap();
+        sqlx::query("SELECT count(*) FROM sqlite_master")
+            .execute(db.pool())
+            .await
+            .unwrap();
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "tests::shm_lock_probe", "--quiet"])
+            .env(SHM_PROBE, temp.path().join("blazar.sqlite-shm"))
+            .status()
+            .unwrap();
+        assert!(
+            status.success(),
+            "打开库以后外部进程不该拿到 -shm 的 DMS 锁"
+        );
+        db.pool().close().await;
     }
 
     async fn fixture(db: &Db) -> (WorkspaceId, SessionId) {
