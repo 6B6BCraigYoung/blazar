@@ -1,11 +1,8 @@
 use leptos::prelude::*;
 use leptos_router::hooks::use_navigate;
 
-use crate::api;
 use crate::app_state::use_app;
-use crate::components::icon;
 use crate::fmt;
-use crate::realtime::use_bus;
 
 fn names(list: &[String]) -> String {
     match list {
@@ -19,7 +16,6 @@ fn names(list: &[String]) -> String {
 #[component]
 pub fn Pulse(rail_mode: Callback<bool>) -> impl IntoView {
     let app = use_app();
-    let bus = use_bus();
     let navigate = StoredValue::new_local(use_navigate());
     let go = move |href: &str| {
         let href = href.to_owned();
@@ -73,30 +69,6 @@ pub fn Pulse(rail_mode: Callback<bool>) -> impl IntoView {
             String::new()
         }
     });
-    let machines = Memo::new(move |_| {
-        let nodes = app.nodes();
-        let usable: Vec<_> = nodes.iter().filter(|n| n.is_usable()).collect();
-        let on = usable.iter().filter(|n| n.status == "online").count();
-        (on, usable.len())
-    });
-    let quota = LocalResource::new(move || {
-        bus.accounts.track();
-        bus.resyncs.track();
-        async move {
-            let a = api::get::<api::Accounts>("/api/accounts").await.ok()?;
-            a.accounts
-                .iter()
-                .filter(|a| a.usable())
-                .flat_map(|a| a.windows.iter())
-                .max_by(|x, y| x.utilization.total_cmp(&y.utilization))
-                .map(|w| {
-                    (
-                        (w.utilization * 100.0).round().clamp(0.0, 100.0) as u32,
-                        fmt::window_label(&w.name),
-                    )
-                })
-        }
-    });
     view! {
         <section class="pulse" aria-label="状态">
             <button type="button" class="tile" data-k="running" on:click=move |_| go("/workspaces")>
@@ -134,41 +106,6 @@ pub fn Pulse(rail_mode: Callback<bool>) -> impl IntoView {
                 </span>
                 <span class="tn">{move || waiting.get().2}</span>
                 <span class="ts">{move || failed_sub.get()}</span>
-            </button>
-            <button type="button" class="tile" data-k="nodes" on:click=move |_| go("/nodes")>
-                <span class="tl">
-                    <span class="ic" inner_html=icon::svg(icon::NODES)></span>
-                    "机器"
-                </span>
-                <span class="tn">
-                    {move || machines.get().0}
-                    <small>{move || format!(" / {}", machines.get().1)}</small>
-                </span>
-                <span class="ts">
-                    {move || {
-                        let (on, total) = machines.get();
-                        if total > on { format!("{} 台离线", total - on) } else { "都在线".to_owned() }
-                    }}
-                </span>
-            </button>
-            <button type="button" class="tile" data-k="quota" on:click=move |_| go("/runtimes")>
-                <span class="tl">
-                    {move || match quota.get().flatten() {
-                        Some((_, label)) => format!("额度 · {label}"),
-                        None => "额度".to_owned(),
-                    }}
-                </span>
-                <span class="tn">
-                    {move || match quota.get().flatten() {
-                        Some((pct, _)) => format!("{pct}%"),
-                        None => "—".to_owned(),
-                    }}
-                </span>
-                <span class="bar">
-                    <b style=move || {
-                        format!("width:{}%", quota.get().flatten().map_or(0, |q| q.0))
-                    }></b>
-                </span>
             </button>
         </section>
     }
