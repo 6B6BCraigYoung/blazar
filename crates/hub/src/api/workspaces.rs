@@ -838,6 +838,7 @@ pub async fn workspace_diff(
     let opts = blazar_vfs::DiffOpts {
         merge_base: branch.is_some(),
         ignore_ws: q.w.as_deref().is_some_and(|w| w == "1" || w == "true"),
+        max_bytes: Some(MAX_DIFF_BYTES + 1),
     };
 
     match vfs.diff_opts(&base, opts).await {

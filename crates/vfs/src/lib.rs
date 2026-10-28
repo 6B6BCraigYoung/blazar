@@ -230,6 +230,9 @@ pub struct DiffOpts {
     pub merge_base: bool,
 
     pub ignore_ws: bool,
+
+    /// 远端只回传前这么多字节，超大 diff 不再整份经 ssh 拉回来。
+    pub max_bytes: Option<usize>,
 }
 
 pub struct Vfs {

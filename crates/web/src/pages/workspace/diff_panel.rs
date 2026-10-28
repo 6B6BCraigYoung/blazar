@@ -125,6 +125,13 @@ impl DiffState {
 pub fn keep_loaded(ws: String, d: DiffState, git: Git, state: LayoutState) {
     let bus = use_bus();
     let latest = std::rc::Rc::new(latest::Latest::default());
+    let inflight = StoredValue::new(None::<futures::future::AbortHandle>);
+    let running = StoredValue::new(false);
+    on_cleanup(move || {
+        if let Some(h) = inflight.try_update_value(Option::take).flatten() {
+            h.abort();
+        }
+    });
     let refresh = move || {
         d.reload.update(|n| *n += 1);
         git.reload.update(|n| *n += 1);
@@ -157,7 +164,15 @@ pub fn keep_loaded(ws: String, d: DiffState, git: Git, state: LayoutState) {
         d.loading.set(true);
         d.error.set(None);
         let latest = latest.clone();
-        spawn_local(async move {
+        // 同一工作区只留一个 diff 在路上：旧的取消掉，连续触发合并成一次。
+        if let Some(h) = inflight.try_update_value(Option::take).flatten() {
+            h.abort();
+        }
+        let busy = running.try_update_value(|r| std::mem::replace(r, true)) == Some(true);
+        let (task, handle) = futures::future::abortable(async move {
+            if busy {
+                gloo_timers::future::TimeoutFuture::new(250).await;
+            }
             let mut q = Vec::new();
             if !base.is_empty() {
                 q.push(format!("base={}", api::enc(&base)));
@@ -170,6 +185,7 @@ pub fn keep_loaded(ws: String, d: DiffState, git: Git, state: LayoutState) {
             if !latest.accepts(request) {
                 return;
             }
+            running.try_set_value(false);
             let _ = d.loading.try_set(false);
             match r {
                 Ok(r) => {
@@ -186,6 +202,10 @@ pub fn keep_loaded(ws: String, d: DiffState, git: Git, state: LayoutState) {
             }
             let _ = d.base.try_set(base);
             let _ = d.loaded.try_update(|n| *n += 1);
+        });
+        inflight.set_value(Some(handle));
+        spawn_local(async move {
+            let _ = task.await;
         });
     });
 }

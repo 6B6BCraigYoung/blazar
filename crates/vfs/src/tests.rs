@@ -1035,3 +1035,36 @@ async fn rename_and_remove_stay_inside_the_root() {
     assert!(v.remove("..").await.is_err());
     assert!(root.path().join("src/b.rs").is_file());
 }
+
+#[tokio::test]
+async fn a_huge_diff_is_cut_on_the_node_instead_of_shipped_whole() {
+    let d = scratch("huge-diff");
+    sh(
+        &d,
+        "git init -q . && git config user.email t@t && git config user.name t \
+            && echo a > a && git add -A && git commit -qm i",
+    );
+    let line = "中文与 ascii 混排的一行，用来检查截断不会切坏字符\n";
+    std::fs::write(d.join("big.txt"), line.repeat(40_000)).unwrap();
+
+    let v = Vfs::new(Arc::new(TestLocal), d.to_str().unwrap());
+    let full = v.diff("HEAD").await.unwrap();
+    let cap = 100_001;
+    let cut = v
+        .diff_opts(
+            "HEAD",
+            DiffOpts {
+                max_bytes: Some(cap),
+                ..DiffOpts::default()
+            },
+        )
+        .await
+        .expect("被 head 截断不算出错");
+    assert!(full.len() > cap * 10, "测试要真的够大: {}", full.len());
+    assert!(cut.len() <= cap + 2, "远端只回传上限内的字节: {}", cut.len());
+    let keep = (0..=cap - 1)
+        .rev()
+        .find(|&i| full.is_char_boundary(i))
+        .unwrap();
+    assert_eq!(cut[..keep], full[..keep], "截断前的内容要和完整 diff 一字不差");
+}

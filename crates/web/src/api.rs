@@ -102,9 +102,44 @@ async fn read<T: DeserializeOwned>(
         .map_err(|e| ApiError::new(format!("服务返回的数据无法识别：{e}")))
 }
 
+/// 请求的 Future 被丢掉（离开页面、被新请求顶掉）时真正取消 fetch。
+/// 否则浏览器会把它跑完，占着同一主机仅有的几条连接，别的页面只能排队。
+struct AbortOnDrop(Option<web_sys::AbortController>);
+
+impl AbortOnDrop {
+    fn new() -> Self {
+        Self(web_sys::AbortController::new().ok())
+    }
+
+    fn signal(&self) -> Option<web_sys::AbortSignal> {
+        self.0.as_ref().map(web_sys::AbortController::signal)
+    }
+
+    fn disarm(mut self) {
+        self.0 = None;
+    }
+}
+
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        if let Some(c) = self.0.take() {
+            c.abort();
+        }
+    }
+}
+
 pub async fn get<T: DeserializeOwned>(path: &str) -> Result<T, ApiError> {
     session().await?;
-    read("GET", path, Request::get(path).send().await).await
+    let guard = AbortOnDrop::new();
+    let signal = guard.signal();
+    let out = read(
+        "GET",
+        path,
+        Request::get(path).abort_signal(signal.as_ref()).send().await,
+    )
+    .await;
+    guard.disarm();
+    out
 }
 
 pub async fn send<T: DeserializeOwned>(

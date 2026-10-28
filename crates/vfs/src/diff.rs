@@ -14,7 +14,7 @@ B={base}
 {merge_base}
 git rev-parse --verify --quiet "$B^{{commit}}" >/dev/null 2>&1 \
   || B=$(git hash-object -t tree /dev/null)
-git --no-pager -c core.quotepath=false diff {ws} "$B""#,
+git --no-pager -c core.quotepath=false diff {ws} "$B"{cap}"#,
             root = shell_quote(&self.root),
             base = shell_quote(base),
             temp_index = TEMP_INDEX,
@@ -24,6 +24,13 @@ git --no-pager -c core.quotepath=false diff {ws} "$B""#,
                 ""
             },
             ws = if opts.ignore_ws { "-w" } else { "" },
+            // head 提前收口时 git 会收到 SIGPIPE（141），那是截断不是出错。
+            cap = match opts.max_bytes {
+                Some(n) => format!(
+                    " | head -c {n}\nS=${{PIPESTATUS[0]}}; [ \"$S\" = 141 ] && S=0; exit $S"
+                ),
+                None => String::new(),
+            },
         );
         let out = self
             .transport
