@@ -713,11 +713,30 @@ pub async fn retry(
             v["undo"] = json!(undo);
             Json(v).into_response()
         }
-        Err(e) => {
-            take_back(&st, &thread, &stamp, undo.as_deref()).await;
+        Err(e) if started_in(&st, &thread, &created).await => {
+            st.emit(ServerEvent::WorkspacesChanged);
             fail(StatusCode::BAD_GATEWAY, e.message())
         }
+        Err(e) => {
+            take_back(&st, &thread, &stamp, undo.as_deref()).await;
+            fail(
+                StatusCode::BAD_GATEWAY,
+                format!("{}. Nothing was changed", e.message().trim_end_matches('.')),
+            )
+        }
     }
+}
+
+async fn started_in(st: &Shared, thread: &str, created: &str) -> bool {
+    sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM sessions
+         WHERE COALESCE(thread_id, id) = ?1 AND created_at >= ?2 AND rewound_at IS NULL",
+    )
+    .bind(thread)
+    .bind(created)
+    .fetch_one(st.db.pool())
+    .await
+    .is_ok_and(|n| n > 0)
 }
 
 async fn take_back(st: &Shared, thread: &str, stamp: &str, undo: Option<&str>) {

@@ -341,7 +341,7 @@ impl Chat {
                     });
                 }
                 Err(e) => {
-                    toast(format!("Retry failed, nothing was changed: {e}"));
+                    toast(format!("Retry failed: {e}"));
                     self.git.changed.update(|n| *n += 1);
                     if self.context_is_current(&context) {
                         self.load_history();
