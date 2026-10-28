@@ -557,33 +557,33 @@ async fn finalize(ctx: &Ctx, code: Option<i32>, p: &mut Progress) -> Result<(), 
             Outcome::Failed {
                 message: match code {
                     Some(c) => format!(
-                        "agent 异常退出（退出码 {c}）{}{}",
+                        "agent exited unexpectedly (exit code {c}){}{}",
                         if tail.is_empty() {
                             String::new()
                         } else {
-                            format!("。stderr: {tail}")
+                            format!(". stderr: {tail}")
                         },
                         if c == 127 && tail.contains("not found") {
                             let program = ctx.runtime.spec().label;
                             if ctx.node == "local" {
-                                format!("。本机找不到 {program}：先装好它，或换一个智能体")
+                                format!(". {program} was not found on this machine: install it, or pick another agent")
                             } else {
                                 format!(
-                                    "。{} 上没有装 {program}：到「机器 → {}」里装上，或换一台机器 / 换一个智能体",
+                                    ". {program} is not installed on {}: install it under Machines → {}, or pick another machine or agent",
                                     ctx.node, ctx.node
                                 )
                             }
                         } else if ctx.node != "local" && tail.contains("unknown option") {
                             format!(
-                                "。{} 上的 CLI 比本机旧，不认这个参数：到「机器 → {}」里把它更新到和本机一致",
+                                ". The CLI on {} is older than the local one and does not accept this option: update it under Machines → {} to match this machine",
                                 ctx.node, ctx.node
                             )
                         } else {
                             String::new()
                         }
                     ),
-                    None => "agent 进程已经不在了（机器重启、被整组杀掉或目录被删），\
-                             可以续接上一段对话重来"
+                    None => "agent process is gone (machine rebooted, process group killed, or directory removed); \
+                             resume the previous conversation to try again"
                         .to_owned(),
                 },
             }
@@ -725,30 +725,34 @@ pub async fn interject(
 ) -> Result<u64, String> {
     let (live, ws) = {
         let r = st.running.read().await;
-        let run = r.get(&sid).ok_or("会话不在运行")?;
+        let run = r.get(&sid).ok_or("Session is not running")?;
         (
-            run.live.clone().ok_or("这个会话不是常驻形态，不能插话")?,
+            run.live
+                .clone()
+                .ok_or("This session is not persistent, so messages can't be sent mid-turn")?,
             run.workspace_id,
         )
     };
     if !live.interactive {
-        return Err("这个 agent 不支持运行中插话".into());
+        return Err("This agent doesn't support messages mid-turn".into());
     }
     let seq = {
         let mut s = live.state.lock().await;
 
         if s.eof_sent {
-            return Err("这一轮已经收尾，请开一轮新的".into());
+            return Err("This turn has already finished; start a new one".into());
         }
         s.user_no += 1;
         let id = format!("u-{}", s.user_no);
 
         let json = if s.app.enabled {
             if crate::api::is_slash_command(text) {
-                return Err("Codex 不能在一轮中途执行斜杠命令，等这一轮结束再发".into());
+                return Err(
+                    "Codex can't run slash commands mid-turn; send it after this turn ends".into(),
+                );
             }
             let (Some(thread), Some(turn)) = (s.app.thread.clone(), s.app.turn.clone()) else {
-                return Err("Codex 这一轮还没开始，稍等再发".into());
+                return Err("Codex hasn't started this turn yet; try again in a moment".into());
             };
             s.app
                 .steers
@@ -761,7 +765,7 @@ pub async fn interject(
         live.run
             .append(&id, &json)
             .await
-            .map_err(|e| format!("写入失败: {e}"))?;
+            .map_err(|e| format!("Write failed: {e}"))?;
         if !crate::api::is_slash_command(text) {
             s.pending_user += 1;
         }
@@ -813,7 +817,10 @@ pub async fn deliver_approval_as(
             || saved.answers.as_ref() != answers
             || saved.auto_rule != auto_rule)
     {
-        return Err("投递参数与已保存的审批决定不一致，请使用原决定重试".into());
+        return Err(
+            "Delivery doesn't match the saved approval decision; retry with the original decision"
+                .into(),
+        );
     }
     deliver_saved_approval(st, a).await
 }
@@ -825,44 +832,55 @@ pub(crate) async fn deliver_saved_approval(
     let response = a
         .response
         .as_ref()
-        .ok_or("这条审批未保存可恢复的完整答复，无法安全重试。请中断当前会话后重新提出请求")?;
+        .ok_or("This approval has no saved reply to recover, so it can't be retried safely. Interrupt the session and make the request again")?;
     let allow = match a.decision.as_deref() {
         Some("allow") => true,
         Some("deny") => false,
-        _ => return Err("审批尚未保存决定".into()),
+        _ => return Err("No decision has been saved for this approval".into()),
     };
     let (live, ws) = {
         let r = st.running.read().await;
         let run = r
             .get(&a.session_id)
-            .ok_or("会话已经不在运行，这条审批作废了")?;
-        (run.live.clone().ok_or("会话不支持审批")?, run.workspace_id)
+            .ok_or("Session is no longer running; this approval is void")?;
+        (
+            run.live
+                .clone()
+                .ok_or("Session doesn't support approvals")?,
+            run.workspace_id,
+        )
     };
-    let off = a.src_offset.ok_or("缺少原始请求的位置")?;
+    let off = a
+        .src_offset
+        .ok_or("Missing the location of the original request")?;
     let raw = live
         .run
         .line_at(off)
         .await
-        .map_err(|e| format!("取原始请求失败: {e}"))?
-        .ok_or("原始请求已经不在节点上了")?;
+        .map_err(|e| format!("Failed to read the original request: {e}"))?
+        .ok_or("The original request is no longer on the node")?;
     let v: serde_json::Value = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
     let msg = if v.get("request_id").is_none() && v.get("method").is_some() && v.get("id").is_some()
     {
-        let rid = blazar_runtime::codex_app::request_id_text(&v).ok_or("原始请求缺 id")?;
+        let rid = blazar_runtime::codex_app::request_id_text(&v)
+            .ok_or("The original request has no id")?;
         if a.provider_request_id.as_deref() != Some(rid.as_str()) {
-            return Err("原始审批请求已改变，请中断会话后重新提出请求".into());
+            return Err("The original approval request has changed; interrupt the session and make the request again".into());
         }
-        blazar_runtime::codex_app::approval_reply(&raw, allow).ok_or("这不是 Codex 的审批请求")?
+        blazar_runtime::codex_app::approval_reply(&raw, allow)
+            .ok_or("This is not a Codex approval request")?
     } else {
-        let rid = v["request_id"].as_str().ok_or("原始请求缺 request_id")?;
+        let rid = v["request_id"]
+            .as_str()
+            .ok_or("The original request has no request_id")?;
         if a.provider_request_id.as_deref() != Some(rid) {
-            return Err("原始审批请求已改变，请中断会话后重新提出请求".into());
+            return Err("The original approval request has changed; interrupt the session and make the request again".into());
         }
         let mut input = v["request"]["input"].clone();
         if let (true, Some(ans)) = (allow, response.answers.as_ref()) {
             let obj = input
                 .as_object_mut()
-                .ok_or("原始审批输入不完整，无法写入答复")?;
+                .ok_or("The original approval input is incomplete; can't write the reply")?;
             obj.insert("answers".into(), ans.clone());
         }
         approval_response_json(rid, allow, Some(&input), &response.message)
@@ -871,7 +889,7 @@ pub(crate) async fn deliver_saved_approval(
     live.run
         .append(&format!("a-{}", a.id), &msg)
         .await
-        .map_err(|e| format!("写入 agent 输入失败: {e}"))?;
+        .map_err(|e| format!("Failed to write agent input: {e}"))?;
     let e = NormalizedEntry {
         seq: state.next_seq,
         ts: Utc::now(),
@@ -893,7 +911,9 @@ pub(crate) async fn deliver_saved_approval(
         .db
         .acknowledge_approval(a.id, a.session_id, ws, &e)
         .await
-        .map_err(|e| format!("输入已写入，但确认送达失败；可安全重试: {e}"))?;
+        .map_err(|e| {
+            format!("Input was written, but confirming delivery failed; safe to retry: {e}")
+        })?;
     if fresh {
         state.next_seq += 1;
     }
@@ -1051,25 +1071,27 @@ pub async fn control(
 ) -> Result<(), String> {
     let live = {
         let r = st.running.read().await;
-        let run = r.get(&sid).ok_or("会话不在运行")?;
-        run.live.clone().ok_or("这个会话不是常驻形态")?
+        let run = r.get(&sid).ok_or("Session is not running")?;
+        run.live.clone().ok_or("This session is not persistent")?
     };
     if !live.interactive {
-        return Err("这个 agent 不支持运行中切换".into());
+        return Err("This agent doesn't support switching mid-turn".into());
     }
     let s = live.state.lock().await;
     if s.eof_sent {
-        return Err("这一轮已经收尾".into());
+        return Err("This turn has already finished".into());
     }
     if s.app.enabled {
-        return Err("Codex 这一轮里不能切换，下一条消息会用新的设置".into());
+        return Err(
+            "Codex can't switch mid-turn; the next message will use the new settings".into(),
+        );
     }
     let id = format!("c-{}", uuid::Uuid::now_v7());
     live.run
         .append(&id, &control_json(&id, request))
         .await
         .map(|_| ())
-        .map_err(|e| format!("写入失败: {e}"))
+        .map_err(|e| format!("Write failed: {e}"))
 }
 
 pub async fn interrupt(st: &Shared, live: Arc<Live>, sid: SessionId) {

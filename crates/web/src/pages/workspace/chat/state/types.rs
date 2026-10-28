@@ -242,17 +242,11 @@ pub const MODES_CODEX: [Mode; 3] = [
 ];
 
 pub fn mode_label(v: &str) -> &str {
-    match v {
-        "default" => "每步询问",
-        "acceptEdits" => "自动改文件",
-        "plan" => "只做计划",
-        "auto" => "自动批准",
-        "bypassPermissions" => "不再询问",
-        "read-only" => "只读",
-        "workspace-write" => "工作区内自动",
-        "danger-full-access" => "完全放开",
-        other => other,
-    }
+    MODES_CLAUDE
+        .iter()
+        .chain(MODES_CODEX.iter())
+        .find(|m| m.0 == v)
+        .map_or(v, |m| m.1)
 }
 
 pub fn default_mode(rt: &str) -> &'static str {

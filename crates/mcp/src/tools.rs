@@ -26,7 +26,7 @@ fn arg<'a>(v: &'a Value, k: &str) -> anyhow::Result<&'a str> {
     v.get(k)
         .and_then(Value::as_str)
         .filter(|s| !s.is_empty())
-        .ok_or_else(|| anyhow::anyhow!("缺少必填参数 {k}"))
+        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: {k}"))
 }
 fn enc(v: &str) -> String {
     v.bytes()
@@ -563,11 +563,11 @@ pub const TOOLS: &[Tool] = &[
         },
         build: |v| {
             if arg(v, "workspace_id").is_err() && arg(v, "node").is_err() {
-                anyhow::bail!("要给 workspace_id（或 node）");
+                anyhow::bail!("workspace_id (or node) is required");
             }
             arg(v, "label")?;
             if !v.get("pid").is_some_and(Value::is_u64) {
-                anyhow::bail!("缺少必填参数 pid");
+                anyhow::bail!("Missing required parameter: pid");
             }
             Ok(("POST", "/api/jobs/register".into(), Some(v.clone())))
         },

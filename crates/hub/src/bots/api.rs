@@ -80,7 +80,7 @@ pub async fn create_bot(State(st): State<Shared>, Json(req): Json<super::NewBot>
 
 pub async fn get_bot(State(st): State<Shared>, Path(id): Path<String>) -> Response {
     let Some(b) = super::get(&st, &id).await else {
-        return not_found("没有这个 bot");
+        return not_found("No such bot");
     };
     let mut v = status::bot_status(&st, &b, 12).await;
     v["all_threads"] = json!(super::threads(&st, &b.id).await);
@@ -124,7 +124,7 @@ pub async fn resume_bot(State(st): State<Shared>, Path(id): Path<String>) -> Res
 
 pub async fn bot_status(State(st): State<Shared>, Path(id): Path<String>) -> Response {
     let Some(b) = super::get(&st, &id).await else {
-        return not_found("没有这个 bot");
+        return not_found("No such bot");
     };
     Json(status::bot_status(&st, &b, 8).await).into_response()
 }
@@ -149,7 +149,7 @@ pub async fn open_thread(
     Json(b): Json<ThreadBody>,
 ) -> Response {
     let Some(bot) = super::get(&st, &id).await else {
-        return not_found("没有这个 bot");
+        return not_found("No such bot");
     };
     match super::open_thread(
         &st,
@@ -173,7 +173,7 @@ pub async fn close_thread(
     Json(b): Json<ThreadBody>,
 ) -> Response {
     let Some(bot) = super::get(&st, &id).await else {
-        return not_found("没有这个 bot");
+        return not_found("No such bot");
     };
     match super::thread(&st, &tid).await {
         Some(t) if t.bot_id == bot.id => {
@@ -182,7 +182,7 @@ pub async fn close_thread(
                 Err(e) => bad(e),
             }
         }
-        _ => not_found("没有这个线程"),
+        _ => not_found("No such thread"),
     }
 }
 
@@ -224,7 +224,7 @@ pub async fn mailbox(
     Query(q): Query<MailQuery>,
 ) -> Response {
     let Some(bot) = super::get(&st, &id).await else {
-        return not_found("没有这个 bot");
+        return not_found("No such bot");
     };
     let status = q.status.filter(|s| !s.is_empty());
     Json(json!({
@@ -239,7 +239,7 @@ pub async fn get_mail(State(st): State<Shared>, Path(id): Path<String>) -> Respo
             let replies = super::replies_to(&st, &m.id).await;
             Json(json!({ "mail": m, "replies": replies })).into_response()
         }
-        None => not_found("没有这封邮件"),
+        None => not_found("No such mail"),
     }
 }
 
@@ -255,7 +255,7 @@ pub async fn reply_mail(
     Json(b): Json<ReplyBody>,
 ) -> Response {
     let Some(c) = caller_of(&headers) else {
-        return bad("reply 只给 bot 用；你要联系 bot 直接给它发邮件");
+        return bad("reply is for bots only; to reach a bot, send it mail directly");
     };
     match super::reply(&st, &id, &b.body, &c).await {
         Ok(v) => Json(v).into_response(),
@@ -310,7 +310,7 @@ pub async fn get_fact(
             }
             Json(v).into_response()
         }
-        None => not_found("没有这条事实"),
+        None => not_found("No such fact"),
     }
 }
 
@@ -346,10 +346,10 @@ pub async fn report_facts(State(st): State<Shared>, Json(body): Json<Value>) -> 
     let mut written = Vec::new();
     for item in items {
         let Ok(p) = serde_json::from_value::<facts::Put>(item.clone()) else {
-            return bad("每条上报要有 key 和 value");
+            return bad("Each report needs a key and a value");
         };
         let Some(key) = p.key.clone() else {
-            return bad("每条上报要有 key");
+            return bad("Each report needs a key");
         };
         match facts::put(&st, &key, p, None).await {
             Ok(f) => written.push(f.key),
@@ -388,7 +388,7 @@ pub async fn list_claims(
     let list = match who.as_deref().filter(|b| !b.is_empty()) {
         Some(b) => match super::get(&st, b).await {
             Some(bot) => claims::of_bot(&st, &bot.id).await,
-            None => return not_found("没有这个 bot"),
+            None => return not_found("No such bot"),
         },
         None => claims::all(&st).await,
     };
@@ -441,7 +441,7 @@ pub async fn get_memory(
 ) -> Response {
     match memory::read(&st, &id, caller_of(&headers).as_ref()).await {
         Some(m) => Json(json!(m)).into_response(),
-        None => not_found("没有这条 memory"),
+        None => not_found("No such memory"),
     }
 }
 
@@ -517,9 +517,9 @@ async fn visible_job(st: &Shared, id: &str, headers: &HeaderMap) -> Result<jobs:
         Some(j) if jobs::visible_to(&j, caller_of(headers).as_ref()) => Ok(j),
         Some(_) => Err(fail(
             StatusCode::FORBIDDEN,
-            "worker 只能看自己发起的后台任务",
+            "Workers can only view background jobs they started",
         )),
-        None => Err(not_found("没有这个后台任务")),
+        None => Err(not_found("No such background job")),
     }
 }
 

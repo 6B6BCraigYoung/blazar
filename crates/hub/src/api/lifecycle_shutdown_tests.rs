@@ -287,6 +287,12 @@ async fn workspace_shutdown_cannot_race_an_existing_start_or_mutation() {
     let f = Fixture::new().await;
     let _guard = f.st.quiesce(f.ws).unwrap();
     let result = delete_workspace(State(f.st.clone()), Path(f.ws.to_string())).await;
-    assert!(result.err().unwrap().message().contains("操作正在进行"));
+    assert!(
+        result
+            .err()
+            .unwrap()
+            .message()
+            .contains("operation is in progress")
+    );
     f.assert_preserved().await;
 }

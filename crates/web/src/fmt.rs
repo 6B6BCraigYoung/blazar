@@ -73,6 +73,17 @@ fn span_en(secs: f64) -> String {
     format!("{n}{unit}")
 }
 
+pub fn ago_en(iso: &str) -> String {
+    parse_ms(iso).map_or_else(String::new, |t| {
+        let d = (js_sys::Date::now() - t) / 1000.0;
+        if d < 60.0 {
+            "just now".into()
+        } else {
+            format!("{} ago", span_en(d))
+        }
+    })
+}
+
 pub fn resets_en(iso: Option<&str>) -> String {
     iso.and_then(parse_ms).map_or_else(String::new, |t| {
         let d = (t - js_sys::Date::now()) / 1000.0;

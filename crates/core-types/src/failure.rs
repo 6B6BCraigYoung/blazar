@@ -26,8 +26,11 @@ const NODE: &[&str] = &[
     "connection closed by remote host",
     "could not resolve hostname",
     "退出码 255",
+    "exit code 255",
     "agent 进程已经不在了",
+    "agent process is gone",
     "启动 agent 失败",
+    "failed to start agent",
     "permission denied (publickey",
     "host key verification",
     "hostname contains invalid characters",
@@ -315,6 +318,9 @@ mod tests {
             "agent 进程已经不在了（机器重启、被整组杀掉或目录被删），可以续接上一段对话重来",
             "机器连不上：ssh: connect to host 10.0.0.1 port 22: No route to host",
             "agent 未产出任何输出。stderr: Permission denied (publickey).",
+            "agent exited unexpectedly (exit code 255). stderr: kex failed",
+            "Failed to start agent on gpu-x: spawn failed",
+            "agent process is gone (machine rebooted, process group killed, or directory removed)",
         ] {
             assert_eq!(of(m), FailureCause::Node, "{m}");
         }

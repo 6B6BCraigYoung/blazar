@@ -213,11 +213,11 @@ pub async fn runtime_models(
     let claude_efforts = ["low", "medium", "high", "xhigh", "max"];
     let models: Vec<serde_json::Value> = match id.as_str() {
         "claude" => [
-            ("", "默认", "跟随 Claude Code 的推荐（当前为 Opus）"),
-            ("opus", "Opus", "日常与复杂任务"),
-            ("fable", "Fable", "最强，适合最难、最长的任务"),
-            ("sonnet", "Sonnet", "高效，适合常规任务"),
-            ("haiku", "Haiku", "最快，适合简单问题"),
+            ("", "Default", "Use the default model (currently Opus)"),
+            ("opus", "Opus", "For everyday and complex work"),
+            ("fable", "Fable", "Most capable, for the hardest and longest tasks"),
+            ("sonnet", "Sonnet", "Efficient, for routine tasks"),
+            ("haiku", "Haiku", "Fastest, for quick answers"),
         ]
         .iter()
         .map(|(id, label, desc)| {
@@ -226,7 +226,7 @@ pub async fn runtime_models(
         .collect(),
         "codex" => {
             let mut out = vec![serde_json::json!({
-                "id": "", "label": "默认", "desc": "跟随 Codex 配置", "efforts": ["low", "medium", "high", "xhigh"],
+                "id": "", "label": "Default", "desc": "Use the Codex config", "efforts": ["low", "medium", "high", "xhigh"],
             })];
             let path = std::env::var_os("HOME")
                 .map(std::path::PathBuf::from)
@@ -261,7 +261,7 @@ pub async fn runtime_models(
             }
             out
         }
-        _ => vec![serde_json::json!({ "id": "", "label": "默认", "desc": "", "efforts": [] })],
+        _ => vec![serde_json::json!({ "id": "", "label": "Default", "desc": "", "efforts": [] })],
     };
     Json(serde_json::json!({ "runtime": id, "models": models }))
 }

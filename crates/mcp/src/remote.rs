@@ -47,7 +47,7 @@ impl Remote {
         let out =
             tokio::time::timeout(timeout + Duration::from_secs(15), self.transport.exec(spec))
                 .await
-                .with_context(|| format!("{} 上的命令超时", self.target.node))??;
+                .with_context(|| format!("Command timed out on {}", self.target.node))??;
         let mut text = out.stdout;
         if !out.stderr.trim().is_empty() {
             if !text.is_empty() && !text.ends_with('\n') {
@@ -60,7 +60,7 @@ impl Remote {
 
     fn cd_root(&self) -> String {
         format!(
-            "cd {} 2>/dev/null || {{ echo '工作区目录不存在：{}' >&2; exit 97; }}\n",
+            "cd {} 2>/dev/null || {{ echo 'Workspace directory does not exist: {}' >&2; exit 97; }}\n",
             q(&self.target.root),
             self.target.root.replace('\'', "")
         )
@@ -88,7 +88,7 @@ impl Remote {
             "Edit" => self.edit(args).await,
             "Glob" => self.glob(args).await,
             "Grep" => self.grep(args).await,
-            other => anyhow::bail!("未知工具：{other}"),
+            other => anyhow::bail!("Unknown tool: {other}"),
         }
     }
 
@@ -104,17 +104,17 @@ impl Remote {
              if command -v timeout >/dev/null 2>&1; then\n  \
                timeout -k 5 {secs} bash -c \"$CMD\" </dev/null 2>&1; rc=$?\n\
              else\n  bash -c \"$CMD\" </dev/null 2>&1; rc=$?\nfi\n\
-             [ $rc -eq 124 ] && echo \"（命令超过 {secs} 秒被终止）\"\nexit $rc\n",
+             [ $rc -eq 124 ] && echo \"Command timed out after {secs}s\"\nexit $rc\n",
             cd = self.cd_root(),
             b64 = b64_wrapped(cmd.as_bytes()),
         );
         let (code, out) = self.run(script, Duration::from_secs(secs)).await?;
         let mut text = clip(&out);
         if code != 0 {
-            text.push_str(&format!("\n[退出码 {code}]"));
+            text.push_str(&format!("\nExit code {code}"));
         }
         if text.trim().is_empty() {
-            text = "（无输出）".into();
+            text = "(No content)".into();
         }
         Ok((code == 0, text))
     }
@@ -129,9 +129,9 @@ impl Remote {
             .clamp(1, 5000);
         let script = format!(
             "f={p}\n\
-             [ -e \"$f\" ] || {{ echo \"文件不存在：$f\"; exit 3; }}\n\
-             [ -d \"$f\" ] && {{ echo \"这是目录，不是文件：$f\"; ls -la \"$f\" | head -200; exit 4; }}\n\
-             if [ -s \"$f\" ] && ! grep -Iq . \"$f\"; then echo \"二进制文件（$(wc -c < \"$f\") 字节），不显示内容\"; exit 5; fi\n\
+             [ -e \"$f\" ] || {{ echo \"File does not exist: $f\"; exit 3; }}\n\
+             [ -d \"$f\" ] && {{ echo \"EISDIR: illegal operation on a directory, read: $f\"; ls -la \"$f\" | head -200; exit 4; }}\n\
+             if [ -s \"$f\" ] && ! grep -Iq . \"$f\"; then echo \"Binary file ($(wc -c < \"$f\") bytes), content not shown\"; exit 5; fi\n\
              awk -v s={offset} -v n={limit} 'NR>=s && NR<s+n {{ l=$0; if (length(l)>2000) l=substr(l,1,2000) \"…\"; printf \"%6d\\t%s\\n\", NR, l }} NR>=s+n {{ exit }}' \"$f\"\n\
              echo \"__BLAZAR_TOTAL__ $(wc -l < \"$f\")\"\n",
             p = self.path(path),
@@ -148,14 +148,14 @@ impl Remote {
         let shown_end = offset + limit - 1;
         if total > shown_end {
             text.push_str(&format!(
-                "\n（文件共 {total} 行，这里是第 {offset}–{shown_end} 行；用 offset 继续读）"
+                "\n(File has {total} lines; showing lines {offset}-{shown_end}. Use offset to read more.)"
             ));
         }
         if body.trim().is_empty() {
             text = if total == 0 {
-                "（空文件）".into()
+                "(File is empty)".into()
             } else {
-                format!("（offset 超出范围：文件共 {total} 行）")
+                format!("(Offset is past the end of the file: the file has {total} lines)")
             };
         }
         Ok((true, text))
@@ -175,10 +175,13 @@ impl Remote {
         let content = a.get("content").and_then(Value::as_str).unwrap_or_default();
         let (code, out) = self.write_bytes(path, content.as_bytes()).await?;
         if code != 0 {
-            return Ok((false, format!("写入失败：{}", clip(&out))));
+            return Ok((false, format!("Failed to write file: {}", clip(&out))));
         }
         let lines = content.lines().count();
-        Ok((true, format!("已写入 {path}（{lines} 行）")))
+        Ok((
+            true,
+            format!("File created successfully at: {path} ({lines} lines)"),
+        ))
     }
 
     async fn edit(&self, a: &Value) -> Result<(bool, String)> {
@@ -196,14 +199,20 @@ impl Remote {
             .and_then(Value::as_bool)
             .unwrap_or(false);
         if old.is_empty() {
-            return Ok((false, "old_string 不能为空；新建文件请用 Write".into()));
+            return Ok((
+                false,
+                "old_string must not be empty; use Write to create a new file".into(),
+            ));
         }
         if old == new {
-            return Ok((false, "old_string 与 new_string 相同，没有要改的".into()));
+            return Ok((
+                false,
+                "No changes to make: old_string and new_string are exactly the same.".into(),
+            ));
         }
         let script = format!(
-            "f={p}\n[ -f \"$f\" ] || {{ echo \"文件不存在：$f\"; exit 3; }}\n\
-             [ \"$(wc -c < \"$f\")\" -le {MAX_EDIT_BYTES} ] || {{ echo '文件过大，不适合整文件编辑'; exit 6; }}\n\
+            "f={p}\n[ -f \"$f\" ] || {{ echo \"File does not exist: $f\"; exit 3; }}\n\
+             [ \"$(wc -c < \"$f\")\" -le {MAX_EDIT_BYTES} ] || {{ echo 'File is too large to edit'; exit 6; }}\n\
              base64 < \"$f\"\n",
             p = self.path(path),
         );
@@ -213,15 +222,18 @@ impl Remote {
         }
         let raw = B64
             .decode(out.split_whitespace().collect::<String>())
-            .context("读取原文件失败")?;
+            .context("Failed to read the original file")?;
         let Ok(text) = String::from_utf8(raw) else {
-            return Ok((false, "文件不是 UTF-8 文本，不能用 Edit 修改".into()));
+            return Ok((
+                false,
+                "File is not UTF-8 text and cannot be edited with Edit".into(),
+            ));
         };
         let n = text.matches(old).count();
         if n == 0 {
             return Ok((
                 false,
-                "old_string 在文件里没找到。先用 Read 看一下当前内容（注意缩进和空白要完全一致）"
+                "String to replace not found in file. Read the file first; indentation and whitespace must match exactly."
                     .into(),
             ));
         }
@@ -229,7 +241,7 @@ impl Remote {
             return Ok((
                 false,
                 format!(
-                    "old_string 在文件里出现了 {n} 次。多给一些上下文让它唯一，或设置 replace_all"
+                    "Found {n} matches of the string to replace, but replace_all is false. To replace all occurrences, set replace_all to true. To replace only one occurrence, please provide more context to uniquely identify the instance."
                 ),
             ));
         }
@@ -240,11 +252,14 @@ impl Remote {
         };
         let (code, out) = self.write_bytes(path, updated.as_bytes()).await?;
         if code != 0 {
-            return Ok((false, format!("写回失败：{}", clip(&out))));
+            return Ok((false, format!("Failed to write file: {}", clip(&out))));
         }
         Ok((
             true,
-            format!("已修改 {path}（替换 {} 处）", if all { n } else { 1 }),
+            format!(
+                "The file {path} has been updated ({} replacement(s)).",
+                if all { n } else { 1 }
+            ),
         ))
     }
 
@@ -252,7 +267,7 @@ impl Remote {
         let pattern = req_str(a, "pattern")?.trim_start_matches("./");
 
         let Some(re) = glob_regex(pattern) else {
-            return Ok((false, "pattern 无法解析".into()));
+            return Ok((false, "Invalid pattern".into()));
         };
 
         let literal: Vec<&str> = pattern
@@ -271,7 +286,7 @@ impl Remote {
             format!("{}/{prefix}", base.trim_end_matches('/'))
         };
         let script = format!(
-            "{cd}cd {start} 2>/dev/null || {{ echo '目录不存在'; exit 3; }}\n\
+            "{cd}cd {start} 2>/dev/null || {{ echo 'Directory does not exist'; exit 3; }}\n\
              find . -name .git -prune -o -name node_modules -prune -o -type f -print 2>/dev/null | head -200000\n",
             cd = self.cd_root(),
             start = self.path(&start),
@@ -297,7 +312,7 @@ impl Remote {
         Ok((
             true,
             if files.is_empty() {
-                "没有匹配的文件".into()
+                "No files found".into()
             } else {
                 clip(&files.join("\n"))
             },
@@ -359,7 +374,7 @@ impl Remote {
         Ok((
             true,
             if out.trim().is_empty() {
-                "没有匹配".into()
+                "No matches found".into()
             } else {
                 clip(&out)
             },
@@ -423,7 +438,7 @@ fn req_str<'a>(a: &'a Value, k: &str) -> Result<&'a str> {
     a.get(k)
         .and_then(Value::as_str)
         .filter(|s| !s.is_empty())
-        .with_context(|| format!("缺少参数 {k}"))
+        .with_context(|| format!("Missing required parameter: {k}"))
 }
 
 fn b64_wrapped(data: &[u8]) -> String {
@@ -449,7 +464,7 @@ fn clip(s: &str) -> String {
         tail_start += 1;
     }
     format!(
-        "{}\n…（中间省略 {} 字节）…\n{}",
+        "{}\n… [{} bytes truncated] …\n{}",
         &s[..head_end],
         tail_start - head_end,
         &s[tail_start..]
@@ -552,7 +567,7 @@ pub async fn handle(remote: &Remote, req: &Value) -> Option<Value> {
             })
         }
         "ping" => Ok(json!({})),
-        other => Err(anyhow::anyhow!("不支持的方法：{other}")),
+        other => Err(anyhow::anyhow!("Unsupported method: {other}")),
     };
     Some(match result {
         Ok(r) => json!({ "jsonrpc": "2.0", "id": id, "result": r }),
@@ -628,7 +643,7 @@ mod tests {
             .await
             .unwrap();
         assert!(!ok);
-        assert!(out.contains("boom") && out.contains("[退出码 3]"), "{out}");
+        assert!(out.contains("boom") && out.contains("Exit code 3"), "{out}");
     }
 
     #[tokio::test]
@@ -678,7 +693,7 @@ mod tests {
             )
             .await
             .unwrap();
-        assert!(!ok && out.contains("2 次"), "{out}");
+        assert!(!ok && out.contains("Found 2 matches"), "{out}");
         let (ok, _) = r
             .call(
                 "Edit",
@@ -743,12 +758,12 @@ mod tests {
             .call("Read", &json!({ "file_path": "nope.txt" }))
             .await
             .unwrap();
-        assert!(!ok && out.contains("不存在"));
+        assert!(!ok && out.contains("does not exist"));
         let (ok, out) = r
             .call("Read", &json!({ "file_path": "b.bin" }))
             .await
             .unwrap();
-        assert!(!ok && out.contains("二进制"), "{out}");
+        assert!(!ok && out.contains("Binary file"), "{out}");
     }
 
     #[test]

@@ -264,11 +264,11 @@ pub async fn resolve(
             ..c
         })),
         Some(c) => Err(format!(
-            "「{}」是浏览器登录的账号，凭据没法带到 {run_node} 上。远端请选长期 token 账号（claude setup-token）",
+            "\"{}\" is a browser-login account, and its credentials can't be carried to {run_node}. For remote machines, pick a long-lived token account (claude setup-token)",
             get(st, &c.id).await.map(|a| a.label).unwrap_or(c.id)
         )),
         None => Err(format!(
-            "{run_node} 上运行 Claude Code 需要一个长期 token 账号"
+            "Running Claude Code on {run_node} requires a long-lived token account"
         )),
     }
 }
@@ -331,7 +331,7 @@ async fn pick(
                 Some(c) => Some(c.id.clone()),
                 None if !exclude.is_empty() => {
                     return Err(
-                        "没有别的账号能接手：都试过了、额度用完了，或者用不了这个模型".into(),
+                        "No other account can take over: all were tried, hit their usage limit, or can't use this model".into(),
                     );
                 }
                 None => best(&cands).map(|c| c.id.clone()),
@@ -345,12 +345,15 @@ async fn pick(
         id => {
             let a = get(st, id)
                 .await
-                .ok_or("绑定的账号已经被删除，去「账号」页重新选一个")?;
+                .ok_or("The bound account was deleted; pick another one on the Accounts page")?;
             if a.provider != provider {
-                return Err(format!("账号「{}」不是 {provider} 的账号", a.label));
+                return Err(format!(
+                    "Account \"{}\" is not a {provider} account",
+                    a.label
+                ));
             }
             if a.disabled {
-                return Err(format!("账号「{}」已停用", a.label));
+                return Err(format!("Account \"{}\" is disabled", a.label));
             }
             Ok(Some(Chosen::from(&a)))
         }

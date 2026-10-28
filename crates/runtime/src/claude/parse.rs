@@ -222,9 +222,9 @@ fn parse_result(v: &Value) -> Vec<EntryKind> {
                 .or_else(|| {
                     (!subtype.is_empty() && subtype != "success").then(|| subtype.to_owned())
                 })
-                .unwrap_or_else(|| "agent 以错误状态结束".to_owned())
+                .unwrap_or_else(|| "agent ended with an error".to_owned())
         } else {
-            errors.join("；")
+            errors.join("; ")
         };
         Outcome::Failed {
             message: match reason {

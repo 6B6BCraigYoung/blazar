@@ -74,7 +74,7 @@ pub fn shell_display(text: &str) -> String {
             .map(|i| i + "</bash-stderr>".len())
             .unwrap_or(0);
         let n = lines("bash-stdout", &tail[..stop]) + lines("bash-stderr", &tail[..stop]);
-        out.push_str(&format!("! {}（输出 {n} 行）", after[..end].trim()));
+        out.push_str(&format!("! {} ({n} lines of output)", after[..end].trim()));
         rest = tail[stop..].trim_start_matches('\n');
         if !rest.is_empty() {
             out.push('\n');
@@ -112,14 +112,14 @@ pub fn fleet_target(name: &str, input: &Value) -> Option<String> {
 pub fn fleet_words(name: &str, input: &Value) -> Option<(&'static str, &'static str)> {
     fleet_target(name, input)?;
     Some(match name {
-        "send_prompt" => ("派活给", ""),
-        "wait_workspace" => ("等", "停下"),
-        "get_history" => ("读了", "的记录"),
-        "get_diff" => ("看了", "的改动"),
-        "read_file" => ("读了", "的"),
-        "list_files" => ("列出", "的文件"),
-        "copy_files" => ("复制到", ""),
-        "job_spawn" => ("在", "上启动后台任务"),
+        "send_prompt" => ("Prompt", ""),
+        "wait_workspace" => ("Wait for", ""),
+        "get_history" => ("History of", ""),
+        "get_diff" => ("Diff of", ""),
+        "read_file" => ("Read from", ""),
+        "list_files" => ("List files in", ""),
+        "copy_files" => ("Copy to", ""),
+        "job_spawn" => ("Start job on", ""),
         _ => return None,
     })
 }
@@ -132,7 +132,7 @@ pub fn raw_input(input: &Value) -> String {
     } else {
         serde_json::to_string_pretty(input).unwrap_or_default()
     };
-    format!("输入\n{}", short(&pretty, RAW_MAX))
+    format!("Input\n{}", short(&pretty, RAW_MAX))
 }
 
 pub fn raw_output(content: &str) -> String {
@@ -142,11 +142,11 @@ pub fn raw_output(content: &str) -> String {
         .and_then(|v| serde_json::to_string_pretty(&v).ok())
         .unwrap_or_else(|| text.to_owned());
     let text = if text.is_empty() {
-        "（没有内容）".to_owned()
+        "(No content)".to_owned()
     } else {
         short(&text, RAW_MAX)
     };
-    format!("\n输出\n{text}")
+    format!("\nOutput\n{text}")
 }
 
 fn first_line(text: &str) -> &str {
@@ -229,14 +229,14 @@ pub fn tool_title(name: &str, input: &Value, root: &str) -> (String, String) {
                     .unwrap_or_default(),
                 100,
             ),
-            "probe_node" | "discover_agents" => {
-                blazar_core_types::api::machine_label(s(input, "node")).to_owned()
+            "probe_node" | "discover_agents" => crate::vocab_en::machine(s(input, "node")),
+            "create_workspace" => {
+                format!(
+                    "{} · {}",
+                    crate::vocab_en::machine(s(input, "node")),
+                    s(input, "path")
+                )
             }
-            "create_workspace" => format!(
-                "{} · {}",
-                blazar_core_types::api::machine_label(s(input, "node")),
-                s(input, "path")
-            ),
             _ => short(&input.to_string(), 100),
         }
     };
@@ -246,29 +246,30 @@ pub fn tool_title(name: &str, input: &Value, root: &str) -> (String, String) {
 
 pub fn plain_label(name: &str) -> &str {
     match name {
-        "TodoWrite" => "更新待办",
+        "TodoWrite" => "Update Todos",
         "Shell" => "Bash",
         "Agent" => "Task",
-        "ExitPlanMode" => "计划",
-        "send_prompt" => "派活",
-        "wait_workspace" => "等待",
-        "get_history" => "读取记录",
+        "ExitPlanMode" => "Plan",
+        "send_prompt" => "Dispatch",
+        "wait_workspace" => "Wait",
+        "get_history" => "History",
         "read_file" => "Read",
-        "list_files" => "列出文件",
-        "get_diff" => "查看改动",
-        "copy_files" => "复制文件",
-        "search_code" => "搜索代码",
-        "probe_node" => "体检",
-        "discover_agents" => "查找智能体",
-        "create_workspace" => "新建工作区",
-        "list_workspaces" => "列出工作区",
-        "list_nodes" => "列出机器",
-        "fleet_status" => "看全局",
-        "job_spawn" => "启动后台任务",
-        "job_register" => "登记后台任务",
-        "job_kill" => "结束后台任务",
-        "job_log" => "看后台任务日志",
-        "list_jobs" => "列出后台任务",
+        "list_files" => "List",
+        "get_diff" => "Diff",
+        "copy_files" => "Copy",
+        "search_code" => "Search",
+        "probe_node" => "Probe",
+        "discover_agents" => "Agents on",
+        "create_workspace" => "Create workspace",
+        "list_workspaces" => "Workspaces",
+        "list_nodes" => "Machines",
+        "fleet_status" => "Fleet status",
+        "ask_user" => "Ask user",
+        "job_spawn" => "Start job",
+        "job_register" => "Register job",
+        "job_kill" => "Kill job",
+        "job_log" => "Job log",
+        "list_jobs" => "Jobs",
         other => other,
     }
 }
@@ -412,6 +413,9 @@ fn count(n: usize, one: &str, none: &str) -> String {
         none.to_owned()
     } else {
         one.replace("{n}", &n.to_string())
+            .replace("{s}", if n == 1 { "" } else { "s" })
+            .replace("{es}", if n == 1 { "" } else { "es" })
+            .replace("{y}", if n == 1 { "y" } else { "ies" })
     }
 }
 
@@ -424,11 +428,11 @@ fn names(list: &[Value], key: &str, max: usize) -> String {
     let mut out = all
         .iter()
         .take(max)
-        .map(|n| blazar_core_types::api::machine_label(n))
+        .map(|n| crate::vocab_en::machine(n))
         .collect::<Vec<_>>()
-        .join("、");
+        .join(", ");
     if all.len() > max {
-        out.push_str(&format!(" 等 {} 个", all.len()));
+        out.push_str(&format!(" and {} more", all.len() - max));
     }
     out
 }
@@ -436,31 +440,31 @@ fn names(list: &[Value], key: &str, max: usize) -> String {
 fn probe_summary(v: &Value) -> String {
     let mut parts = Vec::new();
     if let Some(c) = v["cpus"].as_u64() {
-        parts.push(format!("{c} 核"));
+        parts.push(format!("{c} CPUs"));
     }
     if let Some(m) = v["mem_gb"].as_f64() {
-        parts.push(format!("内存 {m:.0} GB"));
+        parts.push(format!("{m:.0} GB RAM"));
     }
     if let Some(d) = v["disk_free_gb"].as_f64() {
-        parts.push(format!("磁盘剩 {d:.0} GB"));
+        parts.push(format!("{d:.0} GB disk free"));
     }
     if let Some(g) = v["gpus"].as_array() {
-        parts.push(count(g.len(), "{n} 块 GPU", "没有 GPU"));
+        parts.push(count(g.len(), "{n} GPU{s}", "no GPU"));
     }
     if let Some(e) = v["has_ai_egress"].as_bool() {
         parts.push(
             if e {
-                "能连上模型服务"
+                "model API reachable"
             } else {
-                "连不上模型服务"
+                "model API unreachable"
             }
             .to_owned(),
         );
     }
     if parts.is_empty() {
-        "体检完了".to_owned()
+        "Probed".to_owned()
     } else {
-        format!("体检完了：{}", parts.join(" · "))
+        format!("Probed: {}", parts.join(" · "))
     }
 }
 
@@ -470,7 +474,7 @@ fn fleet_result(name: &str, text: &str) -> Option<Res> {
         "list_workspaces" => {
             let list = v.as_array()?;
             let mut r = res(
-                &count(list.len(), "列出了 {n} 个工作区", "现在还没有工作区"),
+                &count(list.len(), "Listed {n} workspace{s}", "No workspaces yet"),
                 "sum",
                 1,
             );
@@ -487,9 +491,13 @@ fn fleet_result(name: &str, text: &str) -> Option<Res> {
             let shown = names(list, "name", 6);
             res(
                 &if shown.is_empty() {
-                    count(list.len(), "列出了 {n} 台机器", "现在还没有机器")
+                    count(list.len(), "Listed {n} machine{s}", "No machines yet")
                 } else {
-                    format!("列出了 {} 台机器：{shown}", list.len())
+                    format!(
+                        "Listed {} machine{}: {shown}",
+                        list.len(),
+                        if list.len() == 1 { "" } else { "s" }
+                    )
                 },
                 "sum",
                 1,
@@ -498,15 +506,15 @@ fn fleet_result(name: &str, text: &str) -> Option<Res> {
         "probe_node" => res(&probe_summary(&v), "sum", 1),
         "copy_files" => {
             let n = v["copied"].as_array().map_or(0, Vec::len);
-            res(&count(n, "复制了 {n} 项", "没有东西要复制"), "sum", 1)
+            res(&count(n, "Copied {n} item{s}", "Nothing to copy"), "sum", 1)
         }
-        "job_spawn" => res("已启动", "sum", 1),
-        "job_register" => res("已登记", "sum", 1),
+        "job_spawn" => res("Started", "sum", 1),
+        "job_register" => res("Registered", "sum", 1),
         "job_kill" => res(
             if v["status"] == "killed" {
-                "已结束"
+                "Killed"
             } else {
-                "没有在跑，不用结束"
+                "Not running"
             },
             "sum",
             1,
@@ -520,9 +528,9 @@ fn fleet_result(name: &str, text: &str) -> Option<Res> {
             };
             res(
                 &if n == 0 {
-                    "日志还是空的".to_owned()
+                    "Log is empty".to_owned()
                 } else {
-                    format!("最后 {n} 行\n{log}")
+                    format!("Last {n} line{}\n{log}", if n == 1 { "" } else { "s" })
                 },
                 "",
                 4,
@@ -536,15 +544,20 @@ fn fleet_result(name: &str, text: &str) -> Option<Res> {
                     format!(
                         "{} · {}",
                         s(j, "label"),
-                        crate::vocab::state(s(j, "status")).0
+                        crate::vocab_en::state(s(j, "status"))
                     )
                 })
                 .collect();
             res(
                 &if lines.is_empty() {
-                    "现在没有后台任务".to_owned()
+                    "No background jobs".to_owned()
                 } else {
-                    format!("列出了 {} 个后台任务\n{}", lines.len(), lines.join("\n"))
+                    format!(
+                        "Listed {} job{}\n{}",
+                        lines.len(),
+                        if lines.len() == 1 { "" } else { "s" },
+                        lines.join("\n")
+                    )
                 },
                 "sum",
                 4,
@@ -564,7 +577,7 @@ pub fn result_of(name: &str, ok: bool, content: &str) -> Option<Res> {
     if !ok {
         return Some(res(
             if text.is_empty() {
-                "出错了"
+                "Error"
             } else {
                 text.trim_start()
             },
@@ -573,58 +586,62 @@ pub fn result_of(name: &str, ok: bool, content: &str) -> Option<Res> {
         ));
     }
     Some(match name {
-        "Read" => res(&format!("读取了 {n} 行"), "sum", 4),
+        "Read" => res(
+            &format!("Read {n} line{}", if n == 1 { "" } else { "s" }),
+            "sum",
+            4,
+        ),
         "TodoWrite" => return None,
-        "ExitPlanMode" => res("你已批准这个计划", "sum", 4),
+        "ExitPlanMode" => res("User approved the plan", "sum", 4),
         "Edit" | "MultiEdit" | "Write" => return None,
         "Glob" | "LS" => res(
             &if n > 0 {
-                format!("找到 {n} 个文件\n{text}")
+                format!("Found {n} file{}\n{text}", if n == 1 { "" } else { "s" })
             } else {
-                "没有找到匹配".to_owned()
+                "No matches found".to_owned()
             },
             "sum",
             1,
         ),
         "Grep" => res(
             &if n > 0 {
-                format!("找到 {n} 处匹配\n{text}")
+                format!("Found {n} match{}\n{text}", if n == 1 { "" } else { "es" })
             } else {
-                "没有找到匹配".to_owned()
+                "No matches found".to_owned()
             },
             "sum",
             1,
         ),
-        "Task" | "Agent" => res(if text.is_empty() { "已完成" } else { text }, "", 3),
+        "Task" | "Agent" => res(if text.is_empty() { "Done" } else { text }, "", 3),
         "send_prompt" => {
             let v: Value = serde_json::from_str(text).unwrap_or(Value::Null);
             if v["admitted"] == false {
                 let why = s(&v, "reason");
                 res(
                     &if why.is_empty() {
-                        "没有送达".to_owned()
+                        "Not sent".to_owned()
                     } else {
-                        format!("没有送达\n{why}")
+                        format!("Not sent\n{why}")
                     },
                     "err",
                     4,
                 )
             } else {
-                res("已派出", "sum", 4)
+                res("Dispatched", "sum", 4)
             }
         }
         "wait_workspace" => {
             let v: Value = serde_json::from_str(text).unwrap_or(Value::Null);
             let act = s(&v, "activity");
             let head = match act {
-                "completed" | "idle" => "已完成",
-                "errored" => "失败",
-                "awaiting_approval" => "等你批准",
-                "running" => "仍在运行",
+                "completed" | "idle" => "Finished",
+                "errored" => "Errored",
+                "awaiting_approval" => "Waiting for approval",
+                "running" => "Still running",
                 _ if v.is_null() => {
                     return Some(res(
                         if text.is_empty() {
-                            "（没有内容）"
+                            "(No content)"
                         } else {
                             text
                         },
@@ -632,7 +649,7 @@ pub fn result_of(name: &str, ok: bool, content: &str) -> Option<Res> {
                         4,
                     ));
                 }
-                _ => "已停止",
+                _ => "Stopped",
             };
             let reply = s(&v, "last_reply").trim();
             res(
@@ -647,13 +664,13 @@ pub fn result_of(name: &str, ok: bool, content: &str) -> Option<Res> {
         }
         "get_history" => match serde_json::from_str::<Value>(text) {
             Ok(Value::Array(rows)) => res(
-                &count(rows.len(), "读了 {n} 条记录", "还没有记录"),
+                &count(rows.len(), "Read {n} entr{y}", "No history yet"),
                 "sum",
                 4,
             ),
             _ => res(
                 if text.is_empty() {
-                    "（没有内容）"
+                    "(No content)"
                 } else {
                     text
                 },
@@ -666,9 +683,9 @@ pub fn result_of(name: &str, ok: bool, content: &str) -> Option<Res> {
                 let n = v["files"].as_array().map_or(0, Vec::len);
                 res(
                     &if n == 0 {
-                        "没有改动".to_owned()
+                        "No changes".to_owned()
                     } else {
-                        format!("{n} 个文件有改动")
+                        format!("{n} file{} changed", if n == 1 { "" } else { "s" })
                     },
                     "sum",
                     4,
@@ -676,7 +693,7 @@ pub fn result_of(name: &str, ok: bool, content: &str) -> Option<Res> {
             }
             _ => res(
                 if text.is_empty() {
-                    "（没有内容）"
+                    "(No content)"
                 } else {
                     text
                 },
@@ -690,7 +707,7 @@ pub fn result_of(name: &str, ok: bool, content: &str) -> Option<Res> {
             }
             res(
                 if text.is_empty() {
-                    "（没有内容）"
+                    "(No content)"
                 } else {
                     text
                 },
@@ -723,15 +740,15 @@ pub(super) fn shell_result(ok: bool, content: &str, ms: Option<u64>) -> Res {
     };
     let took = ms.map(|ms| {
         if ms < 10_000 {
-            format!(" · {:.1} 秒", ms as f64 / 1000.0)
+            format!(" · {:.1}s", ms as f64 / 1000.0)
         } else {
-            format!(" · {}", crate::vocab::duration(ms as f64 / 1000.0))
+            format!(" · {}", crate::vocab_en::duration(ms as f64 / 1000.0))
         }
     });
     let status = match (ok, code) {
-        (true, _) => "成功".to_owned(),
-        (false, Some(c)) => format!("退出码 {c}"),
-        (false, None) => "失败".to_owned(),
+        (true, _) => "Success".to_owned(),
+        (false, Some(c)) => format!("Exit code {c}"),
+        (false, None) => "Failed".to_owned(),
     } + took.as_deref().unwrap_or("");
     let shown = match first_line(&output) {
         line if !ok && !line.is_empty() => format!("{status}\n{line}"),
@@ -761,7 +778,7 @@ mod tests {
         let text = "<bash-input>ls -la</bash-input>\n\n<bash-stdout>a\nb</bash-stdout><bash-stderr></bash-stderr>\n\nwhat is in here?";
         assert_eq!(
             shell_display(text),
-            "! ls -la（输出 2 行）\nwhat is in here?"
+            "! ls -la (2 lines of output)\nwhat is in here?"
         );
         assert_eq!(shell_display("plain"), "plain");
         assert_eq!(shell_display("<bash-input>broken"), "<bash-input>broken");
@@ -780,7 +797,7 @@ mod tests {
         assert_eq!(fleet_target("send_prompt", &json!({})), None);
         assert_eq!(
             result_of("get_history", true, "[{},{}]").map(|r| r.shown),
-            Some("读了 2 条记录".into())
+            Some("Read 2 entries".into())
         );
         assert_eq!(
             result_of("wait_workspace", true, "timed out").map(|r| r.shown),
@@ -793,7 +810,7 @@ mod tests {
                 r#"{"admitted":false,"reason":"该工作区已有会话在运行"}"#
             )
             .map(|r| r.shown),
-            Some("没有送达\n该工作区已有会话在运行".into())
+            Some("Not sent\n该工作区已有会话在运行".into())
         );
     }
 
@@ -802,24 +819,24 @@ mod tests {
         let send = json!({"workspace_id": "w1", "text": "收尾后把按钮放到顶栏\n再补截图"});
         assert_eq!(
             tool_title("send_prompt", &send, ""),
-            ("派活给".to_owned(), "收尾后把按钮放到顶栏".to_owned())
+            ("Prompt".to_owned(), "收尾后把按钮放到顶栏".to_owned())
         );
-        assert_eq!(fleet_words("send_prompt", &send), Some(("派活给", "")));
-        assert_eq!(plain_label("send_prompt"), "派活");
-        assert_eq!(tool_title("send_prompt", &json!({}), "").0, "派活");
+        assert_eq!(fleet_words("send_prompt", &send), Some(("Prompt", "")));
+        assert_eq!(plain_label("send_prompt"), "Dispatch");
+        assert_eq!(tool_title("send_prompt", &json!({}), "").0, "Dispatch");
         assert_eq!(
             fleet_words("get_history", &json!({"workspace_id": "w1"})),
-            Some(("读了", "的记录"))
+            Some(("History of", ""))
         );
         assert_eq!(
             fleet_words("wait_workspace", &json!({"workspace_id": "w1"})),
-            Some(("等", "停下"))
+            Some(("Wait for", ""))
         );
         assert_eq!(fleet_words("list_workspaces", &json!({})), None);
         assert!(is_fleet("mcp__blazar-fleet__list_nodes") && !is_fleet("Bash"));
-        assert_eq!(raw_input(&json!({})), "输入\n{}");
-        assert_eq!(raw_output("{\"a\":1}"), "\n输出\n{\n  \"a\": 1\n}");
-        assert_eq!(raw_output(" "), "\n输出\n（没有内容）");
+        assert_eq!(raw_input(&json!({})), "Input\n{}");
+        assert_eq!(raw_output("{\"a\":1}"), "\nOutput\n{\n  \"a\": 1\n}");
+        assert_eq!(raw_output(" "), "\nOutput\n(No content)");
     }
 
     #[test]
@@ -830,16 +847,16 @@ mod tests {
             r#"[{"id":"a","name":"atlas"},{"id":"b","name":"nebula"}]"#,
         )
         .unwrap();
-        assert_eq!(listed.shown, "列出了 2 个工作区");
+        assert_eq!(listed.shown, "Listed 2 workspaces");
         assert_eq!(listed.wss, vec!["a".to_owned(), "b".to_owned()]);
         assert_eq!(
             result_of("list_workspaces", true, "[]").map(|r| r.shown),
-            Some("现在还没有工作区".into())
+            Some("No workspaces yet".into())
         );
         assert_eq!(
             result_of("list_nodes", true, r#"[{"name":"local"},{"name":"gpu-a"}]"#)
                 .map(|r| r.shown),
-            Some("列出了 2 台机器：本机、gpu-a".into())
+            Some("Listed 2 machines: this machine, gpu-a".into())
         );
         assert_eq!(
             result_of(
@@ -848,7 +865,7 @@ mod tests {
                 r#"{"cpus":8,"mem_gb":32.0,"disk_free_gb":120.4,"gpus":["A100"],"has_ai_egress":true}"#
             )
             .map(|r| r.shown),
-            Some("体检完了：8 核 · 内存 32 GB · 磁盘剩 120 GB · 1 块 GPU · 能连上模型服务".into())
+            Some("Probed: 8 CPUs · 32 GB RAM · 120 GB disk free · 1 GPU · model API reachable".into())
         );
         assert_eq!(
             result_of(
@@ -857,28 +874,28 @@ mod tests {
                 r#"{"copied":[{"path":"a"},{"path":"b"}]}"#
             )
             .map(|r| r.shown),
-            Some("复制了 2 项".into())
+            Some("Copied 2 items".into())
         );
         assert_eq!(
             result_of("job_kill", true, r#"{"status":"killed"}"#).map(|r| r.shown),
-            Some("已结束".into())
+            Some("Killed".into())
         );
         assert_eq!(
             result_of("job_log", true, r#"{"log":"a\nb\n","lines":50}"#).map(|r| r.shown),
-            Some("最后 2 行\na\nb".into())
+            Some("Last 2 lines\na\nb".into())
         );
         assert_eq!(
             result_of(
                 "list_jobs",
                 true,
-                r#"{"jobs":[{"label":"跑评测","status":"running"}]}"#
+                r#"{"jobs":[{"label":"eval","status":"running"}]}"#
             )
             .map(|r| r.shown),
-            Some("列出了 1 个后台任务\n跑评测 · 运行中".into())
+            Some("Listed 1 job\neval · Running".into())
         );
         assert_eq!(
             result_of("get_history", true, "[]").map(|r| r.shown),
-            Some("还没有记录".into())
+            Some("No history yet".into())
         );
         assert_eq!(
             result_of("job_spawn", false, "没有这个工作区").map(|r| (r.shown, r.cls)),
@@ -891,15 +908,15 @@ mod tests {
         let ok = shell_result(true, "a\nb\n", Some(400));
         assert_eq!(
             (ok.shown.as_str(), ok.more, ok.cls),
-            ("成功 · 0.4 秒", 2, "sum")
+            ("Success · 0.4s", 2, "sum")
         );
-        assert_eq!(ok.full, "成功 · 0.4 秒\na\nb");
+        assert_eq!(ok.full, "Success · 0.4s\na\nb");
         let bad = shell_result(false, "Exit code 2\n\nno such file: x\nmore", None);
         assert_eq!(
             (bad.shown.as_str(), bad.cls),
-            ("退出码 2\nno such file: x", "err")
+            ("Exit code 2\nno such file: x", "err")
         );
-        assert_eq!(shell_result(false, "", None).shown, "失败");
+        assert_eq!(shell_result(false, "", None).shown, "Failed");
         assert_eq!(shell_result(true, "", None).more, 0);
     }
 

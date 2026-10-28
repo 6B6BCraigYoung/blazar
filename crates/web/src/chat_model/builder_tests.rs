@@ -70,7 +70,7 @@ fn folds_intermediate_steps_and_pairs_results() {
     assert_eq!(tool.ms, Some(500));
     assert_eq!(
         tool.result.as_ref().map(|r| (r.shown.as_str(), r.more)),
-        Some(("成功 · 0.5 秒", 6))
+        Some(("Success · 0.5s", 6))
     );
     assert!(
         matches!(&t.items[2].body, Body::Assistant { .. }),
@@ -134,28 +134,28 @@ fn fleet_calls_name_the_child_and_summarise_the_result() {
             tools[0].tail.as_str(),
             tools[0].arg.as_str()
         ),
-        ("派活给", "", "run the third pass")
+        ("Prompt", "", "run the third pass")
     );
     assert_eq!(tools[0].extra, Extra::Fleet("w1".into()));
     assert_eq!(
         tools[0].result.as_ref().map(|r| r.shown.as_str()),
-        Some("已派出")
+        Some("Dispatched")
     );
     let raw = tools[0].raw.as_deref().unwrap_or_default();
     assert!(
-        raw.starts_with("输入\n{")
+        raw.starts_with("Input\n{")
             && raw.contains("\"workspace_id\": \"w1\"")
-            && raw.contains("\n输出\n{\n  \"session_id\": \"x\"\n}"),
+            && raw.contains("\nOutput\n{\n  \"session_id\": \"x\"\n}"),
         "{raw}"
     );
     assert_eq!(
         (tools[1].label.as_str(), tools[1].tail.as_str()),
-        ("等", "停下")
+        ("Wait for", "")
     );
     assert_eq!(tools[1].extra, Extra::Fleet("w1".into()));
     assert_eq!(
         tools[1].result.as_ref().map(|r| r.shown.as_str()),
-        Some("已完成\nloss 0.82")
+        Some("Finished\nloss 0.82")
     );
 }
 
@@ -184,7 +184,7 @@ fn live_fold_and_pending_approval() {
     assert_eq!(t.pending.len(), 1);
     assert_eq!(
         approval_title(&t.pending[0].request, "/w", None),
-        "允许编辑 src/a.rs？"
+        "Allow edits to src/a.rs?"
     );
     let Step::Tool(tool) = &f.steps[0] else {
         panic!()
@@ -207,7 +207,7 @@ fn live_fold_and_pending_approval() {
     let Body::Fold(f2) = &t2.items[1].body else {
         panic!()
     };
-    assert!(matches!(&f2.steps[1], Step::Note(n) if n == "已允许 · Edit"));
+    assert!(matches!(&f2.steps[1], Step::Note(n) if n == "Allowed · Edit"));
     assert_ne!(t.items[1].sig, t2.items[1].sig, "内容变了签名要变");
     assert_eq!(t.items[0].sig, t2.items[0].sig, "没变的条目签名不变");
 }
@@ -347,7 +347,7 @@ fn elided_subagent_rows_hide_output_until_full_rows_replace_them() {
     assert_eq!(call.state, St::Err);
     assert_eq!(
         call.result.as_ref().map(|r| r.full.as_str()),
-        Some("失败\na\nb")
+        Some("Failed\na\nb")
     );
     assert_ne!(
         step_sig(&Step::Tool(Box::new(thin))),
@@ -379,9 +379,12 @@ fn failure_offers_account_switch() {
 
 #[test]
 fn api_errors_read_as_plain_words() {
-    assert!(human_error("API Error: 529 {\"type\":\"overloaded_error\"}").starts_with("服务繁忙"));
-    assert!(human_error("API Error: 429 rate limit").starts_with("请求太频繁"));
-    assert!(human_error("401 not logged in").starts_with("登录已失效"));
+    assert!(
+        human_error("API Error: 529 {\"type\":\"overloaded_error\"}")
+            .starts_with("Service overloaded")
+    );
+    assert!(human_error("API Error: 429 rate limit").starts_with("Rate limited"));
+    assert!(human_error("401 not logged in").starts_with("Not logged in"));
     assert_eq!(human_error("disk full"), "disk full");
 }
 
@@ -413,7 +416,7 @@ fn a_pending_bash_approval_always_gets_a_card() {
         assert!(!card.ask);
         assert_eq!(
             approval_title(&card.request, "/w", None),
-            "允许运行这条 Bash 命令？"
+            "Allow this Bash command?"
         );
         assert!(
             first_open(&t.pending, |id| id
@@ -422,8 +425,11 @@ fn a_pending_bash_approval_always_gets_a_card() {
         );
     }
     let (choices, hint) = approval_choices(false);
-    assert_eq!(choices, ["允许", "允许，并且这个工作区不再询问", "拒绝"]);
-    assert_eq!(hint, "告诉 Claude 换个做法");
+    assert_eq!(
+        choices,
+        ["Yes", "Yes, and don't ask again for this workspace", "No"]
+    );
+    assert_eq!(hint, "Tell Claude what to do differently");
     assert_eq!(approval_choices(true).0.len(), 3);
 }
 
@@ -446,7 +452,7 @@ fn api_retries_show_once_and_clear_when_the_turn_moves_on() {
     assert_eq!(t.items.len(), 2);
     assert!(matches!(
         &t.items[1].body,
-        Body::Retry { why, attempt: 2, max: 10, until: 4000 } if why == "服务繁忙（529）"
+        Body::Retry { why, attempt: 2, max: 10, until: 4000 } if why == "Overloaded (529)"
     ));
     rows.push(row(
         "s",
@@ -469,7 +475,7 @@ fn api_retries_show_once_and_clear_when_the_turn_moves_on() {
     );
     assert!(matches!(
         &err.items[0].body,
-        Body::Error { text, .. } if text == "服务繁忙，稍后再试\nAPI Error: 529 Overloaded"
+        Body::Error { text, .. } if text == "Service overloaded. Try again shortly\nAPI Error: 529 Overloaded"
     ));
 }
 
@@ -487,7 +493,7 @@ fn lost_resume_points_read_as_a_note_and_other_failures_carry_their_cause() {
         false,
     );
     assert!(
-        matches!(&lost.items[0].body, Body::Meta { bad: false, text } if text.contains("自动重新接上")),
+        matches!(&lost.items[0].body, Body::Meta { bad: false, text } if text.contains("started a fresh one")),
         "{:?}",
         lost.items[0].body
     );

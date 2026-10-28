@@ -290,7 +290,10 @@ fn proxy_boxed(st: &Shared) -> futures::future::BoxFuture<'_, Result<Arc<Proxy>,
 
 async fn forward(State(st): State<Shared>, req: Request) -> Response {
     let Ok(p) = proxy_boxed(&st).await else {
-        return deny(StatusCode::SERVICE_UNAVAILABLE, "Blazar 凭据代理没起来");
+        return deny(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Blazar credential proxy is not running",
+        );
     };
     if crate::codex_proxy::is_codex_path(req.uri().path()) {
         return crate::codex_proxy::forward(&st, &p.client, &p.key, req).await;
@@ -305,7 +308,7 @@ async fn forward(State(st): State<Shared>, req: Request) -> Response {
     let Some(token) = token_for(&st, &p.key, &presented).await else {
         return deny(
             StatusCode::UNAUTHORIZED,
-            "Blazar 不认识这个账号暗号（账号可能已删除或停用）",
+            "Blazar does not recognize this account key (the account may have been deleted or disabled)",
         );
     };
     let url = format!(
@@ -342,7 +345,7 @@ async fn forward(State(st): State<Shared>, req: Request) -> Response {
             return (
                 StatusCode::BAD_GATEWAY,
                 axum::Json(json!({ "type": "error", "error": { "type": "api_error",
-                    "message": format!("Blazar 连不上 Anthropic：{e}") } })),
+                    "message": format!("Blazar could not reach Anthropic: {e}") } })),
             )
                 .into_response();
         }
@@ -358,7 +361,7 @@ async fn forward(State(st): State<Shared>, req: Request) -> Response {
     }
     let stream = up.bytes_stream().map_err(std::io::Error::other);
     out.body(Body::from_stream(stream))
-        .unwrap_or_else(|_| deny(StatusCode::BAD_GATEWAY, "转发响应失败"))
+        .unwrap_or_else(|_| deny(StatusCode::BAD_GATEWAY, "Failed to forward the response"))
 }
 
 fn pick_port() -> u16 {

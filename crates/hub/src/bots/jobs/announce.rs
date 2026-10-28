@@ -7,18 +7,31 @@ use super::{Job, Owner, SUMMARY_LINES};
 
 #[must_use]
 pub fn took(from: &str, to: Option<&str>) -> String {
+    let secs = elapsed(from, to);
+    match secs {
+        0..60 => format!("{secs} 秒"),
+        60..3600 => format!("{} 分 {} 秒", secs / 60, secs % 60),
+        _ => format!("{} 小时 {} 分", secs / 3600, secs % 3600 / 60),
+    }
+}
+
+fn took_en(from: &str, to: Option<&str>) -> String {
+    let secs = elapsed(from, to);
+    match secs {
+        0..60 => format!("{secs}s"),
+        60..3600 => format!("{}m {}s", secs / 60, secs % 60),
+        _ => format!("{}h {}m", secs / 3600, secs % 3600 / 60),
+    }
+}
+
+fn elapsed(from: &str, to: Option<&str>) -> i64 {
     let parse = |t: &str| {
         DateTime::parse_from_rfc3339(t)
             .ok()
             .map(|d| d.with_timezone(&Utc))
     };
     let end = to.and_then(parse).unwrap_or_else(Utc::now);
-    let secs = parse(from).map_or(0, |start| (end - start).num_seconds().max(0));
-    match secs {
-        0..60 => format!("{secs} 秒"),
-        60..3600 => format!("{} 分 {} 秒", secs / 60, secs % 60),
-        _ => format!("{} 小时 {} 分", secs / 3600, secs % 3600 / 60),
-    }
+    parse(from).map_or(0, |start| (end - start).num_seconds().max(0))
 }
 
 fn headline(job: &Job) -> String {
@@ -30,6 +43,17 @@ fn headline(job: &Job) -> String {
         _ => "还在跑",
     };
     format!("后台任务「{}」{how}", job.label)
+}
+
+fn headline_en(job: &Job) -> String {
+    let how = match job.status.as_str() {
+        "done" => "finished",
+        "failed" => "failed",
+        "killed" => "was killed",
+        "lost" => "was lost",
+        _ => "is still running",
+    };
+    format!("Background job \"{}\" {how}", job.label)
 }
 
 #[must_use]
@@ -56,6 +80,34 @@ pub fn summary(job: &Job, tail: &str) -> String {
         out.push_str("日志最后 20 行：（没有输出）\n");
     } else {
         out.push_str(&format!("日志最后 20 行：\n```\n{tail}\n```\n"));
+    }
+    out
+}
+
+#[must_use]
+pub fn summary_en(job: &Job, tail: &str) -> String {
+    let code = match (job.exit_code, job.status.as_str()) {
+        (Some(c), _) => format!("Exit code: {c}"),
+        (None, "killed") => "Exit code: none (killed)".into(),
+        (None, "lost") => "Exit code: none (job directory or process is gone)".into(),
+        (None, _) => "Exit code: unknown (registered processes don't report one)".into(),
+    };
+    let lines: Vec<&str> = tail.lines().collect();
+    let tail = lines[lines.len().saturating_sub(SUMMARY_LINES)..].join("\n");
+    let mut out = format!(
+        "{}.\nJob id: {}\nMachine: {}\n{code}\nDuration: {}\n",
+        headline_en(job),
+        job.id,
+        job.node,
+        took_en(&job.created_at, job.ended_at.as_deref()),
+    );
+    if let Some(c) = &job.command {
+        out.push_str(&format!("Command: {c}\n"));
+    }
+    if tail.trim().is_empty() {
+        out.push_str("Last 20 log lines: (no output)\n");
+    } else {
+        out.push_str(&format!("Last 20 log lines:\n```\n{tail}\n```\n"));
     }
     out
 }
@@ -101,11 +153,12 @@ async fn wake_session(st: &Shared, thread: &str, text: &str) -> Result<(), Strin
     .fetch_optional(st.db.pool())
     .await
     .map_err(|e| e.to_string())?;
-    let (ws, runtime, profile, node) = row.ok_or("找不到发起任务的会话")?;
-    let wsid = WorkspaceId(ws.parse().map_err(|_| "工作区 id 无效")?);
+    let (ws, runtime, profile, node) =
+        row.ok_or("Couldn't find the session that started the job")?;
+    let wsid = WorkspaceId(ws.parse().map_err(|_| "Invalid workspace id")?);
     let how = route(st, wsid, thread).await;
     if how == Wake::Busy {
-        return Err("工作区正在跑别的对话".into());
+        return Err("The workspace is running another conversation".into());
     }
     let agent = if runtime == "claude_cli" {
         "claude".to_owned()
@@ -113,7 +166,7 @@ async fn wake_session(st: &Shared, thread: &str, text: &str) -> Result<(), Strin
         runtime
     };
     let req = crate::api::PromptRequest {
-        text: format!("（hub 通知）你派出的后台任务结束了。\n\n{text}"),
+        text: format!("(Hub notice) A background job you started has ended.\n\n{text}"),
         resume: true,
         resume_session: Some(thread.to_owned()),
         interject: how == Wake::Interject,
@@ -128,7 +181,10 @@ async fn wake_session(st: &Shared, thread: &str, text: &str) -> Result<(), Strin
     };
     let out = crate::api::prompt_for_bot(st.clone(), ws, req).await?;
     if out["admitted"] == false {
-        return Err(out["reason"].as_str().unwrap_or("工作区被占着").to_owned());
+        return Err(out["reason"]
+            .as_str()
+            .unwrap_or("The workspace is busy")
+            .to_owned());
     }
     Ok(())
 }
@@ -171,6 +227,7 @@ pub async fn announce(st: &Shared, job: &Job, tail: &str) {
     }
     let text = summary(job, tail);
     if job.notify == "wake" {
+        let en = summary_en(job, tail);
         match job.owner() {
             Owner::Bot { bot, thread } => {
                 let hint = match thread {
@@ -184,8 +241,8 @@ pub async fn announce(st: &Shared, job: &Job, tail: &str) {
                     st,
                     &bot,
                     crate::bots::NewMail {
-                        body: text.clone(),
-                        subject: Some(headline(job)),
+                        body: en.clone(),
+                        subject: Some(headline_en(job)),
                         thread: hint,
                         from_kind: "system".into(),
                         from_ref: format!("job:{}", job.id),
@@ -200,7 +257,7 @@ pub async fn announce(st: &Shared, job: &Job, tail: &str) {
                     }
                 }
             }
-            Owner::Session { thread, .. } => match wake_session(st, &thread, &text).await {
+            Owner::Session { thread, .. } => match wake_session(st, &thread, &en).await {
                 Ok(()) => return,
                 Err(e) => {
                     tracing::info!(target: "blazar::jobs", "没能唤醒发起任务的会话，改进收件箱: {e}");

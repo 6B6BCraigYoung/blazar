@@ -104,8 +104,8 @@ fn wrap_code(root: &web_sys::Element) {
         wrap.set_class_name("cc-code");
         button.set_class_name("cc-codecopy");
         let _ = button.set_attribute("type", "button");
-        let _ = button.set_attribute("aria-label", "复制代码");
-        let _ = button.set_attribute("title", "复制");
+        let _ = button.set_attribute("aria-label", "Copy code");
+        let _ = button.set_attribute("title", "Copy");
         button.set_inner_html(COPY);
         if parent.insert_before(&wrap, Some(&pre)).is_ok() {
             let _ = wrap.append_child(&pre);
@@ -136,7 +136,7 @@ fn copy_code(e: &leptos::ev::MouseEvent) {
             gloo_timers::future::TimeoutFuture::new(1200).await;
             let _ = button.remove_attribute("data-done");
         } else {
-            toast("没能复制");
+            toast("Copy failed");
         }
     });
 }
@@ -211,7 +211,7 @@ fn result_view(r: Res, key: String, opened: Opened) -> impl IntoView {
                                         opened.set(&k, true);
                                     }
                                 >
-                                    {format!("再显示 {more} 行")}
+                                    {format!("Show {more} more lines")}
                                 </button>
                             }
                         })
@@ -284,14 +284,14 @@ pub(super) fn file_rows(rows: &[(char, String)]) -> impl IntoView + use<> {
 pub(super) fn file_head(added: usize) -> impl IntoView {
     view! {
         <div class="dnh">
-            <span>"新文件"</span>
+            <span>"New file"</span>
             <i class="ok">{format!("+{added}")}</i>
         </div>
     }
 }
 
 pub(super) fn more_row(more: usize) -> Option<impl IntoView> {
-    (more > 0).then(|| view! { <div class="dmore">{format!("… 还有 {more} 行")}</div> })
+    (more > 0).then(|| view! { <div class="dmore">{format!("… {more} more lines")}</div> })
 }
 
 fn diff_view(
@@ -316,7 +316,7 @@ fn diff_view(
     let tail = move || (all.get() && more > 0).then(|| more_row(more));
     let block = match fresh {
         Some(added) => view! {
-            <div class="cc-new" style=style title="在「更改」里查看">
+            <div class="cc-new" style=style title="View in Changes">
                 {file_head(added)}
                 {move || file_rows(&shown())}
                 {tail}
@@ -328,7 +328,7 @@ fn diff_view(
                 class="cc-diff"
                 style=style
                 data-ln=start.is_some().to_string()
-                title="在「更改」里查看"
+                title="View in Changes"
             >
                 {move || diff_rows(&shown(), start)}
                 {tail}
@@ -350,7 +350,7 @@ fn diff_view(
                                 opened.set(&k, true);
                             }
                         >
-                            {format!("再显示 {hidden} 行")}
+                            {format!("Show {hidden} more lines")}
                         </button>
                     }
                 })
@@ -392,7 +392,7 @@ fn extra_view(e: &Extra, fresh: Option<usize>, opened: Opened, key: &str, ws: &s
                 opened,
                 format!("plan:{key}"),
                 "cc-planbody",
-                view! { "计划" }.into_any(),
+                view! { "Plan" }.into_any(),
                 move || view! { <Md text=p ws /> }.into_any(),
             )
             .into_any()
@@ -414,12 +414,14 @@ pub(super) fn ws_chip(id: String) -> impl IntoView {
                 <a class="cc-ws" href=href.clone() title=w.path.clone()>
                     <span class="dot" data-tone=crate::vocab::state(&shown).1.key()></span>
                     <span class="nm">{crate::fmt::ws_title(&w.name, &w.node)}</span>
-                    <span class="ws-machine">{crate::fmt::machine(&w.node)}</span>
+                    <span class="ws-machine">{crate::vocab_en::machine(&w.node)}</span>
                 </a>
             }
             .into_any()
         }
-        None => view! { <span class="cc-ws gone">{format!("工作区 {short}…")}</span> }.into_any(),
+        None => {
+            view! { <span class="cc-ws gone">{format!("workspace {short}…")}</span> }.into_any()
+        }
     }
 }
 
@@ -454,9 +456,9 @@ fn subagent_pending(chat: Chat, id: String) -> impl IntoView {
             <div class="cc-subwait">
                 {move || {
                     if failed.get() {
-                        "子智能体的记录没有加载出来"
+                        "Couldn't load the subagent transcript"
                     } else {
-                        "正在加载子智能体的记录…"
+                        "Loading subagent transcript…"
                     }
                 }}
                 {move || {
@@ -469,7 +471,7 @@ fn subagent_pending(chat: Chat, id: String) -> impl IntoView {
                                     class="cc-subretry"
                                     on:click=move |_| chat.load_subagent(id.clone())
                                 >
-                                    "重试"
+                                    "Retry"
                                 </button>
                             }
                         })
@@ -481,14 +483,14 @@ fn subagent_pending(chat: Chat, id: String) -> impl IntoView {
 
 fn sub_summary(t: &Tool) -> String {
     if t.sub_calls == 0 {
-        return "子智能体工作中…".to_owned();
+        return "Subagent working…".to_owned();
     }
     let lead = match t.state {
-        St::Run => "进行中",
-        St::Ok => "已完成",
-        St::Err => "没有完成",
+        St::Run => "Running",
+        St::Ok => "Done",
+        St::Err => "Didn't finish",
     };
-    format!("{lead} · {} 步 · 最近：{}", t.sub_calls, t.sub_last)
+    format!("{lead} · {} steps · latest: {}", t.sub_calls, t.sub_last)
 }
 
 fn tool_view(t: Tool, chat: Chat, opened: Opened, ws: String) -> AnyView {
@@ -536,7 +538,7 @@ fn tool_view(t: Tool, chat: Chat, opened: Opened, ws: String) -> AnyView {
     )
     .then(|| t.arg.clone())
     .filter(|a| !a.is_empty() && !a.starts_with('/') && !a.starts_with('~'));
-    let open_tip = open.as_ref().map(|_| "在检查器里打开");
+    let open_tip = open.as_ref().map(|_| "Open in inspector");
     let locate = counts.and(open.clone());
     let line = match &t.extra {
         Extra::Diff { start, .. } => start.unwrap_or(0),
@@ -588,7 +590,7 @@ fn tool_view(t: Tool, chat: Chat, opened: Opened, ws: String) -> AnyView {
                         .as_ref()
                         .map(|_| {
                             view! {
-                                <span class="cc-go" title="在「更改」里定位" inner_html=CHEVRON></span>
+                                <span class="cc-go" title="Show in Changes" inner_html=CHEVRON></span>
                             }
                         })}
                 </div>
@@ -605,7 +607,7 @@ fn tool_view(t: Tool, chat: Chat, opened: Opened, ws: String) -> AnyView {
                             opened,
                             format!("raw:{}", t.id),
                             "ui-detail cc-raw",
-                            view! { "详情" }.into_any(),
+                            view! { "Details" }.into_any(),
                             move || view! { <pre>{raw}</pre> }.into_any(),
                         )
                     })}
@@ -695,9 +697,9 @@ fn step_view(s: Step, chat: Chat, opened: Opened, ws: String) -> AnyView {
     match s {
         Step::Thinking { text, secs } => {
             let head = if secs > 0 {
-                format!("思考了 {secs} 秒")
+                format!("Thought for {secs}s")
             } else {
-                "思考中".to_owned()
+                "Thinking".to_owned()
             };
             let body = if text.trim().is_empty() {
                 view! { <span class="cc-fl">{head}</span> }.into_any()
@@ -745,7 +747,7 @@ fn step_view(s: Step, chat: Chat, opened: Opened, ws: String) -> AnyView {
                 <span class="cc-dot"></span>
                 <div class="cc-main">
                     <div class="cc-head">
-                        <b>"后台任务"</b>
+                        <b>"Background task"</b>
                         <span class="cc-arg">{t}</span>
                     </div>
                 </div>
@@ -778,7 +780,7 @@ fn copy(text: String, done: RwSignal<bool>) {
             gloo_timers::future::TimeoutFuture::new(1200).await;
             let _ = done.try_set(false);
         } else {
-            toast("没能复制");
+            toast("Copy failed");
         }
     });
 }
@@ -957,7 +959,7 @@ fn UserMsg(
                         <div class="cc-edit">
                             <textarea
                                 rows="3"
-                                aria-label="编辑消息并重试"
+                                aria-label="Edit message and retry"
                                 prop:value=move || draft.get()
                                 on:input=move |e| draft.set(event_target_value(&e))
                                 on:keydown=move |e| {
@@ -974,14 +976,15 @@ fn UserMsg(
                             ></textarea>
                             <div class="row">
                                 <span class="muted small">
-                                    "重试会还原文件，并把这条消息及之后的内容移出上下文。"
+                                    "Retrying restores files and removes this message and \
+                                    everything after it from context."
                                 </span>
                                 <span class="grow"></span>
                                 <button class="btn small" on:click=move |_| editing.set(false)>
-                                    "取消"
+                                    "Cancel"
                                 </button>
                                 <button class="btn small primary" on:click=move |_| go2()>
-                                    "重试"
+                                    "Retry"
                                 </button>
                             </div>
                         </div>
@@ -1000,17 +1003,17 @@ fn UserMsg(
                                                 view! {
                                                     <button
                                                         class="cc-rw"
-                                                        title="编辑并从这里继续"
+                                                        title="Edit and continue from here"
                                                         on:click=move |_| edit.run(())
                                                     >
-                                                        "✎ 编辑"
+                                                        "✎ Edit"
                                                     </button>
                                                     <button
                                                         class="cc-rw"
-                                                        title="用同一条消息重试"
+                                                        title="Retry with the same message"
                                                         on:click=move |_| retry.run(())
                                                     >
-                                                        "⟳ 重试"
+                                                        "⟳ Retry"
                                                     </button>
                                                 }
                                             })}
@@ -1020,10 +1023,10 @@ fn UserMsg(
                                                     view! {
                                                         <button
                                                             class="cc-rw"
-                                                            title="把代码回退到这里"
+                                                            title="Rewind code to here"
                                                             on:click=move |_| rewind.run(())
                                                         >
-                                                            "↺ 回退"
+                                                            "↺ Rewind"
                                                         </button>
                                                     }
                                                 })
@@ -1038,7 +1041,7 @@ fn UserMsg(
                 .then(|| {
                     view! {
                         <button class="cc-xp" on:click=move |_| open.update(|o| *o = !*o)>
-                            {move || if open.get() { "收起" } else { "展开" }}
+                            {move || if open.get() { "Show less" } else { "Show more" }}
                         </button>
                     }
                 })}
@@ -1110,10 +1113,10 @@ fn MsgMenu(
                 .then(|| {
                     view! {
                         <button type="button" role="menuitem" class="ctx-item" on:click=pick(edit)>
-                            "编辑"
+                            "Edit"
                         </button>
                         <button type="button" role="menuitem" class="ctx-item" on:click=pick(retry)>
-                            "重试"
+                            "Retry"
                         </button>
                     }
                 })}
@@ -1121,7 +1124,7 @@ fn MsgMenu(
                 .map(|r| {
                     view! {
                         <button type="button" role="menuitem" class="ctx-item" on:click=pick(r)>
-                            "把代码回退到这里"
+                            "Rewind code to here"
                         </button>
                     }
                 })}
@@ -1141,10 +1144,10 @@ fn warn_view(chat: Chat, denied: Vec<String>, calls: Vec<DeniedCall>, auto: bool
             <div class="cc-row cc-warn">
                 <span class="cc-dot"></span>
                 <div class="cc-main">
-                    {format!("有 {} 个操作被拒绝，没有执行：", denied.len())}
+                    {format!("{} actions were denied and not run:", denied.len())}
                     {listed(denied)}
                     <div class="muted small">
-                        "当前权限模式会拒绝这些操作。切换到「自动改文件」或「自动批准」后重试。"
+                        "The current mode denies these actions. Switch to Edit automatically or Auto and retry."
                     </div>
                 </div>
             </div>
@@ -1173,7 +1176,7 @@ fn warn_view(chat: Chat, denied: Vec<String>, calls: Vec<DeniedCall>, auto: bool
                 {(!rest.is_empty())
                     .then(|| {
                         view! {
-                            {format!("有 {} 个操作被拒绝，没有执行：", rest.len())}
+                            {format!("{} actions were denied and not run:", rest.len())}
                             {listed(rest)}
                         }
                     })}
@@ -1189,10 +1192,10 @@ fn place_of(chat: Chat) -> (String, String) {
     let node = chat.node.get_value();
     let name = untrack(|| app.workspace(&id))
         .map(|w| crate::fmt::ws_title(&w.name, &w.node))
-        .unwrap_or_else(|| "这个工作区".to_owned());
+        .unwrap_or_else(|| "this workspace".to_owned());
     (
         format!(
-            "工作区 {name} · 机器 {}",
+            "Workspace {name} · machine {}",
             blazar_core_types::api::machine_label(&node)
         ),
         chat.root.get_value(),
@@ -1202,9 +1205,9 @@ fn place_of(chat: Chat) -> (String, String) {
 fn denial_card(chat: Chat, c: DeniedCall, place: (String, String)) -> AnyView {
     let key = c.key();
     let noun = if c.shell() {
-        "这条命令"
+        "This command"
     } else {
-        "这个操作"
+        "This action"
     };
     let state = if c.hard {
         "hard"
@@ -1216,12 +1219,14 @@ fn denial_card(chat: Chat, c: DeniedCall, place: (String, String)) -> AnyView {
         }
     };
     let head = match (state, &c.decided) {
-        ("hard", _) => format!("{noun}属于安全边界，批准也不放行"),
+        ("hard", _) => format!("{noun} is outside the safety boundary and can't be approved"),
         ("allowed", Some((_, by))) => {
-            format!("安全检查拦下了{noun} · 已允许这一次（{by}），已作为你的消息重发")
+            format!(
+                "{noun} was blocked by the safety check · allowed once ({by}), resent as your message"
+            )
         }
-        ("skipped", _) => format!("安全检查拦下了{noun} · 已跳过"),
-        _ => format!("安全检查拦下了{noun}，没有执行"),
+        ("skipped", _) => format!("{noun} was blocked by the safety check · skipped"),
+        _ => format!("{noun} was blocked by the safety check and not run"),
     };
     let k = key.clone();
     let busy = Memo::new(move |_| chat.denials.with(|d| d.busy(&k)));
@@ -1251,8 +1256,8 @@ fn denial_card(chat: Chat, c: DeniedCall, place: (String, String)) -> AnyView {
                             <button
                                 type="button"
                                 class="cc-copy"
-                                aria-label="复制命令"
-                                title="复制"
+                                aria-label="Copy command"
+                                title="Copy"
                                 data-done=move || done.get().to_string()
                                 inner_html=COPY
                                 on:click=move |_| copy(what.clone(), done)
@@ -1265,14 +1270,14 @@ fn denial_card(chat: Chat, c: DeniedCall, place: (String, String)) -> AnyView {
                 {target
                     .map(|h| {
                         view! {
-                            <span title="命令实际在这台机器上执行">{format!("目标 {h}")}</span>
+                            <span title="The command actually runs on this machine">{format!("Target {h}")}</span>
                         }
                     })}
                 {reason
                     .map(|r| {
                         view! {
                             <span title=format!("[{r}]")>
-                                {format!("原因：{}", blazar_core_types::denial::reason_label(&r))}
+                                {format!("Reason: {}", blazar_core_types::denial::reason_label_en(&r))}
                             </span>
                         }
                     })}
@@ -1281,7 +1286,7 @@ fn denial_card(chat: Chat, c: DeniedCall, place: (String, String)) -> AnyView {
                 .then(|| {
                     view! {
                         <details class="ui-detail">
-                            <summary>"拦截说明"</summary>
+                            <summary>"Why it was blocked"</summary>
                             <pre>{detail}</pre>
                         </details>
                     }
@@ -1296,7 +1301,7 @@ fn denial_card(chat: Chat, c: DeniedCall, place: (String, String)) -> AnyView {
                                 disabled=move || busy.get()
                                 on:click=move |_| chat.decide_denial(sid_a.clone(), tid_a.clone(), true)
                             >
-                                "允许这一次并重试"
+                                "Allow once and retry"
                             </button>
                             <button
                                 type="button"
@@ -1304,7 +1309,7 @@ fn denial_card(chat: Chat, c: DeniedCall, place: (String, String)) -> AnyView {
                                 disabled=move || busy.get()
                                 on:click=move |_| chat.decide_denial(sid_n.clone(), tid_n.clone(), false)
                             >
-                                "不用了"
+                                "Skip"
                             </button>
                         </div>
                     }
@@ -1312,7 +1317,7 @@ fn denial_card(chat: Chat, c: DeniedCall, place: (String, String)) -> AnyView {
             {hard
                 .then(|| {
                     view! {
-                        <div class="cd-note">"要做的话，把命令复制到终端里自己运行。"</div>
+                        <div class="cd-note">"To run it, copy the command into a terminal yourself."</div>
                     }
                 })}
         </div>
@@ -1343,13 +1348,17 @@ fn error_view(chat: Chat, text: String, by_account: bool) -> AnyView {
                     .unwrap_or_default()
             });
             if list.is_empty() {
-                toast("没有其他可用账号，请先在运行时页面添加或登录。");
+                toast("No other account available. Add or log in to one on the Runtimes page.");
                 return;
             }
-            let mut choices = vec![Choice::plain("取消")];
+            let mut choices = vec![Choice::plain("Cancel")];
             choices.extend(list.iter().map(|a| Choice::plain(a.label.clone())));
-            if let Some(i) =
-                dialog::ask("换个账号继续", "保留这段对话，换一个账号接着做。", choices).await
+            if let Some(i) = dialog::ask(
+                "Continue with another account",
+                "Keep the conversation and continue on another account.",
+                choices,
+            )
+            .await
                 && i > 0
             {
                 chat.continue_on_another(list[i - 1].id.clone());
@@ -1374,7 +1383,7 @@ fn error_view(chat: Chat, text: String, by_account: bool) -> AnyView {
                     .map(|d| {
                         view! {
                             <details class="ui-detail">
-                                <summary>"详情"</summary>
+                                <summary>"Details"</summary>
                                 <pre>{d}</pre>
                             </details>
                         }
@@ -1384,7 +1393,7 @@ fn error_view(chat: Chat, text: String, by_account: bool) -> AnyView {
                         view! {
                             <div>
                                 <button class="linkbtn" on:click=switch>
-                                    "换个账号继续"
+                                    "Continue with another account"
                                 </button>
                             </div>
                         }
@@ -1407,14 +1416,14 @@ fn retry_view(chat: Chat, why: String, attempt: u32, max: u32, until: i64) -> An
     let when = move || {
         let left = ((until - now.get()).max(0) + 999) / 1000;
         if left > 0 {
-            format!("{left:>2} 秒后自动重试")
+            format!("Retrying in {left:>2}s")
         } else {
-            "正在重试".to_owned()
+            "Retrying".to_owned()
         }
     };
     let round = format!(
-        "第 {} 次",
-        crate::vocab::retry_round(attempt.into(), max.into())
+        "attempt {}",
+        crate::vocab_en::retry_round(attempt.into(), max.into())
     );
     view! {
         <div class="cc-meta cc-retry" role="status">
@@ -1431,7 +1440,7 @@ fn retry_view(chat: Chat, why: String, attempt: u32, max: u32, until: i64) -> An
                         view! {
                             <span class="sep">"·"</span>
                             <button type="button" class="linkbtn" on:click=move |_| chat.stop()>
-                                "停止"
+                                "Stop"
                             </button>
                         }
                     })
@@ -1465,8 +1474,8 @@ fn item_view(it: Item, chat: Chat, opened: Opened, ws: String, copyable: bool) -
                                     <div class="cc-acts2">
                                         <button
                                             class="cc-copy"
-                                            aria-label="复制回复"
-                                            title="复制"
+                                            aria-label="Copy response"
+                                            title="Copy"
                                             data-done=move || done.get().to_string()
                                             inner_html=COPY
                                             on:click=move |_| copy(t.clone(), done)
@@ -1504,7 +1513,7 @@ fn item_view(it: Item, chat: Chat, opened: Opened, ws: String, copyable: bool) -
             opened,
             format!("rw:{key}"),
             "cc-rewound",
-            view! { {format!("已回退 · {turns} 条消息移出了上下文")} }.into_any(),
+            view! { {format!("Rewound · {turns} messages removed from context")} }.into_any(),
             move || {
                 view! {
                     <div class="cc-rwl">
@@ -1592,27 +1601,27 @@ fn item_slot(
 
 const SPIN: [&str; 12] = ["·", "✢", "*", "✶", "✻", "✽", "✽", "✻", "✶", "*", "✢", "·"];
 const WORDS: [&str; 12] = [
-    "思考中",
-    "琢磨中",
-    "推敲中",
-    "酝酿中",
-    "构思中",
-    "斟酌中",
-    "梳理中",
-    "整理中",
-    "打磨中",
-    "推演中",
-    "分析中",
-    "归纳中",
+    "Thinking",
+    "Pondering",
+    "Musing",
+    "Brewing",
+    "Cogitating",
+    "Percolating",
+    "Mulling",
+    "Crafting",
+    "Tinkering",
+    "Noodling",
+    "Ruminating",
+    "Synthesizing",
 ];
 
 fn fmt_secs(sec: u64) -> String {
     if sec < 60 {
-        format!("{sec} 秒")
+        format!("{sec}s")
     } else if sec < 3600 {
-        format!("{} 分 {} 秒", sec / 60, sec % 60)
+        format!("{}m {}s", sec / 60, sec % 60)
     } else {
-        format!("{} 时 {} 分", sec / 3600, sec % 3600 / 60)
+        format!("{}h {}m", sec / 3600, sec % 3600 / 60)
     }
 }
 
@@ -1648,7 +1657,7 @@ fn Spinner(chat: Chat, tick: RwSignal<u32>) -> impl IntoView {
             <span class="tk">{elapsed}</span>
             {move || tokens().map(|n| view! { <span class="tk">{format!("· ↑{n} tokens")}</span> })}
             {move || {
-                chat.running.get().then(|| view! { <span class="tk">"· Esc 打断"</span> })
+                chat.running.get().then(|| view! { <span class="tk">"· esc to interrupt"</span> })
             }}
         </div>
     }
@@ -1878,7 +1887,7 @@ pub fn Log(chat: Chat, tick: RwSignal<u32>, log_h: RwSignal<f64>) -> impl IntoVi
                 <super::offline::Offline chat />
             </Show>
             <Show when=move || chat.loading.get() && !unreachable.get()>
-                <LoadingState text="正在加载对话…" class="cc-load" />
+                <LoadingState text="Loading conversation…" class="cc-load" />
             </Show>
             <Show when=empty>
                 <Empty chat />
@@ -1886,7 +1895,7 @@ pub fn Log(chat: Chat, tick: RwSignal<u32>, log_h: RwSignal<f64>) -> impl IntoVi
             <div class="cc-flow" hidden=move || unreachable.get()>
                 <Show when=move || { earlier() > 0 }>
                     <button type="button" class="cc-more cc-earlier" on:click=show_earlier>
-                        {move || format!("显示更早的 {} 条", earlier().min(WINDOW))}
+                        {move || format!("Show {} earlier", earlier().min(WINDOW))}
                     </button>
                 </Show>
                 <For
@@ -1931,7 +1940,7 @@ pub fn Log(chat: Chat, tick: RwSignal<u32>, log_h: RwSignal<f64>) -> impl IntoVi
                         <div class="cc-user pending">
                             <div class="cc-ut">
                                 {p.text.clone()}
-                                {(p.images > 0).then(|| format!("\n[{} 个附件]", p.images))}
+                                {(p.images > 0).then(|| format!("\n[{} attachments]", p.images))}
                             </div>
                         </div>
                     </div>
@@ -1971,7 +1980,7 @@ fn Empty(chat: Chat) -> impl IntoView {
                     Some(p) => {
                         view! {
                             <div class="who">
-                                <b>{format!("和{}对话", p.name)}</b>
+                                <b>{format!("Chat with {}", p.name)}</b>
                                 <div class="muted small">
                                     {p.description.clone().unwrap_or_default()}
                                 </div>
@@ -1993,9 +2002,9 @@ fn Empty(chat: Chat) -> impl IntoView {
                                 <span>{name}</span>
                             </div>
                             <div class="cc-tip">
-                                "按 "<kbd>"Shift"</kbd>" "<kbd>"Tab"</kbd>
-                                " 切换权限模式，输入 "<code>"/"</code>
-                                " 查看命令。"
+                                "Press "<kbd>"Shift"</kbd>" "<kbd>"Tab"</kbd>
+                                " to cycle permission modes, or type "<code>"/"</code>
+                                " for commands."
                             </div>
                         }
                             .into_any()

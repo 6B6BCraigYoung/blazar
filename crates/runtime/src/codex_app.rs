@@ -395,7 +395,7 @@ fn item_completed(item: &Value) -> Vec<EntryKind> {
                     .is_none_or(|c| c == 0),
             content: s(item, "aggregatedOutput").unwrap_or_else(|| {
                 if status == "declined" {
-                    "已拒绝".to_owned()
+                    "Declined".to_owned()
                 } else {
                     String::new()
                 }
@@ -430,7 +430,7 @@ fn item_completed(item: &Value) -> Vec<EntryKind> {
             structured: None,
         }],
         "contextCompaction" => vec![EntryKind::Notice {
-            message: "已压缩上下文".to_owned(),
+            message: "Context compacted".to_owned(),
         }],
         _ => Vec::new(),
     }
@@ -478,7 +478,7 @@ fn turn_error(turn: &Value) -> String {
     turn.get("error")
         .and_then(|e| e.get("message"))
         .and_then(Value::as_str)
-        .unwrap_or("这一轮失败了")
+        .unwrap_or("Turn failed")
         .to_owned()
 }
 
@@ -493,7 +493,7 @@ pub fn parse_line(line: &str) -> Vec<EntryKind> {
             let message = err
                 .get("message")
                 .and_then(Value::as_str)
-                .unwrap_or("Codex 返回了错误")
+                .unwrap_or("Codex returned an error")
                 .to_owned();
             return if id == THREAD_REQ || id == TURN_REQ || id == INIT_ID {
                 vec![EntryKind::Finished(Outcome::Failed { message })]
@@ -548,7 +548,7 @@ pub fn parse_line(line: &str) -> Vec<EntryKind> {
         "error" => {
             let message = p["error"]["message"]
                 .as_str()
-                .unwrap_or("Codex 出错了")
+                .unwrap_or("Codex error")
                 .to_owned();
             if p.get("willRetry").and_then(Value::as_bool) == Some(true) {
                 vec![EntryKind::Notice { message }]
@@ -562,7 +562,7 @@ pub fn parse_line(line: &str) -> Vec<EntryKind> {
             .unwrap_or_default(),
         "model/rerouted" => vec![EntryKind::Notice {
             message: format!(
-                "模型从 {} 切到了 {}",
+                "Model rerouted from {} to {}",
                 s(p, "fromModel").unwrap_or_default(),
                 s(p, "toModel").unwrap_or_default()
             ),

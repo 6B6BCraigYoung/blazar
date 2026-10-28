@@ -70,7 +70,7 @@ pub(super) fn Tray(chat: Chat, log_h: RwSignal<f64>) -> impl IntoView {
                                     class="cb-todo"
                                     aria-expanded=move || open.get().to_string()
                                     disabled=move || !fits.get()
-                                    title="待办"
+                                    title="Todos"
                                     on:click=move |_| {
                                         manual.set(Some(!open.get_untracked()));
                                     }
@@ -78,7 +78,7 @@ pub(super) fn Tray(chat: Chat, log_h: RwSignal<f64>) -> impl IntoView {
                                     <span class="ck" aria-hidden="true">
                                         {if all { "☒" } else { "☐" }}
                                     </span>
-                                    <b>{format!("待办 {done}/{}", list.len())}</b>
+                                    <b>{format!("Todos {done}/{}", list.len())}</b>
                                     {cur
                                         .map(|c| {
                                             view! {
@@ -97,14 +97,14 @@ pub(super) fn Tray(chat: Chat, log_h: RwSignal<f64>) -> impl IntoView {
                                 <button
                                     type="button"
                                     class="cb-review"
-                                    title="在检查器里审阅更改"
+                                    title="Review changes in the inspector"
                                     on:click=move |_| chat.show_diff.run(())
                                 >
-                                    <span class="n">{format!("{n} 个文件")}</span>
+                                    <span class="n">{format!("{n} file{}", if n == 1 { "" } else { "s" })}</span>
                                     <span class="ok">{format!("+{added}")}</span>
                                     <span class="bad">{format!("−{removed}")}</span>
                                     <span class="sep">"·"</span>
-                                    <span class="go">"审阅"</span>
+                                    <span class="go">"Review"</span>
                                 </button>
                             }
                         })}

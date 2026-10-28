@@ -43,6 +43,8 @@
 .rail-count { font-size: var(--font-size-label); color: var(--fg-3); }
 .rail-title { display: flex; align-items: center; gap: var(--space-sm); margin: 0 var(--space-2xs) var(--space-md); font-size: var(--font-size-label); font-weight: var(--font-weight-semibold); color: var(--fg-3); }
 .rail-title em { font-style: normal; color: var(--status-attention); }
+.rail-title .linkbtn { font-size: var(--font-size-label); font-weight: var(--font-weight-regular); color: var(--fg-3); }
+.rail-title .linkbtn:hover { color: var(--fg); }
 .rail-title .grow { flex: 1; }
 .rail-needs { flex: 0 0 auto; }
 .rail-feed { margin-top: var(--space-section); }

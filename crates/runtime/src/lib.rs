@@ -163,16 +163,16 @@ pub struct SessionHandle {
 
 #[derive(Debug, thiserror::Error)]
 pub enum RuntimeError {
-    #[error("启动 agent 进程失败: {0}")]
+    #[error("failed to spawn agent process: {0}")]
     Spawn(#[source] std::io::Error),
 
-    #[error("agent 进程的 {0} 管道不可用")]
+    #[error("agent process {0} pipe unavailable")]
     MissingPipe(&'static str),
 
-    #[error("该 runtime 不支持 {0}")]
+    #[error("this runtime does not support {0}")]
     Unsupported(&'static str),
 
-    #[error("传输层失败: {0}")]
+    #[error("transport failed: {0}")]
     Transport(String),
 }
 

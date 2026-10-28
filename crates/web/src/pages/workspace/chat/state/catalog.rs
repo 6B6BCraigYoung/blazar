@@ -36,7 +36,7 @@ impl Chat {
         let rt = a.strip_prefix("r:").unwrap_or("");
         self.agents
             .with(|l| l.iter().find(|x| x.id == rt).map(|x| x.label.clone()))
-            .unwrap_or_else(|| "选择角色".into())
+            .unwrap_or_else(|| "Choose agent".into())
     }
 
     pub fn modes(self) -> &'static [Mode] {
@@ -60,6 +60,28 @@ impl Chat {
     pub fn model_sel(self, rt: &str) -> ModelSel {
         self.model_rev.track();
         storage::load(&format!("blazar.model.{rt}")).unwrap_or_default()
+    }
+
+    pub fn running_model(self) -> Option<String> {
+        let (sid, model) = self
+            .transcript
+            .with(|t| (t.last_session.clone(), t.model.clone()));
+        match self.model_live.get() {
+            Some((s, m)) if sid.as_deref() == Some(s.as_str()) => Some(m),
+            _ => model,
+        }
+    }
+
+    pub fn default_model_now(self, rt: &str) -> Option<String> {
+        let desc = self
+            .models_for(rt)
+            .into_iter()
+            .find(|m| m.id.is_empty())?
+            .desc;
+        let at = desc.find("currently ")? + "currently ".len();
+        let rest = &desc[at..];
+        let name = rest[..rest.find(')').unwrap_or(rest.len())].trim();
+        (!name.is_empty()).then(|| name.to_owned())
     }
 
     pub fn set_model_sel(self, rt: &str, v: &ModelSel) {

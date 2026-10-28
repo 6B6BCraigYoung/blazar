@@ -184,7 +184,7 @@ pub async fn interrupt(
     let removed = st.running.write().await.remove(&sid);
     let Some(run) = removed else {
         return Ok(Json(
-            serde_json::json!({ "interrupted": false, "reason": "会话未在运行" }),
+            serde_json::json!({ "interrupted": false, "reason": "Session is not running" }),
         ));
     };
 
@@ -247,13 +247,13 @@ pub async fn decide_approval(
     Json(req): Json<DecideRequest>,
 ) -> ApiResult<Json<serde_json::Value>> {
     let aid = crate::run::parse_approval_id(&id)
-        .ok_or_else(|| ApiError(anyhow::anyhow!("审批 id 不合法")))?;
+        .ok_or_else(|| ApiError(anyhow::anyhow!("Invalid approval id")))?;
     let decision = if req.allow { "allow" } else { "deny" };
 
     let message = if req.allow || !req.message.trim().is_empty() {
         req.message.clone()
     } else {
-        "用户在 Blazar 界面上拒绝了这次操作".to_owned()
+        "The user denied this action in Blazar".to_owned()
     };
     let answers = req.answers.map(serde_json::Value::Object);
     let response = blazar_db::ApprovalResponse {
@@ -271,6 +271,7 @@ pub async fn decide_approval(
             let Some(a) = st.db.approval(aid).await? else {
                 return Ok(Json(serde_json::json!({
                     "delivered": false, "reason": "这条审批已经被处理过了",
+                    "reason_en": "This approval has already been handled",
                 })));
             };
             if let Some(saved) = &a.response
@@ -281,6 +282,7 @@ pub async fn decide_approval(
                 return Ok(Json(serde_json::json!({
                     "delivered": false,
                     "reason": "已有待送达的审批决定，请按原选择重试；要更改决定，请先中断当前会话",
+                    "reason_en": "A decision for this approval is already pending delivery; retry with the same choice, or interrupt the session to change it",
                 })));
             }
             if a.delivered && a.response.is_some() {
@@ -326,7 +328,10 @@ pub(crate) fn with_image_note(text: &str, n: usize) -> String {
     if n == 0 {
         text.to_owned()
     } else {
-        format!("{text}\n［附图 {n} 张］")
+        format!(
+            "{text}\n[{n} {} attached]",
+            if n == 1 { "image" } else { "images" }
+        )
     }
 }
 
@@ -368,7 +373,7 @@ pub(crate) fn control_requests(
             && m.chars()
                 .all(|c| c.is_ascii_alphanumeric() || "-_.:[]/".contains(c));
         if !ok {
-            return Err("模型名不合法".into());
+            return Err("Invalid model name".into());
         }
 
         let model = if m.is_empty() {
@@ -388,7 +393,7 @@ pub(crate) fn control_requests(
         ]
         .contains(&mode.as_str())
         {
-            return Err("未知权限模式".into());
+            return Err("Unknown permission mode".into());
         }
         out.push((
             "permission_mode",
@@ -399,7 +404,7 @@ pub(crate) fn control_requests(
     if let Some(style) = req.output_style {
         let style = style.trim();
         if !blazar_runtime::valid_style(style) {
-            return Err("输出风格名不合法".into());
+            return Err("Invalid output style name".into());
         }
         flags.insert("outputStyle".into(), style.into());
     }
@@ -424,7 +429,7 @@ pub(crate) fn control_requests(
     }
     if let Some(n) = req.mcp_reconnect {
         if !valid_mcp_name(&n) {
-            return Err("MCP 服务器名不合法".into());
+            return Err("Invalid MCP server name".into());
         }
         out.push((
             "mcp_reconnect",
@@ -433,7 +438,7 @@ pub(crate) fn control_requests(
     }
     if let Some(t) = req.mcp_toggle {
         if !valid_mcp_name(&t.name) {
-            return Err("MCP 服务器名不合法".into());
+            return Err("Invalid MCP server name".into());
         }
         out.push((
             "mcp_toggle",

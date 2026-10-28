@@ -24,7 +24,7 @@ mod queue;
 mod status;
 
 use pickers::{FilesPop, agent_pop, mcp_pop, mode_pop, model_pop, plus_pop, slash_pop, style_pop};
-use presentation::{eff_label, icon, svg};
+use presentation::{eff_label, icon, model_name, svg};
 use queue::{FailedEditor, QueueBand, QueueEditor};
 use status::{RateBanner, Tray};
 
@@ -119,8 +119,8 @@ fn FailedCard(
     dismissed: RwSignal<Option<String>>,
 ) -> impl IntoView {
     let app = crate::app_state::use_app();
-    let headline = failure.headline();
-    let primary = failure.primary();
+    let headline = failure.headline_en();
+    let primary = failure.primary_en();
     let node_href = failure.node_href();
     let cause = failure.cause.as_str();
     let raw = text
@@ -133,11 +133,11 @@ fn FailedCard(
         let f = f.get_value();
         match f.cause {
             FailureCause::Network | FailureCause::Busy => chat.continue_thread(),
-            FailureCause::Node => crate::failure::probe_node(app, f.node),
-            FailureCause::Login => crate::failure::login(f.runtime, f.account),
+            FailureCause::Node => crate::failure::probe_node(app, f.node, true),
+            FailureCause::Login => crate::failure::login(f.runtime, f.account, true),
             FailureCause::Quota => chat.spawn(async move {
                 if let Some(id) =
-                    crate::failure::pick_other_account(&f.runtime, f.account.as_deref()).await
+                    crate::failure::pick_other_account(&f.runtime, f.account.as_deref(), true).await
                 {
                     chat.continue_on_another(id);
                 }
@@ -148,7 +148,7 @@ fn FailedCard(
     let handled = move || {
         let f = f.get_value();
         dismissed.set(Some(key.clone()));
-        crate::failure::mark_handled(app, f.workspace, Some(f.session));
+        crate::failure::mark_handled(app, f.workspace, Some(f.session), true);
         chat.spawn(async move { chat.load_threads().await });
     };
     gloo_timers::callback::Timeout::new(300, move || {
@@ -183,21 +183,21 @@ fn FailedCard(
                 .map(|d| {
                     view! {
                         <details class="ui-detail">
-                            <summary>"错误详情"</summary>
+                            <summary>"Error details"</summary>
                             <pre>{d}</pre>
                         </details>
                     }
                 })}
             <div class="cf-acts">
                 <button type="button" class="linkbtn" on:click=move |_| handled()>
-                    "标为已处理"
+                    "Mark as handled"
                 </button>
                 <span class="grow"></span>
                 {node_href
                     .map(|href| {
                         view! {
                             <a class="btn" href=href>
-                                "打开机器页"
+                                "Open machine"
                             </a>
                         }
                     })}
@@ -351,17 +351,13 @@ pub fn Composer(
             )),
         );
         if !chat.running.get_untracked() {
-            toast(if on {
-                "已开启快速模式"
-            } else {
-                "已关闭快速模式"
-            });
+            toast(if on { "Fast mode on" } else { "Fast mode off" });
         }
     };
     let usage = move || {
         let windows = chat.transcript.with_untracked(|t| t.rate.clone());
         let body = if windows.is_empty() {
-            "还没有用量数据，Claude 跑完第一轮后才会有。".to_owned()
+            "No usage data yet. It appears after the first Claude turn.".to_owned()
         } else {
             windows
                 .iter()
@@ -395,14 +391,18 @@ pub fn Composer(
                 .collect()
         });
         if users.is_empty() {
-            toast("没有可回退的点：只有 Git 工作区才会建检查点。");
+            toast("Nothing to rewind. Checkpoints are only created in Git workspaces.");
             return;
         }
         chat.spawn(async move {
-            let mut ch = vec![Choice::plain("取消")];
+            let mut ch = vec![Choice::plain("Cancel")];
             ch.extend(users.iter().map(|u| Choice::plain(u.1.clone())));
-            if let Some(i) =
-                dialog::ask("回退", "选一条消息，把文件恢复到它发出之前的状态。", ch).await
+            if let Some(i) = dialog::ask(
+                "Rewind",
+                "Pick a message to restore files to the state before it was sent.",
+                ch,
+            )
+            .await
                 && i > 0
             {
                 chat.rewind(users[i - 1].0.clone(), true);
@@ -451,7 +451,7 @@ pub fn Composer(
     let add_image = move |f: web_sys::File| {
         let t = f.type_();
         if !["image/png", "image/jpeg", "image/gif", "image/webp"].contains(&t.as_str()) {
-            toast("只支持 PNG、JPEG、GIF 和 WebP 图片");
+            toast("Only PNG, JPEG, GIF and WebP images are supported");
             return;
         }
         if f.size() > 5.0 * 1024.0 * 1024.0 {
@@ -686,8 +686,19 @@ pub fn Composer(
                     .replace(" (Recommended)", "")
             })
             .filter(|n| !n.is_empty() && n != "Default")
-            .unwrap_or_else(|| "默认模型".to_owned());
-        (name, s.effort.map(|e| eff_label(&e)))
+            .unwrap_or_else(|| "Default".to_owned());
+        let running = (!chat.fresh.get())
+            .then(|| chat.running_model())
+            .flatten()
+            .filter(|_| s.model.is_none() || chat.running.get())
+            .and_then(|m| {
+                if m.is_empty() {
+                    chat.default_model_now(&rt)
+                } else {
+                    Some(model_name(&m))
+                }
+            });
+        (running.unwrap_or(name), s.effort.map(|e| eff_label(&e)))
     };
 
     let review_n = move || chat.diff.comments.with(Vec::len);
@@ -800,9 +811,9 @@ pub fn Composer(
                                         let n = review_n();
                                         chat.spawn(async move {
                                             if dialog::ask(
-                                                    "丢弃审阅批注",
-                                                    &format!("丢弃 {n} 条还没发出的审阅批注？"),
-                                                    vec![Choice::plain("取消"), Choice::danger("丢弃")],
+                                                    "Discard review comments",
+                                                    &format!("Discard {n} unsent review comments?"),
+                                                    vec![Choice::plain("Cancel"), Choice::danger("Discard")],
                                                 )
                                                 .await == Some(1)
                                             {
@@ -916,10 +927,10 @@ pub fn Composer(
                         view! {
                             <div class="cb-band queue">
                                 <div class="cq-h">
-                                    <b>"没有发出去"</b>
+                                    <b>"Failed to send"</b>
                                     <span class="grow"></span>
                                     <button class="linkbtn" on:click=move |_| chat.retry_failed(id)>
-                                        "重试"
+                                        "Retry"
                                     </button>
                                     <button
                                         class="linkbtn"
@@ -927,16 +938,16 @@ pub fn Composer(
                                             failed_edit.set(Some((id, request.clone())))
                                         }
                                     >
-                                        "编辑"
+                                        "Edit"
                                     </button>
                                     <button
                                         class="linkbtn"
                                         on:click=move |_| {
                                             chat.spawn(async move {
                                                 if dialog::ask(
-                                                        "丢弃这条消息？",
-                                                        "这条消息没有发出去，丢弃后找不回来。",
-                                                        vec![Choice::plain("取消"), Choice::danger("丢弃")],
+                                                        "Discard message?",
+                                                        "This message was not sent. Discarding it cannot be undone.",
+                                                        vec![Choice::plain("Cancel"), Choice::danger("Discard")],
                                                     )
                                                     .await == Some(1)
                                                 {
@@ -947,12 +958,12 @@ pub fn Composer(
                                             })
                                         }
                                     >
-                                        "丢弃"
+                                        "Discard"
                                     </button>
                                 </div>
                                 <div class="cq-t">
                                     {text}
-                                    {(images > 0).then(|| format!(" · {images} 个附件"))}
+                                    {(images > 0).then(|| format!(" · {images} attachments"))}
                                 </div>
                             </div>
                         }
@@ -1057,15 +1068,15 @@ pub fn Composer(
                     aria-label="Message"
                     placeholder=move || {
                         if unreachable.get() {
-                            "机器连上后才能发送"
+                            "Reconnect the machine to send"
                         } else if running.get() {
                             if matches!(chat.runtime().as_str(), "claude" | "codex") {
-                                "它在干活，可以边跑边说…"
+                                "Message the agent while it works…"
                             } else {
-                                "排队再发一条…"
+                                "Queue another message…"
                             }
                         } else {
-                            "⌘ Esc 聚焦或离开输入框"
+                            "⌘ Esc to focus or unfocus Claude"
                         }
                     }
                     prop:value=move || chat.prompt.get()
@@ -1082,8 +1093,8 @@ pub fn Composer(
                 <div class="cb-bar">
                     <button
                         class="cb-btn cb-trigger cb-add"
-                        aria-label="添加"
-                        title="添加图片、引用项目里的文件或当前文件"
+                        aria-label="Add"
+                        title="Add images, mention project files or the current file"
                         on:click=move |_| {
                             pop.update(|p| {
                                 *p = if *p == Some(Pop::Plus) { None } else { Some(Pop::Plus) };
@@ -1091,12 +1102,12 @@ pub fn Composer(
                         }
                     >
                         <span class="ic" inner_html=icon("plus")></span>
-                        <span class="cb-tx">"添加"</span>
+                        <span class="cb-tx">"Add"</span>
                     </button>
                     <button
                         class="cb-btn cb-trigger cb-slash"
-                        aria-label="命令"
-                        title="斜杠命令，直接输入 / 也可以"
+                        aria-label="Commands"
+                        title="Slash commands (/)"
                         on:click=move |_| {
                             if !chat.prompt.get_untracked().starts_with('/') {
                                 chat.prompt.set("/".into());
@@ -1107,7 +1118,7 @@ pub fn Composer(
                         }
                     >
                         <span class="ic" inner_html=icon("slash")></span>
-                        <span class="cb-tx">"命令"</span>
+                        <span class="cb-tx">"Commands"</span>
                     </button>
                     {move || {
                         (chat.runtime() == "claude")
@@ -1121,15 +1132,15 @@ pub fn Composer(
                                         |(n, b), m| (n + 1, b + usize::from(m.status == "failed")),
                                     );
                                 let tip = match (n, bad) {
-                                    (0, _) => "MCP 服务器".to_owned(),
-                                    (n, 0) => format!("MCP 服务器：{n} 个"),
-                                    (n, bad) => format!("MCP 服务器：{n} 个，{bad} 个连不上"),
+                                    (0, _) => "MCP servers".to_owned(),
+                                    (n, 0) => format!("MCP servers ({n})"),
+                                    (n, bad) => format!("MCP servers ({n}, {bad} failed)"),
                                 };
                                 view! {
                                     <button
                                         class="cb-btn cb-trigger cb-mcp"
                                         data-bad=(bad > 0).to_string()
-                                        aria-label="MCP 服务器"
+                                        aria-label="MCP servers"
                                         title=tip
                                         on:click=move |_| {
                                             chat.load_catalog();
@@ -1153,8 +1164,14 @@ pub fn Composer(
                     }}
                     <button
                         class="cb-btn cb-trigger cb-model"
-                        aria-label="模型"
-                        title="切换模型和思考强度"
+                        aria-label="Model"
+                        title=move || {
+                            if chat.running_model().is_some() && !chat.fresh.get() {
+                                format!("Running {} · switch model and effort", model_label().0)
+                            } else {
+                                "Switch model and effort".to_owned()
+                            }
+                        }
                         on:click=move |_| {
                             pop.update(|p| {
                                 *p = if *p == Some(Pop::Model) { None } else { Some(Pop::Model) };
@@ -1166,19 +1183,19 @@ pub fn Composer(
                         {move || {
                             model_label()
                                 .1
-                                .map(|e| view! { <span class="muted">{format!("· 思考强度 {e}")}</span> })
+                                .map(|e| view! { <span class="muted">{format!("· {e} effort")}</span> })
                         }}
                     </button>
                     <Show when=move || chat.fresh.get() && chat.view.get().is_some()>
                         <button
                             type="button"
                             class="cb-btn cb-fresh"
-                            aria-label="取消新对话"
-                            title="下一条消息会开始新对话，点击取消"
+                            aria-label="Keep the current conversation"
+                            title="The next message starts a new conversation. Click to cancel"
                             on:click=move |_| chat.fresh.set(false)
                         >
                             <span class="ic" inner_html=icon("chat")></span>
-                            <span class="cb-tx">"新对话"</span>
+                            <span class="cb-tx">"New conversation"</span>
                             <span class="muted">"×"</span>
                         </button>
                     </Show>
@@ -1190,9 +1207,9 @@ pub fn Composer(
                                 let on = chat.ctx_on.get().as_deref() == Some(f.as_str());
                                 let name = f.rsplit('/').next().unwrap_or(&f).to_owned();
                                 let tip = if on {
-                                    format!("{f}\n已加入这条消息的上下文，点击移出")
+                                    format!("{f}\nIn this message's context. Click to remove")
                                 } else {
-                                    format!("{f}\n把正在看的文件加入这条消息的上下文")
+                                    format!("{f}\nAdd the open file to this message's context")
                                 };
                                 let f2 = f.clone();
                                 view! {
@@ -1200,7 +1217,7 @@ pub fn Composer(
                                         type="button"
                                         class="cb-btn cb-ctx"
                                         data-on=on.to_string()
-                                        aria-label=if on { "移出当前文件" } else { "加入当前文件" }
+                                        aria-label=if on { "Remove current file" } else { "Add current file" }
                                         title=tip
                                         on:click=move |_| {
                                             chat.ctx_on.set(if on { None } else { Some(f2.clone()) })
@@ -1216,8 +1233,8 @@ pub fn Composer(
                     <span class="cb-right">
                         <button
                             class="cb-btn cb-trigger cb-agent"
-                            aria-label="角色和运行时"
-                            title="切换角色、运行时或账号，对话会保留"
+                            aria-label="Agent and runtime"
+                            title="Switch agent, runtime or account, keeping the conversation"
                             on:click=move |_| {
                                 pop.update(|p| {
                                     *p = if *p == Some(Pop::Agent) {
@@ -1241,7 +1258,7 @@ pub fn Composer(
                                         .then(|| {
                                             let label = match chat.current_account(&rt) {
                                                 Some(id) => chat.account(&id).map(|a| a.label)?,
-                                                None => "自动分摊".to_owned(),
+                                                None => "Auto-balance".to_owned(),
                                             };
                                             Some(view! { <span class="muted">{format!(" · {label}")}</span> })
                                         })
@@ -1260,18 +1277,18 @@ pub fn Composer(
                                         .and_then(|p| p.permission_mode)
                                         .is_some()
                                     {
-                                        "，来自角色档案"
+                                        " (from agent)"
                                     } else {
-                                        "，默认"
+                                        " (default)"
                                     };
                                     view! {
                                         <button
                                             class="cb-btn cb-trigger cb-mode"
                                             data-ui-guard=""
                                             data-mode=m.0
-                                            aria-label="权限模式"
+                                            aria-label="Permission mode"
                                             title=format!(
-                                                "权限模式：{}{from}\n{}\nShift+Tab 切换",
+                                                "Permission mode: {}{from}\n{}\nShift+Tab to switch",
                                                 mode_label(m.0),
                                                 m.2,
                                             )
@@ -1298,24 +1315,24 @@ pub fn Composer(
                             data-pmode=move || chat.effective_mode().map(|m| m.0).unwrap_or("")
                             aria-label=move || {
                                 if stop_mode() {
-                                    "停止"
+                                    "Stop"
                                 } else if running.get()
                                     && !matches!(chat.runtime().as_str(), "claude" | "codex")
                                 {
-                                    "排队"
+                                    "Queue"
                                 } else {
-                                    "发送"
+                                    "Send"
                                 }
                             }
                             title=move || {
                                 if stop_mode() {
-                                    "停止 (Esc)"
+                                    "Stop (Esc)"
                                 } else if running.get()
                                     && !matches!(chat.runtime().as_str(), "claude" | "codex")
                                 {
-                                    "排队 (Enter)"
+                                    "Queue (Enter)"
                                 } else {
-                                    "发送 (Enter)"
+                                    "Send (Enter)"
                                 }
                             }
                             disabled=move || unreachable.get() && !stop_mode()

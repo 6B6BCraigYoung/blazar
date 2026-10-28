@@ -114,68 +114,106 @@ pub fn timezone(tz: &str) -> &str {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ErrorKind {
+    Machine,
+    Remote,
+    Busy,
+    RateLimit,
+    Login,
+    Forbidden,
+    Billing,
+    Server,
+    Timeout,
+    Offline,
+    Missing,
+}
+
 #[must_use]
-pub fn error(raw: &str, status: Option<u16>) -> String {
+pub fn error_kind(raw: &str, status: Option<u16>) -> Option<ErrorKind> {
     let lower = raw.to_ascii_lowercase();
     let has = |needles: &[&str]| needles.iter().any(|n| lower.contains(n));
-    if has(&[
-        "机器连不上",
-        "退出码 255",
-        "ssh:",
-        "could not resolve hostname",
-        "no route to host",
-        "host is down",
-        "connection closed by",
-    ]) {
-        "机器连不上，确认它开着机、网络是通的".into()
-    } else if raw.starts_with("退出码 ") {
-        "远端命令没有成功执行".into()
-    } else if status == Some(529) || has(&["529", "overloaded"]) {
-        "服务繁忙，稍后再试".into()
-    } else if status == Some(429) || has(&["429", "rate limit", "rate_limit", "too many requests"])
-    {
-        "请求太频繁，稍后再试".into()
-    } else if status == Some(401)
-        || has(&[
-            "401 ",
-            "unauthorized",
-            "invalid api key",
-            "not logged in",
-            "authenticat",
-        ])
-    {
-        "登录已失效，请重新登录".into()
-    } else if status == Some(403) || has(&["403 ", "forbidden", "permission_error"]) {
-        "没有权限".into()
-    } else if has(&["billing_error"]) {
-        "额度不足，请检查账号".into()
-    } else if has(&[
-        "api error: 500",
-        "internal server error",
-        "server_error",
-        "api_error",
-    ]) {
-        "服务出错了，稍后再试".into()
-    } else if has(&["timed out", "timeout", "deadline exceeded"]) {
-        "等待超时，稍后再试".into()
-    } else if has(&[
-        "connection refused",
-        "failed to fetch",
-        "networkerror",
-        "network error",
-        "econnrefused",
-    ]) {
-        "连不上服务，请检查网络".into()
-    } else if status.is_some_and(|c| c >= 500) && (raw.is_empty() || raw.starts_with("HTTP ")) {
-        "服务出错了，稍后再试".into()
-    } else if status == Some(404) && (raw.is_empty() || raw.starts_with("HTTP ")) {
-        "找不到了，可能已被删除".into()
-    } else {
-        raw.to_owned()
+    let bare = raw.is_empty() || raw.starts_with("HTTP ");
+    Some(
+        if has(&[
+            "机器连不上",
+            "退出码 255",
+            "exit code 255",
+            "ssh:",
+            "could not resolve hostname",
+            "no route to host",
+            "host is down",
+            "connection closed by",
+        ]) {
+            ErrorKind::Machine
+        } else if raw.starts_with("退出码 ") {
+            ErrorKind::Remote
+        } else if status == Some(529) || has(&["529", "overloaded"]) {
+            ErrorKind::Busy
+        } else if status == Some(429)
+            || has(&["429", "rate limit", "rate_limit", "too many requests"])
+        {
+            ErrorKind::RateLimit
+        } else if status == Some(401)
+            || has(&[
+                "401 ",
+                "unauthorized",
+                "invalid api key",
+                "not logged in",
+                "authenticat",
+            ])
+        {
+            ErrorKind::Login
+        } else if status == Some(403) || has(&["403 ", "forbidden", "permission_error"]) {
+            ErrorKind::Forbidden
+        } else if has(&["billing_error"]) {
+            ErrorKind::Billing
+        } else if has(&[
+            "api error: 500",
+            "internal server error",
+            "server_error",
+            "api_error",
+        ]) {
+            ErrorKind::Server
+        } else if has(&["timed out", "timeout", "deadline exceeded"]) {
+            ErrorKind::Timeout
+        } else if has(&[
+            "connection refused",
+            "failed to fetch",
+            "networkerror",
+            "network error",
+            "econnrefused",
+        ]) {
+            ErrorKind::Offline
+        } else if status.is_some_and(|c| c >= 500) && bare {
+            ErrorKind::Server
+        } else if status == Some(404) && bare {
+            ErrorKind::Missing
+        } else {
+            return None;
+        },
+    )
+}
+
+#[must_use]
+pub fn error(raw: &str, status: Option<u16>) -> String {
+    match error_kind(raw, status) {
+        Some(ErrorKind::Machine) => "机器连不上，确认它开着机、网络是通的".into(),
+        Some(ErrorKind::Remote) => "远端命令没有成功执行".into(),
+        Some(ErrorKind::Busy) => "服务繁忙，稍后再试".into(),
+        Some(ErrorKind::RateLimit) => "请求太频繁，稍后再试".into(),
+        Some(ErrorKind::Login) => "登录已失效，请重新登录".into(),
+        Some(ErrorKind::Forbidden) => "没有权限".into(),
+        Some(ErrorKind::Billing) => "额度不足，请检查账号".into(),
+        Some(ErrorKind::Server) => "服务出错了，稍后再试".into(),
+        Some(ErrorKind::Timeout) => "等待超时，稍后再试".into(),
+        Some(ErrorKind::Offline) => "连不上服务，请检查网络".into(),
+        Some(ErrorKind::Missing) => "找不到了，可能已被删除".into(),
+        None => raw.to_owned(),
     }
 }
 
-fn http_code(raw: &str) -> Option<u16> {
+pub fn http_code(raw: &str) -> Option<u16> {
     raw.split(|c: char| !c.is_ascii_digit())
         .filter_map(|t| t.parse::<u16>().ok())
         .find(|n| (400..600).contains(n))

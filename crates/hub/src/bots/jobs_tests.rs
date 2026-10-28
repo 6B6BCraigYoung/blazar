@@ -193,7 +193,11 @@ async fn a_registered_process_ends_as_done_with_an_unknown_code_and_mails_its_bo
     let mail = crate::bots::pending(&h.st, &b.id).await;
     assert_eq!(mail.len(), 1, "bot 发起的写进 bot_mail");
     assert_eq!(mail[0].from_kind, "system");
-    assert!(mail[0].body.contains("退出码未知"), "{}", mail[0].body);
+    assert!(
+        mail[0].body.contains("Exit code: unknown"),
+        "{}",
+        mail[0].body
+    );
     assert!(mail[0].body.contains("nap"));
     assert_eq!(
         h.count("SELECT COUNT(*) FROM inbox WHERE kind = 'job'")
@@ -319,7 +323,7 @@ async fn workers_register_only_inside_their_claims_and_cannot_stop_registered_jo
     let outside = register(&h.st, req(Some(&h.ws), None), &bot_owner(&w), me.as_ref())
         .await
         .unwrap_err();
-    assert!(outside.contains("认领"), "{outside}");
+    assert!(outside.contains("claims"), "{outside}");
     let wrong_node = register(
         &h.st,
         req(Some(&w.home_ws_id), Some("far")),
@@ -365,7 +369,7 @@ async fn workers_register_only_inside_their_claims_and_cannot_stop_registered_jo
     let refused = kill(&h.st, &job.id, me.as_ref(), &bot_owner(&w))
         .await
         .unwrap_err();
-    assert!(refused.contains("登记"), "{refused}");
+    assert!(refused.contains("registered"), "{refused}");
     assert!(
         crate::fleet::allowed(&h.st, &caller(&w), "job_kill", &json!({ "job_id": job.id }))
             .await
@@ -759,6 +763,11 @@ fn verdicts_follow_the_run_state() {
         "{text}"
     );
     assert!(text.contains("line 30") && text.contains("line 11") && !text.contains("line 10\n"));
+    let en = summary_en(&ended, &lines);
+    assert!(
+        en.contains("Exit code: unknown") && en.contains("1h 2m") && en.contains("line 30"),
+        "{en}"
+    );
 }
 
 #[tokio::test]

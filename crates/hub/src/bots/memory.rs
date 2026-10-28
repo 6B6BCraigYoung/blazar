@@ -113,10 +113,12 @@ fn scope_allowed(scope: &str, by: Option<&Caller>) -> Result<(), String> {
         return Ok(());
     }
     let Some(id) = scope.strip_prefix("bot:") else {
-        return Err("作用域只能是 shared 或 bot:<id>".into());
+        return Err("Scope must be shared or bot:<id>".into());
     };
     match by {
-        Some(c) if c.bot != id && !c.is_lead() => Err("只能写自己的私有 memory".into()),
+        Some(c) if c.bot != id && !c.is_lead() => {
+            Err("You can only write your own private memory".into())
+        }
         _ => Ok(()),
     }
 }
@@ -193,20 +195,25 @@ pub async fn write(st: &Shared, w: Write, by: Option<&Caller>) -> Result<Memory,
     let name = w.name.trim().to_owned();
     if !valid_name(&name) {
         return Err(WriteError::Invalid(
-            "名字用 kebab-case：小写字母、数字、连字符，最长 80".into(),
+            "Name must be kebab-case: lowercase letters, digits, hyphens, up to 80 characters"
+                .into(),
         ));
     }
     let description = w.description.trim().to_owned();
     if description.is_empty() || description.chars().count() > 300 {
-        return Err(WriteError::Invalid("描述一句话，1–300 字".into()));
+        return Err(WriteError::Invalid(
+            "Description must be one sentence, 1–300 characters".into(),
+        ));
     }
     if w.body.trim().is_empty() || w.body.chars().count() > 20_000 {
-        return Err(WriteError::Invalid("正文 1–20000 字".into()));
+        return Err(WriteError::Invalid(
+            "Body must be 1–20000 characters".into(),
+        ));
     }
     let kind = w.kind.unwrap_or_else(|| "project".into());
     if !TYPES.contains(&kind.as_str()) {
         return Err(WriteError::Invalid(format!(
-            "类型只能是 {}",
+            "Type must be one of {}",
             TYPES.join(" / ")
         )));
     }
@@ -226,7 +233,7 @@ pub async fn write(st: &Shared, w: Write, by: Option<&Caller>) -> Result<Memory,
         if w.version != Some(e.version) {
             return Err(WriteError::Conflict {
                 reason: format!(
-                    "{scope}/{name} 已经存在（版本 {}）。要更新就带上 version={}，要新记就换个名字",
+                    "{scope}/{name} already exists (version {}). Pass version={} to update it, or pick another name for a new entry",
                     e.version, e.version
                 ),
                 existing: Box::new(e),
@@ -251,7 +258,7 @@ pub async fn write(st: &Shared, w: Write, by: Option<&Caller>) -> Result<Memory,
         super::changed(st);
         return read(st, &e.id, None)
             .await
-            .ok_or_else(|| WriteError::Invalid("memory 读不回来".into()));
+            .ok_or_else(|| WriteError::Invalid("Couldn't read the memory back".into()));
     }
     let candidates = list(st, None, None).await;
     for c in candidates {
@@ -265,7 +272,7 @@ pub async fn write(st: &Shared, w: Write, by: Option<&Caller>) -> Result<Memory,
             let full = read(st, &c.id, None).await.unwrap_or(c);
             return Err(WriteError::Conflict {
                 reason: format!(
-                    "已经有一条很接近的 memory：{}/{}（{}）。要补充就更新它（带 version={}），不要再记一条",
+                    "A very similar memory already exists: {}/{} ({}). Update it (with version={}) instead of adding another",
                     full.scope, full.name, full.description, full.version
                 ),
                 existing: Box::new(full),
@@ -291,11 +298,11 @@ pub async fn write(st: &Shared, w: Write, by: Option<&Caller>) -> Result<Memory,
     super::changed(st);
     read(st, &id, None)
         .await
-        .ok_or_else(|| WriteError::Invalid("memory 读不回来".into()))
+        .ok_or_else(|| WriteError::Invalid("Couldn't read the memory back".into()))
 }
 
 pub async fn archive(st: &Shared, id: &str, by: Option<&Caller>) -> Result<(), String> {
-    let m = read(st, id, by).await.ok_or("没有这条 memory")?;
+    let m = read(st, id, by).await.ok_or("No such memory")?;
     scope_allowed(&m.scope, by)?;
     sqlx::query("UPDATE memories SET archived_at = ?2 WHERE id = ?1")
         .bind(&m.id)

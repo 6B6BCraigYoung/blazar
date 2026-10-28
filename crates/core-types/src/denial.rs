@@ -94,6 +94,26 @@ pub fn reason_label(reason: &str) -> String {
 }
 
 #[must_use]
+pub fn reason_label_en(reason: &str) -> String {
+    let words: Vec<String> = reason
+        .split_whitespace()
+        .map(|w| {
+            let mut c = w.chars();
+            c.next().map_or_else(String::new, |f| {
+                f.to_uppercase()
+                    .chain(c.flat_map(char::to_lowercase))
+                    .collect()
+            })
+        })
+        .collect();
+    if words.is_empty() {
+        "Safety check".to_owned()
+    } else {
+        words.join(" ")
+    }
+}
+
+#[must_use]
 pub fn is_shell(tool_name: &str) -> bool {
     let short = tool_name
         .trim_start_matches("mcp__blazar-fleet__")
@@ -158,9 +178,9 @@ pub fn summary(tool_name: &str, input: &Value) -> String {
 #[must_use]
 pub fn retry_message(tool_name: &str, what: &str) -> String {
     let noun = if is_shell(tool_name) {
-        "这条命令"
+        "command"
     } else {
-        "这个操作"
+        "action"
     };
     let longest = what
         .lines()
@@ -168,7 +188,10 @@ pub fn retry_message(tool_name: &str, what: &str) -> String {
         .max()
         .unwrap_or(0);
     let fence = "`".repeat(longest.max(2) + 1);
-    format!("我同意执行刚才被拦下的{noun}，请原样重试一次，不要改动：\n{fence}\n{what}\n{fence}")
+    format!(
+        "I approve the {noun} that was just blocked. Please retry it once, exactly as \
+        written:\n{fence}\n{what}\n{fence}"
+    )
 }
 
 #[cfg(test)]
@@ -191,6 +214,11 @@ mod tests {
         assert_eq!(reason_label("Network Secret Reads"), "网络密钥读取");
         assert_eq!(reason_label("Foo Bar"), "安全规则「Foo Bar」");
         assert_eq!(reason_label(""), "安全检查");
+        assert_eq!(
+            reason_label_en("remote shell writes"),
+            "Remote Shell Writes"
+        );
+        assert_eq!(reason_label_en("  "), "Safety check");
     }
 
     #[test]
@@ -218,9 +246,13 @@ mod tests {
         let m = retry_message("Bash", "ssh edge.invalid 'systemctl restart demo-agent'");
         assert_eq!(
             m,
-            "我同意执行刚才被拦下的这条命令，请原样重试一次，不要改动：\n```\nssh edge.invalid 'systemctl restart demo-agent'\n```"
+            "I approve the command that was just blocked. Please retry it once, exactly as \
+            written:\n```\nssh edge.invalid 'systemctl restart demo-agent'\n```"
         );
-        assert!(retry_message("Write", "/tmp/x").starts_with("我同意执行刚才被拦下的这个操作"));
+        assert!(
+            retry_message("Write", "/tmp/x")
+                .starts_with("I approve the action that was just blocked")
+        );
         let nested = retry_message("Bash", "cat <<'EOF'\n```\nx\n```\nEOF");
         assert!(nested.contains("\n````\ncat <<'EOF'"));
         assert!(nested.ends_with("EOF\n````"));

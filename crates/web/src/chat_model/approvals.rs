@@ -25,10 +25,13 @@ pub fn fleet_ask(request: &Value, ws_name: Option<&str>) -> Option<FleetAsk> {
         .map(str::to_owned)
         .or_else(|| {
             ws.as_ref()
-                .map(|id| format!("工作区 {}…", id.chars().take(8).collect::<String>()))
+                .map(|id| format!("workspace {}…", id.chars().take(8).collect::<String>()))
         })
-        .unwrap_or_else(|| "这个工作区".to_owned());
-    let machine = blazar_core_types::api::machine_label(s(&input, "node")).to_owned();
+        .unwrap_or_else(|| "this workspace".to_owned());
+    let machine = match s(&input, "node") {
+        "local" => "this machine".to_owned(),
+        n => n.to_owned(),
+    };
     let lines = |key: &str| {
         input[key]
             .as_array()
@@ -42,14 +45,14 @@ pub fn fleet_ask(request: &Value, ws_name: Option<&str>) -> Option<FleetAsk> {
     };
     let (title, quote) = match tn.as_str() {
         "send_prompt" => (
-            format!("允许派活给 {name}？"),
+            format!("Send a prompt to {name}?"),
             s(&input, "text").trim().to_owned(),
         ),
         "copy_files" => {
             let dest = s(&input, "dest").trim_matches('/');
             let paths = lines("paths");
             (
-                format!("允许把文件复制到 {name}？"),
+                format!("Copy files to {name}?"),
                 if dest.is_empty() {
                     paths
                 } else {
@@ -58,7 +61,7 @@ pub fn fleet_ask(request: &Value, ws_name: Option<&str>) -> Option<FleetAsk> {
             )
         }
         "job_spawn" => (
-            format!("允许在 {name} 上启动后台任务？"),
+            format!("Start a background job on {name}?"),
             [s(&input, "label"), s(&input, "command")]
                 .into_iter()
                 .filter(|x| !x.is_empty())
@@ -66,12 +69,12 @@ pub fn fleet_ask(request: &Value, ws_name: Option<&str>) -> Option<FleetAsk> {
                 .join("\n"),
         ),
         "job_register" => (
-            "允许登记后台任务？".to_owned(),
+            "Register a background job?".to_owned(),
             [
                 s(&input, "label").to_owned(),
                 input["pid"]
                     .as_u64()
-                    .map(|p| format!("进程 {p}"))
+                    .map(|p| format!("pid {p}"))
                     .unwrap_or_default(),
             ]
             .into_iter()
@@ -80,31 +83,31 @@ pub fn fleet_ask(request: &Value, ws_name: Option<&str>) -> Option<FleetAsk> {
             .join("\n"),
         ),
         "job_kill" => (
-            "允许结束后台任务？".to_owned(),
+            "Kill the background job?".to_owned(),
             s(&input, "job_id").to_owned(),
         ),
         "create_workspace" => (
-            format!("允许在 {machine} 上新建工作区？"),
+            format!("Create a workspace on {machine}?"),
             s(&input, "path").to_owned(),
         ),
-        "wait_workspace" => (format!("允许等 {name} 停下？"), String::new()),
-        "get_history" => (format!("允许读 {name} 的记录？"), String::new()),
-        "get_diff" => (format!("允许看 {name} 的改动？"), String::new()),
+        "wait_workspace" => (format!("Wait for {name} to finish?"), String::new()),
+        "get_history" => (format!("Read the history of {name}?"), String::new()),
+        "get_diff" => (format!("View the changes in {name}?"), String::new()),
         "read_file" => (
-            format!("允许读 {name} 的文件？"),
+            format!("Read a file in {name}?"),
             s(&input, "path").to_owned(),
         ),
         "list_files" => (
-            format!("允许列出 {name} 的文件？"),
+            format!("List files in {name}?"),
             s(&input, "path").to_owned(),
         ),
-        "search_code" => ("允许搜索代码？".to_owned(), s(&input, "query").to_owned()),
-        "probe_node" => (format!("允许体检 {machine}？"), String::new()),
-        "list_workspaces" => ("允许列出工作区？".to_owned(), String::new()),
-        "list_nodes" => ("允许列出机器？".to_owned(), String::new()),
+        "search_code" => ("Search the code?".to_owned(), s(&input, "query").to_owned()),
+        "probe_node" => (format!("Probe {machine}?"), String::new()),
+        "list_workspaces" => ("List workspaces?".to_owned(), String::new()),
+        "list_nodes" => ("List machines?".to_owned(), String::new()),
         other => {
             let (label, arg) = tool_title(other, &input, "");
-            (format!("允许{label}？"), arg)
+            (format!("Allow {label}?"), arg)
         }
     };
     Some(FleetAsk { title, quote, ws })
@@ -113,24 +116,24 @@ pub fn fleet_ask(request: &Value, ws_name: Option<&str>) -> Option<FleetAsk> {
 pub fn decision_text(d: &ApprovalDecision) -> String {
     match d {
         ApprovalDecision::AutoAllowed { rule } if !rule.is_empty() => {
-            format!("已自动批准 · {rule}")
+            format!("Auto-approved · {rule}")
         }
-        ApprovalDecision::AutoAllowed { .. } => "已自动批准".into(),
-        ApprovalDecision::Allow => "已允许".into(),
-        ApprovalDecision::Deny { .. } => "已拒绝".into(),
-        ApprovalDecision::Cancelled => "智能体已撤回".into(),
-        ApprovalDecision::Aborted => "会话已结束".into(),
+        ApprovalDecision::AutoAllowed { .. } => "Auto-approved".into(),
+        ApprovalDecision::Allow => "Allowed".into(),
+        ApprovalDecision::Deny { .. } => "Denied".into(),
+        ApprovalDecision::Cancelled => "Withdrawn by the agent".into(),
+        ApprovalDecision::Aborted => "Session ended".into(),
     }
 }
 
 pub(super) fn appr_kind_label(request: &Value) -> String {
     let tn = tool_name(s(request, "tool_name"));
     if tn == "AskUserQuestion" {
-        "提问".into()
+        "question".into()
     } else if SHELL_TOOLS.contains(&tn.as_str()) {
         "Bash".into()
     } else if tn.is_empty() {
-        "工具".into()
+        "tool".into()
     } else {
         tn
     }
@@ -142,9 +145,9 @@ pub fn approval_title(request: &Value, root: &str, remote_node: Option<&str>) ->
     if SHELL_TOOLS.contains(&tn.as_str()) {
         return match remote_node {
             Some(n) if s(request, "tool_name").starts_with("mcp__blazar__") => {
-                format!("在 {n} 上运行这条 Bash 命令？")
+                format!("Run this Bash command on {n}?")
             }
-            _ => "允许运行这条 Bash 命令？".to_owned(),
+            _ => "Allow this Bash command?".to_owned(),
         };
     }
     if matches!(tn.as_str(), "Edit" | "MultiEdit" | "Write" | "NotebookEdit") {
@@ -152,20 +155,20 @@ pub fn approval_title(request: &Value, root: &str, remote_node: Option<&str>) ->
             .into_iter()
             .find(|x| !x.is_empty())
             .map(|f| rel_path(f, root));
-        return match f {
-            Some(f) => format!("允许编辑 {f}？"),
-            None => "允许编辑这个文件？".to_owned(),
-        };
+        return format!(
+            "Allow edits to {}?",
+            f.unwrap_or_else(|| "this file".to_owned())
+        );
     }
     if tn == "WebFetch" {
-        return "允许读取这个网页？".to_owned();
+        return "Allow fetching this page?".to_owned();
     }
     let shown = [s(request, "display_name"), tn.as_str()]
         .into_iter()
         .find(|x| !x.is_empty())
-        .unwrap_or("这个工具")
+        .unwrap_or("this tool")
         .to_owned();
-    format!("允许使用 {shown}？")
+    format!("Allow {shown}?")
 }
 
 pub fn approval_what(request: &Value, root: &str) -> String {
@@ -209,13 +212,17 @@ pub fn always_rule(request: &Value) -> (String, String) {
 pub fn approval_choices(plan: bool) -> ([&'static str; 3], &'static str) {
     if plan {
         (
-            ["继续，自动接受编辑", "继续，逐个批准编辑", "不，继续规划"],
-            "告诉 Claude 要改什么",
+            [
+                "Yes, and auto-accept edits",
+                "Yes, and manually approve edits",
+                "No, keep planning",
+            ],
+            "Tell Claude what to change",
         )
     } else {
         (
-            ["允许", "允许，并且这个工作区不再询问", "拒绝"],
-            "告诉 Claude 换个做法",
+            ["Yes", "Yes, and don't ask again for this workspace", "No"],
+            "Tell Claude what to do differently",
         )
     }
 }
@@ -261,12 +268,12 @@ mod tests {
             "input": {"workspace_id": "w1", "text": " 收尾后把按钮放到顶栏 \n"}
         });
         let ask = fleet_ask(&send, Some("nebula-web")).unwrap();
-        assert_eq!(ask.title, "允许派活给 nebula-web？");
+        assert_eq!(ask.title, "Send a prompt to nebula-web?");
         assert_eq!(ask.quote, "收尾后把按钮放到顶栏");
         assert_eq!(ask.ws.as_deref(), Some("w1"));
         assert_eq!(
             fleet_ask(&send, None).unwrap().title,
-            "允许派活给 工作区 w1…？"
+            "Send a prompt to workspace w1…?"
         );
         assert_eq!(approval_what(&send, "/w"), "收尾后把按钮放到顶栏");
         let copy = json!({
@@ -274,25 +281,25 @@ mod tests {
             "input": {"from_workspace_id": "a", "to_workspace_id": "b", "paths": ["x.md", "docs"], "dest": "in/"}
         });
         let ask = fleet_ask(&copy, Some("orbit-docs")).unwrap();
-        assert_eq!(ask.title, "允许把文件复制到 orbit-docs？");
+        assert_eq!(ask.title, "Copy files to orbit-docs?");
         assert_eq!(ask.quote, "x.md\ndocs\n→ in/");
         let kill = json!({ "tool_name": "mcp__blazar-fleet__job_kill", "input": {"job_id": "j1"} });
         let ask = fleet_ask(&kill, None).unwrap();
         assert_eq!(
             (ask.title.as_str(), ask.quote.as_str(), ask.ws),
-            ("允许结束后台任务？", "j1", None)
+            ("Kill the background job?", "j1", None)
         );
         let spawn = json!({
             "tool_name": "mcp__blazar-fleet__job_spawn",
             "input": {"workspace_id": "w1", "label": "跑评测", "command": "make eval"}
         });
         let ask = fleet_ask(&spawn, Some("quasar-ml")).unwrap();
-        assert_eq!(ask.title, "允许在 quasar-ml 上启动后台任务？");
+        assert_eq!(ask.title, "Start a background job on quasar-ml?");
         assert_eq!(ask.quote, "跑评测\nmake eval");
         assert!(fleet_ask(&json!({"tool_name": "Bash", "input": {}}), None).is_none());
         assert_eq!(
             approval_title(&json!({"tool_name": "WebSearch", "input": {}}), "", None),
-            "允许使用 WebSearch？"
+            "Allow WebSearch?"
         );
     }
 

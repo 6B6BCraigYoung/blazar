@@ -11,7 +11,7 @@ fn take_step(tools: &mut Vec<Option<BTool>>, st: BStep) -> Step {
         BStep::Note(t) => Step::Note(t),
         BStep::Orphan(r) => Step::Orphan(r),
         BStep::Tool(i) => {
-            let BTool { mut tool, sub, .. } = tools[i].take().expect("每个工具只出现一次");
+            let BTool { mut tool, sub, .. } = tools[i].take().expect("each tool appears once");
             tool.sub = sub.into_iter().map(|x| take_step(tools, x)).collect();
             Step::Tool(Box::new(tool))
         }

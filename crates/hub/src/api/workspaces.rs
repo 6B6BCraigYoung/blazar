@@ -476,11 +476,11 @@ pub async fn workspace_copy(
     Json(body): Json<CopyBody>,
 ) -> ApiResult<Json<serde_json::Value>> {
     if body.paths.is_empty() {
-        return Err(ApiError::bad_request("至少要给一个路径"));
+        return Err(ApiError::bad_request("Pass at least one path"));
     }
     if body.paths.len() > MAX_COPY_ITEMS {
         return Err(ApiError::bad_request(format!(
-            "一次最多拷 {MAX_COPY_ITEMS} 项"
+            "At most {MAX_COPY_ITEMS} items per copy"
         )));
     }
     let dest = body.dest.trim().trim_matches('/').to_owned();
@@ -857,7 +857,7 @@ pub async fn workspace_diff(
         Err(blazar_vfs::VfsError::NotARepo(path)) => Ok(Json(serde_json::json!({
             "base": base,
             "diff": "",
-            "reason": format!("{path} 不是 git 仓库，没有可比较的基线"),
+            "reason": format!("{path} is not a git repository, so there's no baseline to compare against"),
         }))),
         Err(e) => Err(e.into()),
     }
@@ -950,7 +950,8 @@ mod tests {
         let children = crate::fleet::children_of(&st, &parent).await;
         assert_eq!(children.len(), 1);
         assert!(
-            crate::fleet::briefing(&parent, &children).contains(&format!("- {folder}：机器 local"))
+            crate::fleet::briefing(&parent, &children)
+                .contains(&format!("- {folder}: machine local"))
         );
         let same = create_child_workspace(
             State(st.clone()),

@@ -5,6 +5,7 @@ use crate::pages::inbox::{ALL, InboxAll, InboxCards, Item, mark_inbox};
 use crate::pages::work_shared::{refresh, work_revision};
 
 const FEED_MAX: usize = 12;
+const FEED_CLEARED: &str = "blazar.railfeed.cleared";
 
 #[component]
 pub fn Rail(all: Signal<bool>, rail_mode: Callback<bool>) -> impl IntoView {
@@ -21,10 +22,12 @@ pub fn Rail(all: Signal<bool>, rail_mode: Callback<bool>) -> impl IntoView {
                 .collect::<Vec<Item>>()
         })
     });
+    let cleared = RwSignal::new(crate::storage::load_raw(FEED_CLEARED).unwrap_or_default());
     let feed = Signal::derive(move || {
+        let mark = cleared.get();
         items.with(|l| {
             l.iter()
-                .filter(|it| !it.needs_you() && !it.archived)
+                .filter(|it| !it.needs_you() && !it.archived && it.created > mark)
                 .take(FEED_MAX)
                 .cloned()
                 .collect::<Vec<Item>>()
@@ -40,6 +43,13 @@ pub fn Rail(all: Signal<bool>, rail_mode: Callback<bool>) -> impl IntoView {
             refresh(rev);
             let _ = busy.try_set(false);
         });
+    };
+    let clear_feed = move |_| {
+        let Some(top) = feed.with_untracked(|l| l.iter().map(|it| it.created.clone()).max()) else {
+            return;
+        };
+        crate::storage::save_raw(FEED_CLEARED, &top);
+        cleared.set(top);
     };
     view! {
         <aside class="console-rail" aria-label="消息" data-mode=move || if all.get() { "all" } else { "summary" }>
@@ -80,6 +90,11 @@ pub fn Rail(all: Signal<bool>, rail_mode: Callback<bool>) -> impl IntoView {
                             <h3 class="rail-title">
                                 "动态"
                                 <span class="grow"></span>
+                                <Show when=move || feed.with(|l| !l.is_empty())>
+                                    <button type="button" class="linkbtn" on:click=clear_feed>
+                                        "清理"
+                                    </button>
+                                </Show>
                                 <a class="rail-link" href=ALL on:click=move |e| {
                                     e.prevent_default();
                                     rail_mode.run(true);

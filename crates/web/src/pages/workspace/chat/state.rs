@@ -85,6 +85,7 @@ pub struct Chat {
     pub ctx_on: RwSignal<Option<String>>,
     pub prefs: RwSignal<Prefs>,
     pub model_rev: RwSignal<u32>,
+    pub model_live: RwSignal<Option<(String, String)>>,
     pub acc_rev: RwSignal<u32>,
     pub busy: RwSignal<u32>,
 
@@ -177,6 +178,7 @@ impl Chat {
             ctx_on: RwSignal::new(None),
             prefs: RwSignal::new(storage::load("blazar.prefs.claude").unwrap_or_default()),
             model_rev: RwSignal::new(0),
+            model_live: RwSignal::new(None),
             acc_rev: RwSignal::new(0),
             busy: RwSignal::new(0),
             agents: RwSignal::new(Vec::new()),

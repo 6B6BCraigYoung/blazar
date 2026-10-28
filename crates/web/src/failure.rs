@@ -9,7 +9,7 @@ use crate::components::dialog::{self, Choice};
 use crate::components::toast::toast;
 use crate::{fmt, vocab};
 
-pub const CONTINUE: &str = "继续";
+pub const CONTINUE: &str = "Continue";
 pub const SWITCHED: &str =
     "(Switched accounts.) Please continue from where you left off and finish the remaining work.";
 
@@ -53,6 +53,21 @@ impl Failure {
         )
     }
 
+    pub fn headline_en(&self) -> String {
+        let resets = self.resets_at.as_deref().map(clock_en);
+        crate::vocab_en::failure(
+            self.cause,
+            &fmt::machine(&self.node),
+            &self.runtime,
+            resets.as_deref(),
+            &self.message,
+        )
+    }
+
+    pub const fn primary_en(&self) -> &'static str {
+        crate::vocab_en::next_step(self.cause)
+    }
+
     pub fn line(&self) -> String {
         format!("{}，{}", self.headline(), self.cause.advice())
     }
@@ -76,6 +91,14 @@ impl Failure {
 }
 
 pub fn clock(iso: &str) -> String {
+    clock_in(iso, false)
+}
+
+pub fn clock_en(iso: &str) -> String {
+    clock_in(iso, true)
+}
+
+fn clock_in(iso: &str, en: bool) -> String {
     let ms = js_sys::Date::parse(iso);
     if ms.is_nan() {
         return String::new();
@@ -91,10 +114,16 @@ pub fn clock(iso: &str) -> String {
         .get_time()
     };
     let days = ((midnight(&at) - midnight(&now)) / 86_400_000.0).round() as i64;
-    let day = match days {
-        0 => "今天".to_owned(),
-        1 => "明天".to_owned(),
-        _ => {
+    let day = match (days, en) {
+        (0, false) => "今天".to_owned(),
+        (1, false) => "明天".to_owned(),
+        (0, true) => "today".to_owned(),
+        (1, true) => "tomorrow".to_owned(),
+        (_, true) => {
+            let names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+            names[at.get_day() as usize % 7].to_owned()
+        }
+        (_, false) => {
             let names = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
             names[at.get_day() as usize % 7].to_owned()
         }
@@ -102,7 +131,7 @@ pub fn clock(iso: &str) -> String {
     format!("{day} {:02}:{:02}", at.get_hours(), at.get_minutes())
 }
 
-pub fn mark_handled(app: AppData, ws: String, session: Option<String>) {
+pub fn mark_handled(app: AppData, ws: String, session: Option<String>, en: bool) {
     spawn_local(async move {
         match api::send::<Value>(
             "POST",
@@ -112,9 +141,14 @@ pub fn mark_handled(app: AppData, ws: String, session: Option<String>) {
         .await
         {
             Ok(_) => {
-                toast("已标为已处理");
+                toast(if en {
+                    "Marked as handled"
+                } else {
+                    "已标为已处理"
+                });
                 app.load_state();
             }
+            Err(e) if en => toast(format!("Couldn't mark as handled: {e}")),
             Err(e) => toast(format!("没能标为已处理：{e}")),
         }
     });
@@ -144,7 +178,7 @@ pub fn continue_thread(app: AppData, ws: String, thread: String) {
     prompt(app, ws, body, "接着做了", "没能继续");
 }
 
-pub fn probe_node(app: AppData, node: String) {
+pub fn probe_node(app: AppData, node: String, en: bool) {
     spawn_local(async move {
         let probed = api::send::<Value>(
             "POST",
@@ -154,6 +188,11 @@ pub fn probe_node(app: AppData, node: String) {
         .await;
         app.load_state();
         match probed {
+            Ok(_) if en => toast(format!("{} is back online", fmt::machine(&node))),
+            Err(e) if en => toast(format!(
+                "Still can't connect: {}",
+                crate::vocab_en::error(&e.to_string(), None)
+            )),
             Ok(_) => toast(format!("{} 连上了", fmt::machine(&node))),
             Err(e) => toast(format!(
                 "还是连不上：{}",
@@ -167,10 +206,14 @@ async fn accounts() -> Option<Accounts> {
     api::get::<Accounts>("/api/accounts").await.ok()
 }
 
-pub fn login(runtime: String, account: Option<String>) {
+pub fn login(runtime: String, account: Option<String>, en: bool) {
     spawn_local(async move {
         let Some(list) = accounts().await else {
-            toast("读取账号失败，请到运行时页面登录。");
+            toast(if en {
+                "Couldn't load accounts. Log in on the Runtimes page."
+            } else {
+                "读取账号失败，请到运行时页面登录。"
+            });
             return;
         };
         let wanted = account.unwrap_or_else(|| format!("{runtime}-default"));
@@ -182,14 +225,19 @@ pub fn login(runtime: String, account: Option<String>) {
             .cloned();
         match picked {
             Some(a) => crate::pages::runtimes::login(&a),
+            None if en => toast("No account for this runtime. Add one on the Runtimes page."),
             None => toast("没有这个运行时的账号，请先到运行时页面添加。"),
         }
     });
 }
 
-pub async fn pick_other_account(runtime: &str, exclude: Option<&str>) -> Option<String> {
+pub async fn pick_other_account(runtime: &str, exclude: Option<&str>, en: bool) -> Option<String> {
     let Some(list) = accounts().await else {
-        toast("读取账号失败，请稍后再试。");
+        toast(if en {
+            "Couldn't load accounts. Try again later."
+        } else {
+            "读取账号失败，请稍后再试。"
+        });
         return None;
     };
     let others: Vec<_> = list
@@ -199,12 +247,24 @@ pub async fn pick_other_account(runtime: &str, exclude: Option<&str>) -> Option<
         .cloned()
         .collect();
     if others.is_empty() {
-        toast("没有其他可用账号，请先在运行时页面添加或登录。");
+        toast(if en {
+            "No other account available. Add or log in to one on the Runtimes page."
+        } else {
+            "没有其他可用账号，请先在运行时页面添加或登录。"
+        });
         return None;
     }
-    let mut choices = vec![Choice::plain("取消")];
+    let mut choices = vec![Choice::plain(if en { "Cancel" } else { "取消" })];
     choices.extend(others.iter().map(|a| Choice::plain(a.label.clone())));
-    let i = dialog::ask("换个账号继续", "保留这段对话，换一个账号接着做。", choices).await?;
+    let (title, body) = if en {
+        (
+            "Continue with another account",
+            "Keep the conversation and continue on another account.",
+        )
+    } else {
+        ("换个账号继续", "保留这段对话，换一个账号接着做。")
+    };
+    let i = dialog::ask(title, body, choices).await?;
     (i > 0).then(|| others[i - 1].id.clone())
 }
 
@@ -216,7 +276,7 @@ pub fn switch_account(
     exclude: Option<String>,
 ) {
     spawn_local(async move {
-        let Some(account) = pick_other_account(&runtime, exclude.as_deref()).await else {
+        let Some(account) = pick_other_account(&runtime, exclude.as_deref(), false).await else {
             return;
         };
         let body = json!({
@@ -232,8 +292,8 @@ pub fn act(app: AppData, f: &Failure, retry: impl FnOnce()) {
         FailureCause::Network | FailureCause::Busy => {
             continue_thread(app, f.workspace.clone(), f.thread.clone());
         }
-        FailureCause::Node => probe_node(app, f.node.clone()),
-        FailureCause::Login => login(f.runtime.clone(), f.account.clone()),
+        FailureCause::Node => probe_node(app, f.node.clone(), false),
+        FailureCause::Login => login(f.runtime.clone(), f.account.clone(), false),
         FailureCause::Quota => switch_account(
             app,
             f.workspace.clone(),

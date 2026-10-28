@@ -385,6 +385,7 @@ fn Home() -> impl IntoView {
                     app,
                     subject.id.clone(),
                     Failure::of_workspace(subject).map(|f| f.session),
+                    false,
                 );
             }
             _ => match crate::shortcuts::action(&e) {
@@ -720,6 +721,7 @@ fn failure_menu(app: AppData, row: &Row) -> Vec<Vec<RowAction>> {
             app,
             ws.clone(),
             Some(session.clone()).filter(|s| !s.is_empty()),
+            false,
         );
     })
     .hint("E");

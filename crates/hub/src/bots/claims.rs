@@ -36,7 +36,9 @@ pub enum Scope {
 pub fn parse_scope(raw: &str) -> Result<Scope, String> {
     let raw = raw.trim();
     if raw.is_empty() || raw.chars().count() > 300 || raw.chars().any(char::is_control) {
-        return Err("范围写法：gpu:0,1 · dir:/data/queue · repo · port:8766 · device:can1".into());
+        return Err(
+            "Scope format: gpu:0,1 · dir:/data/queue · repo · port:8766 · device:can1".into(),
+        );
     }
     if let Some(list) = raw.strip_prefix("gpu:") {
         let mut set = BTreeSet::new();
@@ -49,31 +51,31 @@ pub fn parse_scope(raw: &str) -> Result<Scope, String> {
                 let (a, b) = (
                     a.trim()
                         .parse::<u32>()
-                        .map_err(|_| format!("GPU 编号 {part} 看不懂"))?,
+                        .map_err(|_| format!("Can't parse GPU index {part}"))?,
                     b.trim()
                         .parse::<u32>()
-                        .map_err(|_| format!("GPU 编号 {part} 看不懂"))?,
+                        .map_err(|_| format!("Can't parse GPU index {part}"))?,
                 );
                 if a > b || b - a > 64 {
-                    return Err(format!("GPU 区间 {part} 不合理"));
+                    return Err(format!("Invalid GPU range {part}"));
                 }
                 set.extend(a..=b);
             } else {
                 set.insert(
                     part.parse()
-                        .map_err(|_| format!("GPU 编号 {part} 看不懂"))?,
+                        .map_err(|_| format!("Can't parse GPU index {part}"))?,
                 );
             }
         }
         if set.is_empty() {
-            return Err("gpu: 后面要跟编号，比如 gpu:0,1".into());
+            return Err("gpu: must be followed by indices, e.g. gpu:0,1".into());
         }
         return Ok(Scope::Gpu(set));
     }
     if let Some(dir) = raw.strip_prefix("dir:") {
         let dir = dir.trim().trim_end_matches('/');
         if !dir.starts_with('/') {
-            return Err("dir: 后面要跟绝对路径".into());
+            return Err("dir: must be followed by an absolute path".into());
         }
         return Ok(Scope::Dir(dir.to_owned()));
     }
@@ -192,7 +194,7 @@ pub async fn may_use(st: &Shared, caller: &Caller, ws: &str) -> Result<(), Strin
         return Ok(());
     }
     Err(format!(
-        "工作区 {ws} 不在你的认领里；先 claim 它，或者 send_message 给它的 owner"
+        "Workspace {ws} isn't in your claims; claim it first, or send_message to its owner"
     ))
 }
 
@@ -217,12 +219,14 @@ pub async fn create(st: &Shared, req: NewClaim, by: Option<&Caller>) -> Result<C
     let bot_ref = match (by, req.bot.as_deref()) {
         (Some(c), _) => c.bot.clone(),
         (None, Some(b)) => b.to_owned(),
-        (None, None) => return Err("要说明是哪个 bot 在认领".into()),
+        (None, None) => return Err("Specify which bot is claiming".into()),
     };
-    let bot = super::get(st, &bot_ref).await.ok_or("没有这个 bot")?;
+    let bot = super::get(st, &bot_ref).await.ok_or("No such bot")?;
     let mode = req.mode.unwrap_or_else(|| "exclusive".into());
     if !MODES.contains(&mode.as_str()) {
-        return Err(format!("未知模式 {mode}，可用 exclusive / shared / read"));
+        return Err(format!(
+            "Unknown mode {mode}; use exclusive / shared / read"
+        ));
     }
     let scope = parse_scope(&req.scope)?;
     let (node_id, node_name, workspace_id) = match req
@@ -239,7 +243,7 @@ pub async fn create(st: &Shared, req: NewClaim, by: Option<&Caller>) -> Result<C
             .fetch_optional(st.db.pool())
             .await
             .map_err(|e| e.to_string())?
-            .ok_or("工作区不存在")?;
+            .ok_or("Workspace not found")?;
             (s(&row, "id"), s(&row, "name"), Some(ws.to_owned()))
         }
         None => {
@@ -249,7 +253,7 @@ pub async fn create(st: &Shared, req: NewClaim, by: Option<&Caller>) -> Result<C
                 .fetch_optional(st.db.pool())
                 .await
                 .map_err(|e| e.to_string())?
-                .ok_or_else(|| format!("没有叫 {name} 的机器"))?;
+                .ok_or_else(|| format!("No machine named {name}"))?;
             (id, name.to_owned(), None)
         }
     };
@@ -272,7 +276,7 @@ pub async fn create(st: &Shared, req: NewClaim, by: Option<&Caller>) -> Result<C
         };
         if conflicts(&mode, &scope, &o.mode, &theirs) {
             return Err(format!(
-                "和 bot:{} 在 {} 上的认领 {}（{}）冲突，先用 send_message 找它商量",
+                "Conflicts with bot:{}'s claim on {}: {} ({}); send_message to it to work it out first",
                 o.bot_handle, node_name, o.scope, o.mode
             ));
         }
@@ -299,17 +303,19 @@ pub async fn create(st: &Shared, req: NewClaim, by: Option<&Caller>) -> Result<C
     .await
     .map_err(|e| e.to_string())?;
     super::changed(st);
-    get(st, &id).await.ok_or_else(|| "认领读不回来".into())
+    get(st, &id)
+        .await
+        .ok_or_else(|| "Couldn't read the claim back".into())
 }
 
 pub async fn release(st: &Shared, id: &str, by: Option<&Caller>) -> Result<(), String> {
-    let c = get(st, id).await.ok_or("没有这条认领")?;
+    let c = get(st, id).await.ok_or("No such claim")?;
     if let Some(caller) = by
         && caller.bot != c.bot_id
         && !caller.is_lead()
     {
         return Err(format!(
-            "这是 bot:{} 的认领，只有它自己或总控能释放",
+            "This claim belongs to bot:{}; only it or the lead can release it",
             c.bot_handle
         ));
     }
@@ -355,10 +361,10 @@ pub async fn sweep(st: &Shared, release_after_hours: i64) {
                     &c.bot_id,
                     super::NewMail {
                         body: format!(
-                            "你在 {} 上认领的 {}（{}）已经过期。还需要就重新 claim，{release_after_hours} 小时后会自动释放。",
+                            "Your claim on {}: {} ({}) has expired. Claim it again if you still need it; it will be released automatically in {release_after_hours} hours.",
                             c.node, c.scope, c.mode
                         ),
-                        subject: Some("认领过期".into()),
+                        subject: Some("Claim expired".into()),
                         from_kind: "rule".into(),
                         from_ref: "claim_expired".into(),
                         ..super::NewMail::default()

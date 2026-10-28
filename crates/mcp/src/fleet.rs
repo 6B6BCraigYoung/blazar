@@ -47,7 +47,7 @@ async fn handle(hub: &str, req: &Value) -> Option<Value> {
         "tools/list" => Ok(tools::manifest()),
         "tools/call" => call_tool(hub, req.get("params")).await,
         "ping" => Ok(json!({})),
-        other => Err(anyhow::anyhow!("不支持的方法: {other}")),
+        other => Err(anyhow::anyhow!("Unsupported method: {other}")),
     };
 
     Some(match result {
@@ -60,14 +60,14 @@ async fn handle(hub: &str, req: &Value) -> Option<Value> {
 }
 
 async fn call_tool(hub: &str, params: Option<&Value>) -> Result<Value> {
-    let params = params.context("tools/call 缺少 params")?;
+    let params = params.context("tools/call is missing params")?;
     let name = params
         .get("name")
         .and_then(Value::as_str)
-        .context("缺少工具名")?;
+        .context("Missing tool name")?;
     let args = params.get("arguments").cloned().unwrap_or(json!({}));
 
-    let tool = tools::find(name).with_context(|| format!("未知工具: {name}"))?;
+    let tool = tools::find(name).with_context(|| format!("Unknown tool: {name}"))?;
     let (method, path, body) = (tool.build)(&args)?;
     let text = request(hub, method, &path, body).await?;
 
@@ -82,14 +82,14 @@ async fn request(hub: &str, method: &str, path: &str, body: Option<Value>) -> Re
 
     let endpoint = blazar_core_types::connection::resolve(hub)?;
     let base = endpoint.url.trim_end_matches('/');
-    let addr = base
-        .strip_prefix("http://")
-        .context("hub 地址必须以 http:// 开头（MCP 只连本机或内网）")?;
+    let addr = base.strip_prefix("http://").context(
+        "Hub address must start with http:// (MCP only connects to the local machine or LAN)",
+    )?;
     let (host_port, _) = addr.split_once('/').unwrap_or((addr, ""));
 
     let mut stream = tokio::net::TcpStream::connect(host_port)
         .await
-        .with_context(|| format!("连接 hub {host_port} 失败 —— 它在跑吗？"))?;
+        .with_context(|| format!("Failed to connect to hub {host_port}. Is it running?"))?;
 
     let payload = body.map(|b| b.to_string()).unwrap_or_default();
     let mut req = format!(
@@ -118,9 +118,10 @@ async fn request(hub: &str, method: &str, path: &str, body: Option<Value>) -> Re
 fn parse_response(raw: &[u8]) -> Result<String> {
     let response = blazar_core_types::http::decode_response(raw)?;
     let status = response.status;
-    let out = String::from_utf8(response.body).context("hub 返回的 HTTP 正文不是合法 UTF-8")?;
+    let out = String::from_utf8(response.body)
+        .context("Hub returned an HTTP body that is not valid UTF-8")?;
     if !(200..300).contains(&status) {
-        anyhow::bail!("hub 返回 {status}: {}", out.trim());
+        anyhow::bail!("Hub returned {status}: {}", out.trim());
     }
     Ok(out)
 }
@@ -183,7 +184,10 @@ mod tests {
         .await
         .unwrap();
         let msg = r["error"]["message"].as_str().unwrap();
-        assert!(msg.contains("它在跑吗"), "错误信息应可操作，实得: {msg}");
+        assert!(
+            msg.contains("Is it running?"),
+            "错误信息应可操作，实得: {msg}"
+        );
     }
 
     #[test]

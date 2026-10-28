@@ -6,7 +6,8 @@ use serde_json::{Value, json};
 use crate::api::{PromptRequest, Shared};
 use crate::state::{AppState, ServerEvent};
 
-pub const NOTE: &str = "原来的会话记录找不到了，这是刚才那段对话的记录。";
+pub const NOTE: &str =
+    "The original session transcript could not be found; here is the conversation so far.";
 
 #[must_use]
 pub fn fallback_request(mut req: Value, message: &str, thread: &str) -> Option<(Value, bool)> {
@@ -97,7 +98,13 @@ where
         }
         Ok(v) => {
             tracing::warn!(target: "blazar::resume", "{sid} 续接回退没被接受：{v}");
-            reopen(st, sid, &ws, v["reason"].as_str().unwrap_or("工作区正忙")).await;
+            reopen(
+                st,
+                sid,
+                &ws,
+                v["reason"].as_str().unwrap_or("Workspace is busy"),
+            )
+            .await;
             None
         }
         Err(e) => {
@@ -126,7 +133,9 @@ async fn reopen(st: &AppState, sid: SessionId, ws: &str, why: &str) {
             ts: chrono::Utc::now(),
             parent_tool_use_id: None,
             kind: blazar_core_types::EntryKind::Error {
-                message: format!("原来的会话记录找不到了，自动重发也没成功：{why}"),
+                message: format!(
+                    "The original session transcript could not be found, and resending automatically failed: {why}"
+                ),
             },
         };
         if st.db.append_event(sid, id, &entry).await.is_ok() {
@@ -147,7 +156,7 @@ mod tests {
     use chrono::Utc;
     use std::sync::{Arc, Mutex};
 
-    const MISSING: &str = "agent 异常退出（退出码 1）。stderr: No message found with message.uuid of: 9b915e37-5c1e-4a7e-9d3b-2f1c0a8e7b6d";
+    const MISSING: &str = "agent exited unexpectedly (exit code 1). stderr: No message found with message.uuid of: 9b915e37-5c1e-4a7e-9d3b-2f1c0a8e7b6d";
     const GONE: &str =
         "No conversation found with session ID: 019a2c1e-7f3b-7b2a-9c4d-1e2f3a4b5c6d";
 

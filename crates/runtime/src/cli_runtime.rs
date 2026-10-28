@@ -599,7 +599,7 @@ impl CliRuntime {
         resume: Option<&ProviderSessionId>,
     ) -> Result<SessionHandle, RuntimeError> {
         if resume.is_some() && !self.spec.resume.is_supported() {
-            return Err(RuntimeError::Unsupported("该 agent 不支持续接会话"));
+            return Err(RuntimeError::Unsupported("resuming a session"));
         }
 
         let mut lines = self
@@ -640,9 +640,9 @@ impl CliRuntime {
             if !saw_any {
                 let err = lines.stderr_summary();
                 let message = if err.trim().is_empty() {
-                    "agent 未产出任何输出（检查 CLI 是否安装、凭据与网络出口）".to_owned()
+                    "agent produced no output (check that the CLI is installed, credentials, and network egress)".to_owned()
                 } else {
-                    format!("agent 未产出任何输出。stderr: {}", err.trim())
+                    format!("agent produced no output. stderr: {}", err.trim())
                 };
                 let _ = tx
                     .send(NormalizedEntry {
