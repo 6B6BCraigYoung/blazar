@@ -25,8 +25,9 @@ button { font: inherit; color: inherit; }
 .side .foot { margin-top: auto; padding: var(--space-md); font-size: var(--font-size-caption); color: var(--fg-4); display: flex; flex-direction: column; gap: var(--space-sm); }
 .side .foot a { color: var(--fg-3); }
 .side .foot a:hover { color: var(--fg); }
-.main { flex: 1 1 auto; min-width: 0; overflow-y: auto; overscroll-behavior: contain; background: var(--bg-page); }
-.main > .page, .cc-flow, .df-flow, .tree-flow, .mdview > .md-body, .work-flow, .difftree-flow, .skill-preview > .md-body, .pal-flow, .sim-log-flow, .fl-track { will-change: opacity; }
+.main { flex: 1 1 auto; min-width: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; background: var(--bg-page); }
+.main::after { content: ""; display: block; width: 2100px; height: 0; }
+.cc-flow, .df-flow, .tree-flow, .mdview > .md-body, .work-flow, .difftree-flow, .skill-preview > .md-body, .pal-flow, .sim-log-flow, .fl-track { will-change: opacity; }
 
 .page { width: 100%; max-width: calc(var(--page-max) + var(--page-gutter) * 2); margin-inline: auto; padding: var(--page-top) var(--page-gutter) var(--space-4xl); display: flex; flex-direction: column; gap: var(--space-section); }
 .page-head { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-lg); min-height: 30px; }
