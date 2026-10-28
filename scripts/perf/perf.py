@@ -345,6 +345,16 @@ def biggest_workspace(local_only=True):
     return rows
 
 
+def assistant_thread():
+    db = sqlite3.connect(f"file:{DATA / 'blazar.sqlite'}?mode=ro", uri=True)
+    row = db.execute(
+        "SELECT w.id, COALESCE(s.thread_id, s.id) AS t FROM workspaces w JOIN sessions s ON s.workspace_id = w.id"
+        " WHERE w.kind = 'assistant' GROUP BY t ORDER BY COUNT(*) DESC LIMIT 1"
+    ).fetchone()
+    db.close()
+    return row
+
+
 def measure(cmd, until=None, quiet=400, timeout=15000):
     m = {"action": "measure", "then": cmd, "quiet_ms": quiet, "timeout_ms": timeout}
     if until:
@@ -371,6 +381,8 @@ def ops(args):
     (a, a_name, a_n), (b, b_name, b_n) = ws
     ui({"action": "init"})
     ui({"action": "errors"})
+    if flag(args, "--css"):
+        ui({"action": "css", "value": flag(args, "--css")})
     results = {}
 
     def record(name, runs):
@@ -426,6 +438,13 @@ def ops(args):
             runs = [stream(a, route) for _ in range(max(1, reps // 2))]
             results[name] = {k: median_of(runs, k) for k in runs[0]}
 
+    if want("stream_console_thread") and (pair := assistant_thread()):
+        aws, thread = pair
+        runs = [stream(aws, f"/chats/{thread}", thread=thread) for _ in range(max(1, reps // 2))]
+        results["stream_console_thread"] = {k: median_of(runs, k) for k in runs[0]}
+
+    if flag(args, "--css"):
+        ui({"action": "css", "value": ""})
     errors = ui({"action": "errors"}).get("errors", [])
     result = {"label": label, "workspaces": [[a_name, a_n], [b_name, b_n]], "ops": results, "errors": errors[:10],
               "at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
@@ -448,11 +467,14 @@ def wait_idle(ws, limit=90):
         time.sleep(1)
 
 
-def stream(ws, route, secs=20):
+def stream(ws, route, secs=20, thread=None):
     found = find_pids()
     wait_idle(ws)
     ui({"action": "navigate", "path": route, "settle_ms": 1500})
-    api(f"/api/workspaces/{ws}/prompt", {"text": "perf"})
+    body = {"text": "perf"}
+    if thread:
+        body.update(resume=True, resume_session=thread)
+    api(f"/api/workspaces/{ws}/prompt", body)
     time.sleep(3)
     c0, t0 = cpu_times(found), time.time()
     r = ui({"action": "frames", "ms": secs * 1000})
