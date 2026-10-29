@@ -42,16 +42,57 @@ fn page_keys(g: Group) -> Vec<(String, &'static str)> {
     }
 }
 
+/// The global keys people reach for most, in that order; the sheet shows these first and
+/// folds the rest under 「更多」 so the group stays short.
+const GLOBAL_FIRST: [&str; 7] = [
+    "palette",
+    "newws",
+    "console",
+    "workspaces",
+    "tasks",
+    "settings",
+    "side",
+];
+const GLOBAL_SHOWN: usize = 8;
+
 fn rows(g: Group) -> Vec<(String, &'static str)> {
-    let mut out: Vec<(String, &'static str)> = crate::shortcuts::effective()
+    let mut out: Vec<(&str, String, &'static str)> = crate::shortcuts::effective()
         .into_iter()
         .filter_map(|(id, combo)| {
             let b = keymap::binding(id)?;
-            (b.group == g && !combo.is_empty()).then(|| (label(&combo), b.label))
+            (b.group == g && !combo.is_empty()).then(|| (id, label(&combo), b.label))
         })
         .collect();
-    out.extend(page_keys(g));
+    if g == Group::Global {
+        let rank = |id: &str| {
+            GLOBAL_FIRST
+                .iter()
+                .position(|f| *f == id)
+                .unwrap_or(usize::MAX)
+        };
+        out.sort_by_key(|(id, ..)| rank(id));
+    }
+    let mut out: Vec<(String, &'static str)> = out.into_iter().map(|(_, k, w)| (k, w)).collect();
+    let page = page_keys(g);
+    if g == Group::Global {
+        // Esc closes things everywhere, so it belongs with the frequent few.
+        let at = out.len().min(GLOBAL_SHOWN - 1);
+        for (i, k) in page.into_iter().enumerate() {
+            out.insert(at + i, k);
+        }
+    } else {
+        out.extend(page);
+    }
     out
+}
+
+fn row_view((k, what): (String, &'static str)) -> impl IntoView {
+    view! {
+        <div class="ks-row">
+            <span>{what}</span>
+            <kbd>{k}</kbd>
+        </div>
+    }
 }
 
 #[component]
@@ -92,17 +133,28 @@ pub fn KeysSheet() -> impl IntoView {
                             view! {
                                 <section class="ks-group" aria-label=g.title()>
                                     <h4>{g.title()}</h4>
-                                    {rows(g)
-                                        .into_iter()
-                                        .map(|(k, what)| {
-                                            view! {
-                                                <div class="ks-row">
-                                                    <span>{what}</span>
-                                                    <kbd>{k}</kbd>
-                                                </div>
-                                            }
-                                        })
-                                        .collect_view()}
+                                    {move || {
+                                        let mut all = rows(g);
+                                        let more = if g == Group::Global && all.len() > GLOBAL_SHOWN
+                                        {
+                                            all.split_off(GLOBAL_SHOWN)
+                                        } else {
+                                            Vec::new()
+                                        };
+                                        let n = more.len();
+                                        view! {
+                                            {all.into_iter().map(row_view).collect_view()}
+                                            {(n > 0)
+                                                .then(|| {
+                                                    view! {
+                                                        <details class="ks-more">
+                                                            <summary>{format!("更多 {n} 项")}</summary>
+                                                            {more.into_iter().map(row_view).collect_view()}
+                                                        </details>
+                                                    }
+                                                })}
+                                        }
+                                    }}
                                 </section>
                             }
                         })
