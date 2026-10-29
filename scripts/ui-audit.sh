@@ -8,6 +8,7 @@ case "${1:-}" in
   clean) exec python3 -I "$ROOT/scripts/ui_audit.py" clean ;;
   shots) exec python3 -I "$ROOT/scripts/ui_audit.py" shots "${2:?用法：ui-audit.sh shots <目录> empty|data [--rehearse]}" "${3:-empty}" "${@:4}" ;;
   index) exec python3 -I "$ROOT/scripts/ui_audit.py" index "${2:?用法：ui-audit.sh index <目录>}" ;;
+  publish) exec python3 -I "$ROOT/scripts/ui_audit.py" publish "${2:?用法：ui-audit.sh publish <仓库目录> <截图…>}" "${@:3}" ;;
   metrics) exec python3 -I "$ROOT/scripts/ui_audit.py" metrics "${2:?用法：ui-audit.sh metrics <输出 JSON>}" ;;
   stress) exec python3 -I "$ROOT/scripts/ui_audit.py" stress "${@:2}" ;;
 esac

@@ -1028,6 +1028,7 @@ def try_ui(cmd):
 
 class Shooter:
     def __init__(self, out, round_name, rehearse=False):
+        self.scale = ""
         self.root = Path(out)
         self.round = round_name
         self.rehearse = rehearse
@@ -1054,7 +1055,7 @@ class Shooter:
             print(f"  ! {slug}：提示一直没有消失", file=sys.stderr)
         layout = ui({"action": "layout"})
         errors = ui({"action": "errors"}).get("errors", [])
-        name = f"{no:02d}-{slug}-{theme}.png"
+        name = f"{no:02d}-{slug}-{theme}{self.scale}.png"
         size = None
         if not self.rehearse:
             shot = ui({"action": "shot", "name": name, "settle_ms": 250})
@@ -1645,9 +1646,9 @@ def shots(out, round_name, rehearse=False):
     ready()
     vp = viewport()
     if vp["dpr"] != "2":
-        if not rehearse:
-            sys.exit(f"devicePixelRatio 是 {vp['dpr']}，不是 2：窗口可能不在点亮的 Retina 显示器上，先处理再拍")
-        print(f"演练：devicePixelRatio 是 {vp['dpr']}，不截图，只走流程", file=sys.stderr)
+        # 有总比没有好：不在 Retina 上就照 1x 拍，文件名带上 -1x，日志里写明。
+        sh.scale = f"-{vp['dpr']}x"
+        print(f"devicePixelRatio 是 {vp['dpr']}，不是 2：照拍，文件名带 {sh.scale}", file=sys.stderr)
     state, items = plan(round_name)
     only = [part for part in os.environ.get("BLAZAR_AUDIT_ONLY", "").split(",") if part]
     if only:
@@ -1695,6 +1696,20 @@ def shots(out, round_name, rehearse=False):
         index(Path(out))
     if sh.broken:
         sys.exit(f"有 {sh.broken} 处演示数据没有复原，见 index.md")
+
+
+def publish(dest, files):
+    """把挑中的几张截图转成长边 1600、质量 80 的 JPG 放进仓库，其余留在 target/ 下。"""
+    dest = Path(dest)
+    dest.mkdir(parents=True, exist_ok=True)
+    total = 0
+    for f in map(Path, files):
+        out = dest / (f.stem + ".jpg")
+        subprocess.run(["sips", "-s", "format", "jpeg", "-s", "formatOptions", "80", "-Z", "1600", str(f), "--out", str(out)],
+                       check=True, stdout=subprocess.DEVNULL)
+        total += out.stat().st_size
+        print(f"{out}\t{out.stat().st_size // 1024} KB")
+    print(f"合计 {total // 1024} KB")
 
 
 def index(out):
@@ -1765,10 +1780,12 @@ def main():
         index(Path(sys.argv[2]))
     elif cmd == "metrics" and len(sys.argv) == 3:
         metrics(sys.argv[2])
+    elif cmd == "publish" and len(sys.argv) >= 4:
+        publish(sys.argv[2], sys.argv[3:])
     elif cmd == "stress" and len(sys.argv) <= 3:
         stress(int(sys.argv[2]) if len(sys.argv) == 3 else 30)
     else:
-        sys.exit("用法：ui_audit.py seed | clean | shots <目录> empty|data [--rehearse] | index <目录> | metrics <文件> | stress [轮数]")
+        sys.exit("用法：ui_audit.py seed | clean | shots <目录> empty|data [--rehearse] | index <目录> | metrics <文件> | publish <仓库目录> <截图…> | stress [轮数]")
 
 
 if __name__ == "__main__":
