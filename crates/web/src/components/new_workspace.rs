@@ -284,8 +284,11 @@ fn Dialog() -> impl IntoView {
                     let _ = auto.try_set(!more.get_untracked());
                 }
                 Ok(_) => {}
-                Err(_) => {
-                    toast("打不开系统的选择框，改用下面的目录列表");
+                Err(e) => {
+                    // The driven dev instance refuses on purpose; only a real failure is news.
+                    if !e.contains("界面驱动") {
+                        toast("打不开系统的选择框，改用下面的目录列表");
+                    }
                     let _ = native.try_set(Some(false));
                     browse();
                 }

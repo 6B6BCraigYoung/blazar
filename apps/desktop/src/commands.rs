@@ -174,6 +174,11 @@ pub async fn pick_folder(
     {
         return Ok(Some(dir.to_string_lossy().into_owned()));
     }
+    // A driven dev instance must never put a real panel on the screen: the page falls back
+    // to its own folder browser, which the driver can operate.
+    if crate::dev_instance() && crate::snapshot::enabled() {
+        return Err("界面驱动下不弹系统面板".into());
+    }
     let mut dialog = rfd::AsyncFileDialog::new()
         .set_title("选择项目文件夹")
         .set_parent(&window);
