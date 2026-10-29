@@ -90,7 +90,7 @@
 .tasks-page .work-board { gap: var(--space-xl); }
 .tasks-page .work-column > header strong { font-weight: var(--font-weight-medium); color: var(--fg-2); }
 .tasks-page .work-column > header .muted { font-variant-numeric: tabular-nums; }
-.tasks-page .work-board .work-task { transition: box-shadow var(--duration-control); }
+.tasks-page .work-board .work-task { transition: box-shadow var(--motion-fast) var(--ease-standard); }
 .tasks-page .work-board .work-task:hover { box-shadow: var(--shadow-card-hover); }
 .tasks-filters { gap: var(--space-xs); margin: 0 0 calc(var(--space-lg) - var(--space-section)) calc(-1 * var(--space-md)); }
 .tasks-filters > input.filter { width: clamp(160px, 20%, 240px); }
@@ -122,7 +122,7 @@
 .bot-head strong { font-weight: var(--font-weight-medium); }
 .bot-card .bot-line { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bot-line { font-size: var(--font-size-label); overflow-wrap: anywhere; }
-.bot-acts { flex: 0 0 auto; display: flex; align-items: center; gap: var(--space-xs); opacity: 0; transition: opacity var(--duration-control) ease; }
+.bot-acts { flex: 0 0 auto; display: flex; align-items: center; gap: var(--space-xs); opacity: 0; transition: opacity var(--motion-fast) var(--ease-standard); }
 .bot-card:is(:hover, :focus-within, [data-sel="true"], [data-menu="true"]) .bot-acts { opacity: 1; }
 @media (hover: none) { .bot-acts { opacity: 1; } }
 .bot-page .row-actions { display: flex; align-items: center; gap: var(--space-md); flex-wrap: wrap; }
@@ -176,7 +176,8 @@
 .chat-row { display: flex; align-items: center; gap: var(--space-md); padding: var(--space-md) var(--space-xl); color: inherit; outline: none; }
 .chat-row:hover { background: var(--bg-hover); }
 .chat-row .dot { width: 8px; height: 8px; }
-.chat-row[data-state="running"] .dot { animation: ccpulse var(--duration-activity-pulse) ease-in-out infinite; }
+.chat-row[data-state="running"] .dot { animation: ccpulse var(--motion-pulse) infinite; }
+.chat-row[data-state="running"] ~ .chat-row[data-state="running"] .dot { animation: none; }
 .chat-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--space-2xs); }
 .chat-title { font-weight: var(--font-weight-medium); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-sum { font-size: var(--font-size-label); color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -5,102 +5,110 @@ window.addEventListener('unhandledrejection', event => {
 
 let ready = null;
 
+// 编辑器的底色、前景、选区、光标从 CSS 变量取（--bg-code、--code-*），和代码块、终端同一组；
+// 换主题时重新读一遍。Monaco 只认十六进制，所以借一个隐藏元素把任意 CSS 颜色折成 #rrggbbaa。
+let probe = null;
+function cssColor(name, fallback) {
+  const raw = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  if (!raw || !document.body) return fallback;
+  if (!probe) {
+    probe = document.createElement('span');
+    probe.style.display = 'none';
+    document.body.appendChild(probe);
+  }
+  probe.style.color = '';
+  probe.style.color = raw;
+  const c = getComputedStyle(probe).color;
+  const n = (c.match(/-?[\d.]+/g) || []).map(Number);
+  if (n.length < 3) return fallback;
+  const [r, g, b] = c.startsWith('color(') ? n.slice(0, 3).map(v => v * 255) : n.slice(0, 3);
+  const a = n.length > 3 ? n[3] : 1;
+  const hex = v => Math.round(Math.min(255, Math.max(0, v))).toString(16).padStart(2, '0');
+  return '#' + hex(r) + hex(g) + hex(b) + (a < 1 ? hex(a * 255) : '');
+}
+function fade(color, k) {
+  if (color.length !== 9) return color + hexAlpha(k);
+  return color.slice(0, 7) + hexAlpha(parseInt(color.slice(7), 16) / 255 * k);
+}
+function hexAlpha(a) { return Math.round(Math.min(1, Math.max(0, a)) * 255).toString(16).padStart(2, '0'); }
+
+// 语法色压到中等饱和度，跟界面的灰阶和终端的柔和配色放在一起；两套主题同一个色相分配。
+const SYNTAX = {
+  dark: { comment: '7d828a', keyword: 'c49bd6', number: 'd6bd8a', string: 'a8c79a', escape: 'd9a07a', type: '8fb8d8', tag: 'd9a07a', attr: 'b8a4d9', delimiter: '9a9aa0' },
+  light: { comment: '6a6e73', keyword: '8a4a9e', number: '8a6116', string: '3f7a3a', escape: '9a5426', type: '2f5f8f', tag: '9a5426', attr: '6a4f9a', delimiter: '4a4a4e' },
+};
+
+function themeData(dark) {
+  const fallbackBg = dark ? '#202023' : '#f6f6f7';
+  const bg = cssColor('--bg-code', fallbackBg).slice(0, 7);
+  const fg = cssColor('--code-fg', dark ? '#d1d1d6' : '#1d1d1f').slice(0, 7);
+  const sel = cssColor('--code-selection', dark ? '#0a84ff59' : '#007aff38');
+  const syn = SYNTAX[dark ? 'dark' : 'light'];
+  const ink = (dark ? '#ffffff' : '#000000');
+  const rule = (token, foreground, fontStyle) => (fontStyle ? { token, foreground, fontStyle } : { token, foreground });
+  return {
+    base: dark ? 'vs-dark' : 'vs',
+    inherit: true,
+    rules: [
+      rule('', fg.slice(1)),
+      rule('comment', syn.comment, 'italic'),
+      rule('keyword', syn.keyword),
+      rule('number', syn.number),
+      rule('string', syn.string),
+      rule('string.escape', syn.escape),
+      rule('regexp', syn.escape),
+      rule('type', syn.type),
+      rule('type.identifier', syn.type),
+      rule('tag', syn.tag),
+      rule('annotation', syn.tag),
+      rule('attribute.name', syn.attr),
+      rule('attribute.value', syn.string),
+      rule('key', syn.type),
+      rule('variable', fg.slice(1)),
+      rule('delimiter', syn.delimiter),
+    ],
+    colors: {
+      'editor.background': bg,
+      'editor.foreground': fg,
+      'editorGutter.background': bg,
+      'minimap.background': bg,
+      'editorStickyScroll.background': bg,
+      'editorLineNumber.foreground': cssColor('--code-line-number', dark ? '#6a6a70' : '#aeaeb2'),
+      'editorLineNumber.activeForeground': cssColor('--code-line-number-active', dark ? '#98989f' : '#6e6e73'),
+      'editor.lineHighlightBackground': ink + '0a',
+      'editor.lineHighlightBorder': '#00000000',
+      'editor.selectionBackground': sel,
+      'editor.inactiveSelectionBackground': fade(sel, .5),
+      'editorCursor.foreground': cssColor('--code-cursor', fg),
+      'editorIndentGuide.background1': ink + (dark ? '12' : '0f'),
+      'editorIndentGuide.activeBackground1': ink + (dark ? '2a' : '24'),
+      'editorWidget.background': cssColor('--bg-overlay', dark ? '#2a2a2d' : '#ffffff').slice(0, 7),
+      'editorWidget.border': cssColor('--border', ink + '1f'),
+      'scrollbar.shadow': '#00000000',
+      'scrollbarSlider.background': ink + '1f',
+      'scrollbarSlider.hoverBackground': ink + '33',
+      'scrollbarSlider.activeBackground': ink + '47',
+    },
+  };
+}
+
+// 只定义当前这一套：CSS 变量此刻就是这套主题的值。切主题时再定义另一套。
+function defineThemes(m) {
+  const name = editorTheme();
+  m.editor.defineTheme(name, themeData(name === 'blazar-dark'));
+}
+
 function load() {
   if (ready) return ready;
   ready = new Promise((resolve, reject) => {
     window.require.config({ paths: { vs: '/vendor/vs' } });
     window.require(['vs/editor/editor.main'], () => {
       const m = window.monaco;
-      const scrollbars = (fg) => ({
-        'scrollbar.shadow': '#00000000',
-        'scrollbarSlider.background': fg + '1f',
-        'scrollbarSlider.hoverBackground': fg + '33',
-        'scrollbarSlider.activeBackground': fg + '47',
-      });
-      const dark = '#1e1e20';
-      m.editor.defineTheme('blazar-dark', {
-        base: 'vs-dark',
-        inherit: true,
-        rules: [
-          { token: '', foreground: 'd1d1d6' },
-          { token: 'comment', foreground: '7f8c98', fontStyle: 'italic' },
-          { token: 'keyword', foreground: 'fc5fa3' },
-          { token: 'number', foreground: 'd0bf69' },
-          { token: 'string', foreground: 'fc6a5d' },
-          { token: 'string.escape', foreground: 'fc6a5d' },
-          { token: 'regexp', foreground: 'fc6a5d' },
-          { token: 'type', foreground: '5dd8ff' },
-          { token: 'type.identifier', foreground: '5dd8ff' },
-          { token: 'tag', foreground: 'ffa14f' },
-          { token: 'annotation', foreground: 'ffa14f' },
-          { token: 'attribute.name', foreground: 'a167e6' },
-          { token: 'attribute.value', foreground: 'fc6a5d' },
-          { token: 'key', foreground: '5dd8ff' },
-          { token: 'variable', foreground: 'd1d1d6' },
-          { token: 'delimiter', foreground: 'a1a1a6' },
-        ],
-        colors: {
-          'editor.background': dark,
-          'editor.foreground': '#d1d1d6',
-          'editorGutter.background': dark,
-          'minimap.background': dark,
-          'editorStickyScroll.background': dark,
-          'editorLineNumber.foreground': '#5a5a60',
-          'editorLineNumber.activeForeground': '#a1a1a6',
-          'editor.lineHighlightBackground': '#ffffff0a',
-          'editor.lineHighlightBorder': '#00000000',
-          'editor.selectionBackground': '#0a84ff55',
-          'editor.inactiveSelectionBackground': '#0a84ff2a',
-          'editorCursor.foreground': '#0a84ff',
-          'editorIndentGuide.background1': '#ffffff12',
-          'editorIndentGuide.activeBackground1': '#ffffff2a',
-          'editorWidget.background': '#2c2c2f',
-          'editorWidget.border': '#ffffff1f',
-          ...scrollbars('#ffffff'),
-        },
-      });
-      const light = '#ffffff';
-      m.editor.defineTheme('blazar-light', {
-        base: 'vs',
-        inherit: true,
-        rules: [
-          { token: '', foreground: '1d1d1f' },
-          { token: 'comment', foreground: '6c7986', fontStyle: 'italic' },
-          { token: 'keyword', foreground: 'ad3da4' },
-          { token: 'number', foreground: '272ad8' },
-          { token: 'string', foreground: 'c41a16' },
-          { token: 'string.escape', foreground: 'c41a16' },
-          { token: 'regexp', foreground: 'c41a16' },
-          { token: 'type', foreground: '0b4f79' },
-          { token: 'type.identifier', foreground: '0b4f79' },
-          { token: 'tag', foreground: '78492a' },
-          { token: 'annotation', foreground: '78492a' },
-          { token: 'attribute.name', foreground: '815f03' },
-          { token: 'attribute.value', foreground: 'c41a16' },
-          { token: 'key', foreground: '0b4f79' },
-          { token: 'variable', foreground: '1d1d1f' },
-          { token: 'delimiter', foreground: '3a3a3c' },
-        ],
-        colors: {
-          'editor.background': light,
-          'editor.foreground': '#1d1d1f',
-          'editorGutter.background': light,
-          'minimap.background': light,
-          'editorStickyScroll.background': light,
-          'editorLineNumber.foreground': '#aeaeb2',
-          'editorLineNumber.activeForeground': '#6e6e73',
-          'editor.lineHighlightBackground': '#0000000a',
-          'editor.lineHighlightBorder': '#00000000',
-          'editor.selectionBackground': '#007aff33',
-          'editor.inactiveSelectionBackground': '#007aff1a',
-          'editorCursor.foreground': '#007aff',
-          'editorIndentGuide.background1': '#0000000f',
-          'editorIndentGuide.activeBackground1': '#00000024',
-          'editorWidget.background': '#ffffff',
-          'editorWidget.border': '#0000001f',
-          ...scrollbars('#000000'),
-        },
-      });
+      // 对话里的代码块只走 colorize、不一定开着编辑器，所以主题在这里全局跟着切。
+      const retheme = () => { defineThemes(m); m.editor.setTheme(editorTheme()); };
+      retheme();
+      new MutationObserver(retheme).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+      matchMedia('(prefers-color-scheme: dark)').addEventListener('change', retheme);
       resolve(m);
     }, reject);
   });
@@ -141,7 +149,7 @@ export class Editor {
       value: '', language: 'plaintext', theme: editorTheme(), automaticLayout: true,
       fontSize: prefs.fontSize, wordWrap: prefs.wordWrap ? 'on' : 'off', wrappingIndent: 'same', lineHeight: 22, fontFamily: '"JetBrains Mono", "SF Mono", Menlo, monospace',
       minimap: { enabled: !!prefs.minimap }, scrollBeyondLastLine: false, renderWhitespace: 'selection',
-      padding: { top: 12, bottom: 12 }, smoothScrolling: true, mouseWheelScrollSensitivity: 1,
+      padding: { top: 12, bottom: 12 }, smoothScrolling: !matchMedia('(prefers-reduced-motion: reduce)').matches, mouseWheelScrollSensitivity: 1,
       scrollbar: { horizontalScrollbarSize: 10, verticalScrollbarSize: 10, useShadows: false },
       overviewRulerBorder: false, hideCursorInOverviewRuler: true, renderLineHighlight: 'line', renderLineHighlightOnlyWhenFocus: true,
       guides: { indentation: true },
@@ -149,6 +157,7 @@ export class Editor {
     this.updatePrefs = () => {
       const p = preferences();
       this.ed.updateOptions({ fontSize: p.fontSize, minimap: { enabled: !!p.minimap }, wordWrap: p.wordWrap ? 'on' : 'off' });
+      defineThemes(m);
       m.editor.setTheme(editorTheme());
     };
     this.host = host;

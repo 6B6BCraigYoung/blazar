@@ -455,6 +455,9 @@ fn Home() -> impl IntoView {
             .into_any();
         }
         let shown = shown.get();
+        // 同一屏最多一处脉冲：只有第一张“在跑”的卡片的点在闪，其余的只亮着。
+        let pulsed = std::cell::Cell::new(false);
+        let pulsed = &pulsed;
         Group::ALL
             .iter()
             .enumerate()
@@ -486,7 +489,7 @@ fn Home() -> impl IntoView {
                         .take(shown[gi])
                         .map(|(i, row)| {
                             let pending = pending_of(&row);
-                            card_view(ctx, i, row, pending)
+                            card_view(ctx, i, row, pending, pulsed)
                         })
                         .collect_view();
                     view! {
@@ -638,7 +641,13 @@ fn key_hint(ask: bool) -> AnyView {
     }
 }
 
-fn card_view(ctx: Ctx, i: usize, row: Row, pending: Option<Value>) -> impl IntoView {
+fn card_view(
+    ctx: Ctx,
+    i: usize,
+    row: Row,
+    pending: Option<Value>,
+    pulsed: &std::cell::Cell<bool>,
+) -> impl IntoView + use<> {
     let app = use_app();
     let subject = row.subject().clone();
     let unseen = app.unseen(&row.ws) || row.child.as_ref().is_some_and(|c| app.unseen(c));
@@ -650,6 +659,7 @@ fn card_view(ctx: Ctx, i: usize, row: Row, pending: Option<Value>) -> impl IntoV
         None => crate::vocab::state(&row.state).1,
     }
     .key();
+    let still = (tone == "run" && pulsed.replace(true)).then_some("");
     let (step, ask) = match &pending {
         Some(a) if is_question(a) => {
             let (label, code) = approval_summary(&a["request"], &subject.path);
@@ -726,7 +736,7 @@ fn card_view(ctx: Ctx, i: usize, row: Row, pending: Option<Value>) -> impl IntoV
             }
         >
             <span class="home-top">
-                <span class="dot" data-tone=tone aria-hidden="true"></span>
+                <span class="dot" data-tone=tone data-still=still aria-hidden="true"></span>
                 <span class="home-name">
                     {title}
                     {child_title

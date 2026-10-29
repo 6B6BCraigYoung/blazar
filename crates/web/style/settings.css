@@ -94,7 +94,7 @@
 .pref-control .settings-checks { justify-content: flex-end; }
 .pref-row-detail code { font: var(--font-size-caption-readable) var(--font-mono); }
 .pref-log { margin: var(--space-sm) 0 0; }
-.sim-view { width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: var(--r-md); overflow: hidden; }
+.sim-view { width: 100%; aspect-ratio: 16 / 9; background: var(--mask-opaque); border-radius: var(--r-md); overflow: hidden; }
 .sim-view canvas { display: block; width: 100%; height: 100%; object-fit: contain; }
 .sim-bar { display: flex; align-items: center; gap: var(--space-control); height: 32px; margin-top: var(--space-md); }
 .sim-bar .grow { flex: 1; }
@@ -127,8 +127,8 @@
 .usage-page .usage-heat { overflow-x: auto; }
 .usage-page .settings-table td:first-child { overflow-wrap: anywhere; }
 
-.settings-row input[type="checkbox"], .switch { appearance: none; -webkit-appearance: none; position: relative; flex: 0 0 auto; width: 32px; height: 19px; margin: 0; border-radius: var(--radius-pill); background: var(--control-track); box-shadow: var(--shadow-switch-track); cursor: pointer; transition: background-color var(--duration-content-dim); }
-.settings-row input[type="checkbox"]::before, .switch::before { content: ""; position: absolute; top: 2px; left: 2px; width: 15px; height: 15px; border-radius: 50%; background: var(--switch-knob); box-shadow: var(--shadow-switch-knob); transition: transform var(--duration-content-dim) cubic-bezier(.3, .7, .4, 1); }
+.settings-row input[type="checkbox"], .switch { appearance: none; -webkit-appearance: none; position: relative; flex: 0 0 auto; width: 32px; height: 19px; margin: 0; border-radius: var(--radius-pill); background: var(--control-track); box-shadow: var(--shadow-switch-track); cursor: pointer; transition: background-color var(--motion-fast) var(--ease-standard); }
+.settings-row input[type="checkbox"]::before, .switch::before { content: ""; position: absolute; top: 2px; left: 2px; width: 15px; height: 15px; border-radius: 50%; background: var(--switch-knob); box-shadow: var(--shadow-switch-knob); transition: transform var(--motion-fast) var(--ease-standard); }
 .settings-row input[type="checkbox"]:checked, .switch:checked { background: var(--accent); }
 .settings-row input[type="checkbox"]:checked::before, .switch:checked::before { transform: translateX(13px); }
 select.settings-input, .dlg select, .card.pad select { appearance: none; -webkit-appearance: none; padding-right: var(--space-3xl); border: 0; border-radius: var(--r-control); background: var(--control-bg) var(--chevron-popup) right 10px center / 8px 12px no-repeat; box-shadow: var(--shadow-control); cursor: pointer; }
@@ -192,7 +192,7 @@ code.pref-item-title { font: var(--font-size-label-readable) var(--font-mono); c
 .pref-bar { display: flex; align-items: center; gap: var(--space-2xs); padding: var(--space-xs) var(--space-md); border-top: 1px solid var(--line); background: color-mix(in srgb, var(--fg) 2%, transparent); }
 .pref-bar-btn { all: unset; box-sizing: border-box; display: grid; place-items: center; width: 26px; height: 20px; border-radius: var(--r-sm); color: var(--fg-2); font-size: var(--font-size-section-title); line-height: 1; cursor: pointer; }
 .pref-bar-btn:hover:not(:disabled) { background: var(--bg-hover); color: var(--fg); }
-.pref-bar-btn:disabled { color: var(--fg-disabled); cursor: default; }
+.pref-bar-btn:disabled { opacity: var(--disabled-opacity); cursor: default; }
 .pref-bar-btn.text { width: auto; padding: 0 var(--space-md); font-size: var(--font-size-label); }
 .pref-bar .sep { width: 1px; height: 14px; background: var(--border); }
 .keycap { all: unset; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; min-width: 104px; height: 26px; padding: 0 var(--space-control); border-radius: var(--r-sm); background: var(--keycap-bg); box-shadow: var(--shadow-keycap); color: var(--keycap-fg); font-size: var(--font-size-label-readable); font-variant-numeric: tabular-nums; cursor: pointer; white-space: nowrap; }

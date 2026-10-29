@@ -31,7 +31,7 @@ fn last(sel: &str) -> Option<web_sys::Element> {
 
 fn reveal(el: &web_sys::Element) {
     let opts = web_sys::ScrollIntoViewOptions::new();
-    opts.set_behavior(web_sys::ScrollBehavior::Smooth);
+    opts.set_behavior(crate::components::modal::scroll_behavior());
     opts.set_block(web_sys::ScrollLogicalPosition::Center);
     el.scroll_into_view_with_scroll_into_view_options(&opts);
 }
@@ -42,7 +42,7 @@ fn jump(to: Jump) {
             if let Some(log) = query(".ws .cc-log") {
                 let opts = web_sys::ScrollToOptions::new();
                 opts.set_top(f64::from(log.scroll_height()));
-                opts.set_behavior(web_sys::ScrollBehavior::Smooth);
+                opts.set_behavior(crate::components::modal::scroll_behavior());
                 log.scroll_to_with_scroll_to_options(&opts);
             }
         }

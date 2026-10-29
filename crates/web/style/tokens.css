@@ -6,16 +6,27 @@
 
 :root {
 
-  --bg-canvas: #1c1c1e;
-  --bg-page: #1c1c1e;
-  --bg-group: rgba(255,255,255,.04);
-  --bg-sidebar: #202022;
-  --bg-panel: #242426;
-  --bg-tree: var(--bg-panel);
-  --bg-tabbar: var(--bg-sidebar);
+  /* 表面只有 4 级：画布 → 侧栏 → 浮起 → 控件，相邻两级对比约 1.1–1.15。
+     面板、分组、弹窗、菜单、命令面板都是“浮起”；代码块、终端、编辑器共用“代码”底，深色下就是侧栏这一级。
+     浮起面里再套一层（弹窗里的列表、卡片里的说明块）用 --bg-nested。 */
+  --bg-canvas: #18181a;
+  --bg-page: var(--bg-canvas);
+  --bg-sidebar: #202023;
   --bg-raised: #2a2a2d;
+  --bg-group: var(--bg-raised);
+  --bg-panel: var(--bg-raised);
+  --bg-overlay: var(--bg-raised);
+  --bg-nested: rgba(255,255,255,.05);
+  --bg-group-nested: var(--bg-nested);
+  --bg-tree: var(--bg-sidebar);
+  --bg-tabbar: var(--bg-sidebar);
   --bg-hover: rgba(255,255,255,.07);
-  --bg-code: #18181a;
+  --bg-code: var(--bg-sidebar);
+  --code-fg: #d1d1d6;
+  --code-line-number: #6a6a70;
+  --code-line-number-active: var(--fg-3);
+  --code-cursor: var(--fg-2);
+  --code-selection: var(--selection-bg);
   --bg-selected: rgba(130,150,185,.16);
   --chart-bar: #7c7c82;
   --chart-bar-selected: var(--accent);
@@ -26,8 +37,8 @@
   --fg: #f2f2f7;
   --fg-2: #c7c7cc;
   --fg-3: #98989f;
-  --fg-4: #76767c;
-  --fg-disabled: #58585e;
+  --fg-4: #8a8a90;
+  --disabled-opacity: .45;
   --line: rgba(255,255,255,.08);
   --border: rgba(255,255,255,.11);
   --border-strong: rgba(255,255,255,.18);
@@ -101,12 +112,15 @@
   --selection-bg: rgba(10,132,255,.35);
   --decoration-muted: #48484d;
   --runtime-neutral-fg: #c8c8cc;
+  --runtime-claude-fg: #d97757;
+  --runtime-gemini-fg: #8fa3c2;
   --overlay-scrim: rgba(0, 0, 0, .4);
   --overlay-scrim-palette: var(--overlay-scrim);
   --overlay-scrim-inset: 0px;
+  --overlay-scrim-viewer: rgba(0,0,0,.78);
   --side-w: 216px;
   --danger-control-hover: rgba(255,69,58,.12);
-  --code-text-fixed: #d1d1d6;
+  --code-text-fixed: var(--code-fg);
   --diff-line-number: #5a5a60;
   --diff-added-bg: rgba(46, 160, 67, .09);
   --diff-removed-bg: rgba(248, 81, 73, .09);
@@ -118,12 +132,12 @@
   --preview-canvas: #fff;
   --option-selected-bg: rgba(10,132,255,.16);
   --option-focus-bg: rgba(255,255,255,.08);
-  --terminal-bg: #18181a;
+  --terminal-bg: var(--bg-code);
   --mask-opaque: #000;
   --inline-code-bg: rgba(255,255,255,.07);
   --composer-focus-border: rgba(10,132,255,.55);
   --option-selected-border: rgba(10,132,255,.5);
-  --accent-fallback: #6366f1;
+  --accent-fallback: #0a84ff;
   --line-fallback: rgba(128,128,128,.2);
   --qr-canvas: white;
 
@@ -132,15 +146,15 @@
   --space-label: 4px;
   --space-xs: 4px;
   --space-icon: 4px;
-  --space-sm: 6px;
+  --space-sm: 8px;
   --space-field: 8px;
   --space-md: 8px;
   --space-toolbar: 8px;
-  --space-control: 10px;
+  --space-control: 12px;
   --space-lg: 12px;
   --space-card: 16px;
   --space-xl: 16px;
-  --space-section: 20px;
+  --space-section: 24px;
   --space-dialog: 20px;
   --space-2xl: 24px;
   --space-3xl: 32px;
@@ -211,7 +225,7 @@
   --shadow-field: none;
   --r-control: var(--r-md);
   --field-border: 1px solid var(--border);
-  --placeholder-fg: darkgray;
+  --placeholder-fg: var(--fg-4);
   --search-bg: var(--control-track);
   --search-icon: none;
   --search-inset: var(--space-control);
@@ -230,11 +244,11 @@
   --shadow-overlay: 0 0 0 1px rgba(255,255,255,.08), 0 12px 32px rgba(0,0,0,.45);
   --shadow-menu: var(--shadow-overlay);
   --shadow-dialog: 0 0 0 1px rgba(255,255,255,.08), 0 24px 64px rgba(0,0,0,.5);
-  --material-menu: rgba(44,44,47,.94);
-  --material-palette: rgba(44,44,47,.96);
-  --material-bar: rgba(30,30,32,.8);
-  --control-bg: #2c2c2f;
-  --control-bg-hover: #363639;
+  --material-menu: rgba(42,42,45,.94);
+  --material-palette: rgba(42,42,45,.96);
+  --material-bar: rgba(24,24,26,.8);
+  --control-bg: #343437;
+  --control-bg-hover: #3e3e42;
   --control-track: rgba(118,118,128,.24);
   --gradient-primary: var(--primary);
   --shadow-tile: 0 0 0 0 transparent;
@@ -251,19 +265,31 @@
   --layer-splitter: 4;
   --layer-menu: 10;
   --layer-composer-popover: 20;
+  --layer-banner: 30;
   --layer-modal: 50;
+  --layer-viewer: 55;
   --layer-toast: 60;
 
-  --duration-caret: .1s;
   --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M6 3.5 10.5 8 6 12.5' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-  --duration-control: .12s;
-  --ease-spring: cubic-bezier(.2, .9, .3, 1.15);
-  --ease-out: cubic-bezier(.2, .8, .2, 1);
-  --duration-content-dim: .15s;
-  --duration-approval-enter: .2s;
-  --duration-content-enter: .3s;
-  --duration-activity-pulse: 1.2s;
-  --duration-tab-pulse: 1.6s;
+
+  /* 动效：快 = 悬停、按下、箭头、悬停才出现的操作、开关；中 = 菜单、弹出卡、toast、遮罩、审批卡进场；
+     慢 = 弹窗、面板、命令面板。退出一律 --motion-exit。进场只用 --ease-enter（缩放 .97→1 或位移 ≤ 6px）。
+     脉冲只给“正在跑”，同一屏最多一处；--motion-flash 只给定位高亮。超过 200ms 的只有这两个。 */
+  --motion-fast: 120ms;
+  --motion-base: 160ms;
+  --motion-slow: 200ms;
+  --motion-exit: 120ms;
+  --ease-enter: cubic-bezier(.2, .9, .3, 1.1);
+  --ease-standard: cubic-bezier(.2, .8, .2, 1);
+  --ease-exit: cubic-bezier(.4, 0, 1, 1);
+  --motion-pulse: 1.2s ease-in-out;
+  --motion-flash: 1.2s ease-out;
+}
+
+/* 减少动态效果：时长压到几乎为零（进场、退出、脉冲、平滑滚动都随之失效），定位高亮只是颜色变化，保留。 */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; animation-delay: 0s !important; transition-duration: .01ms !important; transition-delay: 0s !important; scroll-behavior: auto !important; }
+  .dr[data-focus], .half[data-focus] { animation-duration: 1.2s !important; }
 }
 
 :root[data-theme="light"] {
@@ -272,6 +298,9 @@
   --bg-group: #ffffff;
   --bg-sidebar: #efeff1;
   --bg-panel: #ffffff;
+  --bg-overlay: #ffffff;
+  --bg-nested: #f0f0f2;
+  --bg-group-nested: #ffffff;
   --bg-tree: var(--bg-sidebar);
   --bg-tabbar: #f7f7f8;
   --bg-raised: #f0f0f2;
@@ -287,8 +316,7 @@
   --fg: #1d1d1f;
   --fg-2: #3a3a3c;
   --fg-3: #6e6e73;
-  --fg-4: #8e8e93;
-  --fg-disabled: #aeaeb2;
+  --fg-4: #7c7c80;
   --line: rgba(0,0,0,.08);
   --border: rgba(0,0,0,.12);
   --border-strong: rgba(0,0,0,.2);
@@ -305,11 +333,13 @@
   --selection-bg: rgba(0,122,255,.22);
   --decoration-muted: #c7c7cc;
   --runtime-neutral-fg: #3a3a3c;
+  --runtime-gemini-fg: #5b77a6;
   --overlay-scrim: rgba(0,0,0,.08);
   --overlay-scrim-palette: transparent;
   --overlay-scrim-inset: var(--side-w);
   --danger-control-hover: rgba(255,59,48,.08);
-  --code-text-fixed: #1d1d1f;
+  --code-fg: #1d1d1f;
+  --code-line-number: #aeaeb2;
   --diff-line-number: #aeaeb2;
   --diff-added-bg: rgba(46, 160, 67, .10);
   --diff-removed-bg: rgba(255, 82, 82, .10);
@@ -320,7 +350,6 @@
   --diff-empty-stripe: rgba(0,0,0,.03);
   --option-selected-bg: rgba(0,122,255,.1);
   --option-focus-bg: rgba(0,0,0,.05);
-  --terminal-bg: #f6f6f7;
   --inline-code-bg: rgba(0,0,0,.05);
   --composer-focus-border: rgba(0,122,255,.5);
   --option-selected-border: rgba(0,122,255,.45);
@@ -356,8 +385,8 @@
   --shadow-overlay: 0 0 0 1px rgba(0,0,0,.08), 0 12px 32px rgba(0,0,0,.14);
     --shadow-menu: var(--shadow-overlay);
   --shadow-dialog: 0 0 0 1px rgba(0,0,0,.08), 0 24px 64px rgba(0,0,0,.2);
-  --material-menu: rgba(250,250,250,.94);
-  --material-palette: rgba(250,250,250,.94);
+  --material-menu: rgba(255,255,255,.94);
+  --material-palette: rgba(255,255,255,.94);
   --material-bar: rgba(255,255,255,.8);
   --control-bg: #ffffff;
   --control-bg-hover: #f5f5f7;
@@ -375,6 +404,9 @@
     --bg-group: #ffffff;
     --bg-sidebar: #efeff1;
     --bg-panel: #ffffff;
+    --bg-overlay: #ffffff;
+    --bg-nested: #f0f0f2;
+    --bg-group-nested: #ffffff;
     --bg-tree: var(--bg-sidebar);
     --bg-tabbar: #f7f7f8;
     --bg-raised: #f0f0f2;
@@ -390,8 +422,7 @@
     --fg: #1d1d1f;
     --fg-2: #3a3a3c;
     --fg-3: #6e6e73;
-    --fg-4: #8e8e93;
-    --fg-disabled: #aeaeb2;
+    --fg-4: #7c7c80;
     --line: rgba(0,0,0,.08);
     --border: rgba(0,0,0,.12);
     --border-strong: rgba(0,0,0,.2);
@@ -408,11 +439,13 @@
     --selection-bg: rgba(0,122,255,.22);
     --decoration-muted: #c7c7cc;
     --runtime-neutral-fg: #3a3a3c;
+    --runtime-gemini-fg: #5b77a6;
     --overlay-scrim: rgba(0,0,0,.08);
     --overlay-scrim-palette: transparent;
     --overlay-scrim-inset: var(--side-w);
     --danger-control-hover: rgba(255,59,48,.08);
-    --code-text-fixed: #1d1d1f;
+    --code-fg: #1d1d1f;
+    --code-line-number: #aeaeb2;
     --diff-line-number: #aeaeb2;
     --diff-added-bg: rgba(46, 160, 67, .10);
     --diff-removed-bg: rgba(255, 82, 82, .10);
@@ -423,7 +456,6 @@
     --diff-empty-stripe: rgba(0,0,0,.03);
     --option-selected-bg: rgba(0,122,255,.1);
     --option-focus-bg: rgba(0,0,0,.05);
-    --terminal-bg: #f6f6f7;
     --inline-code-bg: rgba(0,0,0,.05);
     --composer-focus-border: rgba(0,122,255,.5);
     --option-selected-border: rgba(0,122,255,.45);
@@ -459,8 +491,8 @@
     --shadow-overlay: 0 0 0 1px rgba(0,0,0,.08), 0 12px 32px rgba(0,0,0,.14);
     --shadow-menu: var(--shadow-overlay);
     --shadow-dialog: 0 0 0 1px rgba(0,0,0,.08), 0 24px 64px rgba(0,0,0,.2);
-    --material-menu: rgba(250,250,250,.94);
-    --material-palette: rgba(250,250,250,.94);
+    --material-menu: rgba(255,255,255,.94);
+    --material-palette: rgba(255,255,255,.94);
     --material-bar: rgba(255,255,255,.8);
     --control-bg: #ffffff;
     --control-bg-hover: #f5f5f7;

@@ -55,9 +55,15 @@ pub fn in_field(e: &ev::KeyboardEvent) -> bool {
         })
 }
 
+/// 正开着的弹窗（关闭动画里的残影不算）、右键菜单或菜单。
+const OPEN_OVERLAY: &str = concat!(
+    "[data-modal-mask]:not([data-closing]) > [data-modal-root]",
+    ", .ctx-menu, .menu"
+);
+
 pub fn overlay_open() -> bool {
     document()
-        .query_selector("[data-modal-root], .ctx-menu, .menu")
+        .query_selector(OPEN_OVERLAY)
         .ok()
         .flatten()
         .is_some()

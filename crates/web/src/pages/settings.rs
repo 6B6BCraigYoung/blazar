@@ -169,7 +169,7 @@ pub fn SettingsPage() -> impl IntoView {
             return;
         }
         if document()
-            .query_selector("[data-modal-root], .ctx-menu")
+            .query_selector(crate::components::modal::OPEN)
             .ok()
             .flatten()
             .is_some()

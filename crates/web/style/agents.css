@@ -30,7 +30,7 @@
 .agent-stats b { display: block; font-size: var(--font-size-metric); font-weight: var(--font-weight-semibold); }
 .agent-stats span { display: block; color: var(--fg-3); margin-top: var(--space-sm); font-size: var(--font-size-label); }
 .agent-run { display: flex; align-items: center; gap: var(--space-lg); width: 100%; background: none; border: 0; border-top: 1px solid var(--line); color: var(--fg); padding: var(--inset-agent-run); text-align: left; cursor: pointer; font: inherit; }
-.agent-run:disabled { cursor: default; opacity: .6; }
+.agent-run:disabled { cursor: default; opacity: var(--disabled-opacity); }
 .agent-editor { max-width: 950px; width: 100%; }
 .agent-editor fieldset, .agent-modal fieldset { display: flex; flex-direction: column; gap: var(--space-xl); border: 0; padding: 0; margin: 0; min-width: 0; }
 .agent-editor .card>textarea { width: 100%; }

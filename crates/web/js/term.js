@@ -1,7 +1,7 @@
+// ANSI 色两套主题同一个思路：中等偏低饱和，色相一致；深色取浅一些的柔和色，浅色取同色相的深色，
+// 都在各自的底上保证可读。底色、前景、光标、选区从 CSS 变量取（--terminal-bg、--code-*），和编辑器、代码块同一组。
 const DARK = {
-  background: '#101011', foreground: '#c8c8cc', cursor: '#a1a1aa', cursorAccent: '#101011',
-  selectionBackground: '#2f3d52',
-  black: '#1b1b1d', brightBlack: '#5c5c64',
+  black: '#1b1b1d', brightBlack: '#7c7c82',
   red: '#c98a80', brightRed: '#d9a59c',
   green: '#8fb59a', brightGreen: '#a8c8b0',
   yellow: '#c9b48a', brightYellow: '#d8c7a3',
@@ -12,22 +12,42 @@ const DARK = {
 };
 
 const LIGHT = {
-  background: '#f0f0f2', foreground: '#1d1d1f', cursor: '#1d1d1f', cursorAccent: '#f0f0f2',
-  selectionBackground: 'rgba(0,122,255,.2)',
-  black: '#24292f', brightBlack: '#57606a',
-  red: '#cf222e', brightRed: '#a40e26',
-  green: '#116329', brightGreen: '#1a7f37',
-  yellow: '#4d2d00', brightYellow: '#633c01',
-  blue: '#0969da', brightBlue: '#218bff',
-  magenta: '#8250df', brightMagenta: '#a475f9',
-  cyan: '#1b7c83', brightCyan: '#3192aa',
-  white: '#6e7781', brightWhite: '#8c959f',
+  black: '#1d1d1f', brightBlack: '#6e6e73',
+  red: '#9e5148', brightRed: '#b0645a',
+  green: '#4a7656', brightGreen: '#5a8766',
+  yellow: '#85692f', brightYellow: '#977a3c',
+  blue: '#4d6a99', brightBlue: '#5f7cab',
+  magenta: '#7a5f99', brightMagenta: '#8b70aa',
+  cyan: '#3f7a7e', brightCyan: '#4f8b8f',
+  white: '#6e6e73', brightWhite: '#8e8e93',
 };
+
+let probe = null;
+function cssColor(name, fallback) {
+  const raw = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  if (!raw || !document.body) return fallback;
+  if (!probe) {
+    probe = document.createElement('span');
+    probe.style.display = 'none';
+    document.body.appendChild(probe);
+  }
+  probe.style.color = '';
+  probe.style.color = raw;
+  return getComputedStyle(probe).color || fallback;
+}
 
 function theme() {
   const selected = document.documentElement.dataset.theme;
   const light = selected === 'light' || ((!selected || selected === 'system') && !matchMedia('(prefers-color-scheme: dark)').matches);
-  return light ? LIGHT : DARK;
+  const background = cssColor('--terminal-bg', light ? '#f6f6f7' : '#202023');
+  return {
+    ...(light ? LIGHT : DARK),
+    background,
+    foreground: cssColor('--code-fg', light ? '#1d1d1f' : '#d1d1d6'),
+    cursor: cssColor('--code-cursor', light ? '#3a3a3c' : '#c7c7cc'),
+    cursorAccent: background,
+    selectionBackground: cssColor('--code-selection', light ? 'rgba(0,122,255,.22)' : 'rgba(10,132,255,.35)'),
+  };
 }
 
 export class Term {

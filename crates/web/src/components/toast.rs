@@ -14,6 +14,8 @@ struct Item {
 #[derive(Clone, Copy)]
 struct Toasts {
     list: RwSignal<Vec<Item>>,
+    /// 正在播退出动画的 toast：还在列表里、不接点击，`--motion-exit` 之后才真正删掉。
+    closing: RwSignal<Vec<u32>>,
     next: StoredValue<u32>,
 }
 
@@ -24,6 +26,7 @@ thread_local! {
 pub fn provide() {
     TOASTS.set(Some(Toasts {
         list: RwSignal::new(Vec::new()),
+        closing: RwSignal::new(Vec::new()),
         next: StoredValue::new(0),
     }));
 }
@@ -109,9 +112,30 @@ pub fn offer(
 }
 
 pub fn dismiss(id: u32) {
-    if let Some(t) = TOASTS.get() {
-        t.list.try_update(|l| l.retain(|x| x.id != id));
+    let Some(t) = TOASTS.get() else { return };
+    let present = t
+        .list
+        .try_with_untracked(|l| l.iter().any(|x| x.id == id))
+        .unwrap_or(false);
+    let already = t
+        .closing
+        .try_with_untracked(|c| c.contains(&id))
+        .unwrap_or(true);
+    if !present || already {
+        return;
     }
+    let ms = super::modal::exit_ms();
+    if ms == 0 {
+        remove(t, id);
+        return;
+    }
+    t.closing.try_update(|c| c.push(id));
+    gloo_timers::callback::Timeout::new(ms, move || remove(t, id)).forget();
+}
+
+fn remove(t: Toasts, id: u32) {
+    t.list.try_update(|l| l.retain(|x| x.id != id));
+    t.closing.try_update(|c| c.retain(|x| *x != id));
 }
 
 fn show(text: String, quiet: bool, action: Option<(String, Callback<()>)>, ms: u32) -> u32 {
@@ -135,10 +159,18 @@ fn show(text: String, quiet: bool, action: Option<(String, Callback<()>)>, ms: u
     id
 }
 
-fn toast_view(x: Item) -> impl IntoView {
+fn toast_view(t: Toasts, x: Item) -> impl IntoView {
     let with_action = x.action.is_some();
+    let id = x.id;
+    let closing = move || t.closing.with(|c| c.contains(&id)).then_some("");
     view! {
-        <div class="toast" class:quiet=x.quiet class:act=with_action title=x.detail>
+        <div
+            class="toast"
+            class:quiet=x.quiet
+            class:act=with_action
+            title=x.detail
+            data-closing=closing
+        >
             <span class="toast-text">{x.text}</span>
             {x
                 .action
@@ -161,7 +193,7 @@ pub fn ToastHost() -> impl IntoView {
     let t = TOASTS.get().expect("toast::provide 还没调用");
     view! {
         <div class="toasts" role="status" aria-live="polite" aria-relevant="additions">
-            <For each=move || t.list.get() key=|x| x.id children=toast_view />
+            <For each=move || t.list.get() key=|x| x.id children=move |x| toast_view(t, x) />
         </div>
     }
 }
