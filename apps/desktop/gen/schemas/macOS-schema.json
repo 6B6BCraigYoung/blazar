@@ -405,10 +405,10 @@
           "markdownDescription": "Read and change which hub this desktop app uses."
         },
         {
-          "description": "Show a workspace file of the embedded hub in Finder.",
+          "description": "Show a workspace file of the embedded hub in Finder, and pick a project folder through the native panel.",
           "type": "string",
           "const": "local-files",
-          "markdownDescription": "Show a workspace file of the embedded hub in Finder."
+          "markdownDescription": "Show a workspace file of the embedded hub in Finder, and pick a project folder through the native panel."
         },
         {
           "description": "Forward a preview port the remote hub handed out to this computer.",

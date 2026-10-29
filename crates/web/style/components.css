@@ -107,6 +107,12 @@
 .chk.block { display: flex; align-items: flex-start; gap: var(--space-md); margin-top: var(--space-lg); }
 .chk.block input { margin-top: var(--space-label); }
 .browse-bar { display: flex; gap: var(--space-sm); }
+.dlg .field[hidden] { display: none; }
+.new-ws-picked { display: flex; align-items: center; gap: var(--space-md); min-height: 30px; padding: 0 var(--space-control); border: var(--field-border); border-radius: var(--r-md); background: var(--bg-canvas); color: var(--fg); font-size: var(--font-size-label-readable); overflow-wrap: anywhere; }
+.new-ws-picked .grow { flex: 1; min-width: 0; }
+.new-ws-more { margin-top: var(--space-lg); }
+.new-ws-more > summary { width: fit-content; color: var(--fg-2); font-size: var(--font-size-label); }
+.new-ws-more > summary:hover { color: var(--fg); }
 .browse-bar input { flex: 1; }
 .dlg .browse-bar input { font: var(--font-size-label) var(--font-mono); }
 .browser { height: 240px; overflow: auto; overscroll-behavior: contain; border: var(--field-border); border-radius: var(--r-md); background: var(--bg-canvas); }
@@ -118,7 +124,7 @@
 .brow .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; align-items: center; gap: var(--space-sm); color: var(--fg); }
 .brow .tag { flex: 0 0 auto; padding: 0 var(--space-sm); border-radius: var(--radius-pill); background: var(--control-track); color: var(--fg-3); font: var(--font-size-caption) var(--font-sans); line-height: 16px; }
 .brow.br { flex-direction: column; align-items: stretch; gap: var(--space-hairline); padding: var(--space-icon) var(--space-control); font-family: var(--font-sans); }
-.brow.br[data-sel="true"] { background: var(--option-selected-bg); }
+.brow[data-sel="true"] { background: var(--option-selected-bg); }
 .brow.br[data-dis="true"] { opacity: .5; }
 .brow.newdir { gap: var(--space-sm); padding-right: var(--space-sm); cursor: default; }
 .brow.newdir:hover { background: transparent; }
@@ -144,7 +150,7 @@
 .ui-detail > summary:hover { color: var(--fg); }
 .ui-detail > pre { margin: var(--space-xs) 0 0; max-height: 160px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: var(--font-size-caption-readable)/var(--line-height-code) var(--font-mono); color: var(--fg-3); }
 button.brow, button.palrow { width: 100%; border: 0; background: transparent; text-align: left; }
-button.brow:hover, button.brow.br[data-sel="true"] { background: var(--option-selected-bg); }
+button.brow:hover, button.brow[data-sel="true"] { background: var(--option-selected-bg); }
 :where(button, a, summary, [tabindex], input[type="checkbox"], input[type="radio"], input[type="range"]):focus-visible:not(:disabled):not([aria-disabled="true"]):not([data-modal-root]):not(:where(.monaco-editor *, .xterm *, .cc-box .prompt, .ws-thread-btn, input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), textarea, select)) { outline: var(--focus-ring); outline-offset: var(--focus-offset); }
 :where(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), textarea, select):focus { outline: none; }
 input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):focus, textarea:focus, select:focus { border-color: var(--border-strong); }

@@ -162,6 +162,33 @@ pub async fn reveal_path(hub: State<'_, Arc<Hub>>, path: String) -> Result<(), S
         })
 }
 
+/// 原生「选择文件夹」面板，给内嵌 hub 新建工作区用；用户取消就返回 None。
+/// 开发实例设了 BLAZAR_DEV_PICK_FOLDER 就不弹面板，直接返回那个目录，方便界面驱动。
+#[tauri::command]
+pub async fn pick_folder(
+    window: tauri::WebviewWindow,
+    directory: Option<String>,
+) -> Result<Option<String>, String> {
+    if crate::dev_instance()
+        && let Some(dir) = std::env::var_os("BLAZAR_DEV_PICK_FOLDER")
+    {
+        return Ok(Some(dir.to_string_lossy().into_owned()));
+    }
+    let mut dialog = rfd::AsyncFileDialog::new()
+        .set_title("选择项目文件夹")
+        .set_parent(&window);
+    if let Some(dir) = directory
+        .map(|d| expand_home(&d))
+        .filter(|d| d.is_absolute() && d.is_dir())
+    {
+        dialog = dialog.set_directory(dir);
+    }
+    Ok(dialog
+        .pick_folder()
+        .await
+        .map(|f| f.path().to_string_lossy().into_owned()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

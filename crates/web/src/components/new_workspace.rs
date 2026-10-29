@@ -40,6 +40,19 @@ fn remember_dir(node: &str, chosen: &str) {
     crate::storage::save_raw(&format!("blazar.new-ws.dir.{node}"), parent);
 }
 
+fn failed(what: &str, e: &api::ApiError) -> String {
+    format!("{what}：{}", crate::vocab::error(&e.message, e.status))
+}
+
+/// 家目录写成 ~，其余照原样。
+fn tilde(path: &str, home: Option<&str>) -> String {
+    match home.and_then(|h| path.strip_prefix(h.trim_end_matches('/'))) {
+        Some("") => "~".to_owned(),
+        Some(rest) if rest.starts_with('/') => format!("~{rest}"),
+        _ => path.to_owned(),
+    }
+}
+
 async fn confirm_broad(path: &str) -> bool {
     let (title, body) = if path == "/" {
         (
@@ -153,16 +166,37 @@ fn Dialog() -> impl IntoView {
     let folder_input = NodeRef::<html::Input>::new();
     let menu = RwSignal::new(None::<(i32, i32)>);
     let menu_item = NodeRef::<html::Button>::new();
+    // 列表里单击选中的子目录；选中了它就是要建工作区的文件夹，不用先进去。
+    let sel = RwSignal::new(None::<Entry>);
+    // 「更多选项」：机器、副本、起始分支、名称、项目。从别的机器打开时默认展开，好让人看见选的是哪台。
+    let more = RwSignal::new(node.get_untracked() != "local");
+    // 桌面端连着内嵌 hub 时，本机用系统的选择文件夹面板；None 表示还在问桌面端。
+    let native = RwSignal::new(if !is_child && crate::desktop::available() {
+        None
+    } else {
+        Some(false)
+    });
+    // 系统面板选完、没开「更多选项」时，等目录读完就直接创建。
+    let auto = RwSignal::new(false);
+    let use_native = move || native.get() != Some(false) && node.get() == "local";
     let close = move || {
         if !busy.get_untracked() {
             app.new_ws.set(false);
         }
     };
 
+    let target = move || {
+        sel.with(|s| s.as_ref().map(|e| e.path.clone()))
+            .or_else(|| touched.get().then(|| path.get()))
+            .filter(|p| !p.is_empty())
+    };
     let bseq = StoredValue::new(0u32);
     let load_branches = move || {
         branches.set(None);
-        let (n, p) = (node.get_untracked(), path.get_untracked());
+        let (n, p) = (
+            node.get_untracked(),
+            untrack(target).unwrap_or_else(|| path.get_untracked()),
+        );
         bseq.update_value(|s| *s += 1);
         let mine = bseq.get_value();
         spawn_local(async move {
@@ -189,6 +223,7 @@ fn Dialog() -> impl IntoView {
         branches.set(None);
         pick.set(String::new());
         bq.set(String::new());
+        sel.set(None);
         listing.set(None);
         let (n, p) = (node.get_untracked(), path.get_untracked());
         seq.update_value(|s| *s += 1);
@@ -217,9 +252,69 @@ fn Dialog() -> impl IntoView {
             let _ = listing.try_set(Some(r));
         });
     };
+    let enter = move |p: String| {
+        path.set(p);
+        touched.set(true);
+        browse();
+    };
+    let choose = move |e: Entry| {
+        let repo = e.is_repo;
+        sel.set(Some(e));
+        bseq.update_value(|n| *n = n.wrapping_add(1));
+        branches.set(None);
+        pick.set(String::new());
+        if !repo {
+            iso.set(false);
+        } else if iso.get_untracked() {
+            load_branches();
+        }
+    };
+    let pick_native = move || {
+        if busy.get_untracked() || auto.get_untracked() {
+            return;
+        }
+        let from = path.get_untracked();
+        spawn_local(async move {
+            let dir = Some(from).filter(|d| !d.is_empty());
+            match crate::desktop::invoke("pick_folder", &json!({ "directory": dir })).await {
+                Ok(Value::String(p)) => {
+                    path.set(p);
+                    touched.set(true);
+                    browse();
+                    let _ = auto.try_set(!more.get_untracked());
+                }
+                Ok(_) => {}
+                Err(_) => {
+                    toast("打不开系统的选择框，改用下面的目录列表");
+                    let _ = native.try_set(Some(false));
+                    browse();
+                }
+            }
+        });
+    };
     path.set(remembered_dir(&node.get_untracked()));
-    browse();
-    let is_repo = move || !is_child && listing.with(|l| matches!(l, Some(Ok(l)) if l.is_repo));
+    if native.get_untracked().is_some() {
+        browse();
+    } else {
+        spawn_local(async move {
+            let here = !crate::desktop::remote_hub().await;
+            if native.try_set(Some(here)).is_some() {
+                return;
+            }
+            if here && node.get_untracked() == "local" {
+                pick_native();
+            } else {
+                browse();
+            }
+        });
+    }
+    let is_repo = move || {
+        !is_child
+            && match sel.get() {
+                Some(e) => e.is_repo,
+                None => listing.with(|l| matches!(l, Some(Ok(l)) if l.is_repo)),
+            }
+    };
     let listed = move || listing.with(|l| matches!(l, Some(Ok(_))));
 
     let start_folder = move || {
@@ -263,7 +358,7 @@ fn Dialog() -> impl IntoView {
                         browse();
                     }
                 }
-                Err(e) => toast(format!("新建文件夹失败：{e}")),
+                Err(e) => toast(failed("新建文件夹失败", &e)),
             }
         });
     };
@@ -303,11 +398,10 @@ fn Dialog() -> impl IntoView {
             toast("请先等待目录读取完成");
             return;
         }
-        let p = path.get_untracked();
-        if p.is_empty() || !touched.get_untracked() {
-            toast("请先进入要用作工作区的文件夹");
+        let Some(p) = untrack(target) else {
+            toast("请先选一个文件夹");
             return;
-        }
+        };
         let broad = p == "/"
             || listing.with_untracked(
                 |l| matches!(l, Some(Ok(l)) if l.home.as_deref() == Some(p.as_str())),
@@ -352,7 +446,7 @@ fn Dialog() -> impl IntoView {
                         app.new_ws.set(false);
                         app.load_state();
                     }
-                    Err(e) => toast(format!("创建失败：{e}")),
+                    Err(e) => toast(failed("创建失败", &e)),
                 }
             });
             return;
@@ -389,13 +483,91 @@ fn Dialog() -> impl IntoView {
                         navigate(&format!("/w/{id}"), Default::default());
                     }
                 }
-                Err(e) => toast(format!("创建失败：{e}")),
+                Err(e) => toast(failed("创建失败", &e)),
             }
         });
     };
     let create2 = create.clone();
+    let create_auto = create.clone();
+    Effect::new(move |_| {
+        if !auto.get() {
+            return;
+        }
+        match listing.get() {
+            None => {}
+            Some(Ok(_)) => {
+                auto.set(false);
+                create_auto();
+            }
+            Some(Err(_)) => auto.set(false),
+        }
+    });
     let directories = NodeRef::<html::Div>::new();
     let branch_list = NodeRef::<html::Div>::new();
+    let machine = view! {
+        <label class="field">
+            "机器"
+            <select
+                prop:value=move || node.get()
+                disabled=move || busy.get()
+                on:change=move |e| {
+                    let picked = event_target_value(&e);
+                    path.set(remembered_dir(&picked));
+                    touched.set(false);
+                    auto.set(false);
+                    node.set(picked);
+                    typed.set(String::new());
+                    if use_native() {
+                        sel.set(None);
+                        iso.set(false);
+                        listing.set(None);
+                    } else {
+                        browse();
+                    }
+                }
+            >
+                {nodes
+                    .into_iter()
+                    .map(|n| {
+                        let selected = n.clone();
+                        view! {
+                            <option value=n.clone() selected=move || node.get() == selected>
+                                {crate::fmt::machine(&n)}
+                            </option>
+                        }
+                    })
+                    .collect_view()}
+            </select>
+        </label>
+    };
+    let (machine_top, machine_more) = if is_child {
+        (Some(machine), None)
+    } else {
+        (None, Some(machine))
+    };
+    let name_field = view! {
+        <label class="field">
+            "名称（留空取目录名）"
+            <input
+                prop:value=move || name.get()
+                on:input=move |e| name.set(event_target_value(&e))
+            />
+        </label>
+    };
+    let (name_top, name_more) = if is_child {
+        (Some(name_field), None)
+    } else {
+        (None, Some(name_field))
+    };
+    let shown = move || {
+        target().map(|p| {
+            let home = listing.with(|l| match l {
+                Some(Ok(l)) => l.home.clone(),
+                _ => None,
+            });
+            tilde(&p, home.as_deref())
+        })
+    };
 
     view! {
         <Modal label="新建工作区" class="dlg wide" on_close=Callback::new(move |_| close())>
@@ -410,35 +582,48 @@ fn Dialog() -> impl IntoView {
                         </p>
                     }
                 })}
-            <label class="field">
-                "机器"
-                <select
-                    prop:value=move || node.get()
-                    disabled=move || busy.get()
-                    on:change=move |e| {
-                        let picked = event_target_value(&e);
-                        path.set(remembered_dir(&picked));
-                        touched.set(false);
-                        node.set(picked);
-                        typed.set(String::new());
-                        browse();
-                    }
-                >
-                    {nodes
-                        .into_iter()
-                        .map(|n| {
-                            let selected = n.clone();
+            {machine_top}
+            <div class="field" hidden=move || !use_native()>
+                <span class="muted">
+                    {move || {
+                        if more.get() {
+                            "用系统的选择框选一个项目文件夹。"
+                        } else {
+                            "用系统的选择框选一个项目文件夹，选好就建工作区并打开。"
+                        }
+                    }}
+                </span>
+                {move || {
+                    touched
+                        .get()
+                        .then(|| {
                             view! {
-                                <option value=n.clone() selected=move || node.get() == selected>
-                                    {crate::fmt::machine(&n)}
-                                </option>
+                                <div class="new-ws-picked">
+                                    <span class="mono grow">{shown}</span>
+                                    {move || match listing.get() {
+                                        None => {
+                                            view! { <span class="muted small">"读取中…"</span> }
+                                                .into_any()
+                                        }
+                                        Some(Err(e)) => {
+                                            view! {
+                                                <InlineError
+                                                    message=e
+                                                    retry=Callback::new(move |_| browse())
+                                                />
+                                            }
+                                                .into_any()
+                                        }
+                                        Some(Ok(_)) => ().into_any(),
+                                    }}
+                                </div>
                             }
                         })
-                        .collect_view()}
-                </select>
-            </label>
-            <div class="field">
-                "目录" <div class="browse-bar">
+                }}
+            </div>
+            <div class="field" hidden=use_native>
+                "目录"
+                <div class="browse-bar">
                     <button
                         type="button"
                         class="btn small"
@@ -589,20 +774,31 @@ fn Dialog() -> impl IntoView {
                                 .into_iter()
                                 .map(|e| {
                                     let p = e.path.clone();
+                                    let p2 = e.path.clone();
+                                    let mine = e.path.clone();
+                                    let selected = Memo::new(move |_| {
+                                        sel.with(|s| s.as_ref().is_some_and(|s| s.path == mine))
+                                    });
+                                    let entry = e.clone();
                                     view! {
                                         <button
                                             type="button"
                                             class="brow"
-                                            title=e.path.clone()
+                                            title=format!("{} · 双击打开", e.path)
                                             aria-label=if e.is_repo {
                                                 format!("{}，Git 仓库", e.name)
                                             } else {
                                                 e.name.clone()
                                             }
-                                            on:click=move |_| {
-                                                path.set(p.clone());
-                                                touched.set(true);
-                                                browse();
+                                            aria-pressed=move || selected.get().to_string()
+                                            data-sel=move || selected.get().to_string()
+                                            on:click=move |_| choose(entry.clone())
+                                            on:dblclick=move |_| enter(p.clone())
+                                            on:keydown=move |ev| {
+                                                if ev.key() == "Enter" && !ev.is_composing() {
+                                                    ev.prevent_default();
+                                                    enter(p2.clone());
+                                                }
                                             }
                                         >
                                             <span
@@ -689,173 +885,199 @@ fn Dialog() -> impl IntoView {
                         </label>
                     }
                 })}
-            <Show when=is_repo>
-                <label
-                    class="chk block"
-                    title="先取远端最新的分支，再在单独的目录里放一份副本。"
-                >
-                    <input
-                        type="checkbox"
-                        aria-label="在副本里改"
-                        aria-describedby="new-ws-iso-desc"
-                        prop:checked=move || iso.get()
-                        on:change=move |_| {
-                            iso.update(|i| *i = !*i);
-                            if iso.get_untracked() && branches.with_untracked(Option::is_none) {
-                                load_branches();
-                            }
-                        }
-                    />
-                    <span>
-                        <b>"在副本里改"</b>
-                        <span class="muted small" id="new-ws-iso-desc">
-                            " 另放一份代码副本、开一个新分支，原目录不受影响。"
-                        </span>
-                    </span>
-                </label>
-                <Show when=move || iso.get()>
-                    <div
-                        class="field"
-                        title="按最近提交排序，会先取远端最新的分支。"
+            {name_top}
+            <details
+                class="new-ws-more"
+                hidden=is_child
+                open=more.get_untracked()
+                on:toggle=move |e| {
+                    let open = e
+                        .target()
+                        .and_then(|t| t.dyn_into::<web_sys::HtmlDetailsElement>().ok())
+                        .is_some_and(|d| d.open());
+                    more.set(open);
+                }
+            >
+                <summary>"更多选项"</summary>
+                {machine_more}
+                <Show when=is_repo>
+                    <label
+                        class="chk block"
+                        title="先取远端最新的分支，再在单独的目录里放一份副本。"
                     >
-                        "从哪里开始"
                         <input
-                            aria-label="筛选分支"
-                            placeholder="筛选分支…"
-                            prop:value=move || bq.get()
-                            on:input=move |e| bq.set(event_target_value(&e))
-                        />
-                        <div
-                            class="browser short"
-                            node_ref=branch_list
-                            role="group"
-                            aria-label="可选分支"
-                            data-keyboard-list=""
-                            on:keydown=move |event| {
-                                if let Some(root) = branch_list.get_untracked() {
-                                    menu_keydown(
-                                        &event,
-                                        root.unchecked_ref(),
-                                        Callback::new(move |_| close()),
-                                    );
+                            type="checkbox"
+                            aria-label="在副本里改"
+                            aria-describedby="new-ws-iso-desc"
+                            prop:checked=move || iso.get()
+                            on:change=move |_| {
+                                iso.update(|i| *i = !*i);
+                                if iso.get_untracked() && branches.with_untracked(Option::is_none) {
+                                    load_branches();
                                 }
                             }
+                        />
+                        <span>
+                            <b>"在副本里改"</b>
+                            <span class="muted small" id="new-ws-iso-desc">
+                                " 另放一份代码副本、开一个新分支，原目录不受影响。"
+                            </span>
+                        </span>
+                    </label>
+                    <Show when=move || iso.get()>
+                        <div
+                            class="field"
+                            title="按最近提交排序，会先取远端最新的分支。"
                         >
-                            <button
-                                type="button"
-                                class="brow br"
-                                aria-pressed=move || pick.get().is_empty().to_string()
-                                data-sel=move || pick.get().is_empty().to_string()
-                                on:click=move |_| pick.set(String::new())
-                            >
-                                <span class="nm">"从现在的代码开始"</span>
-                                <span class="muted small">"新分支用下面的名称"</span>
-                            </button>
-                            {move || match branches.get() {
-                                None => view! { <LoadingState text="读取分支…" /> }.into_any(),
-                                Some(Err(e)) => {
-                                    view! {
-                                        <InlineError
-                                            message=e
-                                            class="empty"
-                                            retry=Callback::new(move |_| load_branches())
-                                        />
+                            "从哪里开始"
+                            <input
+                                aria-label="筛选分支"
+                                placeholder="筛选分支…"
+                                prop:value=move || bq.get()
+                                on:input=move |e| bq.set(event_target_value(&e))
+                            />
+                            <div
+                                class="browser short"
+                                node_ref=branch_list
+                                role="group"
+                                aria-label="可选分支"
+                                data-keyboard-list=""
+                                on:keydown=move |event| {
+                                    if let Some(root) = branch_list.get_untracked() {
+                                        menu_keydown(
+                                            &event,
+                                            root.unchecked_ref(),
+                                            Callback::new(move |_| close()),
+                                        );
                                     }
-                                        .into_any()
                                 }
-                                Some(Ok(list)) => {
-                                    let k = bq.get().to_lowercase();
-                                    list.into_iter()
-                                        .filter(|b| {
-                                            k.is_empty()
-                                                || format!("{} {} {}", b.name, b.author, b.subject)
-                                                    .to_lowercase()
-                                                    .contains(&k)
-                                        })
-                                        .take(200)
-                                        .map(|b| {
-                                            let nm = b.name.clone();
-                                            let cur = b.current;
-                                            view! {
-                                                <button
-                                                    type="button"
-                                                    class="brow br"
-                                                    aria-pressed={
-                                                        let selected = nm.clone();
-                                                        move || (pick.get() == selected).to_string()
-                                                    }
-                                                    data-sel=move || (pick.get() == nm).to_string()
-                                                    data-dis=cur.to_string()
-                                                    on:click={
-                                                        let n = b.name.clone();
-                                                        move |_| {
-                                                            if cur {
-                                                                toast(
-                                                                    "原目录正在用这个分支，选别的分支，或者新开一个",
-                                                                )
-                                                            } else {
-                                                                pick.set(n.clone())
+                            >
+                                <button
+                                    type="button"
+                                    class="brow br"
+                                    aria-pressed=move || pick.get().is_empty().to_string()
+                                    data-sel=move || pick.get().is_empty().to_string()
+                                    on:click=move |_| pick.set(String::new())
+                                >
+                                    <span class="nm">"从现在的代码开始"</span>
+                                    <span class="muted small">"新分支用下面的名称"</span>
+                                </button>
+                                {move || match branches.get() {
+                                    None => {
+                                        view! { <LoadingState text="读取分支…" /> }.into_any()
+                                    }
+                                    Some(Err(e)) => {
+                                        view! {
+                                            <InlineError
+                                                message=e
+                                                class="empty"
+                                                retry=Callback::new(move |_| load_branches())
+                                            />
+                                        }
+                                            .into_any()
+                                    }
+                                    Some(Ok(list)) => {
+                                        let k = bq.get().to_lowercase();
+                                        list.into_iter()
+                                            .filter(|b| {
+                                                k.is_empty()
+                                                    || format!("{} {} {}", b.name, b.author, b.subject)
+                                                        .to_lowercase()
+                                                        .contains(&k)
+                                            })
+                                            .take(200)
+                                            .map(|b| {
+                                                let nm = b.name.clone();
+                                                let cur = b.current;
+                                                view! {
+                                                    <button
+                                                        type="button"
+                                                        class="brow br"
+                                                        aria-pressed={
+                                                            let selected = nm.clone();
+                                                            move || (pick.get() == selected).to_string()
+                                                        }
+                                                        data-sel=move || (pick.get() == nm).to_string()
+                                                        data-dis=cur.to_string()
+                                                        on:click={
+                                                            let n = b.name.clone();
+                                                            move |_| {
+                                                                if cur {
+                                                                    toast(
+                                                                        "原目录正在用这个分支，选别的分支，或者新开一个",
+                                                                    )
+                                                                } else {
+                                                                    pick.set(n.clone())
+                                                                }
                                                             }
                                                         }
-                                                    }
-                                                >
-                                                    <span class="nm mono">
-                                                        {b.name.clone()}
-                                                        {b
-                                                            .remote_only
-                                                            .then(|| view! { <span class="gchip">"仅远端"</span> })}
-                                                        {cur
-                                                            .then(|| {
-                                                                view! { <span class="gchip warn">"原目录在用"</span> }
-                                                            })}
-                                                    </span>
-                                                    <span class="muted small">
-                                                        {format!(
-                                                            "{} · {} · {}",
-                                                            b.author,
-                                                            fmt::ago(&b.last_commit_at),
-                                                            b.subject,
-                                                        )}
-                                                    </span>
-                                                </button>
-                                            }
-                                        })
-                                        .collect_view()
-                                        .into_any()
-                                }
-                            }}
-                        </div>
-                    </div>
-                </Show>
-            </Show>
-            <label class="field">
-                "名称（留空取目录名）"
-                <input
-                    prop:value=move || name.get()
-                    on:input=move |e| name.set(event_target_value(&e))
-                />
-            </label>
-            {(!is_child)
-                .then(|| {
-                    view! {
-                        <label class="field">
-                            "项目"
-                            <input
-                                placeholder="可留空；同名项目归为一组"
-                                prop:value=move || project.get()
-                                on:input=move |e| project.set(event_target_value(&e))
-                                on:keydown=move |e| {
-                                    if e.key() == "Enter" && !e.is_composing() {
-                                        create2()
+                                                    >
+                                                        <span class="nm mono">
+                                                            {b.name.clone()}
+                                                            {b
+                                                                .remote_only
+                                                                .then(|| view! { <span class="gchip">"仅远端"</span> })}
+                                                            {cur
+                                                                .then(|| {
+                                                                    view! { <span class="gchip warn">"原目录在用"</span> }
+                                                                })}
+                                                        </span>
+                                                        <span class="muted small">
+                                                            {format!(
+                                                                "{} · {} · {}",
+                                                                b.author,
+                                                                fmt::ago(&b.last_commit_at),
+                                                                b.subject,
+                                                            )}
+                                                        </span>
+                                                    </button>
+                                                }
+                                            })
+                                            .collect_view()
+                                            .into_any()
                                     }
-                                }
-                            />
-                        </label>
-                    }
-                })}
+                                }}
+                            </div>
+                        </div>
+                    </Show>
+                </Show>
+                {name_more}
+                {(!is_child)
+                    .then(|| {
+                        view! {
+                            <label class="field">
+                                "项目"
+                                <input
+                                    placeholder="可留空；同名项目归为一组"
+                                    prop:value=move || project.get()
+                                    on:input=move |e| project.set(event_target_value(&e))
+                                    on:keydown=move |e| {
+                                        if e.key() == "Enter" && !e.is_composing() {
+                                            create2()
+                                        }
+                                    }
+                                />
+                            </label>
+                        }
+                    })}
+            </details>
             <div class="dlg-foot">
                 <span class="muted small grow">
-                    {move || (!touched.get()).then_some("先进入要用作工作区的文件夹")}
+                    {move || {
+                        if use_native() {
+                            None
+                        } else {
+                            Some(
+                                shown()
+                                    .map_or_else(
+                                        || {
+                                            "单击选中一个文件夹，双击打开它".to_owned()
+                                        },
+                                        |p| format!("用「{p}」"),
+                                    ),
+                            )
+                        }
+                    }}
                 </span>
                 <button
                     type="button"
@@ -865,26 +1087,57 @@ fn Dialog() -> impl IntoView {
                 >
                     "取消"
                 </button>
-                <button
-                    type="button"
-                    class="btn primary"
-                    disabled=move || {
-                        busy.get() || !touched.get() || !matches!(listing.get(), Some(Ok(_)))
-                    }
-                    on:click=move |_| create()
-                >
-                    {move || {
-                        if busy.get() {
-                            "创建中…"
-                        } else if is_child {
-                            "添加子工作区"
-                        } else if iso.get() {
-                            "创建副本"
-                        } else {
-                            "创建工作区"
-                        }
-                    }}
-                </button>
+                {move || {
+                    use_native()
+                        .then(|| {
+                            view! {
+                                <button
+                                    type="button"
+                                    class=move || {
+                                        if touched.get() { "btn" } else { "btn primary" }
+                                    }
+                                    disabled=move || {
+                                        busy.get() || auto.get() || native.get().is_none()
+                                    }
+                                    on:click=move |_| pick_native()
+                                >
+                                    {move || {
+                                        if touched.get() {
+                                            "换一个文件夹…"
+                                        } else {
+                                            "选择文件夹…"
+                                        }
+                                    }}
+                                </button>
+                            }
+                        })
+                }}
+                {move || {
+                    let create = create.clone();
+                    (!use_native() || touched.get() && (!auto.get() || busy.get()))
+                        .then(|| {
+                            view! {
+                                <button
+                                    type="button"
+                                    class="btn primary"
+                                    disabled=move || busy.get() || target().is_none() || !listed()
+                                    on:click=move |_| create()
+                                >
+                                    {move || {
+                                        if busy.get() {
+                                            "创建中…"
+                                        } else if is_child {
+                                            "添加子工作区"
+                                        } else if iso.get() {
+                                            "创建副本"
+                                        } else {
+                                            "创建工作区"
+                                        }
+                                    }}
+                                </button>
+                            }
+                        })
+                }}
             </div>
         </Modal>
     }
