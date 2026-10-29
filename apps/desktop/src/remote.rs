@@ -570,7 +570,7 @@ mod tests {
         assert!(fatal(
             "ssh: Could not resolve hostname nowhere: nodename nor servname provided"
         ));
-        assert!(fatal("craig@hub-host: Permission denied (publickey)."));
+        assert!(fatal("me@hub-host: Permission denied (publickey)."));
         assert!(fatal("Host key verification failed."));
         assert!(!fatal(
             "Warning: Permanently added 'hub-host' to the list of known hosts."

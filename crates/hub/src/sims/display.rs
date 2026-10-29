@@ -372,7 +372,7 @@ mod tests {
 
     #[test]
     fn survey_marks_only_readable_displays_as_mine() {
-        let raw = "DISPLAY\t1\tcraig\t1920x1080\tno\tyes\nDISPLAY\t2\tghr\t\tno\tno\nDISPLAY\t9\tcraig\t1920x1080\tyes\tno\n\
+        let raw = "DISPLAY\t1\tme\t1920x1080\tno\tyes\nDISPLAY\t2\tother\t\tno\tno\nDISPLAY\t9\tme\t1920x1080\tyes\tno\n\
                    OS\tLinux\nXORG\t/usr/bin/Xorg\nNVDRV\t/usr/lib/xorg/modules/drivers/nvidia_drv.so\nXWRAP\tconsole\nCONF\tno\nFFMPEG\t/usr/bin/ffmpeg\t3\n";
         let s = parse_survey(raw);
         assert_eq!(s.displays.len(), 3);

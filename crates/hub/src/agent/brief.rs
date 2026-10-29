@@ -607,7 +607,7 @@ mod tests {
 
     #[test]
     fn several_numbered_questions_become_one_card_each() {
-        let reply = "方案整理好了。\n\n要你定两件事：\n1. 产什么：只出报告还是连代码一起改？\n2. 谁来执行：mac-mini 还是笔记本？";
+        let reply = "方案整理好了。\n\n要你定两件事：\n1. 产什么：只出报告还是连代码一起改？\n2. 谁来执行：台式机还是笔记本？";
         assert!(asks_user(reply));
         let asks = local_asks(reply);
         assert_eq!(asks.len(), 2);

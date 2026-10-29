@@ -102,7 +102,7 @@ mod tests {
             what: "ssh edge.invalid 'systemctl restart x'".into(),
             reason: Some("Remote Shell Writes".into()),
             allow: true,
-            decided_by: "craig".into(),
+            decided_by: "me".into(),
             decided_at: "2026-10-26T08:00:00Z".into(),
         };
         assert!(db.record_denial_decision(&d).await.unwrap());

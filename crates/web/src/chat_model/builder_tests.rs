@@ -612,11 +612,11 @@ fn a_decision_marks_the_card_and_a_second_denial_of_the_same_command_is_a_hard_s
         "s",
         6,
         0,
-        json!({"type":"denial_decided","tool_use_id":"t1","allow":true,"by":"craig","what":CMD}),
+        json!({"type":"denial_decided","tool_use_id":"t1","allow":true,"by":"me","what":CMD}),
     ));
     let t = build(&rows, "/w", false);
     let (_, calls, _) = warn_of(&t);
-    assert_eq!(calls[0].decided, Some((true, "craig".to_owned())));
+    assert_eq!(calls[0].decided, Some((true, "me".to_owned())));
     assert!(!calls[0].hard, "第一张卡只是被批准了，不是硬拦截");
     let mut retry = denied_turn("s2", "auto", 1);
     retry[1] = row(
@@ -646,7 +646,7 @@ fn a_decision_marks_the_card_and_a_second_denial_of_the_same_command_is_a_hard_s
             "s",
             6,
             0,
-            json!({"type":"denial_decided","tool_use_id":"t1","allow":false,"by":"craig","what":CMD}),
+            json!({"type":"denial_decided","tool_use_id":"t1","allow":false,"by":"me","what":CMD}),
         ));
         r.extend(denied_turn("s2", "auto", 1));
         build(&r, "/w", false)

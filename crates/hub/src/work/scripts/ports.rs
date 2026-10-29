@@ -176,11 +176,11 @@ mod tests {
     fn listening_ports_come_from_the_dev_process_tree_on_macos() {
         let out = "__ROOT__ 500\n__PS__\n  500     1\n  501   500\n  502   501\n  777     1\n__LSOF__\n\
 COMMAND   PID  USER   FD   TYPE             DEVICE SIZE/OFF NODE NAME\n\
-Python    502 craig    4u  IPv4 0xafaa59714fcb7f25      0t0  TCP 127.0.0.1:8765 (LISTEN)\n\
-node      501 craig   22u  IPv6 0x5f6946e4331ab31a      0t0  TCP [::1]:5173 (LISTEN)\n\
-node      501 craig   23u  IPv4 0x5f6946e4331ab31b      0t0  TCP *:24678 (LISTEN)\n\
-node      501 craig   24u  IPv6 0x5f6946e4331ab31c      0t0  TCP *:24678 (LISTEN)\n\
-rapportd  777 craig   16u  IPv4 0xae788ff549d6b72e      0t0  TCP *:52719 (LISTEN)\n";
+Python    502 me       4u  IPv4 0xafaa59714fcb7f25      0t0  TCP 127.0.0.1:8765 (LISTEN)\n\
+node      501 me      22u  IPv6 0x5f6946e4331ab31a      0t0  TCP [::1]:5173 (LISTEN)\n\
+node      501 me      23u  IPv4 0x5f6946e4331ab31b      0t0  TCP *:24678 (LISTEN)\n\
+node      501 me      24u  IPv6 0x5f6946e4331ab31c      0t0  TCP *:24678 (LISTEN)\n\
+rapportd  777 me      16u  IPv4 0xae788ff549d6b72e      0t0  TCP *:52719 (LISTEN)\n";
         assert_eq!(listening_ports(out), vec![5173, 8765, 24678]);
         assert_eq!(
             listening_ports("__PS__\n1 0\n__LSOF__\n"),

@@ -313,12 +313,12 @@ fn a_late_denial_decision_reaches_a_frozen_card() {
         None,
         false,
         false,
-        json!({"type":"denial_decided","tool_use_id":"t1","allow":true,"by":"craig","what":"ssh edge.invalid 'systemctl restart x'"}),
+        json!({"type":"denial_decided","tool_use_id":"t1","allow":true,"by":"me","what":"ssh edge.invalid 'systemctl restart x'"}),
     ));
     let inc = m.update(&rows, 0, false);
     same(&inc, &build(&rows, "/w", false)).unwrap();
     let decided = inc.items.iter().any(|i| {
-        matches!(&i.body, Body::Warn { calls, .. } if calls[0].decided == Some((true, "craig".into())))
+        matches!(&i.body, Body::Warn { calls, .. } if calls[0].decided == Some((true, "me".into())))
     });
     assert!(decided, "{:#?}", inc.items);
     for (seq, kind) in [
