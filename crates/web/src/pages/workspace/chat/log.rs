@@ -652,7 +652,7 @@ fn tool_view(t: Tool, chat: Chat, opened: Opened, ws: String) -> AnyView {
 /// prompt itself in body type, instead of one squeezed tool line.
 fn dispatch_view(t: &Tool, to: String, text: String, opened: Opened) -> AnyView {
     let lead = match t.state {
-        St::Run => "Sending to",
+        St::Run => "Send to",
         St::Ok => "Sent to",
         St::Err => "Not sent to",
     };
