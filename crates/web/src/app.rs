@@ -1,5 +1,5 @@
 use leptos::prelude::*;
-use leptos_router::components::{ParentRoute, Route, Router, Routes};
+use leptos_router::components::{ParentRoute, Redirect, Route, Router, Routes};
 use leptos_router::path;
 
 use crate::components::dialog::{self, DialogHost};
@@ -38,6 +38,13 @@ fn Main(children: Children) -> impl IntoView {
             {children()}
         </main>
     }
+}
+
+#[component]
+fn ToWorkspace() -> impl IntoView {
+    let params = leptos_router::hooks::use_params_map();
+    let id = params.with_untracked(|p| p.get("id").unwrap_or_default());
+    view! { <Redirect path=format!("/w/{id}") /> }
 }
 
 #[component]
@@ -86,8 +93,14 @@ pub fn App() -> impl IntoView {
                             <Route path=path!("/") view=|| () />
                             <Route path=path!("/chats/:thread") view=|| () />
                         </ParentRoute>
-                        <Route path=path!("/running") view=WorkspacesPage />
-                        <Route path=path!("/waiting") view=WorkspacesPage />
+                        <Route
+                            path=path!("/running")
+                            view=|| view! { <Redirect path="/workspaces" /> }
+                        />
+                        <Route
+                            path=path!("/waiting")
+                            view=|| view! { <Redirect path="/workspaces" /> }
+                        />
                         <Route path=path!("/project/:name") view=ProjectPage />
                         <Route path=path!("/runtimes") view=RuntimesPage />
                         <Route path=path!("/runtimes/:id") view=RuntimeDetailPage />
@@ -105,15 +118,21 @@ pub fn App() -> impl IntoView {
                         <Route path=path!("/agents/new") view=AgentCreatePage />
                         <Route path=path!("/agent/:id") view=AgentProfilePage />
                         <Route path=path!("/skills") view=SkillsPage />
-                        <Route path=path!("/library") view=SkillsPage />
+                        <Route
+                            path=path!("/library")
+                            view=|| view! { <Redirect path="/skills" /> }
+                        />
                         <Route path=path!("/apps") view=AppsPage />
                         <Route path=path!("/apps/:id") view=AppDetailPage />
                         <Route path=path!("/usage") view=UsagePage />
                         <Route path=path!("/settings") view=SettingsPage />
                         <Route path=path!("/workspaces") view=WorkspacesPage />
-                        <Route path=path!("/workspaces/:id") view=WorkspacePage />
-                        <Route path=path!("/accounts") view=RuntimesPage />
-                        <Route path=path!("/mesh") view=NodesPage />
+                        <Route path=path!("/workspaces/:id") view=ToWorkspace />
+                        <Route
+                            path=path!("/accounts")
+                            view=|| view! { <Redirect path="/runtimes" /> }
+                        />
+                        <Route path=path!("/mesh") view=|| view! { <Redirect path="/nodes" /> } />
                     </Routes>
                 </Main>
             </div>
