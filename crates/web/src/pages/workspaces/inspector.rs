@@ -46,7 +46,9 @@ fn outcome_text(head: &str, r: &Value) -> String {
 
 async fn confirm_remove(label: &str, isolated: bool, kids: usize, busy: bool) -> bool {
     let mut msg = if isolated {
-        format!("销毁工作区「{label}」？会删除远端 worktree、分支与私有目录，不可撤销。")
+        format!(
+            "销毁工作区「{label}」？这份副本的目录和它的分支会一起删掉，没提交的改动也会丢失，不能撤销。"
+        )
     } else {
         format!("从 Blazar 移除「{label}」？只删记录，不会动机器上的目录。")
     };
@@ -346,9 +348,9 @@ pub fn Inspector(id: String, on_close: impl Fn() + Copy + Send + Sync + 'static)
                                             <PrefRow
                                                 label="工作目录"
                                                 detail=if paused {
-                                                    "已冻结：worktree 已删除，分支保留。"
+                                                    "已冻结：副本目录已删掉，改动都提交在分支上，随时可以恢复。"
                                                 } else {
-                                                    "冻结会先提交，再删除 worktree，保留分支。"
+                                                    "冻结会先把改动提交到分支上，再删掉副本目录，腾出磁盘；之后可以恢复。"
                                                 }
                                             >
                                                 <button

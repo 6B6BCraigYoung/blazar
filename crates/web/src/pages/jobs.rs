@@ -158,7 +158,7 @@ pub fn JobsPage() -> impl IntoView {
             let ok = dialog::ask(
                 "结束后台任务",
                 &format!(
-                    "结束「{}」？进程先收到 TERM，几秒内没退出再强制结束。",
+                    "结束「{}」？先请它自己退出，几秒内没退出就强制结束。",
                     s(&j, "label")
                 ),
                 vec![Choice::plain("取消"), Choice::danger("结束")],

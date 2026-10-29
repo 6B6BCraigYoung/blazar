@@ -279,7 +279,7 @@ pub fn Start() -> impl IntoView {
                                 }}
                             </span>
                             <div class="start-body">
-                                <b>"运行时"</b>
+                                <b>"Claude Code 或 Codex"</b>
                                 {body}
                             </div>
                         </li>
@@ -293,7 +293,7 @@ pub fn Start() -> impl IntoView {
                     <div class="start-body">
                         <b>"机器"</b>
                         <p class="start-note">
-                            "本机已就绪。组网里的其他机器以后再分类。"
+                            "本机已经可以用了。其他机器以后在「机器与组网」里添加。"
                         </p>
                     </div>
                 </li>

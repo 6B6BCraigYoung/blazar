@@ -383,7 +383,7 @@ fn Dialog() -> impl IntoView {
                     app.new_ws.set(false);
                     app.load_state();
                     if let Some(b) = v["branch"].as_str() {
-                        toast(format!("已在分支 {b} 上建好隔离工作区"));
+                        toast(format!("副本建好了，在分支 {b} 上"));
                     }
                     if let Some(id) = v["id"].as_str() {
                         navigate(&format!("/w/{id}"), Default::default());
@@ -692,11 +692,11 @@ fn Dialog() -> impl IntoView {
             <Show when=is_repo>
                 <label
                     class="chk block"
-                    title="启用后会从 origin 获取最新分支，并在独立目录创建工作区。"
+                    title="先取远端最新的分支，再在单独的目录里放一份副本。"
                 >
                     <input
                         type="checkbox"
-                        aria-label="独立分支"
+                        aria-label="在副本里改"
                         aria-describedby="new-ws-iso-desc"
                         prop:checked=move || iso.get()
                         on:change=move |_| {
@@ -707,18 +707,18 @@ fn Dialog() -> impl IntoView {
                         }
                     />
                     <span>
-                        <b>"独立分支"</b>
+                        <b>"在副本里改"</b>
                         <span class="muted small" id="new-ws-iso-desc">
-                            " 在独立目录中工作，保留当前工作区。"
+                            " 另放一份代码副本、开一个新分支，原目录不受影响。"
                         </span>
                     </span>
                 </label>
                 <Show when=move || iso.get()>
                     <div
                         class="field"
-                        title="按最近提交排序；读取时会从 origin 获取最新分支。"
+                        title="按最近提交排序，会先取远端最新的分支。"
                     >
-                        "起始分支"
+                        "从哪里开始"
                         <input
                             aria-label="筛选分支"
                             placeholder="筛选分支…"
@@ -748,8 +748,8 @@ fn Dialog() -> impl IntoView {
                                 data-sel=move || pick.get().is_empty().to_string()
                                 on:click=move |_| pick.set(String::new())
                             >
-                                <span class="nm">"从当前版本创建"</span>
-                                <span class="muted small">"使用下方名称命名分支"</span>
+                                <span class="nm">"从现在的代码开始"</span>
+                                <span class="muted small">"新分支用下面的名称"</span>
                             </button>
                             {move || match branches.get() {
                                 None => view! { <LoadingState text="读取分支…" /> }.into_any(),
@@ -791,7 +791,7 @@ fn Dialog() -> impl IntoView {
                                                         move |_| {
                                                             if cur {
                                                                 toast(
-                                                                    "主仓正 checkout 着这个分支，不能再挂到别的工作树上",
+                                                                    "原目录正在用这个分支，选别的分支，或者新开一个",
                                                                 )
                                                             } else {
                                                                 pick.set(n.clone())
@@ -806,7 +806,7 @@ fn Dialog() -> impl IntoView {
                                                             .then(|| view! { <span class="gchip">"仅远端"</span> })}
                                                         {cur
                                                             .then(|| {
-                                                                view! { <span class="gchip warn">"主仓在用"</span> }
+                                                                view! { <span class="gchip warn">"原目录在用"</span> }
                                                             })}
                                                     </span>
                                                     <span class="muted small">
@@ -879,7 +879,7 @@ fn Dialog() -> impl IntoView {
                         } else if is_child {
                             "添加子工作区"
                         } else if iso.get() {
-                            "创建独立工作区"
+                            "创建副本"
                         } else {
                             "创建工作区"
                         }
