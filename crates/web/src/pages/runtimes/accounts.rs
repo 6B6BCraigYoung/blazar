@@ -11,11 +11,11 @@ use crate::fmt;
 
 use super::{Form, WITH_ACCOUNTS, account_status, account_status_hint, login, patch};
 
-pub(super) fn provider_label(p: &str) -> &str {
+pub(crate) fn provider_label(p: &str) -> &str {
     WITH_ACCOUNTS.iter().find(|x| x.0 == p).map_or(p, |x| x.1)
 }
 
-pub(super) fn plan_label(p: &str) -> &str {
+pub(crate) fn plan_label(p: &str) -> &str {
     match p {
         "pro" => "Pro",
         "max" => "Max",

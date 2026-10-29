@@ -1166,7 +1166,7 @@ def theme(value):
 
 TITLES = {"/": "中控台", "/workspaces": "工作区", "/chats": "全部对话", "/tasks": "任务", "/autopilots": "任务",
           "/jobs": "任务", "/bots": "bot", "/agents": "智能体", "/agents/new": "新建智能体", "/skills": "技能",
-          "/apps": "接入的软件", "/runtimes": "账号与额度", "/nodes": "机器与组网", "/usage": "用量"}
+          "/apps": "接入的软件", "/runtimes": "账号与额度", "/nodes": "机器", "/usage": "用量"}
 
 
 def section_title(route):
@@ -1228,7 +1228,7 @@ ROUTES = [
     ("skills", "/skills", "技能库"),
     ("apps", "/apps", "接入的软件（办公 / 仿真）"),
     ("runtimes", "/runtimes", "账号与额度"),
-    ("nodes", "/nodes", "机器与组网（机器表和「添加机器」）"),
+    ("nodes", "/nodes", "机器（机器表：圆点绿 / 灰 / 橙，「状态」列，「邀请同事」和「添加机器」）"),
     ("usage", "/usage", "用量统计（近 30 天）"),
     ("settings", "/settings", "设置首页（外观分区）"),
 ]
@@ -1467,7 +1467,7 @@ def plan(round_name):
     items.append(("status-popover", "/", "侧栏「设置」旁状态圆点的弹层（连接、机器、提醒）",
                   ({"action": "click", "selector": "button.side-dot"}, {"action": "wait", "ms": 300}), False))
     team_btn = ".nodes-page .page-actions .nodes-team"
-    items.append(("nodes-team", "/nodes", "机器页页头「邀请同事 / 加入团队」打开的弹窗（这台电脑的团队连接、邀请同事、邀请记录）",
+    items.append(("nodes-team", "/nodes", "机器页页头「邀请同事」打开的弹窗（这台电脑的团队连接、邀请同事、邀请记录）",
                   ({"action": "wait", "selector": team_btn, "timeout_ms": 8000},
                    {"action": "click", "selector": team_btn},
                    {"action": "wait", "selector": "[data-modal-root]", "timeout_ms": 4000}), False))
@@ -1587,8 +1587,8 @@ def detail_pages():
     items.append(("runtime-claude-advanced", "/runtimes/claude", "账号与额度详情里「配置」组的「高级…」打开的高级配置面板",
                   ({"action": "wait", "selector": ".pref-group:last-child .pref-more-btn", "timeout_ms": 8000},
                    {"action": "click", "selector": ".pref-group:last-child .pref-more-btn"}, sheet), False))
-    confirm_btn = ".nodes-page .page-actions .nodes-confirm"
-    items.append(("nodes-confirm", "/nodes", "机器页页头「确认 N 台…」打开的批量确认面板（勾选机器、选可派活或个人电脑）",
+    confirm_btn = ".nodes-page .nodes-pending .nodes-pending-open"
+    items.append(("nodes-confirm", "/nodes", "机器表上方「有 N 台机器等你确认 · 查看」打开的批量确认面板（勾选机器、选可派活或个人电脑）",
                   ({"action": "wait", "selector": confirm_btn, "timeout_ms": 8000},
                    {"action": "click", "selector": confirm_btn}, sheet), False))
     items.append(("nodes-row-menu", "/nodes", "机器行的右键菜单（打开、新建工作区、设为可派活的机器或个人电脑）",

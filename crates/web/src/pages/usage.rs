@@ -6,6 +6,7 @@ use crate::components::icon;
 use crate::components::page_head::PageHead;
 use crate::components::rows::open_row;
 use crate::components::status::{EmptyState, InlineError, LoadingState};
+use crate::pages::runtimes::accounts;
 use crate::{api, storage, vocab};
 
 fn n(v: &Value, k: &str) -> f64 {
@@ -47,9 +48,18 @@ pub fn UsagePage() -> impl IntoView {
         storage::save_raw("blazar.an.days", "90");
         days.set(90);
     });
+    let summary = move || {
+        analytics.with(|a| match a {
+            Some(Ok(a)) if n(&a["totals"], "runs") > 0.0 => {
+                Some(summary_line(&a["totals"], days.get()))
+            }
+            _ => None,
+        })
+    };
     view! {
         <div class="page usage-page">
             <PageHead title="用量" nav=|| crate::components::section::agents("/usage") />
+            <QuotaBlock />
             <Show
                 when=move || !never()
                 fallback=|| {
@@ -88,6 +98,7 @@ pub fn UsagePage() -> impl IntoView {
                             })
                             .collect_view()}
                     </div>
+                    {move || summary().map(|line| view! { <p class="usage-summary">{line}</p> })}
                 </div>
                 {move || match analytics.get() {
                     None => view! { <LoadingState text="正在加载运行分析…" /> }.into_any(),
@@ -137,25 +148,16 @@ pub fn UsagePage() -> impl IntoView {
                                         .total_cmp(&n(&a["usage"], "cost_usd"))
                                 });
                             view! {
-                                <div class="usage-kpis">
-                                    {[
-                                        ("总费用", format!("${:.2}", n(t, "cost_usd"))),
-                                        ("调用次数", format!("{:.0}", n(t, "calls"))),
-                                        ("输入 token", format!("{:.0}", n(t, "input"))),
-                                        ("输出 token", format!("{:.0}", n(t, "output"))),
-                                        ("缓存读取", format!("{:.0}", n(t, "cache_read"))),
-                                    ]
-                                        .into_iter()
-                                        .map(|(label, value)| {
-                                            view! {
-                                                <div class="card usage-kpi">
-                                                    <span class="muted">{label}</span>
-                                                    <strong>{value}</strong>
-                                                </div>
-                                            }
-                                        })
-                                        .collect_view()}
-                                </div>
+                                <p class="usage-summary">
+                                    {format!(
+                                        "{:.0} 次调用 · ${:.2} · 输入 {:.0} · 输出 {:.0} · 缓存读取 {:.0} Token",
+                                        n(t, "calls"),
+                                        n(t, "cost_usd"),
+                                        n(t, "input"),
+                                        n(t, "output"),
+                                        n(t, "cache_read"),
+                                    )}
+                                </p>
                                 <UsageTable
                                     title="按 Claude Code / Codex"
                                     data=u["by_agent"].clone()
@@ -210,6 +212,76 @@ pub fn UsagePage() -> impl IntoView {
                 </details>
             </Show>
         </div>
+    }
+}
+
+/// 统计范围的一行灰字：「40 次 · 76% 成功 · 9 次失败 · $27.97 · 日均 1.3 次」。
+fn summary_line(t: &Value, days: u32) -> String {
+    let runs = n(t, "runs");
+    let failed = n(t, "failed");
+    let mut parts = vec![format!("{runs:.0} 次")];
+    if let Some(rate) = t["success_rate"].as_f64() {
+        parts.push(format!("{:.0}% 成功", rate * 100.0));
+    }
+    if failed > 0.0 {
+        parts.push(format!("{failed:.0} 次失败"));
+    }
+    parts.push(format!("${:.2}", n(t, "cost")));
+    parts.push(format!("日均 {:.1} 次", runs / f64::from(days.max(1))));
+    parts.join(" · ")
+}
+
+/// 页顶的各账号额度条，和「账号与额度」页同一个组件；没有账号查到过额度就不出这一块。
+#[component]
+fn QuotaBlock() -> impl IntoView {
+    let res = LocalResource::new(|| api::get::<api::Accounts>("/api/accounts"));
+    move || {
+        let mut list = res
+            .get()?
+            .ok()?
+            .accounts
+            .into_iter()
+            .filter(|a| !a.disabled && !a.windows.is_empty())
+            .collect::<Vec<_>>();
+        if list.is_empty() {
+            return None;
+        }
+        list.sort_by(|a, b| a.provider.cmp(&b.provider));
+        Some(view! {
+            <section class="card settings-card usage-quota">
+                <div class="usage-chart-head">
+                    <h3>"额度"</h3>
+                    <span class="grow"></span>
+                    <a class="muted small" href="/runtimes">
+                        "管理账号"
+                    </a>
+                </div>
+                {list
+                    .into_iter()
+                    .map(|a| {
+                        let provider = accounts::provider_label(&a.provider).to_owned();
+                        let meta = [
+                            (provider != a.label).then_some(provider),
+                            a.plan.as_deref().map(|p| accounts::plan_label(p).to_owned()),
+                        ]
+                            .into_iter()
+                            .flatten()
+                            .collect::<Vec<_>>()
+                            .join(" · ");
+                        view! {
+                            <div class="usage-quota-row">
+                                <span class="name">
+                                    {a.label.clone()}
+                                    {(!meta.is_empty())
+                                        .then(|| view! { <span class="muted small">{meta}</span> })}
+                                </span>
+                                {accounts::quota(&a)}
+                            </div>
+                        }
+                    })
+                    .collect_view()}
+            </section>
+        })
     }
 }
 
@@ -346,8 +418,14 @@ fn Analytics(data: Value, days: u32, widen: Callback<()>) -> impl IntoView {
         by_day.with_value(|all| {
             all.get(shown())
                 .map(|d| {
+                    let failed = n(d, "failed");
+                    let failed = if failed > 0.0 {
+                        format!(" · {failed:.0} 次失败")
+                    } else {
+                        String::new()
+                    };
                     format!(
-                        "{} · {:.0} 次 · ${:.2}",
+                        "{} · {:.0} 次{failed} · ${:.2}",
                         s(d, "day"),
                         n(d, "runs"),
                         n(d, "cost")
@@ -406,31 +484,6 @@ fn Analytics(data: Value, days: u32, widen: Callback<()>) -> impl IntoView {
     );
     let has_reasons = !reasons.is_empty();
     view! {
-        <div class="usage-kpis">
-            {[
-                ("运行次数", format!("{:.0}", n(t, "runs"))),
-                (
-                    "成功率",
-                    t["success_rate"]
-                        .as_f64()
-                        .map(|v| format!("{:.0}%", v * 100.0))
-                        .unwrap_or_else(|| "—".into()),
-                ),
-                ("失败", format!("{:.0}", n(t, "failed"))),
-                ("费用", format!("${:.2}", n(t, "cost"))),
-                ("日均", format!("{:.1} 次", n(t, "runs") / days as f64)),
-            ]
-                .into_iter()
-                .map(|(label, value)| {
-                    view! {
-                        <div class="card usage-kpi">
-                            <span class="muted">{label}</span>
-                            <strong>{value}</strong>
-                        </div>
-                    }
-                })
-                .collect_view()}
-        </div>
         <section class="card settings-card usage-trend">
             <div class="usage-chart-head">
                 <h3>"运行趋势"</h3>
@@ -439,7 +492,6 @@ fn Analytics(data: Value, days: u32, widen: Callback<()>) -> impl IntoView {
                     {readout}
                 </div>
             </div>
-            <p class="muted">"柱形是运行次数，红色是失败，折线是费用。"</p>
             <div
                 class="usage-chart"
                 role="group"
@@ -475,15 +527,9 @@ fn Analytics(data: Value, days: u32, widen: Callback<()>) -> impl IntoView {
                                     <div class="usage-stack">
                                         <i
                                             class="run"
-                                            style:height=format!(
-                                                "{}%",
-                                                (runs - failed).max(0.0) / max_runs * 100.0,
-                                            )
+                                            style:height=format!("{}%", runs / max_runs * 100.0)
                                         ></i>
-                                        <i
-                                            class="bad"
-                                            style:height=format!("{}%", failed / max_runs * 100.0)
-                                        ></i>
+                                        {(failed > 0.0).then(|| view! { <i class="bad"></i> })}
                                     </div>
                                 </div>
                             }
@@ -491,8 +537,23 @@ fn Analytics(data: Value, days: u32, widen: Callback<()>) -> impl IntoView {
                         .collect_view()} <div class="usage-line" inner_html=line_svg></div>
                 </div>
             </div>
-            <div class="settings-actions muted">
+            <div class="settings-actions muted usage-axis">
                 <span>{first}</span>
+                <span class="grow"></span>
+                <span class="usage-legend" aria-hidden="true">
+                    <span>
+                        <i class="run"></i>
+                        "运行"
+                    </span>
+                    <span>
+                        <i class="bad"></i>
+                        "失败"
+                    </span>
+                    <span>
+                        <i class="cost"></i>
+                        "费用"
+                    </span>
+                </span>
                 <span class="grow"></span>
                 <span>{last}</span>
             </div>
