@@ -8,6 +8,9 @@ mod api;
 mod app;
 #[cfg(target_arch = "wasm32")]
 mod app_state;
+#[cfg(any(target_arch = "wasm32", test))]
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+mod bot_words;
 #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code, unused_imports))]
 mod chat_model;
 #[cfg(target_arch = "wasm32")]

@@ -113,25 +113,37 @@
 .autopilots-page .work-hook { margin: var(--space-lg) 0; }
 .autopilots-dialog .autopilot-fields { border: 0; padding: 0; margin: 0; min-width: 0; }
 
-.bots-summary { margin: calc(-1 * var(--space-md)) 0 var(--space-section); font-size: var(--font-size-label); }
-.bot-card { display: flex; flex-direction: column; gap: var(--space-sm); padding: var(--space-lg) var(--space-xl); }
+.bots-summary { margin: calc(-1 * var(--space-md)) 0 var(--space-xl); font-size: var(--font-size-label); }
+.bot-card { display: flex; align-items: center; gap: var(--space-lg); min-height: 48px; padding: var(--space-md) var(--space-xl); }
 .bot-card:hover { background: var(--bg-hover); }
-.bot-head { display: flex; align-items: center; gap: var(--space-sm); flex-wrap: wrap; min-width: 0; }
-.bot-head a { color: inherit; text-decoration: none; }
+.bot-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+.bot-head { display: flex; align-items: center; gap: var(--space-md); min-width: 0; }
+.bot-head a { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: inherit; text-decoration: none; }
+.bot-head strong { font-weight: var(--font-weight-medium); }
+.bot-card .bot-line { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bot-line { font-size: var(--font-size-label); overflow-wrap: anywhere; }
-.bot-card .row-actions, .bot-page .row-actions { display: flex; align-items: center; gap: var(--space-sm); flex-wrap: wrap; }
-.bot-page .card.pad { margin-bottom: var(--space-section); }
-.bot-page .card.pad > h3 { margin: 0 0 var(--space-md); font-size: var(--font-size-body); }
-.bot-approval { display: flex; flex-direction: column; gap: var(--space-md); }
-.bot-approval > h3 { margin: 0; }
+.bot-acts { flex: 0 0 auto; display: flex; align-items: center; gap: var(--space-xs); opacity: 0; transition: opacity var(--duration-control) ease; }
+.bot-card:is(:hover, :focus-within, [data-sel="true"], [data-menu="true"]) .bot-acts { opacity: 1; }
+@media (hover: none) { .bot-acts { opacity: 1; } }
+.bot-page .row-actions { display: flex; align-items: center; gap: var(--space-md); flex-wrap: wrap; }
+.bot-page .card.pad { display: flex; flex-direction: column; gap: var(--space-md); padding: var(--space-xl); margin-bottom: var(--space-xl); }
+.bot-page .card.pad > h3 { margin: 0; font-size: var(--font-size-body); }
+.bot-page .work-kv { gap: var(--space-md) var(--space-lg); margin: 0; }
+.bot-page .work-inbox-row { gap: var(--space-lg); padding: var(--space-lg) 0; }
+.bot-page .work-inbox-main { gap: var(--space-xs); }
+.bot-sub { margin: var(--space-md) 0 0; font-size: var(--font-size-label); font-weight: var(--font-weight-medium); color: var(--fg-2); }
+.bot-page .bot-more { margin-top: 0; }
+.bot-page .bot-more > summary { margin-bottom: 0; }
+.bot-more[open] { display: flex; flex-direction: column; gap: var(--space-md); }
+.bot-approval { display: flex; flex-direction: column; gap: var(--space-md); padding-bottom: var(--space-md); border-bottom: 1px solid var(--line); }
 .bot-approval-cmd { display: flex; align-items: baseline; gap: var(--space-md); min-width: 0; }
 .bot-approval-tool { flex: 0 0 auto; color: var(--fg-3); font-size: var(--font-size-label); }
 .bot-approval-cmd code { min-width: 0; overflow-wrap: anywhere; font: var(--font-size-label-readable) var(--font-mono); color: var(--fg); }
 .bot-mail-body { white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--font-size-body); }
-.bot-steps, .bot-claims { list-style: none; margin: var(--space-md) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-sm); font-size: var(--font-size-label); }
+.bot-steps, .bot-claims { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-md); font-size: var(--font-size-label); }
 .bot-steps li { overflow-wrap: anywhere; color: var(--fg-2); }
-.bot-claims li { display: flex; align-items: center; gap: var(--space-sm); flex-wrap: wrap; min-height: 24px; }
-.bot-claim-form { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: var(--space-sm); margin-top: var(--space-md); align-items: center; }
+.bot-claims li { display: flex; align-items: center; gap: var(--space-md); flex-wrap: wrap; min-height: 24px; }
+.bot-claim-form { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: var(--space-md); align-items: center; }
 .bot-claim-form > input { grid-column: 1 / -1; }
 .bot-claims:empty { display: none; }
 .bot-claim-form .input { height: 28px; }

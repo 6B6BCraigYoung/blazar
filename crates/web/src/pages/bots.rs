@@ -10,7 +10,7 @@ use crate::components::status::{InlineError, LoadingState, StateOf};
 use crate::components::toast::{toast, toast_error};
 use crate::components::undo::{self, Request};
 use crate::realtime::use_bus;
-use crate::{api, app_state::use_app, fmt};
+use crate::{api, app_state::use_app, bot_words as words, fmt};
 use blazar_core_types::api::{ServerEvent, valid_bot_handle as valid_handle};
 use leptos::ev;
 use leptos::prelude::*;
@@ -43,15 +43,6 @@ fn role_label(role: &str) -> &'static str {
 
 fn pill(state: &str) -> AnyView {
     view! { <StateOf state=state.to_owned() /> }.into_any()
-}
-
-fn lifetime_chip(b: &Value) -> Option<AnyView> {
-    if b["temporary"].as_bool() != Some(true) {
-        return None;
-    }
-    let hours = b["idle_ttl_secs"].as_i64().unwrap_or(86_400) / 3600;
-    let title = format!("临时 bot：闲置 {hours} 小时后自动归档");
-    Some(view! { <span title=title>"临时"</span> }.into_any())
 }
 
 fn mail_status(s: &str) -> &'static str {
@@ -252,13 +243,32 @@ pub fn BotsPage() -> impl IntoView {
                         let online = nodes.iter().filter(|n| n.status == "online").count();
                         let alerts = arr(&f, "alerts");
                         let facts = arr(&f, "unhealthy_facts");
+                        let late = (!facts.is_empty())
+                            .then(|| {
+                                let title = facts
+                                    .iter()
+                                    .map(|x| {
+                                        let owner = s(x, "owner");
+                                        if owner.is_empty() {
+                                            s(x, "key")
+                                        } else {
+                                            format!("{owner}：{}", s(x, "key"))
+                                        }
+                                    })
+                                    .collect::<Vec<_>>()
+                                    .join("\n");
+                                view! {
+                                    <span title=format!(
+                                        "这些 bot 该定时报一次状态，已经过了时间还没报：\n{title}",
+                                    )>{format!(" · {} 项检查没跟上", facts.len())}</span>
+                                }
+                            });
                         view! {
                             <div class="bots-summary muted">
                                 {format!("{online}/{} 台机器在线", nodes.len())}
                                 {(!alerts.is_empty())
                                     .then(|| format!(" · {} 条待处理通知", alerts.len()))}
-                                {(!facts.is_empty())
-                                    .then(|| format!(" · {} 条事实异常", facts.len()))}
+                                {late}
                             </div>
                         }
                     })
@@ -316,9 +326,14 @@ pub fn BotsPage() -> impl IntoView {
                                     let paused = b["paused"].as_bool() == Some(true);
                                     let is_archived = b["archived"].as_bool() == Some(true);
                                     let temporary = b["temporary"].as_bool() == Some(true);
-                                    let pending = b["pending_mail"].as_u64().unwrap_or(0);
-                                    let last = s(&b, "last_instruction");
-                                    let claims = arr(&b, "claims");
+                                    let (label, tone) = crate::vocab::state(&state);
+                                    let mut line = words::now(&b, fmt::ago);
+                                    if let Some(c) = words::claims(&arr(&b, "claims")) {
+                                        line = format!("{line} · {c}");
+                                    }
+                                    let line_title = words::claims_title(&b)
+                                        .map_or_else(|| line.clone(), |c| format!("{line}\n{c}"));
+                                    let name = s(&b, "display_name");
                                     let (id_toggle, id_promote, id_restore) = (
                                         id.clone(),
                                         id.clone(),
@@ -334,66 +349,38 @@ pub fn BotsPage() -> impl IntoView {
                                             on:focusin=move |_| rows.sel.set(Some(i))
                                             on:contextmenu=move |e| rows.open_menu(&e, i)
                                         >
-                                            <div class="bot-head">
-                                                <a class="cell-link" href=href.clone()>
-                                                    <strong>{s(&b, "display_name")}</strong>
-                                                </a>
-                                                <span class="mono muted">{s(&b, "handle")}</span>
-                                                <span class="gchip">{role_label(&s(&b, "role"))}</span>
-                                                <span class="gchip">{s(&b, "priority")}</span>
-                                                {lifetime_chip(&b)}
-                                                <span class="grow"></span>
-                                                {pill(&state)}
+                                            <span
+                                                class="dot"
+                                                data-tone=tone.key()
+                                                role="img"
+                                                aria-label=label
+                                                title=label
+                                            ></span>
+                                            <div class="bot-main">
+                                                <div class="bot-head">
+                                                    <a
+                                                        class="cell-link"
+                                                        href=href
+                                                        title=format!("{name} · 标识 {}", s(&b, "handle"))
+                                                    >
+                                                        <strong>{name.clone()}</strong>
+                                                    </a>
+                                                    {words::badges(&b)
+                                                        .into_iter()
+                                                        .map(|(text, title)| {
+                                                            view! {
+                                                                <span class="gchip" title=title>
+                                                                    {text}
+                                                                </span>
+                                                            }
+                                                        })
+                                                        .collect_view()}
+                                                </div>
+                                                <div class="bot-line muted" title=line_title>
+                                                    {line}
+                                                </div>
                                             </div>
-                                            <div class="bot-line muted">
-                                                {if is_archived {
-                                                    format!(
-                                                        "归档于 {}",
-                                                        b["archived_at"].as_str().map(fmt::ago).unwrap_or_default(),
-                                                    )
-                                                } else if state == "awaiting" {
-                                                    "有工具调用等你批准".into()
-                                                } else if pending > 0 {
-                                                    format!("{pending} 封邮件待处理")
-                                                } else {
-                                                    "没有待处理邮件".into()
-                                                }}
-                                                {b["hot"]
-                                                    .as_bool()
-                                                    .filter(|h| *h)
-                                                    .map(|_| " · 保持在线")}
-                                                {b["last_active_at"]
-                                                    .as_str()
-                                                    .map(|t| format!(" · 最近活动 {}", fmt::ago(t)))}
-                                            </div>
-                                            {(!last.is_empty())
-                                                .then(|| {
-                                                    view! {
-                                                        <div class="bot-line">
-                                                            <span class="muted">"最后指令 "</span>
-                                                            {last}
-                                                        </div>
-                                                    }
-                                                })}
-                                            {(!claims.is_empty())
-                                                .then(|| {
-                                                    view! {
-                                                        <div class="bot-line muted">
-                                                            "认领 "
-                                                            {claims
-                                                                .iter()
-                                                                .map(|c| {
-                                                                    format!("{} {}", fmt::machine(&s(c, "node")), s(c, "scope"))
-                                                                })
-                                                                .collect::<Vec<_>>()
-                                                                .join("，")}
-                                                        </div>
-                                                    }
-                                                })}
-                                            <div class="row-actions">
-                                                <a class="btn small" href=href>
-                                                    "打开"
-                                                </a>
+                                            <div class="bot-acts">
                                                 {if is_archived {
                                                     view! {
                                                         <button
@@ -819,7 +806,7 @@ pub fn BotPage() -> impl IntoView {
             "POST",
             "/api/claims".into(),
             json!({ "bot": id.get_untracked(), "scope": scope, "node": claim_node.get_untracked(), "mode": claim_mode.get_untracked() }),
-            "已认领",
+            "已占用",
         );
     };
     let release = move |cid: String, what: String| {
@@ -968,82 +955,127 @@ pub fn BotPage() -> impl IntoView {
                                     .into_any()
                             }}
                         </PageHead>
-                        <div class="page-meta muted">
-                            <span class="mono">{s(&b, "handle")}</span>
-                            <span>{role_label(&s(&b, "role"))}</span>
-                            <span>{s(&b, "priority")}</span>
-                            {lifetime_chip(&b)}
-                        </div>
-                        {temporary
-                            .then(|| {
-                                view! {
-                                    <div class="muted bot-line">
-                                        {format!(
-                                            "临时 bot：闲置 {idle_hours} 小时没有邮件、没有对话就自动归档。",
-                                        )}
-                                    </div>
-                                }
-                            })}
+                        {
+                            let chips = words::badges(&b);
+                            (!chips.is_empty())
+                                .then(|| {
+                                    view! {
+                                        <div class="page-meta">
+                                            {chips
+                                                .into_iter()
+                                                .map(|(text, title)| {
+                                                    view! {
+                                                        <span class="gchip" title=title>
+                                                            {text}
+                                                        </span>
+                                                    }
+                                                })
+                                                .collect_view()}
+                                        </div>
+                                    }
+                                })
+                        }
                         {(!s(&b, "status_note").is_empty())
                             .then(|| {
                                 view! { <div class="muted bot-line">{s(&b, "status_note")}</div> }
                             })}
-                        {move || {
-                            waiting
-                                .get()
-                                .map(|a| {
-                                    let root = app
-                                        .workspace(&run_ws_id.get())
-                                        .map(|w| w.path)
-                                        .unwrap_or_default();
-                                    let (tool, what) = approval_summary(&a["request"], &root);
-                                    let id = s(&a, "id");
-                                    let (a1, a2, a3) = (a.clone(), a.clone(), a);
-                                    let (i1, i2, i3) = (id.clone(), id.clone(), id);
-                                    view! {
-                                        <section class="card pad bot-approval" data-ui-guard="">
-                                            <h3>"等你批准"</h3>
-                                            <div class="bot-approval-cmd">
-                                                <span class="bot-approval-tool">{tool}</span>
-                                                <code>{what}</code>
-                                            </div>
-                                            <div class="row-actions">
-                                                <button
-                                                    type="button"
-                                                    class="btn small"
-                                                    disabled=move || gate.with(|g| g.busy(&i1))
-                                                    on:click=move |_| pick("1", &a1)
-                                                >
-                                                    "允许"
-                                                    <kbd>{approval_key_hint(0)}</kbd>
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    class="btn small"
-                                                    disabled=move || gate.with(|g| g.busy(&i2))
-                                                    on:click=move |_| pick("2", &a2)
-                                                >
-                                                    "总是允许"
-                                                    <kbd>{approval_key_hint(1)}</kbd>
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    class="btn small"
-                                                    disabled=move || gate.with(|g| g.busy(&i3))
-                                                    on:click=move |_| pick("3", &a3)
-                                                >
-                                                    "拒绝"
-                                                    <kbd>{approval_key_hint(2)}</kbd>
-                                                </button>
-                                            </div>
-                                        </section>
-                                    }
-                                })
-                        }}
                         <div class="work-layout">
                             <div class="work-main">
+                                <section class="card pad bot-now">
+                                    <h3>"现在在做什么"</h3>
+                                    {move || {
+                                        waiting
+                                            .get()
+                                            .map(|a| {
+                                                let root = app
+                                                    .workspace(&run_ws_id.get())
+                                                    .map(|w| w.path)
+                                                    .unwrap_or_default();
+                                                let (tool, what) = approval_summary(&a["request"], &root);
+                                                let id = s(&a, "id");
+                                                let (a1, a2, a3) = (a.clone(), a.clone(), a);
+                                                let (i1, i2, i3) = (id.clone(), id.clone(), id);
+                                                view! {
+                                                    <div class="bot-approval" data-ui-guard="">
+                                                        <strong>"等你批准"</strong>
+                                                        <div class="bot-approval-cmd">
+                                                            <span class="bot-approval-tool">{tool}</span>
+                                                            <code>{what}</code>
+                                                        </div>
+                                                        <div class="row-actions">
+                                                            <button
+                                                                type="button"
+                                                                class="btn small"
+                                                                disabled=move || gate.with(|g| g.busy(&i1))
+                                                                on:click=move |_| pick("1", &a1)
+                                                            >
+                                                                "允许"
+                                                                <kbd>{approval_key_hint(0)}</kbd>
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                class="btn small"
+                                                                disabled=move || gate.with(|g| g.busy(&i2))
+                                                                on:click=move |_| pick("2", &a2)
+                                                            >
+                                                                "总是允许"
+                                                                <kbd>{approval_key_hint(1)}</kbd>
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                class="btn small"
+                                                                disabled=move || gate.with(|g| g.busy(&i3))
+                                                                on:click=move |_| pick("3", &a3)
+                                                            >
+                                                                "拒绝"
+                                                                <kbd>{approval_key_hint(2)}</kbd>
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                }
+                                            })
+                                    }}
+                                    <div class="bot-line">{words::now(&b, fmt::ago)}</div>
+                                    <div class="bot-line muted">
+                                        {format!(
+                                            "{} 封邮件待处理 · 最近活动 {}",
+                                            b["pending_mail"].as_u64().unwrap_or(0),
+                                            b["last_active_at"]
+                                                .as_str()
+                                                .map_or_else(|| "—".to_owned(), fmt::ago),
+                                        )}
+                                    </div>
+                                    {
+                                        let last = s(&b, "last_instruction");
+                                        (!last.is_empty() && s(&b, "state") != "running")
+                                            .then(|| {
+                                                view! {
+                                                    <div class="bot-line">
+                                                        <span class="muted">"最后指令 "</span>
+                                                        {last}
+                                                    </div>
+                                                }
+                                            })
+                                    }
+                                    {
+                                        let steps = arr(&b, "recent");
+                                        (!steps.is_empty())
+                                            .then(|| {
+                                                view! {
+                                                    <ul class="bot-steps">
+                                                        {steps
+                                                            .into_iter()
+                                                            .map(|x| {
+                                                                view! { <li>{x.as_str().unwrap_or("").to_owned()}</li> }
+                                                            })
+                                                            .collect_view()}
+                                                    </ul>
+                                                }
+                                            })
+                                    }
+                                </section>
                                 <section class="card pad">
-                                    <h3>"派活 / 发邮件"</h3>
+                                    <h3>"派活与邮件"</h3>
                                     <label class="work-field">
                                         <span>"主题（可省）"</span>
                                         <input
@@ -1084,9 +1116,7 @@ pub fn BotPage() -> impl IntoView {
                                             "发送"
                                         </button>
                                     </div>
-                                </section>
-                                <section class="card pad">
-                                    <h3>"收件箱"</h3>
+                                    <h4 class="bot-sub">"收到的"</h4>
                                     {
                                         let mail = arr(&b, "mailbox");
                                         if mail.is_empty() {
@@ -1145,118 +1175,149 @@ pub fn BotPage() -> impl IntoView {
                                                 .into_any()
                                         }
                                     }
+                                    {
+                                        let sent = arr(&b, "sent");
+                                        (!sent.is_empty())
+                                            .then(|| {
+                                                view! {
+                                                    <details class="work-more bot-more">
+                                                        <summary>
+                                                            {format!("它发出的 {} 封", sent.len())}
+                                                        </summary>
+                                                        <div class="work-inbox">
+                                                            {sent
+                                                                .into_iter()
+                                                                .map(|m| {
+                                                                    let to = s(&m, "to_bot");
+                                                                    let name = bots
+                                                                        .iter()
+                                                                        .find(|x| s(x, "id") == to)
+                                                                        .map_or_else(
+                                                                            || "bot".to_owned(),
+                                                                            |x| format!("bot:{}", s(x, "handle")),
+                                                                        );
+                                                                    view! {
+                                                                        <article class="work-inbox-row">
+                                                                            <div class="work-inbox-main">
+                                                                                <strong>
+                                                                                    {format!(
+                                                                                        "→ {name}{}",
+                                                                                        if s(&m, "subject").is_empty() {
+                                                                                            String::new()
+                                                                                        } else {
+                                                                                            format!(" · {}", s(&m, "subject"))
+                                                                                        },
+                                                                                    )}
+                                                                                </strong>
+                                                                                <span class="bot-mail-body">{s(&m, "body")}</span>
+                                                                                <small class="muted">
+                                                                                    {format!(
+                                                                                        "{} · {}",
+                                                                                        mail_status(&s(&m, "status")),
+                                                                                        fmt::ago(&s(&m, "created_at")),
+                                                                                    )}
+                                                                                </small>
+                                                                            </div>
+                                                                        </article>
+                                                                    }
+                                                                })
+                                                                .collect_view()}
+                                                        </div>
+                                                    </details>
+                                                }
+                                            })
+                                    }
                                 </section>
-                                {
-                                    let sent = arr(&b, "sent");
-                                    (!sent.is_empty())
-                                        .then(|| {
-                                            view! {
-                                                <section class="card pad">
-                                                    <h3>"它发出的邮件"</h3>
-                                                    <div class="work-inbox">
-                                                        {sent
-                                                            .into_iter()
-                                                            .map(|m| {
-                                                                let to = s(&m, "to_bot");
-                                                                let name = bots
-                                                                    .iter()
-                                                                    .find(|x| s(x, "id") == to)
-                                                                    .map_or_else(
-                                                                        || "bot".to_owned(),
-                                                                        |x| format!("bot:{}", s(x, "handle")),
-                                                                    );
-                                                                view! {
-                                                                    <article class="work-inbox-row">
-                                                                        <div class="work-inbox-main">
-                                                                            <strong>
-                                                                                {format!(
-                                                                                    "→ {name}{}",
-                                                                                    if s(&m, "subject").is_empty() {
-                                                                                        String::new()
-                                                                                    } else {
-                                                                                        format!(" · {}", s(&m, "subject"))
-                                                                                    },
-                                                                                )}
-                                                                            </strong>
-                                                                            <span class="bot-mail-body">{s(&m, "body")}</span>
-                                                                            <small class="muted">
-                                                                                {format!(
-                                                                                    "{} · {}",
-                                                                                    mail_status(&s(&m, "status")),
-                                                                                    fmt::ago(&s(&m, "created_at")),
-                                                                                )}
-                                                                            </small>
-                                                                        </div>
-                                                                    </article>
-                                                                }
-                                                            })
-                                                            .collect_view()}
-                                                    </div>
-                                                </section>
-                                            }
-                                        })
-                                }
                             </div>
                             <aside class="work-detail">
                                 <div class="work-flow">
                                     <section class="card pad">
-                                        <h3>"现状"</h3>
-                                        <div class="work-kv">
-                                            <span class="muted">"思考位置"</span>
-                                            <span>
-                                                {if s(&b, "brain") == "node" {
-                                                    "工作机器"
-                                                } else {
-                                                    "本机"
-                                                }}
-                                            </span>
-                                            <span class="muted">"机器"</span>
-                                            <span>
-                                                {format!(
-                                                    "{}{}",
-                                                    fmt::machine(&s(&b, "node")),
-                                                    b["node_status"]
-                                                        .as_str()
-                                                        .map(|st| format!(" · {}", crate::vocab::state(st).0))
-                                                        .unwrap_or_default(),
-                                                )}
-                                            </span>
-                                            <span class="muted">"家工作区"</span>
-                                            <span>
-                                                <a class="cell-link" href=format!("/w/{}", api::enc(&home))>
-                                                    "打开"
-                                                </a>
-                                            </span>
-                                            <span class="muted">"待处理"</span>
-                                            <span>
-                                                {format!("{} 封", b["pending_mail"].as_u64().unwrap_or(0))}
-                                            </span>
-                                            <span class="muted">"最近活动"</span>
-                                            <span>
-                                                {b["last_active_at"]
-                                                    .as_str()
-                                                    .map_or_else(|| "—".to_owned(), fmt::ago)}
-                                            </span>
-                                        </div>
-                                        {(!s(&b, "last_instruction").is_empty())
+                                        <h3>"对话与记忆"</h3>
+                                        {arr(&b, "all_threads")
+                                            .is_empty()
                                             .then(|| {
                                                 view! {
-                                                    <div class="bot-line">
-                                                        <span class="muted">"最后指令 "</span>
-                                                        {s(&b, "last_instruction")}
-                                                    </div>
+                                                    <Blank
+                                                        icon=icon::CHAT
+                                                        title=empty::never("对话")
+                                                        detail="收到邮件后，它会为每件事开一段对话，下次接着往下做。"
+                                                        inset=true
+                                                    />
                                                 }
                                             })}
+                                        <ul class="bot-claims">
+                                            {arr(&b, "all_threads")
+                                                .into_iter()
+                                                .map(|t| {
+                                                    let tid = s(&t, "id");
+                                                    let closed = !s(&t, "closed_at").is_empty();
+                                                    let b7 = b4.clone();
+                                                    let kind = match s(&t, "kind").as_str() {
+                                                        "main" => "主线".to_owned(),
+                                                        "task" => "任务".to_owned(),
+                                                        other => other.to_owned(),
+                                                    };
+                                                    view! {
+                                                        <li>
+                                                            <span>
+                                                                {if s(&t, "title").is_empty() {
+                                                                    kind
+                                                                } else {
+                                                                    format!("{kind} · {}", s(&t, "title"))
+                                                                }}
+                                                            </span>
+                                                            {t["thread_id"]
+                                                                .as_str()
+                                                                .map(|_| {
+                                                                    view! { <span class="muted">"接着上次"</span> }
+                                                                })}
+                                                            {closed
+                                                                .then(|| view! { <span class="muted">"已结束"</span> })}
+                                                            <span class="grow"></span>
+                                                            {(!closed)
+                                                                .then(|| {
+                                                                    view! {
+                                                                        <button
+                                                                            type="button"
+                                                                            class="btn small ghost"
+                                                                            title="下一封邮件开一段新对话"
+                                                                            disabled=move || busy.get()
+                                                                            on:click=move |_| call(
+                                                                                "POST",
+                                                                                format!(
+                                                                                    "/api/bots/{}/threads/{}/close",
+                                                                                    api::enc(&b7),
+                                                                                    api::enc(&tid),
+                                                                                ),
+                                                                                json!({}),
+                                                                                "这段对话已结束，下一封邮件开新对话",
+                                                                            )
+                                                                        >
+                                                                            "结束"
+                                                                        </button>
+                                                                    }
+                                                                })}
+                                                        </li>
+                                                    }
+                                                })
+                                                .collect_view()}
+                                        </ul>
                                         {
-                                            let steps = arr(&b, "recent");
-                                            (!steps.is_empty())
+                                            let mem = arr(&b, "memories");
+                                            (!mem.is_empty())
                                                 .then(|| {
                                                     view! {
-                                                        <ul class="bot-steps">
-                                                            {steps
+                                                        <h4 class="bot-sub">"记忆"</h4>
+                                                        <ul class="bot-claims">
+                                                            {mem
                                                                 .into_iter()
-                                                                .map(|x| {
-                                                                    view! { <li>{x.as_str().unwrap_or("").to_owned()}</li> }
+                                                                .map(|m| {
+                                                                    view! {
+                                                                        <li>
+                                                                            <span>{s(&m, "name")}</span>
+                                                                            <span class="muted">{s(&m, "description")}</span>
+                                                                        </li>
+                                                                    }
                                                                 })
                                                                 .collect_view()}
                                                         </ul>
@@ -1265,17 +1326,14 @@ pub fn BotPage() -> impl IntoView {
                                         }
                                     </section>
                                     <section class="card pad">
-                                        <h3>"认领的资源"</h3>
+                                        <h3>"资源与设置"</h3>
                                         {
                                             let claims = arr(&b, "claims");
                                             if claims.is_empty() {
                                                 view! {
-                                                    <Blank
-                                                        icon=icon::LOCK
-                                                        title=empty::never("认领的资源")
-                                                        detail="认领 GPU、目录或仓库，别的 bot 就不会撞上。"
-                                                        inset=true
-                                                    />
+                                                    <p class="muted bot-line">
+                                                        "没有占用资源。占用 GPU、目录或仓库后，别的 bot 就不会撞上。"
+                                                    </p>
                                                 }
                                                     .into_any()
                                             } else {
@@ -1286,30 +1344,19 @@ pub fn BotPage() -> impl IntoView {
                                                             .map(|c| {
                                                                 let cid = s(&c, "id");
                                                                 let rid = cid.clone();
-                                                                let what = format!(
-                                                                    "{} {}",
-                                                                    fmt::machine(&s(&c, "node")),
-                                                                    s(&c, "scope"),
-                                                                );
+                                                                let what = words::claim(&c);
+                                                                let detail = words::claim_detail(&c);
                                                                 view! {
-                                                                    <li style=move || {
-                                                                        if undo::shows(&rid) { "" } else { "display: none" }
-                                                                    }>
-                                                                        <span class="mono">
-                                                                            {format!(
-                                                                                "{} {}",
-                                                                                fmt::machine(&s(&c, "node")),
-                                                                                s(&c, "scope"),
-                                                                            )}
-                                                                        </span>
-                                                                        <span class="gchip">
+                                                                    <li
+                                                                        title=detail
+                                                                        style=move || {
+                                                                            if undo::shows(&rid) { "" } else { "display: none" }
+                                                                        }
+                                                                    >
+                                                                        <span>{what.clone()}</span>
+                                                                        <span class="muted">
                                                                             {crate::vocab::term(&s(&c, "mode")).to_owned()}
                                                                         </span>
-                                                                        {c["hands"]
-                                                                            .as_str()
-                                                                            .map(|h| {
-                                                                                view! { <span class="muted mono">{h.to_owned()}</span> }
-                                                                            })}
                                                                         <span class="grow"></span>
                                                                         <button
                                                                             type="button"
@@ -1328,151 +1375,106 @@ pub fn BotPage() -> impl IntoView {
                                                     .into_any()
                                             }
                                         }
-                                        <div class="bot-claim-form">
-                                            <input
-                                                class="input mono"
-                                                placeholder="gpu:0,1 · dir:/data · repo"
-                                                prop:value=move || claim_scope.get()
-                                                on:input=move |e| claim_scope.set(event_target_value(&e))
-                                                on:keydown=move |e| {
-                                                    if e.key() == "Enter" {
-                                                        add_claim()
-                                                    }
-                                                }
-                                            />
-                                            <select
-                                                class="input"
-                                                on:change=move |e| claim_node.set(event_target_value(&e))
-                                            >
-                                                <option value="local" selected=true>
-                                                    "本机"
-                                                </option>
-                                                {nodes
-                                                    .into_iter()
-                                                    .filter(|n| n.name != "local")
-                                                    .map(|n| {
-                                                        view! {
-                                                            <option value=n
-                                                                .name
-                                                                .clone()>{fmt::machine(&n.name)}</option>
-                                                        }
-                                                    })
-                                                    .collect_view()}
-                                            </select>
-                                            <select
-                                                class="input"
-                                                on:change=move |e| claim_mode.set(event_target_value(&e))
-                                            >
-                                                <option value="exclusive" selected=true>
-                                                    "独占"
-                                                </option>
-                                                <option value="shared">"共享"</option>
-                                                <option value="read">"只读"</option>
-                                            </select>
-                                            <button
-                                                type="button"
-                                                class="btn small"
-                                                disabled=move || busy.get()
-                                                on:click=move |_| add_claim()
-                                            >
-                                                "认领"
-                                            </button>
+                                        <div class="work-kv">
+                                            <span class="muted">"机器"</span>
+                                            <span>
+                                                {format!(
+                                                    "{}{}",
+                                                    fmt::machine(&s(&b, "node")),
+                                                    b["node_status"]
+                                                        .as_str()
+                                                        .map(|st| format!(" · {}", crate::vocab::state(st).0))
+                                                        .unwrap_or_default(),
+                                                )}
+                                            </span>
+                                            <span class="muted">"工作目录"</span>
+                                            <span>
+                                                <a class="cell-link" href=format!("/w/{}", api::enc(&home))>
+                                                    "打开"
+                                                </a>
+                                            </span>
+                                            <span class="muted">"去留"</span>
+                                            <span>
+                                                {if temporary {
+                                                    format!("临时 · 闲置 {idle_hours} 小时自动归档")
+                                                } else {
+                                                    "固定 · 一直留着".to_owned()
+                                                }}
+                                            </span>
                                         </div>
-                                    </section>
-                                    <section class="card pad">
-                                        <h3>"线程"</h3>
-                                        {arr(&b, "all_threads")
-                                            .is_empty()
-                                            .then(|| {
-                                                view! {
-                                                    <Blank
-                                                        icon=icon::CHAT
-                                                        title=empty::never("线程")
-                                                        detail="收到邮件后，它会为每件事开一个线程，接着上次的对话做。"
-                                                        inset=true
-                                                    />
-                                                }
-                                            })}
-                                        <ul class="bot-claims">
-                                            {arr(&b, "all_threads")
-                                                .into_iter()
-                                                .map(|t| {
-                                                    let tid = s(&t, "id");
-                                                    let closed = !s(&t, "closed_at").is_empty();
-                                                    let b7 = b4.clone();
-                                                    view! {
-                                                        <li>
-                                                            <span>
-                                                                {format!(
-                                                                    "{}{}",
-                                                                    s(&t, "kind"),
-                                                                    if s(&t, "title").is_empty() {
-                                                                        String::new()
-                                                                    } else {
-                                                                        format!(" · {}", s(&t, "title"))
-                                                                    },
-                                                                )}
-                                                            </span>
-                                                            {t["thread_id"]
-                                                                .as_str()
-                                                                .map(|_| {
-                                                                    view! { <span class="gchip ok">"已续接"</span> }
-                                                                })}
-                                                            {closed
-                                                                .then(|| view! { <span class="gchip">"已关闭"</span> })}
-                                                            <span class="grow"></span>
-                                                            {(!closed)
-                                                                .then(|| {
-                                                                    view! {
-                                                                        <button
-                                                                            type="button"
-                                                                            class="btn small ghost"
-                                                                            disabled=move || busy.get()
-                                                                            on:click=move |_| call(
-                                                                                "POST",
-                                                                                format!(
-                                                                                    "/api/bots/{}/threads/{}/close",
-                                                                                    api::enc(&b7),
-                                                                                    api::enc(&tid),
-                                                                                ),
-                                                                                json!({}),
-                                                                                "线程已关闭，下一封邮件开新对话",
-                                                                            )
-                                                                        >
-                                                                            "关闭"
-                                                                        </button>
-                                                                    }
-                                                                })}
-                                                        </li>
+                                        <details class="work-more bot-more">
+                                            <summary>"更多"</summary>
+                                            <div class="work-kv">
+                                                <span class="muted">"标识"</span>
+                                                <span class="mono">{s(&b, "handle")}</span>
+                                                <span class="muted">"分工"</span>
+                                                <span>{role_label(&s(&b, "role"))}</span>
+                                                <span class="muted">"优先级"</span>
+                                                <span>{s(&b, "priority")}</span>
+                                                <span class="muted">"在哪里运行"</span>
+                                                <span>
+                                                    {if s(&b, "brain") == "node" {
+                                                        "工作机器上"
+                                                    } else {
+                                                        "本机"
+                                                    }}
+                                                </span>
+                                            </div>
+                                            <div class="bot-claim-form">
+                                                <input
+                                                    class="input mono"
+                                                    aria-label="要占用的资源"
+                                                    placeholder="gpu:0,1 · dir:/data · repo"
+                                                    prop:value=move || claim_scope.get()
+                                                    on:input=move |e| claim_scope.set(event_target_value(&e))
+                                                    on:keydown=move |e| {
+                                                        if e.key() == "Enter" {
+                                                            add_claim()
+                                                        }
                                                     }
-                                                })
-                                                .collect_view()}
-                                        </ul>
+                                                />
+                                                <select
+                                                    class="input"
+                                                    aria-label="在哪台机器上"
+                                                    on:change=move |e| claim_node.set(event_target_value(&e))
+                                                >
+                                                    <option value="local" selected=true>
+                                                        "本机"
+                                                    </option>
+                                                    {nodes
+                                                        .into_iter()
+                                                        .filter(|n| n.name != "local")
+                                                        .map(|n| {
+                                                            view! {
+                                                                <option value=n
+                                                                    .name
+                                                                    .clone()>{fmt::machine(&n.name)}</option>
+                                                            }
+                                                        })
+                                                        .collect_view()}
+                                                </select>
+                                                <select
+                                                    class="input"
+                                                    aria-label="占用方式"
+                                                    on:change=move |e| claim_mode.set(event_target_value(&e))
+                                                >
+                                                    <option value="exclusive" selected=true>
+                                                        "独占"
+                                                    </option>
+                                                    <option value="shared">"共享"</option>
+                                                    <option value="read">"只读"</option>
+                                                </select>
+                                                <button
+                                                    type="button"
+                                                    class="btn small"
+                                                    disabled=move || busy.get()
+                                                    on:click=move |_| add_claim()
+                                                >
+                                                    "占用"
+                                                </button>
+                                            </div>
+                                        </details>
                                     </section>
-                                    {
-                                        let mem = arr(&b, "memories");
-                                        (!mem.is_empty())
-                                            .then(|| {
-                                                view! {
-                                                    <section class="card pad">
-                                                        <h3>"它的 memory"</h3>
-                                                        <ul class="bot-claims">
-                                                            {mem
-                                                                .into_iter()
-                                                                .map(|m| {
-                                                                    view! {
-                                                                        <li>
-                                                                            <span class="mono">{s(&m, "name")}</span>
-                                                                            <span class="muted">{s(&m, "description")}</span>
-                                                                        </li>
-                                                                    }
-                                                                })
-                                                                .collect_view()}
-                                                        </ul>
-                                                    </section>
-                                                }
-                                            })
-                                    }
                                 </div>
                             </aside>
                         </div>
