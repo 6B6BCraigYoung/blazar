@@ -14,7 +14,7 @@ use crate::realtime::use_bus;
 
 use composer::Composer;
 pub use dock::Dock;
-use log::Log;
+use log::{Log, Starters};
 pub use state::Chat;
 pub(crate) use threads::CHEVRON;
 pub use threads::ThreadPicker;
@@ -139,11 +139,13 @@ pub fn ChatPane(
     on_cleanup(move || iv.set_value(None));
 
     let log_h = RwSignal::new(0.0f64);
+    let blank = Memo::new(move |_| log::blank(chat));
     view! {
-        <div class="chat-body">
+        <div class="chat-body" data-blank=move || blank.get().to_string()>
             <super::children::ChildrenPanel id=chat.ws_id() />
             <Log chat tick log_h />
             <Composer chat tree_files log_h />
+            <Starters chat blank />
         </div>
     }
 }

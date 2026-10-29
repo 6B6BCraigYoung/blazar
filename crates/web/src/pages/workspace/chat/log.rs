@@ -1790,6 +1790,20 @@ fn mark_stuck(log: &web_sys::HtmlElement) {
     }
 }
 
+/// 对话里还什么都没有：不在加载，没有消息、本地报错和待发的消息。
+fn nothing(chat: Chat) -> bool {
+    !chat.loading.get()
+        && chat.rows.with(Vec::is_empty)
+        && chat.local_errors.with(Vec::is_empty)
+        && chat.pending.with(Vec::is_empty)
+}
+
+/// 新对话的空状态（和 `Log` 里显示 `Empty` 的条件一致）：问候语、输入框和开场建议一起居中。
+/// 连不上机器时走离线那套，不算。
+pub(super) fn blank(chat: Chat) -> bool {
+    !chat.link().offline() && nothing(chat)
+}
+
 #[component]
 pub fn Log(chat: Chat, tick: RwSignal<u32>, log_h: RwSignal<f64>) -> impl IntoView {
     let opened = Opened(RwSignal::new(HashSet::new()));
@@ -1901,12 +1915,7 @@ pub fn Log(chat: Chat, tick: RwSignal<u32>, log_h: RwSignal<f64>) -> impl IntoVi
             })
     };
     let link = Memo::new(move |_| chat.link());
-    let nothing = move || {
-        !chat.loading.get()
-            && chat.rows.with(Vec::is_empty)
-            && chat.local_errors.with(Vec::is_empty)
-            && chat.pending.with(Vec::is_empty)
-    };
+    let nothing = move || nothing(chat);
     let blank_offline = move || link.get() == crate::link_state::NodeLink::Unreachable && nothing();
     let empty = move || !link.get().offline() && nothing();
     let click = move |e: leptos::ev::MouseEvent| {
@@ -2060,75 +2069,123 @@ pub fn Log(chat: Chat, tick: RwSignal<u32>, log_h: RwSignal<f64>) -> impl IntoVi
     }
 }
 
+/// 没有智能体档案时，Claude Code / Codex 给的几条通用开场建议（对话里的文字一律英文）。
+const DEFAULT_STARTERS: [(&str, &str); 3] = [
+    (
+        "Explain this codebase",
+        "Explain how this codebase is organized: the main parts, how they fit together, and where to start reading.",
+    ),
+    (
+        "Find and fix a bug",
+        "Look for a bug in this codebase, explain what goes wrong, and fix it.",
+    ),
+    (
+        "Write tests for recent changes",
+        "Write tests for the most recent changes in this repository and run them.",
+    ),
+];
+
 #[component]
 fn Empty(chat: Chat) -> impl IntoView {
     move || {
-        let p = chat.profile();
-        let starters = p.as_ref().map(|p| p.starters.clone()).unwrap_or_default();
-        view! {
-            <div class="cc-empty">
-                {match &p {
-                    Some(p) => {
-                        view! {
-                            <div class="who">
-                                <b>{format!("Chat with {}", p.name)}</b>
-                                <div class="muted small">
-                                    {p.description.clone().unwrap_or_default()}
-                                </div>
-                            </div>
-                        }
-                            .into_any()
-                    }
-                    None if chat.no_agent.get() => ().into_any(),
-                    None => {
-                        let rt = chat.runtime();
-                        let name = match rt.as_str() {
-                            "claude" => "Claude Code",
-                            "codex" => "Codex",
-                            other => other,
-                        }
-                            .to_owned();
-                        // 一个智能体都没装时不挂 Claude Code 的招牌，说明和安装按钮在输入框的位置。
-                        view! {
-                            <div class="cc-hero">
-                                <span
-                                    class="cc-hero-mark"
-                                    inner_html=crate::rt_logo::glyph(&rt)
-                                ></span>
-                                <span>{name}</span>
-                            </div>
-                            <div class="cc-tip">
-                                "Press "<kbd>"Shift"</kbd>" "<kbd>"Tab"</kbd>
-                                " to cycle permission modes, or type "<code>"/"</code>
-                                " for commands."
-                            </div>
-                        }
-                            .into_any()
-                    }
-                }}
-                {(!starters.is_empty())
-                    .then(|| {
-                        view! {
-                            <div class="starters">
-                                {starters
-                                    .into_iter()
-                                    .map(|s| {
-                                        let pr = s.prompt.clone();
-                                        view! {
-                                            <button
-                                                class="starter"
-                                                on:click=move |_| chat.prompt.set(pr.clone())
-                                            >
-                                                <b>{s.label}</b>
-                                                <span>{s.prompt}</span>
-                                            </button>
-                                        }
-                                    })
-                                    .collect_view()}
-                            </div>
-                        }
-                    })}
-            </div>
+        let greeting = match chat.profile() {
+            Some(p) => view! {
+                <h2 class="cc-hello">{p.name}</h2>
+                {p
+                    .description
+                    .filter(|d| !d.trim().is_empty())
+                    .map(|d| view! { <div class="cc-hello-sub">{d}</div> })}
+            }
+            .into_any(),
+            None if chat.no_agent.get() => ().into_any(),
+            None => {
+                let rt = chat.runtime();
+                let name = match rt.as_str() {
+                    "claude" => "Claude Code",
+                    "codex" => "Codex",
+                    other => other,
+                }
+                .to_owned();
+                // 一个智能体都没装时不挂 Claude Code 的招牌，说明和安装按钮在输入框的位置。
+                view! {
+                    <div class="cc-hero">
+                        <span class="cc-hero-mark" inner_html=crate::rt_logo::glyph(&rt)></span>
+                        <span>{name}</span>
+                    </div>
+                    <div class="cc-tip">
+                        "Press "<kbd>"Shift"</kbd>" "<kbd>"Tab"</kbd>
+                        " to cycle permission modes, or type "<code>"/"</code>" for commands."
+                    </div>
+                }
+                .into_any()
+            }
+        };
+        view! { <div class="cc-empty">{greeting}</div> }
+    }
+}
+
+/// 输入框下面的开场建议，只在新对话的空状态里有内容。外壳常驻，好让输入框落到底部时有过渡。
+/// 有智能体档案就用它的 starters（空就不显示），没有档案时给 Claude Code / Codex 几条通用的。
+#[component]
+pub(super) fn Starters(chat: Chat, blank: Memo<bool>) -> impl IntoView {
+    let list = move || {
+        if !blank.get() {
+            return Vec::new();
         }
+        match chat.profile() {
+            Some(p) => p
+                .starters
+                .into_iter()
+                .filter(|s| !s.prompt.trim().is_empty())
+                .map(|s| {
+                    let label = if s.label.trim().is_empty() {
+                        s.prompt.clone()
+                    } else {
+                        s.label
+                    };
+                    (label, s.prompt)
+                })
+                .take(4)
+                .collect(),
+            None if chat.no_agent.get() => Vec::new(),
+            None => DEFAULT_STARTERS
+                .iter()
+                .map(|(l, p)| ((*l).to_owned(), (*p).to_owned()))
+                .collect(),
+        }
+    };
+    let pick = move |prompt: String| {
+        chat.prompt.set(prompt);
+        request_animation_frame(|| {
+            if let Ok(Some(el)) = document().query_selector(".cc-box .prompt")
+                && let Ok(t) = el.dyn_into::<web_sys::HtmlTextAreaElement>()
+            {
+                let _ = t.focus();
+                let len = t.value().encode_utf16().count() as u32;
+                let _ = t.set_selection_range(len, len);
+            }
+        });
+    };
+    view! {
+        <div class="cc-starters">
+            {move || {
+                list()
+                    .into_iter()
+                    .map(|(label, prompt)| {
+                        let pr = prompt.clone();
+                        view! {
+                            <button
+                                type="button"
+                                class="cc-starter"
+                                title=prompt
+                                on:click=move |_| pick(pr.clone())
+                            >
+                                {label}
+                            </button>
+                        }
+                    })
+                    .collect_view()
+            }}
+        </div>
     }
 }
