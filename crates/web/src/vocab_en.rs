@@ -66,6 +66,8 @@ pub fn error(raw: &str, status: Option<u16>) -> String {
         Some(ErrorKind::Timeout) => "Timed out. Try again shortly".into(),
         Some(ErrorKind::Offline) => "Can't reach the service. Check the network".into(),
         Some(ErrorKind::Missing) => "Not found. It may have been deleted".into(),
+        Some(ErrorKind::DiskFull) => "The machine's disk is full. Free some space and retry".into(),
+        Some(ErrorKind::NoTool) => "A program this needs is missing on the machine".into(),
         None => raw.to_owned(),
     }
 }

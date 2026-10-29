@@ -127,6 +127,8 @@ pub enum ErrorKind {
     Timeout,
     Offline,
     Missing,
+    DiskFull,
+    NoTool,
 }
 
 #[must_use]
@@ -135,7 +137,11 @@ pub fn error_kind(raw: &str, status: Option<u16>) -> Option<ErrorKind> {
     let has = |needles: &[&str]| needles.iter().any(|n| lower.contains(n));
     let bare = raw.is_empty() || raw.starts_with("HTTP ");
     Some(
-        if has(&[
+        if has(&["enospc", "no space left on device", "disk quota exceeded"]) {
+            ErrorKind::DiskFull
+        } else if has(&["command not found", ": not found"]) {
+            ErrorKind::NoTool
+        } else if has(&[
             "机器连不上",
             "退出码 255",
             "exit code 255",
@@ -164,7 +170,15 @@ pub fn error_kind(raw: &str, status: Option<u16>) -> Option<ErrorKind> {
             ])
         {
             ErrorKind::Login
-        } else if status == Some(403) || has(&["403 ", "forbidden", "permission_error"]) {
+        } else if status == Some(403)
+            || has(&[
+                "403 ",
+                "forbidden",
+                "permission_error",
+                "eacces",
+                "permission denied",
+            ])
+        {
             ErrorKind::Forbidden
         } else if has(&["billing_error"]) {
             ErrorKind::Billing
@@ -183,6 +197,9 @@ pub fn error_kind(raw: &str, status: Option<u16>) -> Option<ErrorKind> {
             "networkerror",
             "network error",
             "econnrefused",
+            "econnreset",
+            "connection reset",
+            "broken pipe",
         ]) {
             ErrorKind::Offline
         } else if status.is_some_and(|c| c >= 500) && bare {
@@ -209,6 +226,8 @@ pub fn error(raw: &str, status: Option<u16>) -> String {
         Some(ErrorKind::Timeout) => "等待超时，稍后再试".into(),
         Some(ErrorKind::Offline) => "连不上服务，请检查网络".into(),
         Some(ErrorKind::Missing) => "找不到了，可能已被删除".into(),
+        Some(ErrorKind::DiskFull) => "机器的磁盘满了，清出空间后再试".into(),
+        Some(ErrorKind::NoTool) => "机器上缺少要用的程序".into(),
         None => raw.to_owned(),
     }
 }
@@ -435,13 +454,17 @@ mod tests {
         assert_eq!(cause("server_error"), "服务出错了");
         assert_eq!(cause("rate_limit"), "请求太频繁");
         assert_eq!(cause("HTTP 502"), "服务出错了（502）");
-        assert_eq!(cause("ECONNRESET"), "ECONNRESET");
+        assert_eq!(cause("ECONNRESET"), "连不上服务");
+        assert_eq!(
+            cause("bash: claude: command not found"),
+            "机器上缺少要用的程序"
+        );
         assert_eq!(cause(""), "请求没有成功");
         assert_eq!(
             cause(
                 "agent 异常退出（退出码 1）。stderr: Error: ENOSPC: no space left on device, write"
             ),
-            "Error: ENOSPC: no space left on device, write"
+            "机器的磁盘满了"
         );
         assert_eq!(cause(&"x".repeat(70)), format!("{}…", "x".repeat(60)));
         assert_eq!(retry_round(2, 10), "2/10");
