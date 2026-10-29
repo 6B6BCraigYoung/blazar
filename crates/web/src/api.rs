@@ -19,7 +19,7 @@ pub async fn session() -> Result<(), ApiError> {
         .await
         .map_err(|e| ApiError::new(format!("连接 Blazar 失败：{e}")))?;
     if !response.ok() {
-        return Err(ApiError::new("无法建立本机会话，请重新打开 Blazar"));
+        return Err(ApiError::new("连不上本机的 Blazar，请重新打开 Blazar"));
     }
     SESSION_READY.with(|ready| ready.set(true));
     Ok(())

@@ -23,7 +23,7 @@ fn removed_head(isolated: bool) -> &'static str {
 fn outcome_text(head: &str, r: &Value) -> String {
     let mut notes = Vec::new();
     if let Some(n) = r["stopped_sessions"].as_u64().filter(|n| *n > 0) {
-        notes.push(format!("停掉了 {n} 个正在跑的会话"));
+        notes.push(format!("停掉了 {n} 个正在跑的对话"));
     }
     if r["worktree_was_missing"].as_bool() == Some(true) {
         notes.push("工作目录冻结前就已经不在了，没提交的改动（如果有）已丢失".to_owned());
@@ -51,7 +51,7 @@ async fn confirm_remove(label: &str, isolated: bool, kids: usize, busy: bool) ->
         format!("从 Blazar 移除「{label}」？只删记录，不会动机器上的目录。")
     };
     if busy {
-        msg.push_str("正在跑的会话会被停掉。");
+        msg.push_str("正在跑的对话会被停掉。");
     }
     if kids > 0 {
         msg.push_str(&format!("它的 {kids} 个子工作区会变成独立的工作区。"));
@@ -367,12 +367,12 @@ pub fn Inspector(id: String, on_close: impl Fn() + Copy + Send + Sync + 'static)
                                 </PrefRow>
                             </PrefGroup>
                             <PrefGroup title=if count == 0 {
-                                "会话".to_owned()
+                                "对话".to_owned()
                             } else {
-                                format!("会话 {count}")
+                                format!("对话 {count}")
                             }>
                                 {if sessions.is_empty() {
-                                    view! { <PrefRow label="还没有会话" /> }.into_any()
+                                    view! { <PrefRow label="还没有对话" /> }.into_any()
                                 } else {
                                     sessions
                                         .into_iter()

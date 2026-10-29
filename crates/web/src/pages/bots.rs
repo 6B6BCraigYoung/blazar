@@ -957,7 +957,7 @@ pub fn BotPage() -> impl IntoView {
                                 view! {
                                     <div class="muted bot-line">
                                         {format!(
-                                            "临时 bot：闲置 {idle_hours} 小时没有邮件、没有会话就自动归档。",
+                                            "临时 bot：闲置 {idle_hours} 小时没有邮件、没有对话就自动归档。",
                                         )}
                                     </div>
                                 }

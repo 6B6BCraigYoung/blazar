@@ -1269,7 +1269,7 @@ fn AgentRuns(runs: Vec<Value>) -> impl IntoView {
                                 <StateOf state=text(&r, "status") />
                                 <span class="grow">
                                     {if text(&r, "title").is_empty() {
-                                        "聊天会话".into()
+                                        "对话".into()
                                     } else {
                                         text(&r, "title")
                                     }}

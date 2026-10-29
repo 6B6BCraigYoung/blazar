@@ -165,7 +165,7 @@ fn InboxSettings(initial: Value) -> impl IntoView {
     view! {
         <PrefGroup
             title="提醒哪些事项"
-            note="关闭的类型仍记录到收件箱，不计未读、不提示或转发。"
+            note="关闭的类型仍记录到中控台，不计未读、不提示或转发。"
         >
             {NOTIFY_KINDS
                 .iter()
@@ -236,7 +236,7 @@ fn AlertRuleSettings() -> impl IntoView {
                 }
             }} <PrefAdvanced title="提醒规则">
                 <p>
-                    "hub 每 30 秒检查一次，事情发生时也会立刻检查。同一件事持续期间只提醒一次，消失后在收件箱里标为已解决。"
+                    "hub 每 30 秒检查一次，事情发生时也会立刻检查。同一件事持续期间只提醒一次，消失后在中控台里标为已解决。"
                 </p>
             </PrefAdvanced>
         </PrefGroup>

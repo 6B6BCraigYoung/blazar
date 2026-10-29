@@ -332,7 +332,7 @@ const DOMAINS: &[(&str, &str)] = &[
     ("minutes", "妙记"),
     ("wiki", "知识库"),
     ("contact", "通讯录"),
-    ("approval", "审批"),
+    ("approval", "批准"),
     ("okr", "OKR"),
     ("attendance", "考勤"),
 ];

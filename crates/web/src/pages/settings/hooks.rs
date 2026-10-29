@@ -13,8 +13,8 @@ use super::{flag, rows, save, text};
 const EVENTS: &[(&str, &str)] = &[
     ("turn_start", "一轮开始前"),
     ("turn_end", "一轮结束"),
-    ("session_start", "会话建立"),
-    ("session_end", "会话结束"),
+    ("session_start", "对话建立"),
+    ("session_end", "对话结束"),
     ("error", "出错"),
 ];
 
@@ -57,7 +57,7 @@ pub(super) fn HookSettings() -> impl IntoView {
         );
     });
     view! {
-        <PrefGroup note="在会话开始、结束或出错时执行脚本。">
+        <PrefGroup note="在对话开始、结束或出错时执行脚本。">
             <PrefList
                 label="自动执行脚本"
                 selected

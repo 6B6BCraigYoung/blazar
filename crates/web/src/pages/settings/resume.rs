@@ -57,7 +57,7 @@ pub(super) fn AutoResumeSettings() -> impl IntoView {
                     </PrefRow>
                     <PrefRow
                         label="最多重试次数"
-                        detail="用完还没恢复就停下，在收件箱发一张卡片。取 1 到 100。"
+                        detail="用完还没恢复就停下，在中控台发一张卡片。取 1 到 100。"
                         for_id="settings-auto-resume-attempts"
                     >
                         <input

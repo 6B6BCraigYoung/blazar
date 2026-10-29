@@ -1154,7 +1154,7 @@ fn AutopilotEditor(init: Value, ui: ApUi) -> impl IntoView {
                                 ("acceptEdits", "自动批准改文件"),
                                 ("bypassPermissions", "全部放行"),
                                 ("plan", "只规划"),
-                                ("default", "每一步手动审批"),
+                                ("default", "每一步手动批准"),
                             ],
                         )}
                     </div>
@@ -1179,7 +1179,7 @@ fn AutopilotEditor(init: Value, ui: ApUi) -> impl IntoView {
                 </details>
             </fieldset>
             <p class="muted small">
-                "手动审批模式下，运行会在需要批准时等待，并出现在收件箱中。"
+                "手动批准模式下，运行会在需要批准时等待，并出现在中控台里。"
             </p>
             {move || {
                 (!error.get().is_empty()).then(|| view! { <InlineError message=error.get() /> })

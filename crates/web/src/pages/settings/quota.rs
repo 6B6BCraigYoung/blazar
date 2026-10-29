@@ -49,8 +49,8 @@ pub(super) fn QuotaSettings() -> impl IntoView {
                 <PrefGroup title="额度分摊">
                     {rows}
                     <PrefRow
-                        label="不再派新会话的用量阈值"
-                        detail="Claude 选「自动分摊」时，五小时或七天窗口超过这个比例的账号不接新会话；全都超了就挑最低的照常跑。"
+                        label="不再派新对话的用量阈值"
+                        detail="Claude 选「自动分摊」时，五小时或七天窗口超过这个比例的账号不接新对话；全都超了就挑最低的照常跑。"
                         for_id="settings-quota-threshold"
                     >
                         <input

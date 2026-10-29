@@ -101,7 +101,7 @@ fn WsStatus(id: String, failed: Signal<bool>) -> impl IntoView {
                             data-tone=tone.key()
                             title=match to {
                                 Jump::Bottom => "跳到对话底部",
-                                Jump::Approval => "跳到审批",
+                                Jump::Approval => "跳到批准",
                                 Jump::Error => "跳到报错",
                             }
                             on:click=move |_| jump(to)

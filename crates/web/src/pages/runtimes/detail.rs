@@ -282,7 +282,7 @@ pub(super) fn RuntimeDetail(id: String) -> impl IntoView {
                                 </div>
                                 <PrefAdvanced title="账号与凭据">
                                     <p>
-                                        "浏览器登录的账号由官方 CLI 自己保管凭据，Blazar 不读取；长期 token 存在账号目录里只有你能读的文件中，启动时才交给 CLI。设置、技能和会话历史在各账号之间共享，换账号后上下文不变。"
+                                        "浏览器登录的账号由官方 CLI 自己保管凭据，Blazar 不读取；长期 token 存在账号目录里只有你能读的文件中，启动时才交给 CLI。设置、技能和对话历史在各账号之间共享，换账号后上下文不变。"
                                     </p>
                                     {move || {
                                         accounts
@@ -418,7 +418,7 @@ pub(super) fn RuntimeDetail(id: String) -> impl IntoView {
                     </PrefRow>
                     <PrefRow
                         label="最大并发"
-                        detail="1 到 16 个同时运行的会话。"
+                        detail="1 到 16 个同时运行的对话。"
                         for_id="rt-concurrency"
                     >
                         <input

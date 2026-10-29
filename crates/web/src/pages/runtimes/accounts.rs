@@ -65,7 +65,7 @@ pub(crate) fn quota(a: &Account) -> AnyView {
         let hint = if a.kind == "token" || a.provider == "codex" {
             "还没查过 —— 「⋯」里点「刷新额度」"
         } else {
-            "还没有数据 —— 用它跑一次会话就有了"
+            "还没有数据 —— 用它跑一次对话就有了"
         };
         return view! {
             <span class="muted small" title=hint>
@@ -232,7 +232,7 @@ pub(super) fn AccountRow(
                                             if dialog::ask(
                                                     "删除账号",
                                                     &format!(
-                                                        "删除账号「{}」？\n{how}共享的设置和会话历史不受影响。",
+                                                        "删除账号「{}」？\n{how}共享的设置和对话历史不受影响。",
                                                         a.label,
                                                     ),
                                                     vec![Choice::plain("取消"), Choice::danger("删除")],

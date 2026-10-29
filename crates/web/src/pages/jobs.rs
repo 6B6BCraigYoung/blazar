@@ -117,7 +117,7 @@ fn owner(j: &Value) -> AnyView {
         "session" => {
             let name = Some(s(j, "owner_workspace"))
                 .filter(|n| !n.is_empty())
-                .unwrap_or_else(|| "会话".into());
+                .unwrap_or_else(|| "对话".into());
             view! { <span>{name}</span> }.into_any()
         }
         _ => view! { <span class="muted">"手动"</span> }.into_any(),
