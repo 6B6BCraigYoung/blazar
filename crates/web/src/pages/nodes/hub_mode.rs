@@ -3,9 +3,9 @@ use serde_json::{Value, json};
 
 use crate::api;
 use crate::components::dialog::{Choice, ask};
-use crate::components::prefs::{PrefAdvanced, PrefGroup, PrefRow, Switch};
+use crate::components::prefs::{PrefAdvanced, PrefGroup, PrefRow, Sheet, Switch};
 use crate::components::status::{InlineError, LoadingState};
-use crate::components::toast::{flash, toast};
+use crate::components::toast::{flash, toast_error};
 use crate::desktop;
 
 fn text(v: &Value, key: &str) -> String {
@@ -19,95 +19,142 @@ async fn save(body: Value) -> bool {
             true
         }
         Err(e) => {
-            toast(format!("没保存上：{e}"));
+            toast_error("没保存上", &e);
             false
         }
     }
 }
 
-/// 允许智能体跨机器建工作区、派活（原先在设置 → 对话与运行）。
+/// 机器表下面一小组：跨机器协作的开关，和桌面版的 Blazar 跑在哪台机器上。
 #[component]
-pub(super) fn CrossMachine() -> impl IntoView {
-    let data = LocalResource::new(|| api::get::<Value>("/api/settings"));
-    let busy = RwSignal::new(false);
+pub(super) fn MultiMachine() -> impl IntoView {
     view! {
-        <PrefGroup title="跨机器协作">
-            {move || match data.get() {
-                None => view! { <LoadingState text="正在加载…" /> }.into_any(),
-                Some(Err(e)) => {
-                    view! {
-                        <InlineError
-                            message=format!("无法加载设置：{e}")
-                            retry=Callback::new(move |_| data.refetch())
-                        />
-                    }
-                        .into_any()
-                }
-                Some(Ok(p)) => {
-                    let on = RwSignal::new(p["fleet"]["enabled"].as_bool().unwrap_or(false));
-                    view! {
-                        <PrefRow
-                            label="允许智能体跨机器建工作区、派活"
-                            detail="下一轮对话开始时生效。"
-                            for_id="nodes-fleet"
-                        >
-                            <Switch
-                                id="nodes-fleet"
-                                checked=on
-                                disabled=busy
-                                on_change=move |v: bool| {
-                                    on.set(v);
-                                    busy.set(true);
-                                    leptos::task::spawn_local(async move {
-                                        if !save(json!({"fleet": {"enabled": v}})).await {
-                                            on.set(!v);
-                                        }
-                                        busy.set(false);
-                                    });
-                                }
-                            />
-                        </PrefRow>
-                    }
-                        .into_any()
-                }
-            }} <PrefAdvanced title="跨机器协作">
-                <p>
-                    "打开后，Blazar 启动的每个对话都能跨机器协作，不管它跑在哪台机器上：列出机器、建工作区、给任意机器上的智能体发指令、等它跑完、读它的记录和改动、在工作区之间拷文件。"
-                </p>
-                <p>
-                    "别的机器上的对话经这台电脑转发，自己拿不到其他机器的登录密钥；每个对话的权限单独发放，对话结束就收回。"
-                </p>
-            </PrefAdvanced>
+        <PrefGroup title="多机协作">
+            <CrossMachine />
+            <RunsOn />
         </PrefGroup>
     }
 }
 
-/// 桌面版连这台电脑上的 Blazar 服务，还是另一台常开的机器（原先在设置 → 数据与关于）。
+/// 允许智能体跨机器建工作区、派活（原先在设置 → 对话与运行）。
 #[component]
-pub(super) fn RunsOn() -> impl IntoView {
+fn CrossMachine() -> impl IntoView {
+    let data = LocalResource::new(|| api::get::<Value>("/api/settings"));
+    let busy = RwSignal::new(false);
+    move || match data.get() {
+        None => view! { <LoadingState text="正在加载…" /> }.into_any(),
+        Some(Err(e)) => view! {
+            <InlineError
+                lead="无法加载设置"
+                error=e
+                retry=Callback::new(move |_| data.refetch())
+            />
+        }
+        .into_any(),
+        Some(Ok(p)) => {
+            let on = RwSignal::new(p["fleet"]["enabled"].as_bool().unwrap_or(false));
+            view! {
+                <PrefRow
+                    label="允许智能体跨机器建工作区、派活"
+                    detail="对话能列出机器、在别的机器上建工作区、给那里的智能体派活；权限随对话发放，对话结束就收回。下一轮对话开始时生效。"
+                    for_id="nodes-fleet"
+                >
+                    <Switch
+                        id="nodes-fleet"
+                        checked=on
+                        disabled=busy
+                        on_change=move |v: bool| {
+                            on.set(v);
+                            busy.set(true);
+                            leptos::task::spawn_local(async move {
+                                if !save(json!({"fleet": {"enabled": v}})).await {
+                                    on.set(!v);
+                                }
+                                busy.set(false);
+                            });
+                        }
+                    />
+                </PrefRow>
+            }
+                .into_any()
+        }
+    }
+}
+
+/// 桌面版连这台电脑上的 Blazar 服务，还是另一台常开的机器（原先在设置 → 数据与关于）。
+/// 平时只占一行，「更改…」才展开。
+#[component]
+fn RunsOn() -> impl IntoView {
     if !desktop::available() {
         return ().into_any();
     }
     let data = LocalResource::new(|| async { desktop::invoke("hub_mode", &json!({})).await });
+    let open = RwSignal::new(false);
+    let line = move || match data.get() {
+        None => "正在读取…".to_owned(),
+        Some(Err(e)) => crate::vocab::lead("读不到运行位置", crate::vocab::explain(&e, None)).0,
+        Some(Ok(v)) if text(&v, "mode") == "remote" => {
+            let state = if v["connected"].as_bool().unwrap_or(false) {
+                "已连上"
+            } else {
+                "没连上"
+            };
+            format!("{}（{state}）", text(&v, "label"))
+        }
+        Some(Ok(_)) => "这台电脑".to_owned(),
+    };
     view! {
-        <PrefGroup title="Blazar 在哪台机器上运行">
-            {move || match data.get() {
-                None => view! { <LoadingState text="正在读取…" /> }.into_any(),
-                Some(Err(e)) => {
+        {move || {
+            view! {
+                <PrefRow label="Blazar 运行在" detail=line()>
+                    <button
+                        type="button"
+                        class="btn"
+                        aria-haspopup="dialog"
+                        disabled=move || data.get().is_none()
+                        on:click=move |_| open.set(true)
+                    >
+                        "更改…"
+                    </button>
+                </PrefRow>
+            }
+        }}
+        <Show when=move || open.get()>
+            <Sheet
+                title="Blazar 在哪台机器上运行"
+                on_close=Callback::new(move |()| open.set(false))
+                foot=move || {
                     view! {
-                        <InlineError
-                            message=format!("读不到运行位置：{e}")
-                            retry=Callback::new(move |_| data.refetch())
-                        />
+                        <button
+                            type="button"
+                            class="btn primary"
+                            data-modal-initial-focus=""
+                            on:click=move |_| open.set(false)
+                        >
+                            "完成"
+                        </button>
                     }
-                        .into_any()
                 }
-                Some(Ok(v)) if text(&v, "mode") == "remote" => {
-                    view! { <RemoteNotice state=v /> }.into_any()
-                }
-                Some(Ok(v)) => view! { <ModeForm state=v /> }.into_any(),
-            }}
-        </PrefGroup>
+            >
+                {move || match data.get() {
+                    None => view! { <LoadingState text="正在读取…" /> }.into_any(),
+                    Some(Err(e)) => {
+                        view! {
+                            <InlineError
+                                lead="读不到运行位置"
+                                message=e
+                                retry=Callback::new(move |_| data.refetch())
+                            />
+                        }
+                            .into_any()
+                    }
+                    Some(Ok(v)) if text(&v, "mode") == "remote" => {
+                        view! { <RemoteNotice state=v /> }.into_any()
+                    }
+                    Some(Ok(v)) => view! { <ModeForm state=v /> }.into_any(),
+                }}
+            </Sheet>
+        </Show>
     }
     .into_any()
 }
@@ -163,7 +210,7 @@ fn RemoteNotice(state: Value) -> impl IntoView {
                             )
                             .await;
                         if let Err(e) = result {
-                            status.set((e, true));
+                            status.set((crate::vocab::error(&e, None), true));
                         }
                         busy.set(false);
                     });
@@ -278,7 +325,7 @@ fn ModeForm(state: Value) -> impl IntoView {
                                     status
                                         .set((v.as_str().unwrap_or("能连上").to_owned(), false))
                                 }
-                                Err(e) => status.set((e, true)),
+                                Err(e) => status.set((crate::vocab::error(&e, None), true)),
                             }
                             busy.set(false);
                         });
@@ -312,7 +359,7 @@ fn ModeForm(state: Value) -> impl IntoView {
                                 )
                                 .await;
                             if let Err(e) = result {
-                                status.set((e, true));
+                                status.set((crate::vocab::error(&e, None), true));
                             }
                             busy.set(false);
                         });
@@ -327,9 +374,9 @@ fn ModeForm(state: Value) -> impl IntoView {
                 {move || status.get().0}
             </p>
         </Show>
-        <PrefAdvanced title="在另一台机器上运行">
+        <PrefAdvanced title="高级">
             <p>
-                "那台机器上要先用仓库里的 scripts/hub-service.sh 装好常驻的 Blazar 服务。这台电脑经 SSH 连过去，所以要能免密登录。"
+                "那台机器上要先装好常驻的 Blazar 服务（仓库里的 scripts/hub-service.sh）。这台电脑经 SSH 连过去，所以要能免密登录。"
             </p>
             <PrefRow
                 label="端口"

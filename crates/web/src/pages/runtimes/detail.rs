@@ -8,7 +8,7 @@ use crate::components::dialog::{self, Choice};
 use crate::components::page_head::PageHead;
 use crate::components::prefs::{PrefAdvanced, PrefGroup, PrefRow};
 use crate::components::status::{Checking, InlineError, Status};
-use crate::components::toast::{flash, toast};
+use crate::components::toast::{flash, toast, toast_error};
 use crate::realtime::use_bus;
 use crate::rt_logo;
 use crate::runtime_config::{AgentConfig, ConfigDraft, parse_args, parse_env};
@@ -133,7 +133,7 @@ pub(super) fn RuntimeDetail(id: String) -> impl IntoView {
                     flash("已保存");
                     let _ = rev.try_update(|n| *n += 1);
                 }
-                Err(e) => toast(format!("没保存上：{e}")),
+                Err(e) => toast_error("没保存上", &e),
             }
             let _ = saving.try_set(false);
         });
@@ -163,7 +163,7 @@ pub(super) fn RuntimeDetail(id: String) -> impl IntoView {
                     toast("已删除");
                     let _ = rev.try_update(|n| *n += 1);
                 }
-                Err(e) => toast(format!("删除失败：{e}")),
+                Err(e) => toast_error("删除失败", &e),
             }
             let _ = saving.try_set(false);
         });
@@ -207,7 +207,7 @@ pub(super) fn RuntimeDetail(id: String) -> impl IntoView {
     view! {
         <div class="page runtimes-page detail-page">
             <PageHead
-                parent=("运行时", "/runtimes")
+                parent=("账号与额度", "/runtimes")
                 icon=move || view! { <span inner_html=rt_logo::mark(&id_s.get_value())></span> }
                 title=label
                 status=move || {
@@ -258,7 +258,8 @@ pub(super) fn RuntimeDetail(id: String) -> impl IntoView {
                     .map(|error| {
                         view! {
                             <InlineError
-                                message=format!("无法加载运行时：{error}")
+                                lead="无法加载详情"
+                                error=error
                                 retry=Callback::new(move |_| rev.update(|n| *n += 1))
                             />
                         }
@@ -270,7 +271,7 @@ pub(super) fn RuntimeDetail(id: String) -> impl IntoView {
                         view! {
                             <PrefGroup
                                 title="账号"
-                                note="每个账号是一份独立的登录身份。有多个账号时，可以在这里切换这个运行时用哪一个；对话里也可以从运行时选择器单独换。"
+                                note="每个账号是一份独立的登录身份。有多个账号时，可以在这里切换用哪一个；每个对话也可以单独换。"
                             >
                                 <div class="pref-list acc-list">
                                     <AccountsSection
@@ -345,7 +346,7 @@ pub(super) fn RuntimeDetail(id: String) -> impl IntoView {
                     </PrefRow>
                     <PrefRow
                         label="模型"
-                        detail="留空用运行时自己的默认模型。"
+                        detail="留空用软件自己的默认模型。"
                         for_id="rt-model"
                     >
                         <input
@@ -372,7 +373,7 @@ pub(super) fn RuntimeDetail(id: String) -> impl IntoView {
                     <PrefRow label="权限模式" for_id="rt-permission">
                         {if modes.is_empty() {
                             view! {
-                                <span class="pref-text">"此运行时不支持权限模式"</span>
+                                <span class="pref-text">"这个软件不支持权限模式"</span>
                             }
                                 .into_any()
                         } else {

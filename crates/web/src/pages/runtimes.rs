@@ -7,7 +7,7 @@ use crate::api::{self, Account, Accounts, Runtime, Runtimes};
 use crate::components::page_head::PageHead;
 use crate::components::status::{EmptyState, InlineError, LoadingState, Tone};
 use crate::components::term_dialog::{self, TermLogin};
-use crate::components::toast::toast;
+use crate::components::toast::{toast, toast_error};
 use crate::realtime::use_bus;
 
 use super::agents;
@@ -105,13 +105,19 @@ pub fn RuntimesPage() -> impl IntoView {
 
     view! {
         <div class="page runtimes-page">
-            <PageHead title="智能体" nav=|| crate::components::section::agents("/runtimes") />
+            <PageHead
+                title="账号与额度"
+                nav=|| crate::components::section::agents("/runtimes")
+            />
             {move || match runtimes.get() {
-                None => view! { <LoadingState text="正在查找运行时…" /> }.into_any(),
+                None => {
+                    view! { <LoadingState text="正在查找 Claude Code / Codex…" /> }.into_any()
+                }
                 Some(Err(e)) => {
                     view! {
                         <InlineError
-                            message=format!("无法加载运行时：{e}")
+                            lead="无法检查 Claude Code / Codex"
+                            error=e
                             retry=Callback::new(move |_| rescan.update(|n| *n += 1))
                         />
                     }
@@ -129,7 +135,7 @@ pub fn RuntimesPage() -> impl IntoView {
                             .then(|| {
                                 view! {
                                     <EmptyState
-                                        title="添加第一个运行时"
+                                        title="还没装 Claude Code 或 Codex"
                                         detail="安装 Claude Code 或 Codex 后，重新扫描即可添加账号。"
                                     />
                                 }
@@ -150,7 +156,7 @@ pub fn RuntimesPage() -> impl IntoView {
                             .then(|| {
                                 view! {
                                     <details class="runtime-details">
-                                        <summary>"其他支持的运行时"</summary>
+                                        <summary>"其他支持的软件"</summary>
                                         <p class="muted small">
                                             {format!(
                                                 "尚未安装：{}",
@@ -222,7 +228,8 @@ pub fn AccountsSection(
                 Some(Err(error)) => {
                     return view! {
                         <InlineError
-                            message=format!("无法加载账号：{error}")
+                            lead="无法加载账号"
+                            error=error
                             retry=Callback::new(move |_| accounts.refetch())
                         />
                     }
@@ -335,7 +342,7 @@ pub fn login(a: &Account) {
                             format!("「{label}」还没有登录成功")
                         });
                     }
-                    Err(e) => toast(e.to_string()),
+                    Err(e) => toast_error("检查登录失败", &e),
                 }
             });
         }),

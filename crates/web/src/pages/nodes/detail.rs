@@ -268,7 +268,7 @@ fn NodeDetail(name: String) -> impl IntoView {
                     });
                     leftovers();
                 }
-                Err(e) => toast(format!("清扫失败：{e}")),
+                Err(e) => toast_error("清扫失败", &e),
             }
             sweeping.try_set(false);
         });
@@ -288,7 +288,7 @@ fn NodeDetail(name: String) -> impl IntoView {
             .await
             {
                 Ok(r) => toast(s(&r, "message")),
-                Err(e) => toast(format!("{verb}失败：{e}")),
+                Err(e) => toast_error(&format!("{verb}失败"), &e),
             }
             busy.try_set(false);
             scan();
@@ -368,7 +368,7 @@ fn NodeDetail(name: String) -> impl IntoView {
                     disabled=move || !online() || pending()
                     title=move || {
                         if pending() {
-                            Some("先确认这台机器是开发机，才能新建工作区")
+                            Some("先确认这台机器可以派活，才能新建工作区")
                         } else if !online() {
                             Some("机器离线，恢复在线后才能新建工作区")
                         } else {
@@ -453,7 +453,7 @@ fn NodeDetail(name: String) -> impl IntoView {
                         let egress = match facts.egress {
                             Some(true) => "能连上",
                             Some(false) => {
-                                "连不上，请在运行时的「高级配置」里配置代理。"
+                                "连不上，请在「账号与额度」里对应软件的「高级配置」里配置代理。"
                             }
                             None => "—",
                         };
@@ -520,7 +520,8 @@ fn NodeDetail(name: String) -> impl IntoView {
                             .map(|e| {
                                 view! {
                                     <InlineError
-                                        message=format!("检查失败：{e}")
+                                        lead="检查失败"
+                                        message=e.to_string()
                                         retry=Callback::new(move |()| probe())
                                     />
                                 }
@@ -528,19 +529,18 @@ fn NodeDetail(name: String) -> impl IntoView {
                     }}
                 </PrefGroup>
                 <PrefGroup
-                    title="运行时"
-                    note="这台机器上装了哪些运行时，以及登录状态。"
+                    title="Claude Code / Codex"
+                    note="这台机器上装了 Claude Code 还是 Codex，以及登录状态。"
                 >
                     {move || match agents.get() {
                         None if scanning.get() => {
-                            view! { <p class="pref-status">"正在读取运行时…"</p> }
-                                .into_any()
+                            view! { <p class="pref-status">"正在读取…"</p> }.into_any()
                         }
                         None => {
                             view! {
                                 <PrefRow
                                     label="尚未检查"
-                                    detail="读取已安装的运行时及登录状态。"
+                                    detail="读取已安装的 Claude Code / Codex 及登录状态。"
                                 >
                                     {offline_note}
                                     <button
@@ -549,7 +549,7 @@ fn NodeDetail(name: String) -> impl IntoView {
                                         disabled=move || !online()
                                         on:click=move |_| scan()
                                     >
-                                        "检查运行时"
+                                        "检查"
                                     </button>
                                 </PrefRow>
                             }
@@ -558,7 +558,8 @@ fn NodeDetail(name: String) -> impl IntoView {
                         Some(Err(e)) => {
                             view! {
                                 <InlineError
-                                    message=format!("无法读取运行时：{e}")
+                                    lead="无法读取 Claude Code / Codex"
+                                    message=e.to_string()
                                     retry=Callback::new(move |()| scan())
                                 />
                             }
@@ -590,14 +591,14 @@ fn NodeDetail(name: String) -> impl IntoView {
                                         disabled=move || scanning.get() || !online()
                                         on:click=move |_| scan()
                                     >
-                                        "检查运行时"
+                                        "检查"
                                     </button>
                                 </PrefRow>
                             };
                             if inst.is_empty() && missing.is_empty() {
                                 return view! {
                                     <PrefRow
-                                        label="未发现运行时"
+                                        label="没装 Claude Code 或 Codex"
                                         detail="在这台机器安装 Claude Code 或 Codex 后，重新检查。"
                                     />
                                     {rescan}
@@ -735,7 +736,8 @@ fn NodeDetail(name: String) -> impl IntoView {
                         Some(Err(e)) => {
                             view! {
                                 <InlineError
-                                    message=format!("查找失败：{e}")
+                                    lead="查找失败"
+                                    message=e.to_string()
                                     retry=Callback::new(move |()| leftovers())
                                 />
                             }

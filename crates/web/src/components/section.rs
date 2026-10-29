@@ -101,9 +101,9 @@ pub fn agents(current: &'static str) -> impl IntoView {
             label="智能体"
             current
             tabs=vec![
-                Tab::counted("角色档案", "/agents", app.agents_n.into()),
+                Tab::counted("智能体", "/agents", app.agents_n.into()),
                 Tab::counted("技能", "/skills", app.skills_n.into()),
-                Tab::counted("运行时", "/runtimes", app.runtimes_n.into()),
+                Tab::counted("账号与额度", "/runtimes", app.runtimes_n.into()),
                 Tab::new("用量", "/usage"),
             ]
         />

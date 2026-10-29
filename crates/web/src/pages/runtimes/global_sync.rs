@@ -5,7 +5,7 @@ use serde_json::{Value, json};
 use crate::api::{self, Accounts};
 use crate::components::dialog::{self, Choice};
 use crate::components::status::{InlineError, LoadingState};
-use crate::components::toast::toast;
+use crate::components::toast::{toast, toast_error};
 use crate::realtime::use_bus;
 
 #[component]
@@ -66,7 +66,7 @@ pub(super) fn GlobalSync(
                 } else {
                     "已关掉：终端和 Cursor 换回原来的登录"
                 }),
-                Err(e) => toast(format!("没切成：{e}")),
+                Err(e) => toast_error("没切成", &e),
             }
             let _ = busy.try_set(false);
         });
@@ -88,7 +88,8 @@ pub(super) fn GlobalSync(
                 Some(Err(error)) => {
                     view! {
                         <InlineError
-                            message=format!("无法加载同步设置：{error}")
+                            lead="无法加载同步设置"
+                            error=error
                             retry=Callback::new(move |_| state.refetch())
                         />
                     }

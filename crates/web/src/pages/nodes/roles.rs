@@ -58,7 +58,7 @@ pub(super) fn ConfirmSheet(pending: Vec<NodeView>, on_close: Callback<()>) -> im
             }
         >
             <p>
-                "组网里发现了这些机器。开发机可以运行任务；个人电脑只显示在线状态，不会出现在选择机器的地方。"
+                "团队里发现了这些机器。可派活的机器能运行任务；个人电脑只显示在线状态，不会出现在选择机器的地方。"
             </p>
             <div class="confirm-list" role="group" aria-label="待确认的机器">
                 {pending
@@ -99,7 +99,7 @@ pub(super) fn ConfirmSheet(pending: Vec<NodeView>, on_close: Callback<()>) -> im
             </div>
             <PrefRow label="设为">
                 <div class="seg" role="radiogroup" aria-label="机器类型">
-                    {choice("开发机", "dev")}
+                    {choice("可派活", "dev")}
                     {choice("个人电脑", "personal")}
                 </div>
             </PrefRow>

@@ -1,6 +1,47 @@
+use super::advanced::Discovery;
 use super::*;
 use crate::components::page_head::{MenuItem, MoreMenu};
 use crate::components::prefs::{PrefAdvanced, PrefGroup, PrefRow};
+
+#[component]
+fn EasyTierRows(m: Mesh, toml_in: NodeRef<leptos::html::Input>, editable: bool) -> impl IntoView {
+    let busy = move || m.operation.get();
+    let import_toml = move |_| {
+        if let Some(i) = toml_in.get_untracked() {
+            i.click();
+        }
+    };
+    let new_config = move |_| m.config.set(Some((BLANK_TOML.to_owned(), None)));
+    let edit_config = move |_| {
+        spawn_local(async move {
+            match api::get::<Value>("/api/mesh/config").await {
+                Ok(c) => m.config.set(Some((s(&c, "toml"), None))),
+                Err(e) => toast_error("读取配置失败", &e),
+            }
+        });
+    };
+    view! {
+        <PrefRow
+            label="EasyTier 配置"
+            detail="不用邀请文件，直接用 EasyTier 的配置加入；也可以从空白模板写一份，预览后应用。"
+        >
+            {editable
+                .then(|| {
+                    view! {
+                        <button type="button" class="btn" disabled=busy on:click=edit_config>
+                            "编辑…"
+                        </button>
+                    }
+                })}
+            <button type="button" class="btn" disabled=busy on:click=import_toml>
+                "导入…"
+            </button>
+            <button type="button" class="btn" disabled=busy on:click=new_config>
+                "新建…"
+            </button>
+        </PrefRow>
+    }
+}
 
 #[component]
 pub(super) fn MeshLocal(
@@ -20,29 +61,15 @@ pub(super) fn MeshLocal(
             i.click();
         }
     };
-    let import_toml = move || {
-        if let Some(i) = toml_in.get_untracked() {
-            i.click();
-        }
-    };
     let refresh = move || spawn_local(refresh_mesh(m));
-    let new_config = move || m.config.set(Some((BLANK_TOML.to_owned(), None)));
-    let edit_config = move || {
-        spawn_local(async move {
-            match api::get::<Value>("/api/mesh/config").await {
-                Ok(c) => m.config.set(Some((s(&c, "toml"), None))),
-                Err(e) => toast(format!("读取配置失败：{e}")),
-            }
-        });
-    };
     let leave = move || {
         spawn_local(async move {
             if m.operation.get_untracked() {
                 return;
             }
             if dialog::ask(
-                "退出组网",
-                "退出组网后，本机上的组网凭据会被删除，其它机器将无法再连到本机。确定？",
+                "退出团队",
+                "退出后，这台电脑上的入网凭据会被删除，团队里的其它机器将无法再连到它。确定？",
                 vec![Choice::plain("取消"), Choice::danger("退出")],
             )
             .await
@@ -57,12 +84,12 @@ pub(super) fn MeshLocal(
             toast("等待系统授权…");
             match api::send::<Value>("POST", "/api/mesh/leave", &json!({})).await {
                 Ok(_) => {
-                    toast("已退出组网");
+                    toast("已退出团队");
                     m.local.update(|n| *n += 1);
                     m.invites.update(|n| *n += 1);
                     m.app.load_state();
                 }
-                Err(e) => toast(format!("退出失败：{e}")),
+                Err(e) => toast_error("退出失败", &e),
             }
             m.operation.set(false);
         });
@@ -85,23 +112,24 @@ pub(super) fn MeshLocal(
                     });
                     m.local.update(|n| *n += 1);
                 }
-                Err(e) => toast(e.to_string()),
+                Err(e) => toast_error("连不上", &e),
             }
             rpc_busy.try_set(false);
         });
     };
     view! {
-        <PrefGroup title="本机组网">
+        <PrefGroup title="这台电脑">
             {move || match local.get() {
                 None => {
-                    view! { <LoadingState text="正在读取组网状态…" class="pref-empty" /> }
+                    view! { <LoadingState text="正在读取团队连接…" class="pref-empty" /> }
                         .into_any()
                 }
                 Some(Err(e)) => {
                     view! {
                         <InlineError
                             class="pref-empty"
-                            message=format!("无法读取组网状态：{e}")
+                            lead="无法读取团队连接"
+                            error=e
                             retry=Callback::new(move |()| m.local.update(|n| *n += 1))
                         />
                     }
@@ -126,20 +154,18 @@ pub(super) fn MeshLocal(
                                 .unwrap_or_else(|| s(&st, "engine_version")),
                         );
                         let detail = if running {
-                            format!("网络 {net}")
+                            format!("已加入团队网络 {net}")
                         } else {
-                            "组网服务已停止。请重新打开邀请文件加入；排查日志位于系统组网目录的 logs/。"
+                            "团队连接已停止。重新打开邀请文件即可再加入。"
                                 .to_owned()
                         };
                         let menu = vec![
                             MenuItem::new("刷新机器", refresh),
-                            MenuItem::new("编辑 EasyTier 配置", edit_config),
-                            MenuItem::new("使用邀请文件", use_invite),
-                            MenuItem::new("导入 EasyTier 配置", import_toml),
-                            MenuItem::danger("退出组网", leave),
+                            MenuItem::new("使用邀请文件…", use_invite),
+                            MenuItem::danger("退出团队", leave),
                         ];
                         return view! {
-                            <PrefRow label="状态" detail=detail>
+                            <PrefRow label="团队" detail=detail>
                                 {if running {
                                     view! { <Status tone=Tone::Other label="已连接" /> }
                                         .into_any()
@@ -159,20 +185,30 @@ pub(super) fn MeshLocal(
                                 .map(|o| {
                                     view! {
                                         <PrefRow
-                                            label="另一个 EasyTier"
+                                            label="另一个组网程序"
                                             detail=format!(
-                                                "本机还在运行另一个 EasyTier（{o}）。两个实例连同一个网络会互相抢路由，建议退出它。",
+                                                "这台电脑上还开着另一个组网程序（{o}）。两个同时连同一个团队会互相干扰，建议关掉它。",
                                             )
                                         />
                                     }
                                 })}
-                            <PrefAdvanced title="组网详情">
-                                {text_row("可见机器", peers.clone(), false)}
-                                {text_row("网络", net.clone(), true)}
+                            <PrefAdvanced title="高级" wide=true>
+                                {text_row("能看到的机器", peers.clone(), false)}
+                                {text_row("团队网络", net.clone(), true)}
                                 {text_row("主机名", host.clone(), true)}
-                                {text_row("虚拟地址", addr.clone(), true)}
+                                {text_row("组网地址", addr.clone(), true)}
                                 {text_row("NAT", nat.clone(), false)}
-                                {text_row("引擎", engine.clone(), true)}
+                                {text_row("组网引擎", engine.clone(), true)}
+                                {(!running)
+                                    .then(|| {
+                                        text_row(
+                                            "排查",
+                                            "日志在系统组网目录的 logs/ 里".to_owned(),
+                                            false,
+                                        )
+                                    })}
+                                <EasyTierRows m toml_in editable=true />
+                                <Discovery m />
                             </PrefAdvanced>
                         }
                             .into_any();
@@ -195,14 +231,14 @@ pub(super) fn MeshLocal(
                         };
                         let menu = vec![
                             MenuItem::new("刷新机器", refresh),
-                            MenuItem::new("使用邀请文件", use_invite),
-                            MenuItem::new("导入 EasyTier 配置", import_toml),
+                            MenuItem::new("使用邀请文件…", use_invite),
                         ];
+                        let label_rpc = label.clone();
                         return view! {
                             <PrefRow
-                                label="状态"
+                                label="团队"
                                 detail=format!(
-                                    "连接由 {label} 提供，Blazar 复用这个连接，无需重新加入。",
+                                    "连接由 {label} 提供，Blazar 直接复用，不用重新加入。",
                                 )
                             >
                                 <Status tone=Tone::Other label="已连接" />
@@ -214,12 +250,12 @@ pub(super) fn MeshLocal(
                                     disabled=busy
                                 />
                             </PrefRow>
-                            <PrefAdvanced title="组网详情">
-                                {text_row("网络", net.clone(), true)}
+                            <PrefAdvanced title="高级" wide=true>
+                                {text_row("团队网络", net.clone(), true)}
                                 {text_row("主机名", host.clone(), true)}
-                                {text_row("可见节点", peers.clone(), false)}
+                                {text_row("能看到的机器", peers.clone(), false)}
                                 {text_row("NAT", nat.clone(), false)}
-                                {text_row("RPC", dash(rpc.clone()), true)}
+                                {text_row("RPC 门户", dash(rpc.clone()), true)}
                                 {rpc
                                     .is_empty()
                                     .then(|| {
@@ -227,7 +263,7 @@ pub(super) fn MeshLocal(
                                             <PrefRow
                                                 label="RPC 门户"
                                                 detail=format!(
-                                                    "在 {label} 设置里把「RPC 门户」设为 127.0.0.1:15888，可看到本机 NAT 与可见节点数。",
+                                                    "在 {label_rpc} 设置里把「RPC 门户」设为 127.0.0.1:15888，就能看到这台电脑的 NAT 和能看到几台机器。",
                                                 )
                                                 for_id="mesh-rpc"
                                             >
@@ -250,45 +286,43 @@ pub(super) fn MeshLocal(
                                             </PrefRow>
                                         }
                                     })}
+                                <EasyTierRows m toml_in editable=false />
+                                <Discovery m />
                             </PrefAdvanced>
                         }
                             .into_any();
                     }
                     let bundled = st["engine_bundled"].as_bool() == Some(true);
                     let version = s(&st, "engine_version");
-                    let menu = vec![
-                        MenuItem::new("使用邀请文件", use_invite),
-                        MenuItem::new("导入 EasyTier 配置", import_toml),
-                        MenuItem::new("新建 EasyTier 配置", new_config),
-                        MenuItem::new("刷新机器", refresh),
-                    ];
                     view! {
                         <PrefRow
-                            label="状态"
-                            detail="用邀请文件或 EasyTier 配置加入，也可以直接把它拖到这里。"
+                            label="团队"
+                            detail="用同事发来的邀请文件加入，也可以直接把文件拖进这个窗口。"
                         >
                             <Status tone=Tone::Other label="未加入" />
-                            <MoreMenu
-                                label="更多…".to_owned()
-                                text="更多…"
-                                items=menu
-                                disabled=busy
-                            />
+                            <button
+                                type="button"
+                                class="btn"
+                                disabled=move || busy.get()
+                                on:click=move |_| use_invite()
+                            >
+                                "使用邀请文件…"
+                            </button>
                         </PrefRow>
                         {(!bundled)
                             .then(|| {
                                 view! {
                                     <PrefRow
-                                        label="组网引擎"
-                                        detail="这个安装包没有带组网引擎，请安装完整版桌面端。"
+                                        label="组网组件"
+                                        detail="这个安装包没有带组网组件，加入团队需要安装完整版桌面端。"
                                     >
                                         <span class="pref-text bad">"缺失"</span>
                                     </PrefRow>
                                 }
                             })}
-                        <PrefAdvanced title="组网详情">
+                        <PrefAdvanced title="高级" wide=true>
                             {text_row(
-                                "引擎",
+                                "组网引擎",
                                 format!(
                                     "EasyTier {version}{}",
                                     if bundled {
@@ -299,14 +333,8 @@ pub(super) fn MeshLocal(
                                 ),
                                 true,
                             )}
-                            <PrefRow
-                                label="EasyTier 配置"
-                                detail="从空白模板开始写一份配置，预览后应用。"
-                            >
-                                <button type="button" class="btn" on:click=move |_| new_config()>
-                                    "新建配置"
-                                </button>
-                            </PrefRow>
+                            <EasyTierRows m toml_in editable=false />
+                            <Discovery m />
                         </PrefAdvanced>
                     }
                         .into_any()
@@ -364,7 +392,12 @@ pub(super) fn ConfigEditor(m: Mesh, text: String, err: Option<String>) -> impl I
                 prop:value=move || t.get()
                 on:input=move |e| t.set(event_target_value(&e))
             ></textarea>
-            {move || err.get().map(|e| view! { <InlineError message=e /> })}
+            {move || {
+                err.get()
+                    .map(|e| {
+                        view! { <InlineError lead="配置有问题" message=e /> }
+                    })
+            }}
             <div class="dlg-foot">
                 <button class="btn" disabled=move || busy.get() on:click=move |_| close.run(())>
                     "取消"
@@ -444,7 +477,7 @@ pub(super) fn ConfigPreview(m: Mesh, p: Value, text: String) -> impl IntoView {
                 <span class="k">"身份"</span>
                 <span class="v">
                     {if s(&sm, "auth") == "network_secret" {
-                        "网络密钥（管理员 / 枢纽）"
+                        "组网密钥（管理员）"
                     } else {
                         "个人凭据"
                     }}
@@ -475,7 +508,7 @@ pub(super) fn ConfigPreview(m: Mesh, p: Value, text: String) -> impl IntoView {
                     </span>
                 </div>
                 <div class="kv">
-                    <span class="k">"对端"</span>
+                    <span class="k">"入网地址"</span>
                     <span class="v mono">{peers.join("\n")}</span>
                 </div>
                 {(!listeners.is_empty())
@@ -536,7 +569,7 @@ pub(super) fn ConfigPreview(m: Mesh, p: Value, text: String) -> impl IntoView {
                 <button
                     class="btn primary"
                     disabled=move || busy.get() || !can
-                    title=if can { "" } else { "安装包没有带组网引擎" }
+                    title=if can { "" } else { "安装包没有带组网组件" }
                     on:click=move |_| {
                         if busy.get_untracked() {
                             return;
@@ -565,7 +598,7 @@ pub(super) fn ConfigPreview(m: Mesh, p: Value, text: String) -> impl IntoView {
                                 }
                                 Err(e) => {
                                     let _ = busy.try_set(false);
-                                    toast(format!("应用失败：{e}"));
+                                    toast_error("应用失败", &e);
                                 }
                             }
                         });
@@ -612,32 +645,28 @@ pub(super) fn JoinDialog(m: Mesh, p: Value, text: Option<String>) -> impl IntoVi
         if pending {
             spawn_local(async {
                 if let Err(e) = api::send::<Value>("DELETE", "/api/mesh/join", &json!({})).await {
-                    toast(format!("未能清除待用邀请：{e}"));
+                    toast_error("未能清除待用邀请", &e);
                 }
             });
         }
     });
     view! {
-        <Modal
-            label="加入团队组网"
-            class="dlg nodes-dialog"
-            close_on_backdrop=false
-            on_close=close
-        >
-            <h3>"加入团队组网"</h3>
+        <Modal label="加入团队" class="dlg nodes-dialog" close_on_backdrop=false on_close=close>
+            <h3>"加入团队"</h3>
             <div class="muted small">
                 {format!(
-                    "{} 邀请这台电脑加入组网。加入后，团队里的机器可以通过虚拟地址访问它，它也能访问团队的机器。",
+                    "{} 邀请这台电脑加入团队。加入后，这台电脑和团队里的机器可以互相访问。",
                     Some(s(&sm, "issued_by"))
                         .filter(|x| !x.is_empty())
                         .unwrap_or_else(|| "管理员".into()),
                 )}
             </div>
             <div class="kv">
-                <span class="k">"网络"</span>
+                <span class="k">"团队网络"</span>
                 <span class="v mono">{net.clone()}</span>
             </div>
-            <div class="nodes-details">
+            <details class="nodes-details">
+                <summary>"高级"</summary>
                 <div class="kv">
                     <span class="k">"本机主机名"</span>
                     <span class="v mono">{s(&sm, "hostname")}</span>
@@ -654,7 +683,7 @@ pub(super) fn JoinDialog(m: Mesh, p: Value, text: Option<String>) -> impl IntoVi
                     <span class="k">"入网地址"</span>
                     <span class="v mono">{peers.join("\n")}</span>
                 </div>
-            </div>
+            </details>
             <div class="kv">
                 <span class="k">"有效期至"</span>
                 <span class="v">{format!("{}（{} 天）", date_of(exp), days_left(exp))}</span>
@@ -711,7 +740,7 @@ pub(super) fn JoinDialog(m: Mesh, p: Value, text: Option<String>) -> impl IntoVi
                                 }
                                 Err(e) => {
                                     let _ = busy.try_set(false);
-                                    toast(format!("加入失败：{e}"));
+                                    toast_error("加入失败", &e);
                                 }
                             }
                         });

@@ -15,7 +15,7 @@ pub(super) fn remove_ssh(name: String) {
         .await
         {
             Ok(_) => toast(format!("已移除 {name}")),
-            Err(e) => toast(format!("移除失败：{e}")),
+            Err(e) => toast_error("移除失败", &e),
         }
     });
 }
@@ -47,7 +47,7 @@ pub(super) fn SshPicker(#[prop(into)] on_close: Callback<()>) -> impl IntoView {
                 }
                 Err(e) => {
                     let _ = busy.try_set(false);
-                    toast(format!("添加失败：{e}"));
+                    toast_error("添加失败", &e);
                 }
             }
         });
@@ -67,7 +67,7 @@ pub(super) fn SshPicker(#[prop(into)] on_close: Callback<()>) -> impl IntoView {
             <details class="nodes-details">
                 <summary>"连接方式"</summary>
                 <p class="muted small">
-                    "读取本机 ~/.ssh/config，沿用 SSH 密钥和 ProxyJump 设置。添加后无需加入组网，也能创建工作区、同步 Claude Code / Codex 版本。"
+                    "读取本机 ~/.ssh/config，沿用 SSH 密钥和 ProxyJump 设置。添加后不用加入团队，也能创建工作区、同步 Claude Code / Codex 版本。"
                 </p>
             </details>
             <input
@@ -83,7 +83,8 @@ pub(super) fn SshPicker(#[prop(into)] on_close: Callback<()>) -> impl IntoView {
                     Some(Err(e)) => {
                         view! {
                             <InlineError
-                                message=format!("无法读取 SSH 配置：{e}")
+                                lead="无法读取 SSH 配置"
+                                message=e.to_string()
                                 retry=Callback::new(move |()| rev.update(|n| *n += 1))
                             />
                         }
@@ -164,7 +165,7 @@ pub(super) fn SshPicker(#[prop(into)] on_close: Callback<()>) -> impl IntoView {
                                         <span class="grow"></span>
                                         {if mesh {
                                             Some(
-                                                view! { <span class="gchip">"在组网里"</span> }
+                                                view! { <span class="gchip">"在团队里"</span> }
                                                     .into_any(),
                                             )
                                         } else if added {

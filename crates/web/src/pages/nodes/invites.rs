@@ -36,13 +36,13 @@ pub(super) fn Issuer(m: Mesh) -> impl IntoView {
                         &s(&r, "content"),
                         "application/x-blazar-invite",
                     );
-                    msg.try_set(format!("已生成 {}（{}）—— 发给 {who}，TA 用 Blazar 打开即可加入。文件即凭据，请私下发送。", s(&r, "file_name"), Some(s(&r["summary"], "ipv4")).filter(|x| !x.is_empty()).unwrap_or_else(|| "动态地址".into())));
+                    msg.try_set(format!("已生成 {}（{}）—— 发给 {who}，TA 用 Blazar 打开就能加入。文件就是入网凭据，请私下发送。", s(&r, "file_name"), Some(s(&r["summary"], "ipv4")).filter(|x| !x.is_empty()).unwrap_or_else(|| "动态地址".into())));
                     member.try_set(String::new());
                     host.try_set(String::new());
                     note.try_set(String::new());
                     m.invites.update(|n| *n += 1);
                 }
-                Err(e) => toast(format!("生成失败：{e}")),
+                Err(e) => toast_error("生成失败", &e),
             }
             let _ = busy.try_set(false);
         });
@@ -58,7 +58,8 @@ pub(super) fn Issuer(m: Mesh) -> impl IntoView {
                     view! {
                         <InlineError
                             class="pref-empty"
-                            message=format!("无法读取邀请设置：{e}")
+                            lead="无法读取邀请设置"
+                            error=e
                             retry=Callback::new(move |()| m.issuer.update(|n| *n += 1))
                         />
                     }
@@ -68,19 +69,19 @@ pub(super) fn Issuer(m: Mesh) -> impl IntoView {
                     view! {
                         <PrefRow
                             label="状态"
-                            detail="设置签发机器后，即可生成邀请文件。加入他人的组网无需此设置。"
+                            detail="先指定一台负责签发邀请的机器，就能给同事生成邀请文件。加入别人的团队不用设置这一项。"
                         >
                             <Status tone=Tone::Other label="待设置" />
                             <button type="button" class="btn" on:click=move |_| settings.set(true)>
                                 "签发设置"
                             </button>
                         </PrefRow>
-                        <PrefAdvanced title="如何设置">
+                        <PrefAdvanced title="高级">
                             <p>
-                                "选择持有网络密钥 network_secret 的机器（通常是枢纽），填写 SSH Host 或 local。"
+                                "负责签发的机器要持有组网密钥（EasyTier 的 network_secret），通常是团队里公网可达的枢纽；填它的 SSH 名称，或者 local 表示这台电脑。"
                             </p>
                             <p>
-                                "Blazar 通过 SSH 调用 easytier-cli credential 签发和吊销邀请。加入他人的组网可使用邀请文件或 EasyTier 配置，不需要这项设置。"
+                                "Blazar 经 SSH 调用 easytier-cli credential 签发和吊销邀请。"
                             </p>
                         </PrefAdvanced>
                     }
@@ -106,8 +107,8 @@ pub(super) fn Issuer(m: Mesh) -> impl IntoView {
                         format!("由 {where_} 签发")
                     } else {
                         format!(
-                            "无法连接签发机器 {where_}，请检查连接或修改签发设置：{}",
-                            s(&v, "error"),
+                            "连不上负责签发的机器 {where_}，请检查连接或修改签发设置。{}",
+                            crate::vocab::error(&s(&v, "error"), None),
                         )
                     };
                     view! {
@@ -135,7 +136,7 @@ pub(super) fn Issuer(m: Mesh) -> impl IntoView {
                                     </PrefRow>
                                     <PrefRow
                                         label="主机名"
-                                        detail="组网内唯一；称呼是英文时可留空。"
+                                        detail="在团队里不能重名；称呼是英文时可留空。"
                                         for_id="invite-host"
                                     >
                                         <input
@@ -197,7 +198,7 @@ pub(super) fn Issuer(m: Mesh) -> impl IntoView {
                                     </PrefRow>
                                     <PrefRow
                                         label="邀请文件"
-                                        detail="邀请文件就是个人入网凭据，请私下发送。可单独吊销，到期自动失效，不含整个网络的密钥。"
+                                        detail="邀请文件就是个人入网凭据，请私下发送。可单独吊销，到期自动失效，不含整个团队的组网密钥。"
                                     >
                                         <button
                                             type="button"
@@ -225,10 +226,13 @@ pub(super) fn Issuer(m: Mesh) -> impl IntoView {
                                     <p class="pref-status" role="status" aria-live="polite">
                                         {move || msg.get()}
                                     </p>
-                                    <PrefAdvanced title="签发详情">
+                                    <PrefAdvanced title="高级">
                                         {text_row("机器", where_.clone(), true)}
-                                        {text_row("网络", dash(s(&v, "network_name")), true)}
-                                        {text_row("网段", dash(s(&v, "subnet")), true)}
+                                        {text_row(
+                                            "团队网络",
+                                            dash(s(&v, "network_name")),
+                                            true,
+                                        )} {text_row("网段", dash(s(&v, "subnet")), true)}
                                         {text_row(
                                             "入网地址",
                                             if no_entry {
@@ -335,21 +339,21 @@ fn IssuerSettings(
         <Modal label="签发设置" class="dlg wide nodes-dialog" on_close=close>
             <h3>"签发设置"</h3>
             <div class="notice-box warn">
-                "签发机器必须配置 credential_file，否则重启后已签发的凭据会全部失效。"
+                "负责签发的机器要配置凭据文件，否则它一重启，已签发的邀请会全部失效。"
             </div>
             <details class="nodes-details">
-                <summary>"签发原理"</summary>
+                <summary>"高级"</summary>
                 <p class="muted small">
-                    "选择持有 network_secret 的机器，通常是枢纽。Blazar 通过 SSH 调用 easytier-cli credential。"
+                    "凭据文件即 EasyTier 的 credential_file。负责签发的机器要持有组网密钥 network_secret，通常是枢纽；Blazar 经 SSH 调用 easytier-cli credential。"
                 </p>
             </details>
             <fieldset class="nodes-form" disabled=move || busy.get()>
                 <div class="grid2">
                     <label class="field">
-                        "签发节点（SSH Host 或 local）"
+                        "负责签发的机器（SSH 名称，或 local）"
                         <input
                             class="mono"
-                            placeholder="hub-host"
+                            placeholder="office-server"
                             prop:value=move || via.get()
                             on:input=move |e| via.set(event_target_value(&e))
                         />
@@ -391,8 +395,8 @@ fn IssuerSettings(
                                 disabled=move || busy.get()
                                 on:click=move |_| spawn_local(async move {
                                     if dialog::ask(
-                                            "清除签发节点设置",
-                                            "清除签发节点设置？回到「未配置」，已签发的邀请记录不动。",
+                                            "清除签发设置",
+                                            "清除签发设置？回到「未设置」，已签发的邀请记录不动。",
                                             vec![Choice::plain("取消"), Choice::danger("清除")],
                                         )
                                         .await != Some(1)
@@ -412,7 +416,7 @@ fn IssuerSettings(
                                             toast("已清除");
                                             on_close(true);
                                         }
-                                        Err(e) => toast(format!("清除失败：{e}")),
+                                        Err(e) => toast_error("清除失败", &e),
                                     }
                                     busy.try_set(false);
                                 })
@@ -432,7 +436,7 @@ fn IssuerSettings(
                             return;
                         }
                         if via.get_untracked().trim().is_empty() {
-                            toast("请填写签发节点");
+                            toast("请填写负责签发的机器");
                             return;
                         }
                         busy.set(true);
@@ -446,7 +450,7 @@ fn IssuerSettings(
                                     toast("已保存");
                                     on_close(true);
                                 }
-                                Err(e) => toast(format!("保存失败：{e}")),
+                                Err(e) => toast_error("保存失败", &e),
                             }
                             busy.try_set(false);
                         });
@@ -483,7 +487,8 @@ pub(super) fn Invites(m: Mesh) -> impl IntoView {
                     view! {
                         <InlineError
                             class="pref-empty"
-                            message=format!("无法读取邀请记录：{e}")
+                            lead="无法读取邀请记录"
+                            error=e
                             retry=Callback::new(move |()| m.invites.update(|n| *n += 1))
                         />
                     }
@@ -498,7 +503,7 @@ pub(super) fn Invites(m: Mesh) -> impl IntoView {
                                 view! {
                                     <p class="pref-status bad">
                                         {format!(
-                                            "{lost} 份邀请的凭据已丢失，需要重新签发（通常是签发节点重启、且没有配置 credential_file）。",
+                                            "{lost} 份邀请已失效，需要重新生成（通常是负责签发的机器重启过，又没配置凭据文件）。",
                                         )}
                                     </p>
                                 }
@@ -507,7 +512,7 @@ pub(super) fn Invites(m: Mesh) -> impl IntoView {
                             .then(|| {
                                 view! {
                                     <p class="pref-status">
-                                        "签发节点连不上，状态未核对"
+                                        "负责签发的机器连不上，状态还没核对"
                                     </p>
                                 }
                             })}
@@ -605,7 +610,7 @@ pub(super) fn Invites(m: Mesh) -> impl IntoView {
                                                                                         if dialog::ask(
                                                                                                 "吊销邀请",
                                                                                                 &format!(
-                                                                                                    "吊销 {who} 的邀请？TA 的电脑会立即断开组网。",
+                                                                                                    "吊销 {who} 的邀请？TA 的电脑会立即和团队断开。",
                                                                                                 ),
                                                                                                 vec![Choice::plain("取消"), Choice::danger("吊销")],
                                                                                             )
@@ -630,7 +635,7 @@ pub(super) fn Invites(m: Mesh) -> impl IntoView {
                                                                                                 toast("已吊销");
                                                                                                 m.invites.update(|n| *n += 1);
                                                                                             }
-                                                                                            Err(e) => toast(format!("吊销失败：{e}")),
+                                                                                            Err(e) => toast_error("吊销失败", &e),
                                                                                         }
                                                                                         revoking.try_set(false);
                                                                                     });

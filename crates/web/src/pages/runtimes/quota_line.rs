@@ -3,7 +3,7 @@ use serde_json::{Value, json};
 
 use crate::api;
 use crate::components::prefs::PrefRow;
-use crate::components::toast::{flash, toast};
+use crate::components::toast::{flash, toast, toast_error};
 
 /// 「自动分摊」的额度线：超过就不再派新对话，同时提醒一次（原先在设置 → 对话与运行）。
 #[component]
@@ -46,7 +46,7 @@ pub(super) fn QuotaLine() -> impl IntoView {
                                     {
                                         Ok(_) => flash("已保存"),
                                         Err(e) => {
-                                            toast(format!("没保存上：{e}"));
+                                            toast_error("没保存上", &e);
                                             limit.set(old);
                                         }
                                     }

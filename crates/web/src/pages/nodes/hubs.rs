@@ -5,7 +5,7 @@ use crate::fmt;
 use crate::pages::runtimes::{WITH_ACCOUNTS, account_status, active_account};
 
 const NOTE: &str =
-    "每个 Blazar 各管各的账号；在这里看它们用的是哪个，也可以直接改，请求经本机 hub 转发过去。";
+    "每个 Blazar 各管各的账号；在这里看它们用的是哪个，也可以直接改，请求经这台电脑转发过去。";
 const NOTE_READ_ONLY: &str =
     "每个 Blazar 各管各的账号；这是开发实例，只能看它们用的是哪个，要改请到正式的 Blazar 里改。";
 
@@ -125,7 +125,7 @@ pub fn NodeHubs(name: String, online: Signal<bool>) -> impl IntoView {
             .await
             {
                 Ok(_) => toast("那边的账号设置已改好"),
-                Err(e) => toast(format!("改不了：{e}")),
+                Err(e) => toast_error("改不了", &e),
             }
             switching.try_set(false);
             load();
@@ -169,7 +169,8 @@ pub fn NodeHubs(name: String, online: Signal<bool>) -> impl IntoView {
         .into_any(),
         Some(Err(e)) => view! {
             <InlineError
-                message=format!("查找失败：{e}")
+                lead="查找失败"
+                message=e.to_string()
                 retry=Callback::new(move |()| load())
             />
         }

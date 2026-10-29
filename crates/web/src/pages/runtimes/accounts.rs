@@ -6,7 +6,7 @@ use wasm_bindgen::JsCast;
 use crate::api::{self, Account};
 use crate::components::dialog::{self, Choice};
 use crate::components::menu::menu_keydown;
-use crate::components::toast::toast;
+use crate::components::toast::{toast, toast_error};
 use crate::fmt;
 
 use super::{Form, WITH_ACCOUNTS, account_status, account_status_hint, login, patch};
@@ -157,7 +157,13 @@ pub(super) fn AccountRow(
         spawn_local(async move {
             match api::use_account(&a).await {
                 Ok(r) => toast(match (r["global"].as_bool(), r["global_error"].as_str()) {
-                    (_, Some(e)) => format!("Blazar 已换成「{}」，但终端没跟上：{e}", a.label),
+                    (_, Some(e)) => {
+                        crate::vocab::lead(
+                            &format!("Blazar 已换成「{}」，但终端没跟上", a.label),
+                            crate::vocab::explain(e, None),
+                        )
+                        .0
+                    }
                     (Some(true), _) => format!(
                         "{} 现在用「{}」，终端和 Cursor 也换过去了",
                         provider_label(&a.provider),
@@ -165,7 +171,7 @@ pub(super) fn AccountRow(
                     ),
                     _ => format!("{} 现在用「{}」", provider_label(&a.provider), a.label),
                 }),
-                Err(e) => toast(format!("换不过去：{e}")),
+                Err(e) => toast_error("换不过去", &e),
             }
             let _ = busy.try_set(false);
         });
@@ -257,7 +263,7 @@ pub(super) fn AccountRow(
                                 }
                                     .await;
                                 if let Err(e) = r {
-                                    toast(e.to_string());
+                                    toast_error("删除失败", &e);
                                 }
                                 let _ = busy.try_set(false);
                             });
@@ -339,7 +345,7 @@ pub(super) fn AccountRow(
                                                                 )
                                                                 .await
                                                             {
-                                                                toast(e.to_string());
+                                                                toast_error("没清除成", &e);
                                                             }
                                                         });
                                                     }

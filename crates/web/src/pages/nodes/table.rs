@@ -231,13 +231,13 @@ fn RowMenu(n: NodeView, at: MenuAt, menu: RwSignal<Option<MenuAt>>) -> impl Into
         ().into_any()
     } else if n.is_pending() {
         view! {
-            {role_item("设为开发机", Some("dev"))}
+            {role_item("设为可派活的机器", Some("dev"))}
             {role_item("设为个人电脑", Some("personal"))}
         }
         .into_any()
     } else if n.is_personal() {
         view! {
-            {role_item("改为开发机", Some("dev"))}
+            {role_item("改为可派活的机器", Some("dev"))}
             {role_item("重新确认", None)}
         }
         .into_any()

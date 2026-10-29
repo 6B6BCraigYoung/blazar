@@ -8,7 +8,7 @@ use crate::app_state::{AppData, use_app};
 use crate::components::dialog::{self, Choice};
 use crate::components::page_head::PageHead;
 use crate::components::prefs::PrefRow;
-use crate::components::toast::toast;
+use crate::components::toast::{toast, toast_error};
 use crate::components::{
     icon,
     modal::Modal,
@@ -26,15 +26,15 @@ mod mesh;
 mod roles;
 mod ssh;
 mod table;
+mod team;
 
-use advanced::AdvancedSheet;
 pub use detail::NodeDetailPage;
-use hub_mode::{CrossMachine, RunsOn};
-use invites::{Invites, Issuer};
-use mesh::{ConfigEditor, ConfigPreview, JoinDialog, MeshLocal};
+use hub_mode::MultiMachine;
+use mesh::{ConfigEditor, ConfigPreview, JoinDialog};
 use roles::ConfirmSheet;
 use ssh::{SshPicker, remove_ssh};
 use table::{MachineTable, listed, sorted};
+use team::TeamSheet;
 
 fn s(v: &Value, k: &str) -> String {
     v.get(k).and_then(Value::as_str).unwrap_or("").to_owned()
@@ -107,10 +107,10 @@ async fn refresh_mesh(m: Mesh) {
     m.refreshing.set(true);
     match api::send::<Value>("POST", "/api/mesh/refresh", &json!({})).await {
         Ok(r) => toast(format!(
-            "发现 {} 个节点",
+            "发现 {} 台机器",
             r["discovered"].as_u64().unwrap_or(0)
         )),
-        Err(e) => toast(format!("刷新失败：{e}")),
+        Err(e) => toast_error("刷新失败", &e),
     }
     m.refreshing.set(false);
     m.local.update(|n| *n += 1);
@@ -123,7 +123,7 @@ async fn pending_invite(m: Mesh) {
         if v["pending"].is_object() {
             m.join.set(Some((v["pending"].clone(), None)));
         } else if let Some(e) = v["pending_error"].as_str() {
-            toast(format!("无法使用这个邀请：{e}"));
+            toast_error("无法使用这个邀请", e);
         }
     }
 }
@@ -166,7 +166,7 @@ pub fn MeshHost() -> impl IntoView {
 
 async fn open_mesh_file(m: Mesh, f: web_sys::File) {
     if m.operation.get_untracked() {
-        toast("组网操作正在进行，请等待完成");
+        toast("上一步还没做完，请稍等");
         return;
     }
     let name = f.name();
@@ -192,7 +192,7 @@ async fn open_mesh_file(m: Mesh, f: web_sys::File) {
         match api::send::<Value>("POST", "/api/mesh/join/preview", &json!({ "invite": text })).await
         {
             Ok(p) => m.join.set(Some((p, Some(text)))),
-            Err(e) => toast(format!("无法使用这个邀请：{e}")),
+            Err(e) => toast_error("无法使用这个邀请", &e),
         }
     }
 }
@@ -218,7 +218,7 @@ pub fn NodesPage() -> impl IntoView {
     let toml_in = NodeRef::<leptos::html::Input>::new();
     let ssh_pick = RwSignal::new(false);
     let confirm = RwSignal::new(false);
-    let advanced = RwSignal::new(false);
+    let team = RwSignal::new(false);
     let nodes = move || {
         app.state
             .with(|s| s.as_ref().map(|s| s.nodes.clone()).unwrap_or_default())
@@ -240,18 +240,6 @@ pub fn NodesPage() -> impl IntoView {
     let pending_count = Memo::new(move |_| nodes().iter().filter(|n| n.is_pending()).count());
     let loading = Memo::new(move |_| app.state.with(|s| s.is_none()));
     let empty = Memo::new(move |_| shown.with(Vec::is_empty));
-    let bus = crate::realtime::use_bus();
-    let topo = LocalResource::new(move || {
-        m.local.track();
-        bus.nodes.track();
-        api::get::<Value>("/api/mesh/topology")
-    });
-    let source = Signal::derive(move || {
-        topo.get()
-            .and_then(Result::ok)
-            .map(|t| s(&t, "source"))
-            .filter(|x| !x.is_empty())
-    });
     let on_file = move |e: leptos::ev::Event| {
         let input: web_sys::HtmlInputElement = event_target(&e);
         if let Some(f) = input.files().and_then(|l| l.get(0)) {
@@ -289,7 +277,7 @@ pub fn NodesPage() -> impl IntoView {
                         .iter()
                         .filter(|x| x.is_usable() && x.status == "online")
                         .count();
-                    view! { <Status tone=Tone::Other label=format!("{n} 台开发机在线") /> }
+                    view! { <Status tone=Tone::Other label=format!("{n} 台机器在线") /> }
                 }
             >
                 {move || {
@@ -299,7 +287,7 @@ pub fn NodesPage() -> impl IntoView {
                             view! {
                                 <button
                                     type="button"
-                                    class="btn"
+                                    class="btn nodes-confirm"
                                     aria-haspopup="dialog"
                                     on:click=move |_| confirm.set(true)
                                 >
@@ -308,6 +296,14 @@ pub fn NodesPage() -> impl IntoView {
                             }
                         })
                 }}
+                <button
+                    type="button"
+                    class="btn ghost nodes-team"
+                    aria-haspopup="dialog"
+                    on:click=move |_| team.set(true)
+                >
+                    "邀请同事 / 加入团队"
+                </button>
                 <button class="btn primary" on:click=move |_| ssh_pick.set(true)>
                     "添加机器"
                 </button>
@@ -337,23 +333,15 @@ pub fn NodesPage() -> impl IntoView {
                     })
             }}
             {move || {
-                topo.get()
-                    .and_then(Result::err)
-                    .map(|e| {
-                        view! {
-                            <InlineError
-                                message=format!("无法读取组网机器：{e}")
-                                retry=Callback::new(move |()| m.local.update(|n| *n += 1))
-                            />
-                        }
-                    })
-            }}
-            {move || {
                 app.state_error
                     .get()
                     .map(|message| {
                         view! {
-                            <InlineError message retry=Callback::new(move |_| app.load_state()) />
+                            <InlineError
+                                lead="无法读取机器"
+                                message
+                                retry=Callback::new(move |_| app.load_state())
+                            />
                         }
                     })
             }}
@@ -377,7 +365,7 @@ pub fn NodesPage() -> impl IntoView {
                             detail=if filtered {
                                 "换个名称搜索，或清空筛选。"
                             } else {
-                                "添加 SSH 机器，或发现已加入组网的机器。"
+                                "添加一台能用 SSH 登录的机器；加入团队后，团队里的机器也会出现在这里。"
                             }
                         />
                     }
@@ -385,33 +373,7 @@ pub fn NodesPage() -> impl IntoView {
                 }
                 view! { <MachineTable nodes=shown /> }.into_any()
             }}
-            {move || {
-                topo.get()
-                    .and_then(Result::ok)
-                    .map(|_| {
-                        let src = source.get();
-                        view! {
-                            <p class="machines-foot muted small">
-                                <span>
-                                    {src
-                                        .clone()
-                                        .map_or_else(
-                                            || "暂时无法发现组网机器。".to_owned(),
-                                            |x| format!("组网机器由{x}发现。"),
-                                        )}
-                                </span>
-                                <button
-                                    type="button"
-                                    class="linkbtn"
-                                    aria-haspopup="dialog"
-                                    on:click=move |_| advanced.set(true)
-                                >
-                                    {if src.is_some() { "高级…" } else { "设置…" }}
-                                </button>
-                            </p>
-                        }
-                    })
-            }}
+            <MultiMachine />
             {move || {
                 confirm
                     .get()
@@ -434,30 +396,18 @@ pub fn NodesPage() -> impl IntoView {
                     })
             }}
             {move || {
-                advanced
-                    .get()
+                team.get()
                     .then(|| {
                         view! {
-                            <AdvancedSheet
+                            <TeamSheet
                                 m
-                                source
-                                on_close=Callback::new(move |()| advanced.set(false))
+                                invite_in
+                                toml_in
+                                on_close=Callback::new(move |()| team.set(false))
                             />
                         }
                     })
             }}
-            <div class="nodes-section-heading">
-                <h2>"团队组网"</h2>
-                <span class="muted small">"由 EasyTier 提供"</span>
-            </div>
-            <MeshLocal m invite_in toml_in />
-            <Issuer m />
-            <Invites m />
-            <div class="nodes-section-heading">
-                <h2>"多机协作"</h2>
-            </div>
-            <CrossMachine />
-            <RunsOn />
             {move || {
                 ssh_pick.get().then(|| view! { <SshPicker on_close=move || ssh_pick.set(false) /> })
             }}
@@ -475,7 +425,7 @@ fn set_roles(app: AppData, roles: Vec<(String, Option<&'static str>)>) {
     spawn_local(async move {
         match api::send::<Value>("PUT", "/api/nodes/roles", &json!({ "roles": roles })).await {
             Ok(_) => app.load_state(),
-            Err(e) => toast(format!("设置机器类型失败：{e}")),
+            Err(e) => toast_error("设置机器类型失败", &e),
         }
     });
 }

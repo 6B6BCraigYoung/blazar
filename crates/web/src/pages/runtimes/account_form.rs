@@ -93,7 +93,7 @@ pub(super) fn AccountForm(
                         let a: Account = api::send("POST", "/api/accounts", &json!({ "provider": provider, "label": n, "token": if use_token { Some(t) } else { None } })).await?;
                         saved = true;
                         if use_token {
-                            toast(if a.status == "ok" { format!("「{}」已添加，第一次运行时会验证 token", a.label) } else { format!("「{}」已添加，但 CLI 没认出这个 token", a.label) });
+                            toast(if a.status == "ok" { format!("「{}」已添加，第一次使用时会验证 token", a.label) } else { format!("「{}」已添加，但 CLI 没认出这个 token", a.label) });
                         } else {
                             login(&a);
                         }
@@ -103,7 +103,7 @@ pub(super) fn AccountForm(
                         if t.is_empty() { form_error.set(Some("请粘贴完整 token".into())); return Ok(()); }
                         let r = api::send::<Value>("PUT", &format!("/api/accounts/{}/token", api::enc(&a.id)), &json!({ "token": t })).await?;
                         saved = true;
-                        toast(if r["status"] == "ok" { "已保存，第一次运行时会验证 token" } else { "已保存，但 CLI 没认出这个 token" });
+                        toast(if r["status"] == "ok" { "已保存，第一次使用时会验证 token" } else { "已保存，但 CLI 没认出这个 token" });
                     }
                     Form::Plan(a) => {
                         patch(a, json!({ "plan": plan.get_untracked() })).await?;
@@ -115,7 +115,7 @@ pub(super) fn AccountForm(
             let mut completed = false;
             let _ = gate.try_update(|g| completed = g.complete("form", r.is_ok() && saved));
             if let Err(e) = r {
-                let _ = form_error.try_set(Some(format!("保存失败：{e}")));
+                let _ = form_error.try_set(Some(crate::vocab::lead("保存失败", e.explained()).0));
             }
             if completed {
                 on_close();
