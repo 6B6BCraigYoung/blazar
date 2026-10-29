@@ -6,8 +6,8 @@ use leptos::prelude::*;
 use super::diff_panel::{DiffBar, DiffState, DiffView};
 use super::editor::{EdBar, MdView, Tabs};
 use super::files::Files;
-use super::git_panel::{Git, GitView};
-use super::layout::{Changes, Edge, LayoutState, Splitter, Tab};
+use super::git_panel::{Git, GitLine};
+use super::layout::{Edge, LayoutState, Splitter, Tab};
 use super::preview_panel::PreviewBar;
 use super::tree::{FileTree, TreePane};
 use crate::components::empty::{Action, Blank};
@@ -32,7 +32,6 @@ pub fn Inspector(
     let lay = move || state.lay.get();
     let on = move |t: Tab| move || (lay().tab == t).to_string();
     let collapsed = RwSignal::new(HashSet::<String>::new());
-    let diff_n = move || diff.files.with(Vec::len);
     let preview_on = Signal::derive(move || {
         let l = lay();
         l.inspect && l.tab == Tab::Preview
@@ -48,14 +47,9 @@ pub fn Inspector(
                 on:click=move |_| state.open(t)
             >
                 {label}
-                {move || {
-                    (t == Tab::Changes && diff_n() > 0)
-                        .then(|| view! { <span class="tabn">{diff_n()}</span> })
-                }}
             </button>
         }
     };
-    let sub = move |c: Changes| move || (lay().changes == c).to_string();
     let tree_on = move || lay().files;
     let open_files = StoredValue::new(
         Action::new("显示文件", move || state.toggle_files())
@@ -85,19 +79,21 @@ pub fn Inspector(
             .into_any()
         }
     };
+    // 「更改」的入口只有页头那一个按钮，标签里不再放第二个。
     view! {
         <div class="rhead insp-head">
-            <div class="rtabs" role="tablist" aria-label="检查器">
+            <div class="rtabs" role="tablist" aria-label="右侧面板">
                 {tab(Tab::Editor, "编辑器")}
-                {tab(Tab::Changes, "更改")}
                 {tab(Tab::Preview, "预览")}
             </div>
             <span class="grow"></span>
             <button
                 type="button"
                 class="laybtn insp-max"
-                aria-label=move || if lay().max { "还原检查器" } else { "放大检查器" }
-                title=move || if lay().max { "还原检查器" } else { "放大检查器" }
+                aria-label=move || {
+                    if lay().max { "还原右侧面板" } else { "放大右侧面板" }
+                }
+                title=move || if lay().max { "还原右侧面板" } else { "放大右侧面板" }
                 aria-pressed=move || lay().max.to_string()
                 inner_html=move || if lay().max { ICON_RESTORE } else { ICON_MAX }
                 on:click=move |_| state.set_max(!lay().max)
@@ -105,7 +101,7 @@ pub fn Inspector(
             <button
                 type="button"
                 class="laybtn"
-                aria-label="关闭检查器"
+                aria-label="关闭右侧面板"
                 title="关闭 Esc"
                 on:click=move |_| state.close()
             >
@@ -155,14 +151,8 @@ pub fn Inspector(
             </div>
             <div class="ipane col" data-active=on(Tab::Changes)>
                 <DiffBar d=diff git collapsed draft state />
-                <div class="ipanes">
-                    <div class="ipane col" data-active=sub(Changes::Diff)>
-                        <DiffView ws=ws.clone() d=diff files collapsed />
-                    </div>
-                    <div class="ipane" data-active=sub(Changes::Git)>
-                        <GitView git files draft />
-                    </div>
-                </div>
+                <GitLine git draft />
+                <DiffView ws=ws.clone() d=diff files collapsed />
             </div>
             <div class="ipane col" data-active=on(Tab::Preview)>
                 <PreviewBar ws=ws.clone() active=preview_on isolated />

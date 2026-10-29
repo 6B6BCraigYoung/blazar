@@ -32,7 +32,7 @@ use files::Files;
 use git_panel::Git;
 use head::WsHead;
 use inspector::Inspector;
-use layout::{Changes, Edge, LayoutState, Splitter, Tab};
+use layout::{Edge, LayoutState, Splitter, Tab};
 use mini::MiniBar;
 use term_panel::{TermPane, TermTabs, Terms};
 use tree::{TreeActs, TreePane};
@@ -254,7 +254,7 @@ fn Workspace(id: String) -> impl IntoView {
         })
     });
     let show_aux = Callback::new(move |()| state.reveal_chat());
-    let show_diff = Callback::new(move |()| state.open_changes(Changes::Diff));
+    let show_diff = Callback::new(move |()| state.open_changes());
     let draft = RwSignal::new(None::<String>);
     let mention = RwSignal::new(None::<String>);
     let terms = Terms::new(&id);
@@ -288,7 +288,7 @@ fn Workspace(id: String) -> impl IntoView {
                 state.reveal_chat();
             }),
             changes: Callback::new(move |p: String| {
-                state.open_changes(Changes::Diff);
+                state.open_changes();
                 let inside = format!("{p}/");
                 let at = diff.files.with_untracked(|f| {
                     f.iter()
@@ -359,8 +359,7 @@ fn Workspace(id: String) -> impl IntoView {
             "explorer" => state.toggle_files(),
             "chat" => state.toggle_inspect(),
             "panel" => state.toggle_term(),
-            "diff" => state.open_changes(Changes::Diff),
-            "git" => state.open_changes(Changes::Git),
+            "diff" => state.open_changes(),
             "preview" => state.open(Tab::Preview),
             "inspect" => props.set(true),
             _ => return false,
@@ -427,6 +426,7 @@ fn Workspace(id: String) -> impl IntoView {
                 detail
                 state
                 git
+                diff
                 props
                 kids_open
                 gone
@@ -480,7 +480,7 @@ fn Workspace(id: String) -> impl IntoView {
                             on:click=move |_| state.close()
                         ></div>
                         <Splitter edge=Edge::Inspector state />
-                        <section class="ws-insp" aria-label="检查器">
+                        <section class="ws-insp" aria-label="右侧面板">
                             <Inspector
                                 ws=id.clone()
                                 files

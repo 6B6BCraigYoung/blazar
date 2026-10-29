@@ -20,13 +20,6 @@ pub enum Tab {
     Preview,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Changes {
-    Diff,
-    Git,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Layout {
@@ -36,7 +29,6 @@ pub struct Layout {
     pub files: bool,
     pub inspect: bool,
     pub tab: Tab,
-    pub changes: Changes,
     pub term: bool,
     pub max: bool,
 }
@@ -50,7 +42,6 @@ impl Default for Layout {
             files: false,
             inspect: false,
             tab: Tab::Editor,
-            changes: Changes::Diff,
             term: false,
             max: false,
         }
@@ -131,16 +122,8 @@ impl LayoutState {
         });
     }
 
-    pub fn open_changes(self, view: Changes) {
-        self.change(|l| {
-            l.inspect = true;
-            l.tab = Tab::Changes;
-            l.changes = view;
-        });
-    }
-
-    pub fn show_changes(self, view: Changes) {
-        self.change(|l| l.changes = view);
+    pub fn open_changes(self) {
+        self.open(Tab::Changes);
     }
 
     pub fn close(self) {

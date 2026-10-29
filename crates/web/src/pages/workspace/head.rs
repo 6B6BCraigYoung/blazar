@@ -2,8 +2,9 @@ use leptos::html;
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
 
+use super::diff_panel::DiffState;
 use super::git_panel::Git;
-use super::layout::{Changes, LayoutState, Tab};
+use super::layout::{LayoutState, Tab};
 use crate::api::{self, WorkspaceDetail};
 use crate::app_state::use_app;
 use crate::components::menu::menu_keydown;
@@ -239,6 +240,7 @@ pub fn WsHead(
     detail: LocalResource<Result<WorkspaceDetail, api::ApiError>>,
     state: LayoutState,
     git: Git,
+    diff: DiffState,
     props: RwSignal<bool>,
     kids_open: RwSignal<bool>,
     gone: Memo<bool>,
@@ -303,15 +305,10 @@ pub fn WsHead(
         n if kids_open.get() => format!("收起子工作区（{n}）"),
         n => format!("显示子工作区（{n}）"),
     });
+    // 文件、编辑器有页头按钮，更改有「更改」按钮：菜单里只放别处没有入口的。
     let groups = vec![
         vec![
-            item("文件", Some("explorer"), move || state.toggle_files()),
             item("终端", Some("panel"), move || state.toggle_term()),
-            item("检查器", Some("chat"), move || state.toggle_inspect()),
-        ],
-        vec![
-            item("编辑器", None, move || state.open(Tab::Editor)),
-            item("Git", Some("git"), move || state.open_changes(Changes::Git)),
             item("预览", Some("preview"), move || state.open(Tab::Preview)),
         ],
         vec![item("历史对话…", None, move || thread_menu.set(true))],
@@ -330,6 +327,7 @@ pub fn WsHead(
             item("属性…", None, move || props.set(true)),
         ],
     ];
+    let changed = move || diff.files.with(Vec::len);
     view! {
         <header class="ws-head" inert=move || gone.get()>
             <button
@@ -374,11 +372,15 @@ pub fn WsHead(
                     if changes_on() {
                         state.close();
                     } else {
-                        state.open_changes(Changes::Diff);
+                        state.open_changes();
                     }
                 }
             >
                 "更改"
+                {move || {
+                    let n = changed();
+                    (n > 0).then(|| view! { <span class="n">{n}</span> })
+                }}
             </button>
             <WsMenu groups />
         </header>

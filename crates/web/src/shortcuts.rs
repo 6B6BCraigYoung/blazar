@@ -16,7 +16,6 @@ const DEFAULTS: &[(&str, &str)] = &[
     ("copypath", "Mod+Alt+C"),
     ("reveal", "Mod+Alt+R"),
     ("diff", "Mod+Shift+D"),
-    ("git", "Mod+Shift+G"),
     ("preview", "Mod+Shift+P"),
     ("diffview", "Mod+Alt+S"),
     ("diffws", "Mod+Alt+W"),

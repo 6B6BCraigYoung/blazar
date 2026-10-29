@@ -21,8 +21,8 @@ use crate::realtime::use_bus;
 use crate::storage;
 
 use super::files::Files;
-use super::git_panel::Git;
-use super::layout::{Changes, LayoutState, Tab};
+use super::git_panel::{Git, GitMenuItems, NextButton};
+use super::layout::{LayoutState, Tab};
 
 const CHEV_DOWN: &str = r#"<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6.5 8 10.5l4-4"/></svg>"#;
 
@@ -283,6 +283,75 @@ pub fn keep_loaded(ws: String, d: DiffState, git: Git, state: LayoutState) {
     });
 }
 
+/// 工具栏上的一个下拉：按钮加菜单，焦点离开就收起。
+#[component]
+fn BarMenu(
+    #[prop(into)] label: Signal<String>,
+    #[prop(into)] aria: String,
+    #[prop(optional)] more: bool,
+    #[prop(optional, into)] title: Option<String>,
+    #[prop(into)] class: String,
+    open: RwSignal<bool>,
+    children: ChildrenFn,
+) -> impl IntoView {
+    let root = NodeRef::<html::Div>::new();
+    let button = NodeRef::<html::Button>::new();
+    let close = Callback::new(move |()| {
+        open.set(false);
+        if let Some(b) = button.get_untracked() {
+            let _ = b.focus();
+        }
+    });
+    let aria_menu = aria.clone();
+    view! {
+        <span
+            class="more"
+            on:focusout=move |e| {
+                let inside = e
+                    .related_target()
+                    .and_then(|t| t.dyn_into::<web_sys::Node>().ok())
+                    .zip(e.current_target().and_then(|t| t.dyn_into::<web_sys::Node>().ok()))
+                    .is_some_and(|(t, me)| me.contains(Some(&t)));
+                if !inside {
+                    open.set(false);
+                }
+            }
+        >
+            <button
+                type="button"
+                class=if more { "btn ghost more-btn" } else { "dv-btn" }
+                node_ref=button
+                title=title
+                aria-label=more.then(|| aria.clone())
+                aria-haspopup="menu"
+                aria-expanded=move || open.get().to_string()
+                on:click=move |_| open.update(|o| *o = !*o)
+            >
+                {move || label.get()}
+                {(!more)
+                    .then(|| {
+                        view! { <span class="chev" aria-hidden="true" inner_html=CHEV_DOWN></span> }
+                    })}
+            </button>
+            <Show when=move || open.get()>
+                <div
+                    class=format!("menu dv-menu {class}")
+                    node_ref=root
+                    role="menu"
+                    aria-label=aria_menu.clone()
+                    on:keydown=move |event| {
+                        if let Some(r) = root.get_untracked() {
+                            menu_keydown(&event, r.unchecked_ref(), close);
+                        }
+                    }
+                >
+                    {children()}
+                </div>
+            </Show>
+        </span>
+    }
+}
+
 #[component]
 pub fn DiffBar(
     d: DiffState,
@@ -291,7 +360,6 @@ pub fn DiffBar(
     draft: RwSignal<Option<String>>,
     state: LayoutState,
 ) -> impl IntoView {
-    let sub = move |c: Changes| move || (state.lay.get().changes == c).to_string();
     let empty = move || d.files.with(Vec::is_empty);
     let all_folded = move || !empty() && collapsed.with(HashSet::len) >= d.files.with(Vec::len);
     let fold_all = move || {
@@ -325,9 +393,9 @@ pub fn DiffBar(
         true
     };
     let keys = window_event_listener(ev::keydown, move |e| {
-        let shown = state.lay.try_with_untracked(|l| {
-            l.inspect && l.tab == Tab::Changes && l.changes == Changes::Diff
-        });
+        let shown = state
+            .lay
+            .try_with_untracked(|l| l.inspect && l.tab == Tab::Changes);
         if shown != Some(true)
             || e.target()
                 .and_then(|t| t.dyn_into::<web_sys::Element>().ok())
@@ -342,23 +410,18 @@ pub fn DiffBar(
         }
     });
     on_cleanup(move || keys.remove());
-    let open = RwSignal::new(false);
-    let root = NodeRef::<html::Div>::new();
-    let button = NodeRef::<html::Button>::new();
-    let close = Callback::new(move |()| {
-        open.set(false);
-        if let Some(b) = button.get_untracked() {
-            let _ = b.focus();
-        }
-    });
+    let show_open = RwSignal::new(false);
+    let base_open = RwSignal::new(false);
+    let more_open = RwSignal::new(false);
     let pick = move |what: &'static str| {
         move |_| {
-            open.set(false);
+            show_open.set(false);
             act(what);
         }
     };
     let hint = |id: &str| crate::shortcuts::label(&crate::shortcuts::current(id));
     let review = move |_| {
+        more_open.set(false);
         let n = d.files.with_untracked(Vec::len);
         let base = d.base.get_untracked();
         let scope = if d.prefs.with_untracked(|p| p.base == "target") && !base.is_empty() {
@@ -384,188 +447,151 @@ pub fn DiffBar(
         git.status.with(|g| {
             g.as_ref()
                 .filter(|g| g.has_target())
-                .map(|g| g.target.clone())
+                .map(super::git_panel::short_target)
         })
     };
+    let set_base = move |b: &'static str| {
+        move |_| {
+            base_open.set(false);
+            d.set_prefs(|p| p.base = b.into());
+        }
+    };
+    let base_label = Signal::derive(move || {
+        if p().base == "target" {
+            "这条分支的全部改动".to_owned()
+        } else {
+            "这次的改动".to_owned()
+        }
+    });
+    let close_more = Callback::new(move |()| more_open.set(false));
     view! {
         <div class="diffbar">
-            <span class="seg insp-sub" role="group" aria-label="更改的视图">
+            <BarMenu label=base_label aria="比较的范围" class="dv-base" open=base_open>
                 <button
                     type="button"
-                    data-on=sub(Changes::Diff)
-                    aria-pressed=sub(Changes::Diff)
-                    on:click=move |_| state.show_changes(Changes::Diff)
+                    role="menuitemradio"
+                    aria-checked=move || (p().base != "target").to_string()
+                    on:click=set_base("head")
                 >
-                    "差异"
+                    <span>"这次的改动"</span>
+                    <small>"还没提交的部分"</small>
                 </button>
                 <button
                     type="button"
-                    data-on=sub(Changes::Git)
-                    aria-pressed=sub(Changes::Git)
-                    on:click=move |_| state.show_changes(Changes::Git)
+                    role="menuitemradio"
+                    aria-checked=move || (p().base == "target").to_string()
+                    on:click=set_base("target")
                 >
-                    "Git"
-                </button>
-            </span>
-            <Show when=move || state.lay.get().changes == Changes::Diff>
-                <span class="seg" title="和谁比">
-                    <button
-                        data-on=move || (p().base == "head").to_string()
-                        title="还没提交的改动（相对 HEAD）"
-                        on:click=move |_| d.set_prefs(|p| p.base = "head".into())
-                    >
-                        "未提交"
-                    </button>
-                    <button
-                        data-on=move || (p().base == "target").to_string()
-                        title="这条分支相对目标分支一共改了什么"
-                        on:click=move |_| d.set_prefs(|p| p.base = "target".into())
-                    >
+                    <span>
                         {move || {
                             target()
                                 .map_or_else(
-                                    || "整条分支".to_owned(),
-                                    |t| format!("整条分支 · {t}"),
+                                    || "这条分支的全部改动".to_owned(),
+                                    |t| format!("这条分支的全部改动（对比 {t}）"),
                                 )
                         }}
-                    </button>
-                </span>
-                <span class="sum">
-                    {move || {
-                        let (n, a, r) = sums();
-                        view! {
-                            {format!("{n} 个文件 ")}
-                            <b class="ok">{format!("+{a}")}</b>
-                            " "
-                            <b class="bad">{format!("−{r}")}</b>
-                        }
-                    }}
-                </span>
-                <span class="grow"></span>
+                    </span>
+                    <small>"包括已经提交的部分"</small>
+                </button>
+            </BarMenu>
+            <span class="sum">
                 {move || {
-                    let n = d.comments.with(Vec::len);
-                    (n > 0)
-                        .then(|| {
-                            view! {
-                                <span
-                                    class="pill-note"
-                                    title="随下一条消息一起发给智能体"
-                                >
-                                    {format!("{n} 条意见待发")}
-                                </span>
-                            }
-                        })
-                }}
-                <span
-                    class="more"
-                    on:focusout=move |e| {
-                        let inside = e
-                            .related_target()
-                            .and_then(|t| t.dyn_into::<web_sys::Node>().ok())
-                            .zip(
-                                e.current_target().and_then(|t| t.dyn_into::<web_sys::Node>().ok()),
-                            )
-                            .is_some_and(|(t, me)| me.contains(Some(&t)));
-                        if !inside {
-                            open.set(false);
-                        }
+                    let (n, a, r) = sums();
+                    view! {
+                        {format!("{n} 个文件 ")}
+                        <b class="ok">{format!("+{a}")}</b>
+                        " "
+                        <b class="bad">{format!("−{r}")}</b>
                     }
-                >
-                    <button
-                        type="button"
-                        class="dv-btn"
-                        node_ref=button
-                        aria-haspopup="menu"
-                        aria-expanded=move || open.get().to_string()
-                        on:click=move |_| open.update(|o| *o = !*o)
-                    >
-                        "显示"
-                        <span class="chev" aria-hidden="true" inner_html=CHEV_DOWN></span>
-                    </button>
-                    <Show when=move || open.get()>
-                        <div
-                            class="menu dv-menu"
-                            node_ref=root
-                            role="menu"
-                            aria-label="显示"
-                            on:keydown=move |event| {
-                                if let Some(r) = root.get_untracked() {
-                                    menu_keydown(&event, r.unchecked_ref(), close);
-                                }
-                            }
-                        >
-                            <button
-                                type="button"
-                                role="menuitemradio"
-                                aria-checked=move || (p().view != "split").to_string()
-                                on:click=pick("diffview")
-                            >
-                                <span>"统一"</span>
-                                <kbd>{hint("diffview")}</kbd>
-                            </button>
-                            <button
-                                type="button"
-                                role="menuitemradio"
-                                aria-checked=move || (p().view == "split").to_string()
-                                on:click=pick("diffview")
-                            >
-                                <span>"并排"</span>
-                                <kbd>{hint("diffview")}</kbd>
-                            </button>
-                            <div class="menu-sep"></div>
-                            <button
-                                type="button"
-                                role="menuitemcheckbox"
-                                aria-checked=move || p().w.to_string()
-                                on:click=pick("diffws")
-                            >
-                                <span>"忽略空白"</span>
-                                <kbd>{hint("diffws")}</kbd>
-                            </button>
-                            <button
-                                type="button"
-                                role="menuitemcheckbox"
-                                aria-checked=move || p().wrap.to_string()
-                                on:click=pick("diffwrap")
-                            >
-                                <span>"自动换行"</span>
-                                <kbd>{hint("diffwrap")}</kbd>
-                            </button>
-                            <button
-                                type="button"
-                                role="menuitemcheckbox"
-                                aria-checked=move || p().tree.to_string()
-                                on:click=pick("difflist")
-                            >
-                                <span>"改动文件列表"</span>
-                                <kbd>{hint("difflist")}</kbd>
-                            </button>
-                            <div class="menu-sep"></div>
-                            <button
-                                type="button"
-                                role="menuitem"
-                                disabled=empty
-                                on:click=pick("difffold")
-                            >
-                                <span>
-                                    {move || {
-                                        if all_folded() { "全部展开" } else { "全部折叠" }
-                                    }}
-                                </span>
-                                <kbd>{hint("difffold")}</kbd>
-                            </button>
-                        </div>
-                    </Show>
-                </span>
+                }}
+            </span>
+            {move || {
+                let n = d.comments.with(Vec::len);
+                (n > 0)
+                    .then(|| {
+                        view! {
+                            <span class="pill-note" title="随下一条消息一起发给智能体">
+                                {format!("{n} 条意见待发")}
+                            </span>
+                        }
+                    })
+            }}
+            <span class="grow"></span>
+            <BarMenu label="显示" aria="显示" class="" open=show_open>
                 <button
-                    class="btn small"
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked=move || (p().view != "split").to_string()
+                    on:click=pick("diffview")
+                >
+                    <span>"统一"</span>
+                    <kbd>{hint("diffview")}</kbd>
+                </button>
+                <button
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked=move || (p().view == "split").to_string()
+                    on:click=pick("diffview")
+                >
+                    <span>"并排"</span>
+                    <kbd>{hint("diffview")}</kbd>
+                </button>
+                <div class="menu-sep"></div>
+                <button
+                    type="button"
+                    role="menuitemcheckbox"
+                    aria-checked=move || p().w.to_string()
+                    on:click=pick("diffws")
+                >
+                    <span>"忽略空白"</span>
+                    <kbd>{hint("diffws")}</kbd>
+                </button>
+                <button
+                    type="button"
+                    role="menuitemcheckbox"
+                    aria-checked=move || p().wrap.to_string()
+                    on:click=pick("diffwrap")
+                >
+                    <span>"自动换行"</span>
+                    <kbd>{hint("diffwrap")}</kbd>
+                </button>
+                <button
+                    type="button"
+                    role="menuitemcheckbox"
+                    aria-checked=move || p().tree.to_string()
+                    on:click=pick("difflist")
+                >
+                    <span>"改动文件列表"</span>
+                    <kbd>{hint("difflist")}</kbd>
+                </button>
+                <div class="menu-sep"></div>
+                <button type="button" role="menuitem" disabled=empty on:click=pick("difffold")>
+                    <span>
+                        {move || { if all_folded() { "全部展开" } else { "全部折叠" } }}
+                    </span>
+                    <kbd>{hint("difffold")}</kbd>
+                </button>
+            </BarMenu>
+            <BarMenu
+                label="⋯"
+                aria="更多操作"
+                more=true
+                title="更多"
+                class="dv-more"
+                open=more_open
+            >
+                <button
+                    type="button"
+                    role="menuitem"
                     disabled=empty
                     title="开一个新对话，把这些改动交给智能体只审阅、不改代码"
                     on:click=review
                 >
-                    "让智能体审阅…"
+                    <span>"让智能体审阅…"</span>
                 </button>
-            </Show>
+                <GitMenuItems git close=close_more />
+            </BarMenu>
+            <NextButton git />
         </div>
     }
 }
@@ -698,12 +724,12 @@ pub fn DiffView(
             } else if p().base == "target" {
                 let b = d.base.get();
                 if b.is_empty() {
-                    "请在 Git 面板选择可对比的目标分支".to_owned()
+                    "先在上面选这条分支要合到哪里，才能看它的全部改动".to_owned()
                 } else {
-                    format!("相对 {b} 没有改动")
+                    format!("和 {} 比没有改动", b.strip_prefix("origin/").unwrap_or(&b))
                 }
             } else {
-                "没有未提交的改动".to_owned()
+                "这次还没有改动".to_owned()
             };
             return view! { <Blank icon=icon::CHECK title=msg inset=true /> }.into_any();
         }
@@ -767,11 +793,7 @@ pub fn DiffView(
                         >
                             <span class="nm">{name}<span class="dir">{dir}</span></span>
                             {(n > 0).then(|| view! { <span class="cm">{n}</span> })}
-                            <span class="st">
-                                <i class="ok">{format!("+{}", f.added)}</i>
-                                " "
-                                <i class="bad">{format!("−{}", f.removed)}</i>
-                            </span>
+                            <span class="st">{format!("+{} −{}", f.added, f.removed)}</span>
                             <span class=format!("ch {cls}")>{mk}</span>
                         </button>
                     }
@@ -960,9 +982,7 @@ fn file_view(
                     <b class=format!("mk {cls}")>{mk}</b>
                     <span class="path">{title.clone()}</span>
                     <span class="st">
-                        <i class="ok">{format!("+{}", f.with_value(|f| f.added))}</i>
-                        " "
-                        <i class="bad">{format!("−{}", f.with_value(|f| f.removed))}</i>
+                        {f.with_value(|f| format!("+{} −{}", f.added, f.removed))}
                     </span>
                 </button>
                 {(!deleted)

@@ -1198,8 +1198,8 @@ def dismiss():
 
 
 CLOSE_FILE = {"action": "click", "selector": "[aria-label=\"关闭 src/atlas/routes/users.py\"]", "optional": True}
-RESTORE = {"action": "click", "selector": "button[aria-label=\"还原检查器\"]", "optional": True}
-CLOSE_INSPECTOR = {"action": "click", "selector": "button[aria-label=\"关闭检查器\"]", "optional": True}
+RESTORE = {"action": "click", "selector": "button[aria-label=\"还原右侧面板\"]", "optional": True}
+CLOSE_INSPECTOR = {"action": "click", "selector": "button[aria-label=\"关闭右侧面板\"]", "optional": True}
 OPEN_FILES = {"action": "click", "selector": ".ws-head button[aria-label=\"文件\"][aria-pressed=\"false\"]", "optional": True}
 EDITOR_TAB = {"action": "click", "selector": ".ws-insp .rtabs .rtab:first-child", "optional": True}
 CLOSE_FILES = {"action": "click", "selector": ".ws-head button[aria-label=\"文件\"][aria-pressed=\"true\"]", "optional": True}
@@ -1619,22 +1619,23 @@ def workspace_parts():
         ("file-open", w, "从文件树打开 src/atlas/routes/users.py，文件树留在编辑器左边",
          (wait, *reset, dict(OPEN_FILES), {"action": "wait", "ms": 400},
           {"action": "click", "selector": "button.tn[title=\"src/atlas/routes/users.py\"]"}, {"action": "wait", "ms": 900}, *after), False),
-        ("diff", w, "检查器「更改 → 差异」：工具栏只有「差异 / Git」「未提交 | 整条分支」、改动摘要、「显示 ⌄」和「让智能体审阅…」；每块改动以灰色细线「第 N 行」开头，旁边「展开上方 N 行」",
+        ("diff", w, "「更改」：工具栏只有「这次的改动 ⌄」加改动摘要、意见数（有才显示）、「显示 ⌄」、⋯ 和一个按状态切换的主按钮（提交… / 推送 / 创建 PR…）；下面一行灰字写分支、要合到哪里、推没推；每块改动以灰色细线「第 N 行」开头，旁边「展开上方 N 行」",
          (wait, *reset, dict(CHANGES), {"action": "wait", "ms": 900}, *after), False),
         ("diff-show-menu", w, "「更改」工具栏的「显示 ⌄」菜单：统一 / 并排、忽略空白、自动换行、改动文件列表、全部折叠，带勾选和快捷键",
          (wait, *reset, dict(CHANGES), {"action": "wait", "ms": 900}, {"action": "click", "selector": ".diffbar .dv-btn", "settle_ms": 300},
           {"action": "wait", "selector": ".dv-menu", "timeout_ms": 4000}, dict(ESC, after=True), *after), False),
-        ("git", w, "检查器「更改 → Git」",
-         (wait, *reset, dict(CHANGES), {"action": "click", "selector": ".insp-sub button:last-child"}, {"action": "wait", "ms": 900}, *after), False),
+        ("changes-more", w, "「更改」的 ⋯ 菜单：让智能体审阅…、主按钮之外的提交 / 推送 / PR、同步到最新、改分支名、刷新状态，变基和强制推送收在「高级」里",
+         (wait, *reset, dict(CHANGES), {"action": "wait", "ms": 900}, {"action": "click", "selector": ".diffbar .more-btn", "settle_ms": 300},
+          {"action": "wait", "selector": ".dv-more", "timeout_ms": 4000}, dict(ESC, after=True), *after), False),
         ("terminal", w, "底部终端抽屉（⌘J）",
          (wait, *reset, {"action": "key", "key": "J", "code": "KeyJ", "meta": True, "selector": "body"}, {"action": "wait", "ms": 900}, *after), False),
-        ("preview", w, "检查器「预览」：地址栏居中、最宽 640，左边「← →」，右边「在浏览器中打开」、刷新、⋯（本地 http.server 提供 public/index.html）",
+        ("preview", w, "右侧面板「预览」：地址栏居中、最宽 640，左边「← →」，右边「在浏览器中打开」、刷新、⋯（本地 http.server 提供 public/index.html）",
          (wait, *reset, dict(PREVIEW_KEY), {"action": "wait", "ms": 400}, url, {"action": "wait", "ms": 1500}, *after), False),
-        ("preview-max", w, "检查器放大后的预览",
+        ("preview-max", w, "右侧面板放大后的预览",
          (wait, *reset, dict(PREVIEW_KEY), {"action": "wait", "ms": 400}, url, {"action": "wait", "ms": 1200},
-          {"action": "click", "selector": "button[aria-label=\"放大检查器\"]"}, {"action": "wait", "ms": 800}, *after), False),
-        ("inspector-max-approval", wq, "检查器放大后：底部 44px 迷你条（状态「等你批准」、一行输入框、「回到对话」），审批卡自动弹在迷你条上方，可按 1 / 2 / 3",
-         (wait, *reset, dict(CHANGES), {"action": "wait", "ms": 600}, {"action": "click", "selector": "button[aria-label=\"放大检查器\"]"},
+          {"action": "click", "selector": "button[aria-label=\"放大右侧面板\"]"}, {"action": "wait", "ms": 800}, *after), False),
+        ("inspector-max-approval", wq, "右侧面板放大后：底部 44px 迷你条（状态「等你批准」、一行输入框、「回到对话」），审批卡自动弹在迷你条上方，可按 1 / 2 / 3",
+         (wait, *reset, dict(CHANGES), {"action": "wait", "ms": 600}, {"action": "click", "selector": "button[aria-label=\"放大右侧面板\"]"},
           {"action": "wait", "selector": ".ws-mini-dock .cc-appr", "timeout_ms": 4000}, {"action": "wait", "ms": 500},
           dict({"action": "click", "selector": ".ws-mini .btn", "optional": True}, after=True), *after), False),
     ]

@@ -153,7 +153,7 @@ fn GitFormReady(
                             } else {
                                 "没有改动可提交".to_owned()
                             }),
-                            Some(_) => toast("提交失败，看下面的输出"),
+                            Some(_) => toast("提交失败，详情见「操作失败」"),
                             None => {}
                         }
                     });
@@ -199,7 +199,7 @@ fn GitFormReady(
                                     let _ = window().open_with_url_and_target(&u, "_blank");
                                 }
                                 (true, None) => toast("认不出托管平台，没法给网页链接"),
-                                _ => toast("推送失败，看下面的输出"),
+                                _ => toast("推送失败，详情见「操作失败」"),
                             }
                             return;
                         }
@@ -221,7 +221,7 @@ fn GitFormReady(
                                     let _ = window().open_with_url_and_target(&u, "_blank");
                                 }
                             }
-                            Some(_) => toast("PR 没开成，看下面的输出"),
+                            Some(_) => toast("PR 没开成，详情见「操作失败」"),
                             None => {}
                         }
                     });
@@ -235,7 +235,7 @@ fn GitFormReady(
     let (head_title, ok_label) = match f {
         Form::Commit => ("提交改动", "提交"),
         Form::Pr => (
-            if g.gh { "开 Pull Request" } else { "开 PR" },
+            "创建 PR",
             if g.gh {
                 "创建 PR"
             } else {
@@ -248,7 +248,7 @@ fn GitFormReady(
         Form::Commit => view! {
             <div class="dlg-body small">
                 {format!(
-                    "{} 个文件的改动会全部提交到 {}（含未跟踪的新文件）",
+                    "{} 个文件的改动会全部提交到 {}（包括新建的文件）",
                     g.uncommitted,
                     if g.branch.is_empty() { &g.head } else { &g.branch },
                 )}
@@ -272,7 +272,7 @@ fn GitFormReady(
         }.into_any(),
         Form::Pr if !g.gh => view! {
             <div class="dlg-body">
-                "工作区所在的机器上没有装 GitHub CLI（gh），没法直接创建 PR。可以先把分支推上去，再到网页上开。"
+                "工作区所在的机器上没有装 GitHub CLI，没法直接创建 PR。可以先把分支推上去，再到网页上开。"
             </div>
         }.into_any(),
         Form::Pr => view! {
@@ -319,7 +319,7 @@ fn GitFormReady(
                 "作为草稿创建"
             </label>
             <div class="muted small">
-                "会先把分支推到 origin，再用那台机器上 gh 的登录态创建 PR。"
+                "会先把分支推到远端，再用那台机器上 GitHub CLI 的登录创建 PR。"
             </div>
         }.into_any(),
         Form::Rename => view! {
