@@ -26,7 +26,7 @@ pub use agent::{
     remote_cli, resume, run, titles,
 };
 pub use skills::{library, skillhub};
-pub use work::{analytics, autopilot, failures, inbox, rules, scripts, snippets, tasks};
+pub use work::{analytics, autopilot, failures, inbox, review, rules, scripts, snippets, tasks};
 pub mod events;
 pub mod services;
 pub mod state;
@@ -117,6 +117,7 @@ pub async fn build_state_with_services(
     let warm = st.clone();
     services.spawn(async move { mesh::MeshCtx::warm(&warm).await });
     services.spawn(git::poll_prs(st.clone()));
+    services.spawn(git::discard::sweep(st.clone()));
     services.spawn(autopilot::scheduler(st.clone()));
     services.spawn(bots::dispatch::scheduler(st.clone()));
     services.spawn(fleet::watchdog(st.clone()));

@@ -11,7 +11,7 @@ use super::toast;
 use crate::api;
 use crate::undo_ledger::Ledger;
 
-const DELAY_MS: u32 = 5000;
+pub const DELAY_MS: u32 = 5000;
 const SETTLE_MS: u32 = 1200;
 
 pub struct Request {

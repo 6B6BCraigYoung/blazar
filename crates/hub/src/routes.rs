@@ -5,8 +5,8 @@ use axum::routing::{delete, get, post, put};
 
 use super::{
     AppState, accounts, agents, analytics, api, asset, auth, autopilot, bots, catalog, chat,
-    checkpoint, failures, git, inbox, library, mesh, office, remote_cli, rules, scripts, sims,
-    skillhub, snippets, tasks, titles, v2_redirect, web,
+    checkpoint, failures, git, inbox, library, mesh, office, remote_cli, review, rules, scripts,
+    sims, skillhub, snippets, tasks, titles, v2_redirect, web,
 };
 
 pub fn build_router(st: Arc<AppState>) -> Router {
@@ -161,6 +161,19 @@ pub fn build_router(st: Arc<AppState>) -> Router {
         .route("/api/workspaces/{id}/rename", post(api::workspace_rename))
         .route("/api/workspaces/{id}/remove", post(api::workspace_remove))
         .route("/api/workspaces/{id}/diff", get(api::workspace_diff))
+        .route("/api/workspaces/{id}/discard", post(git::discard::discard))
+        .route(
+            "/api/workspaces/{id}/discard/{token}/restore",
+            post(git::discard::restore),
+        )
+        .route(
+            "/api/workspaces/{id}/review-comments",
+            get(review::list).post(review::save).delete(review::clear),
+        )
+        .route(
+            "/api/workspaces/{id}/review-comments/{cid}",
+            delete(review::delete_one),
+        )
         .route(
             "/api/autopilots",
             get(autopilot::list).post(autopilot::create),

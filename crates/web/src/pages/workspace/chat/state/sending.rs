@@ -242,8 +242,7 @@ impl Chat {
     }
 
     pub fn clear_review(self) {
-        self.diff.comments.set(Vec::new());
-        storage::remove(&format!("blazar.review.{}", self.ws_id()));
+        self.diff.clear_comments();
     }
 
     pub fn prompt_history(self) -> Vec<String> {

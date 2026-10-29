@@ -13,6 +13,8 @@ use sqlx::Row;
 use crate::api::Shared;
 use crate::state::ServerEvent;
 
+pub mod discard;
+
 const AI_DIFF_CHARS: usize = 14_000;
 
 fn fail(status: StatusCode, msg: impl Into<String>) -> Response {

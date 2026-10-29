@@ -9,9 +9,11 @@ use crate::components::empty::Blank;
 use crate::components::icon;
 use crate::components::menu::menu_keydown;
 use crate::components::status::{InlineError, LoadingState};
-use crate::components::toast::toast;
+use crate::components::toast::{self, toast};
+use crate::components::undo::{self, Request};
 use leptos::task::spawn_local;
 use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
 
 use crate::api::{self, DiffResp};
 use crate::diff::{self, File, Kind, Line};
@@ -75,6 +77,7 @@ pub struct DiffState {
     pub base: RwSignal<String>,
     pub prefs: RwSignal<Prefs>,
     pub comments: RwSignal<Vec<Comment>>,
+    ws: StoredValue<String>,
     pub reload: RwSignal<u32>,
     pub loaded: RwSignal<u32>,
     pub focus: RwSignal<Option<(String, u32, u32)>>,
@@ -83,7 +86,7 @@ pub struct DiffState {
 
 impl DiffState {
     pub fn new(ws: &str) -> Self {
-        Self {
+        let d = Self {
             files: RwSignal::new(Vec::new()),
             note: RwSignal::new(String::new()),
             loading: RwSignal::new(false),
@@ -91,12 +94,15 @@ impl DiffState {
             truncated: RwSignal::new(false),
             base: RwSignal::new(String::new()),
             prefs: RwSignal::new(storage::load(PREFS_KEY).unwrap_or_default()),
-            comments: RwSignal::new(storage::load(&review_key(ws)).unwrap_or_default()),
+            comments: RwSignal::new(Vec::new()),
+            ws: StoredValue::new(ws.to_owned()),
             reload: RwSignal::new(0),
             loaded: RwSignal::new(0),
             focus: RwSignal::new(None),
             mark: RwSignal::new(None),
-        }
+        };
+        d.load_comments();
+        d
     }
 
     pub fn locate(self, path: String, line: u32) {
@@ -110,15 +116,82 @@ impl DiffState {
         storage::save(PREFS_KEY, &self.prefs.get_untracked());
     }
 
-    fn save_comments(self, ws: &str) {
-        let list = self.comments.get_untracked();
-        if list.is_empty() {
-            if let Some(s) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
-                let _ = s.remove_item(&review_key(ws));
+    fn comments_path(self) -> String {
+        format!("/api/workspaces/{}/review-comments", self.ws.get_value())
+    }
+
+    fn load_comments(self) {
+        let path = self.comments_path();
+        let key = review_key(&self.ws.get_value());
+        spawn_local(async move {
+            // 意见以前只存在这个浏览器里：第一次打开时搬到 hub 上，搬完清掉。
+            let old: Vec<Comment> = storage::load(&key).unwrap_or_default();
+            let moved = old.is_empty()
+                || api::send::<Value>("POST", &path, &json!({ "comments": old }))
+                    .await
+                    .is_ok();
+            if moved {
+                storage::remove(&key);
             }
-        } else {
-            storage::save(&review_key(ws), &list);
-        }
+            let mut list = api::get::<Vec<Comment>>(&path).await.unwrap_or_default();
+            if !moved {
+                list.extend(old);
+            }
+            let _ = self.comments.try_update(|cs| {
+                for c in cs.drain(..) {
+                    if !list.iter().any(|x| x.id == c.id) {
+                        list.push(c);
+                    }
+                }
+                *cs = list;
+            });
+        });
+    }
+
+    fn save_comment(self, c: Comment) {
+        let path = self.comments_path();
+        spawn_local(async move {
+            if let Err(e) = api::send::<Value>("POST", &path, &json!({ "comments": [c] })).await {
+                toast(format!("意见没存上：{e}"));
+            }
+        });
+    }
+
+    fn delete_comment(self, id: &str) {
+        let Some((at, c)) = self
+            .comments
+            .with_untracked(|l| l.iter().position(|x| x.id == id).map(|i| (i, l[i].clone())))
+        else {
+            return;
+        };
+        self.comments.update(|l| {
+            l.remove(at);
+        });
+        let path = format!("{}/{}", self.comments_path(), api::enc(id));
+        undo::later(
+            "已删除意见",
+            Request::delete(path),
+            move || {
+                let c = c.clone();
+                let _ = self.comments.try_update(|l| {
+                    if !l.iter().any(|x| x.id == c.id) {
+                        l.insert(at.min(l.len()), c.clone());
+                    }
+                });
+                // 这 5 秒里意见可能已经随消息发出、整批清掉了，再存一次。
+                self.save_comment(c);
+            },
+            || {},
+        );
+    }
+
+    /// 意见随消息发出去之后清空，hub 上的也一起清掉。
+    pub fn clear_comments(self) {
+        self.comments.set(Vec::new());
+        let path = self.comments_path();
+        spawn_local(async move {
+            let _ = api::send::<Value>("DELETE", &path, &json!({})).await;
+        });
     }
 }
 
@@ -635,6 +708,12 @@ pub fn DiffView(
             return view! { <Blank icon=icon::CHECK title=msg inset=true /> }.into_any();
         }
         let split = p().view == "split";
+        // 只有和 HEAD 比时丢弃才是“丢掉还没提交的改动”；忽略空白时看到的那一处和文件里的对不上。
+        let head = d.base.get().is_empty();
+        let drop = Discardable {
+            file: head,
+            hunk: head && !p().w,
+        };
         view! {
             {move || {
                 d.truncated
@@ -646,7 +725,9 @@ pub fn DiffView(
             {list
                 .into_iter()
                 .enumerate()
-                .map(|(i, f)| file_view(i, f, split, collapsed, expanded, editing, d, files, ws_c))
+                .map(|(i, f)| {
+                    file_view(i, f, split, drop, collapsed, expanded, editing, d, files, ws_c)
+                })
                 .collect_view()}
         }
         .into_any()
@@ -766,11 +847,70 @@ fn marked(d: DiffState, path: &str) -> Option<u32> {
         .map(|(_, n)| n)
 }
 
+#[derive(Clone, Copy)]
+struct Discardable {
+    file: bool,
+    hunk: bool,
+}
+
+fn file_name(path: &str) -> &str {
+    path.rsplit('/').next().unwrap_or(path)
+}
+
+fn hunk_lines(h: &diff::Hunk) -> Vec<String> {
+    h.lines
+        .iter()
+        .map(|l| match l.kind {
+            Kind::Add => format!("+{}", l.text),
+            Kind::Del => format!("-{}", l.text),
+            Kind::Ctx => format!(" {}", l.text),
+            Kind::Note => format!("\\ {}", l.text),
+        })
+        .collect()
+}
+
+fn discard(d: DiffState, body: Value, what: String) {
+    let ws = d.ws.get_value();
+    spawn_local(async move {
+        match api::send::<Value>("POST", &format!("/api/workspaces/{ws}/discard"), &body).await {
+            Ok(r) => {
+                let _ = d.reload.try_update(|n| *n += 1);
+                match r["token"].as_str() {
+                    Some(token) => {
+                        let token = token.to_owned();
+                        toast::offer(
+                            format!("已丢弃{what}"),
+                            "撤销",
+                            undo::DELAY_MS,
+                            move || restore(d, ws.clone(), token.clone()),
+                        );
+                    }
+                    None => toast(format!("已丢弃{what}，这次没能留下撤销")),
+                }
+            }
+            Err(e) => toast(format!("没丢掉：{e}")),
+        }
+    });
+}
+
+fn restore(d: DiffState, ws: String, token: String) {
+    spawn_local(async move {
+        let path = format!("/api/workspaces/{ws}/discard/{}/restore", api::enc(&token));
+        match api::send::<Value>("POST", &path, &json!({})).await {
+            Ok(_) => {
+                let _ = d.reload.try_update(|n| *n += 1);
+            }
+            Err(e) => toast(format!("没撤销：{e}")),
+        }
+    });
+}
+
 #[allow(clippy::too_many_arguments)]
 fn file_view(
     i: usize,
     f: File,
     split: bool,
+    drop: Discardable,
     collapsed: RwSignal<HashSet<String>>,
     expanded: RwSignal<HashSet<String>>,
     editing: RwSignal<Option<Editing>>,
@@ -786,6 +926,11 @@ fn file_view(
     let p_exp = path.clone();
     let folded = Signal::derive(move || collapsed.with(|c| c.contains(&p_fold)));
     let deleted = f.status == diff::Status::Deleted;
+    let drop_body = json!({
+        "path": f.path,
+        "old_path": (f.status == diff::Status::Renamed).then(|| f.old_path.clone()),
+    });
+    let drop_what = format!("「{}」的改动", file_name(&f.path));
     let title = if f.status == diff::Status::Renamed {
         format!("{} → {}", f.old_path, f.path)
     } else {
@@ -835,6 +980,23 @@ fn file_view(
                             </button>
                         }
                     })}
+                {drop
+                    .file
+                    .then(|| {
+                        view! {
+                            <button
+                                type="button"
+                                class="linkbtn df-drop"
+                                title="丢弃这个文件里还没提交的改动，5 秒内可以撤销"
+                                on:click=move |e| {
+                                    e.stop_propagation();
+                                    discard(d, drop_body.clone(), drop_what.clone());
+                                }
+                            >
+                                "丢弃"
+                            </button>
+                        }
+                    })}
             </header>
             {move || {
                 (!folded.get())
@@ -863,7 +1025,7 @@ fn file_view(
                         }
                         view! {
                             <div class="df-body">
-                                {f.with_value(|f| file_body(f, split, editing, d, ws))}
+                                {f.with_value(|f| file_body(f, split, drop.hunk, editing, d, ws))}
                             </div>
                         }
                             .into_any()
@@ -876,6 +1038,7 @@ fn file_view(
 fn file_body(
     f: &File,
     split: bool,
+    drop_hunk: bool,
     editing: RwSignal<Option<Editing>>,
     d: DiffState,
     ws: StoredValue<String>,
@@ -893,6 +1056,8 @@ fn file_body(
     }
     let path = f.path.clone();
     let deleted = f.status == diff::Status::Deleted;
+    // 新建和删掉的文件只有一处，丢弃整个文件就是了。
+    let drop_hunk = drop_hunk && matches!(f.status, diff::Status::Modified | diff::Status::Renamed);
     let mark = marked(d, &path);
     let mut out: Vec<AnyView> = Vec::new();
     let mut prev_end = 1u32;
@@ -915,6 +1080,23 @@ fn file_body(
                 </button>
             }
         });
+        let drop = drop_hunk.then(|| {
+            let body = json!({
+                "path": path,
+                "hunk": { "old": h.old, "new": h.new, "lines": hunk_lines(h) },
+            });
+            let what = format!("「{}」里的一处改动", file_name(&path));
+            view! {
+                <button
+                    type="button"
+                    class="linkbtn df-drop"
+                    title="丢弃这一处改动，5 秒内可以撤销"
+                    on:click=move |_| discard(d, body.clone(), what.clone())
+                >
+                    "丢弃"
+                </button>
+            }
+        });
         out.push(
             view! {
                 <div class="dh">
@@ -923,6 +1105,7 @@ fn file_body(
                     </span>
                     {up}
                     <span class="dh-rule" aria-hidden="true"></span>
+                    {drop}
                 </div>
             }
             .into_any(),
@@ -947,8 +1130,7 @@ fn file_body(
                             .into_any(),
                         );
                         out.push(
-                            comments_at(&path, "new", l.new.unwrap_or(0), editing, d, ws)
-                                .into_any(),
+                            comments_at(&path, "new", l.new.unwrap_or(0), editing, d).into_any(),
                         );
                         i += 1;
                     }
@@ -977,13 +1159,13 @@ fn file_body(
                             );
                             if let Some(l) = dl {
                                 out.push(
-                                    comments_at(&path, "old", l.old.unwrap_or(0), editing, d, ws)
+                                    comments_at(&path, "old", l.old.unwrap_or(0), editing, d)
                                         .into_any(),
                                 );
                             }
                             if let Some(l) = al {
                                 out.push(
-                                    comments_at(&path, "new", l.new.unwrap_or(0), editing, d, ws)
+                                    comments_at(&path, "new", l.new.unwrap_or(0), editing, d)
                                         .into_any(),
                                 );
                             }
@@ -1039,7 +1221,7 @@ fn file_body(
                         <span class="dc">{code.clone()}</span>
                     </div>
                 }.into_any());
-                out.push(comments_at(&path, side, line, editing, d, ws).into_any());
+                out.push(comments_at(&path, side, line, editing, d).into_any());
             }
         }
     }
@@ -1108,7 +1290,6 @@ fn comments_at(
     line: u32,
     editing: RwSignal<Option<Editing>>,
     d: DiffState,
-    ws: StoredValue<String>,
 ) -> impl IntoView + use<> {
     let path = path.to_owned();
     let here = {
@@ -1156,13 +1337,7 @@ fn comments_at(
                             >
                                 "编辑"
                             </button>
-                            <button
-                                class="linkbtn"
-                                on:click=move |_| {
-                                    d.comments.update(|l| l.retain(|x| x.id != id_del));
-                                    d.save_comments(&ws.get_value());
-                                }
-                            >
+                            <button class="linkbtn" on:click=move |_| d.delete_comment(&id_del)>
                                 "删除"
                             </button>
                         </div>
@@ -1171,7 +1346,7 @@ fn comments_at(
                 .into_any()
             })
             .collect_view();
-        let editor = ed.map(|e| view! { <CommentEditor e d editing ws /> });
+        let editor = ed.map(|e| view! { <CommentEditor e d editing /> });
         view! {
             {boxes}
             {editor}
@@ -1180,12 +1355,7 @@ fn comments_at(
 }
 
 #[component]
-fn CommentEditor(
-    e: Editing,
-    d: DiffState,
-    editing: RwSignal<Option<Editing>>,
-    ws: StoredValue<String>,
-) -> impl IntoView {
+fn CommentEditor(e: Editing, d: DiffState, editing: RwSignal<Option<Editing>>) -> impl IntoView {
     let init =
         e.id.as_ref()
             .and_then(|id| {
@@ -1205,22 +1375,27 @@ fn CommentEditor(
         let t = text.get_untracked().trim().to_owned();
         if ok && !t.is_empty() {
             let e = e.clone();
-            d.comments.update(|l| match &e.id {
-                Some(id) => {
-                    if let Some(c) = l.iter_mut().find(|c| &c.id == id) {
-                        c.text = t;
-                    }
-                }
-                None => l.push(Comment {
-                    id: format!("{:x}", (js_sys::Math::random() * 1e12) as u64),
-                    file: e.file,
-                    side: e.side,
-                    line: e.line,
-                    code: e.code,
-                    text: t,
-                }),
-            });
-            d.save_comments(&ws.get_value());
+            let id =
+                e.id.clone()
+                    .unwrap_or_else(|| format!("{:x}", (js_sys::Math::random() * 1e12) as u64));
+            d.comments
+                .update(|l| match l.iter_mut().find(|c| c.id == id) {
+                    Some(c) => c.text = t,
+                    None => l.push(Comment {
+                        id: id.clone(),
+                        file: e.file,
+                        side: e.side,
+                        line: e.line,
+                        code: e.code,
+                        text: t,
+                    }),
+                });
+            if let Some(c) = d
+                .comments
+                .with_untracked(|l| l.iter().find(|c| c.id == id).cloned())
+            {
+                d.save_comment(c);
+            }
         }
         editing.set(None);
     };
