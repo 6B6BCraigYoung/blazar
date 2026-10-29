@@ -24,18 +24,16 @@ pub fn status(activity: &str, step: Option<&WorkspaceStep>) -> (String, Tone) {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Group {
-    Needs,
     Running,
     Recent,
 }
 
 impl Group {
-    pub const ALL: [Self; 3] = [Self::Needs, Self::Running, Self::Recent];
+    pub const ALL: [Self; 2] = [Self::Running, Self::Recent];
 
     #[must_use]
     pub const fn title(self) -> &'static str {
         match self {
-            Self::Needs => "需要你处理",
             Self::Running => "运行中",
             Self::Recent => "最近",
         }
@@ -44,7 +42,6 @@ impl Group {
     #[must_use]
     pub const fn key(self) -> &'static str {
         match self {
-            Self::Needs => "needs",
             Self::Running => "running",
             Self::Recent => "recent",
         }
@@ -74,6 +71,12 @@ fn needs(state: &str) -> Option<u8> {
         "errored" => Some(2),
         _ => None,
     }
+}
+
+/// A card whose state waits on you: an approval, a question or a failure.
+#[must_use]
+pub fn needs_you(state: &str) -> bool {
+    needs(state).is_some()
 }
 
 #[must_use]
@@ -107,15 +110,18 @@ fn classify(
         .iter()
         .filter(|c| c.parent.as_deref() == Some(w.id.as_str()))
         .collect();
-    if let Some(urgency) = needs(&state) {
+    // What waits on you no longer has a group of its own (the console's rail lists it): the
+    // card stays where its work is, and only its dot and second line say it waits.
+    if needs(&state).is_some() {
         return Row {
             ws: w,
-            group: Group::Needs,
+            group: Group::Recent,
             state,
             child: None,
-            urgency,
+            urgency: 0,
         };
     }
+    let busy = running(&state) || kids.iter().any(|c| running(&c.activity));
     let mut attention: Vec<(u8, &WorkspaceView, String)> = kids
         .iter()
         .filter_map(|c| {
@@ -127,13 +133,13 @@ fn classify(
         a.0.cmp(&b.0)
             .then_with(|| last_active(b.1).cmp(last_active(a.1)))
     });
-    if let Some((urgency, c, s)) = attention.into_iter().next() {
+    if let Some((_, c, s)) = attention.into_iter().next() {
         return Row {
             ws: w,
-            group: Group::Needs,
+            group: if busy { Group::Running } else { Group::Recent },
             state: s,
             child: Some(c.clone()),
-            urgency,
+            urgency: u8::from(busy),
         };
     }
     if running(&state) {
@@ -212,24 +218,22 @@ impl Move {
 }
 
 #[must_use]
-pub fn shown_counts(counts: [usize; 3], cols: usize, all_recent: bool) -> [usize; 3] {
-    let [needs, running, recent] = counts;
+pub fn shown_counts(counts: [usize; 2], cols: usize, all_recent: bool) -> [usize; 2] {
+    let [running, recent] = counts;
     let cap = RECENT_ROWS * cols.max(1);
     let recent = if all_recent || recent <= cap {
         recent
     } else {
         cap
     };
-    [needs, running, recent]
+    [running, recent]
 }
 
 /// After a card is dealt with, the next one (wrapping around) that still needs you.
 #[must_use]
-pub fn next_need(groups: &[Group], from: usize) -> Option<usize> {
-    let n = groups.len();
-    (1..n)
-        .map(|d| (from + d) % n)
-        .find(|&i| groups[i] == Group::Needs)
+pub fn next_need(needs: &[bool], from: usize) -> Option<usize> {
+    let n = needs.len();
+    (1..n).map(|d| (from + d) % n).find(|&i| needs[i])
 }
 
 #[must_use]
@@ -326,13 +330,13 @@ pub fn step_text(step: Option<&WorkspaceStep>, state: &str, root: &str) -> StepT
 mod tests {
     #[test]
     fn after_a_decision_the_next_card_that_needs_you_is_picked() {
-        use Group::{Needs, Recent, Running};
-        let groups = [Needs, Needs, Running, Needs, Recent];
-        assert_eq!(next_need(&groups, 0), Some(1));
-        assert_eq!(next_need(&groups, 1), Some(3));
-        assert_eq!(next_need(&groups, 3), Some(0));
-        assert_eq!(next_need(&[Needs, Recent], 0), None);
+        let needs = [true, true, false, true, false];
+        assert_eq!(next_need(&needs, 0), Some(1));
+        assert_eq!(next_need(&needs, 1), Some(3));
+        assert_eq!(next_need(&needs, 3), Some(0));
+        assert_eq!(next_need(&[true, false], 0), None);
         assert_eq!(next_need(&[], 0), None);
+        assert!(needs_you("errored") && needs_you("asking") && !needs_you("running"));
     }
 
     #[test]
@@ -368,7 +372,7 @@ mod tests {
     }
 
     #[test]
-    fn rows_fall_into_needs_running_and_recent_in_that_order() {
+    fn rows_fall_into_running_then_recent_and_waiting_cards_stay_in_recent() {
         let all = vec![
             ws("old", "idle", Some("2026-10-01T00:00:00+00:00"), None),
             ws("busy", "running", Some("2026-10-22T10:00:00+00:00"), None),
@@ -392,10 +396,10 @@ mod tests {
         assert_eq!(
             order,
             vec![
-                ("ask", Group::Needs),
-                ("broken", Group::Needs),
                 ("busy", Group::Running),
                 ("fresh", Group::Recent),
+                ("broken", Group::Recent),
+                ("ask", Group::Recent),
                 ("old", Group::Recent),
                 ("never", Group::Recent),
             ]
@@ -403,7 +407,7 @@ mod tests {
     }
 
     #[test]
-    fn a_child_waiting_for_you_lifts_its_parent_and_names_the_child() {
+    fn a_child_waiting_for_you_names_the_child_on_its_parents_card() {
         let all = vec![
             ws("parent", "idle", Some("2026-10-20T00:00:00+00:00"), None),
             ws(
@@ -427,16 +431,22 @@ mod tests {
         ];
         let top = vec![all[0].clone(), all[3].clone()];
         let rows = group_rows(top, &all, shown);
-        assert_eq!(rows[0].ws.id, "solo");
-        assert_eq!(rows[0].urgency, 0);
-        assert_eq!(rows[1].ws.id, "parent");
-        assert_eq!(rows[1].group, Group::Needs);
-        assert_eq!(rows[1].urgency, 1);
+        assert_eq!(rows[0].ws.id, "parent");
+        assert_eq!(rows[0].group, Group::Running);
         assert_eq!(
-            rows[1].child.as_ref().map(|c| c.id.as_str()),
+            rows[0].child.as_ref().map(|c| c.id.as_str()),
             Some("kid-ask")
         );
-        assert_eq!(rows[1].state, "awaiting_approval");
+        assert_eq!(rows[0].state, "awaiting_approval");
+        assert_eq!(rows[1].ws.id, "solo");
+        assert_eq!(rows[1].group, Group::Recent);
+        let quiet = vec![all[0].clone(), all[2].clone()];
+        let rows = group_rows(vec![quiet[0].clone()], &quiet, shown);
+        assert_eq!(rows[0].group, Group::Recent);
+        assert_eq!(
+            rows[0].child.as_ref().map(|c| c.id.as_str()),
+            Some("kid-ask")
+        );
     }
 
     #[test]
@@ -477,8 +487,8 @@ mod tests {
         });
         assert_eq!(card_line(&w, "asking", "").label, "正式 hub 要不要一起改？");
         let rows = group_rows(vec![w.clone()], &[w], |_| "asking".to_owned());
-        assert_eq!(rows[0].group, Group::Needs);
-        assert_eq!(rows[0].urgency, 1);
+        assert_eq!(rows[0].group, Group::Recent);
+        assert_eq!(rows[0].state, "asking");
     }
 
     #[test]
@@ -567,10 +577,10 @@ mod tests {
 
     #[test]
     fn recent_is_capped_at_two_rows_until_expanded() {
-        assert_eq!(shown_counts([1, 2, 9], 4, false), [1, 2, 8]);
-        assert_eq!(shown_counts([1, 2, 9], 4, true), [1, 2, 9]);
-        assert_eq!(shown_counts([0, 0, 5], 3, false), [0, 0, 5]);
-        assert_eq!(shown_counts([0, 0, 5], 0, false), [0, 0, 2]);
+        assert_eq!(shown_counts([2, 9], 4, false), [2, 8]);
+        assert_eq!(shown_counts([2, 9], 4, true), [2, 9]);
+        assert_eq!(shown_counts([0, 5], 3, false), [0, 5]);
+        assert_eq!(shown_counts([0, 5], 0, false), [0, 2]);
     }
 
     #[test]

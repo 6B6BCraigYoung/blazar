@@ -261,10 +261,10 @@ fn Home() -> impl IntoView {
         home_rows::group_rows(top, &all, |w| app.shown_activity(w))
     });
     let shown = Memo::new(move |_| {
-        let mut counts = [0usize; 3];
+        let mut counts = [0usize; 2];
         rows.with(|r| {
             for row in r {
-                let g = Group::ALL.iter().position(|g| *g == row.group).unwrap_or(2);
+                let g = Group::ALL.iter().position(|g| *g == row.group).unwrap_or(1);
                 counts[g] += 1;
             }
         });
@@ -401,9 +401,12 @@ fn Home() -> impl IntoView {
                     return;
                 }
                 let next = rows.try_with_untracked(|r| {
-                    let order: Vec<Group> = r.iter().map(|row| row.group).collect();
+                    let needs: Vec<bool> = r
+                        .iter()
+                        .map(|row| home_rows::needs_you(&row.state))
+                        .collect();
                     current
-                        .and_then(|i| home_rows::next_need(&order, i))
+                        .and_then(|i| home_rows::next_need(&needs, i))
                         .and_then(|i| r.get(i).map(|row| row.ws.id.clone()))
                 });
                 landing.set(next.flatten());
@@ -506,6 +509,7 @@ fn Home() -> impl IntoView {
         <div class="page home-page" class:home-start=move || mode.get() == "start">
             <Show when=move || mode.get() != "start">
                 <PageHead title="工作区">
+                    <NeedsLine />
                     <button
                         type="button"
                         class="btn primary"
@@ -561,6 +565,26 @@ fn Home() -> impl IntoView {
                     })
             }}
         </div>
+    }
+}
+
+/// What waits on you is handled in the console's rail; here it is one quiet line pointing there,
+/// counted the same way as the rail, and gone when nothing waits.
+#[component]
+fn NeedsLine() -> impl IntoView {
+    let app = use_app();
+    let count = Memo::new(move |_| app.pending_count());
+    move || {
+        let n = count.get();
+        (n > 0).then(|| {
+            view! {
+                <a class="home-needs" href="/">
+                    {format!("{n} 件事需要你处理")}
+                    <span aria-hidden="true">"→"</span>
+                    "中控台"
+                </a>
+            }
+        })
     }
 }
 
@@ -621,7 +645,11 @@ fn card_view(ctx: Ctx, i: usize, row: Row, pending: Option<Value>) -> impl IntoV
     let href = format!("/w/{}", subject.id);
     let title = fmt::ws_title(&row.ws.name, &row.ws.node);
     let child_title = row.child.as_ref().map(|c| fmt::ws_title(&c.name, &c.node));
-    let tone = crate::vocab::state(&row.state).1.key();
+    let tone = match Failure::of_workspace(&subject).filter(|_| row.state == "errored") {
+        Some(f) => f.tone(),
+        None => crate::vocab::state(&row.state).1,
+    }
+    .key();
     let (step, ask) = match &pending {
         Some(a) if is_question(a) => {
             let (label, code) = approval_summary(&a["request"], &subject.path);

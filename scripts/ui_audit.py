@@ -1215,7 +1215,7 @@ def calm(*after):
 ROUTES = [
     ("console", "/", "中控台：侧栏第一项「中控台」带橙色角标；页头「中控台 · 对话切换器 ⌄ · 新对话 ⌘N」，「全部对话…」在切换器菜单最下面；"
      "标题下一行小统计「N 在跑 · N 等你 · N 失败」；中间是最近一个助手对话；右栏 372px 常驻「需要你处理」卡片，下面是「动态」和「查看全部」"),
-    ("home", "/workspaces", "工作区首页：需要你处理 / 运行中 / 最近 三组两行短卡，「最近」超过两行时折叠并在标题右侧给出「显示全部（N）」"),
+    ("home", "/workspaces", "工作区首页：运行中 / 最近 两组两行短卡，没有「需要你处理」组，等你批准或失败的卡留在原组里，只有圆点上色（能一键继续的失败是橙点，其余失败红点），第二行文字一律灰色；页头「新建」左边一行灰字「N 件事需要你处理 → 中控台」（N 与中控台右栏一致，为 0 时不出现）；「最近」超过两行时折叠并在标题右侧给出「显示全部（N）」"),
     ("chats", "/chats", "全部对话：页头「中控台 / 全部对话」；每行是状态点、标题、最后一句的灰字摘要、时间，页头右侧「新对话」；没有对话时是统一的空状态"),
     ("chat-new", "/chats/new", "新对话页：中控台布局，对话切换器显示「新对话」，720 居中的空对话区和输入框，右栏照常"),
     ("inbox", "/?inbox=all", "中控台右栏展开成完整消息列表：「‹ 消息」返回键、显示 / 类型两个筛选、无框列表、未读蓝点"),
@@ -1501,10 +1501,10 @@ def plan(round_name):
                   (new_ws, {"action": "wait", "ms": 600}, *browse_to(DEMO / "atlas-api", DEMO / "atlas-api" / "src"),
                    {"action": "context_menu", "selector": brow(DEMO / "atlas-api" / "src")}), False))
     first_row = ".home-card[data-index=\"0\"]"
-    items.append(("home-selected", "/workspaces", "首页用 → 选中第一张卡：选中底色，没有描边，尺寸不变；审批卡第二行右侧换成「1 允许 3 拒绝」键帽",
+    items.append(("home-selected", "/workspaces", "首页用 → 选中第一张卡：选中底色，没有描边，尺寸不变；选中的是审批卡时第二行右侧换成「1 允许 2 总是允许 3 拒绝」键帽",
                   ({"action": "wait", "selector": first_row, "timeout_ms": 8000},
                    {"action": "key", "key": "ArrowRight", "code": "ArrowRight", "selector": ".home-page"}), False))
-    items.append(("home-row-menu", "/workspaces", "首页卡片的右键菜单（允许 / 总是允许 / 拒绝、打开 ↩、简介 ⌘I、改名、移除 ⌘⌫）",
+    items.append(("home-row-menu", "/workspaces", "首页卡片的右键菜单（审批卡多出允许 / 总是允许 / 拒绝；打开 ↩、简介 ⌘I、改名、移除 ⌘⌫）",
                   ({"action": "wait", "selector": first_row, "timeout_ms": 8000},
                    {"action": "context_menu", "selector": first_row}), False))
     show_all = ".home-group[data-group=\"recent\"] .lgroup-actions button"
@@ -1519,7 +1519,7 @@ def plan(round_name):
                    {"action": "context_menu", "selector": first_row}, {"action": "click", "text": "简介", "partial": True},
                    {"action": "wait", "ms": 600}), False))
     first_msg = ".console-rail .inbox-row[data-index=\"0\"]"
-    items.append(("console-rail", "/", "中控台右栏：「需要你处理」里是等你批准（允许 · 总是允许 · 拒绝，快捷键悬停才显示）、在问你（选项加回复框）、被拦下（命令加「允许这一次并重试」「不用了」）、没跑成（下一步加「标为已处理」）的卡片，"
+    items.append(("console-rail", "/", "中控台右栏：「需要你处理」里是等你批准（允许 · 总是允许 · 拒绝，快捷键悬停才显示）、在问你（选项加回复框）、被拦下（命令加「允许这一次并重试」「不用了」）、没跑成（下一步加「标为已处理」；能一键继续的失败是橙点，其余红点，标题灰字）的卡片，"
                   "橙色描边；下面「动态」是跑完了等条目，右侧「查看全部」",
                   ({"action": "wait", "selector": ".console-rail .inbox-row[data-kind=\"denied\"]", "timeout_ms": 8000},
                    {"action": "check_ui", "selector": ".console-rail .inbox-row[data-kind=\"denied\"] .inbox-act .btn", "want": 2, "what": "被拦下卡片的按钮数", "after": True},
@@ -1541,7 +1541,7 @@ def plan(round_name):
     if round_name == "data":
         for name, cause, label, _, _, _ in FAILED:
             card = f".home-card[href=\"/w/{WS[name]}\"]"
-            items.append((f"home-failed-{cause}", "/workspaces", f"首页「需要你处理」里{label}的卡片（第二行是原因）及其右键菜单：第一项是这一类的下一步，然后是「标为已处理 E」",
+            items.append((f"home-failed-{cause}", "/workspaces", f"首页「最近」里{label}的卡片（只有圆点上色，第二行灰字是原因）及其右键菜单：第一项是这一类的下一步，然后是「标为已处理 E」",
                           ({"action": "wait", "selector": card, "timeout_ms": 8000},
                            {"action": "context_menu", "selector": card}), False))
         items += detail_pages()

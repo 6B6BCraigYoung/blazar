@@ -722,6 +722,8 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 .home-keys kbd { padding: 0 var(--space-xs); border-radius: var(--radius-keycap); background: var(--control-track); font: var(--font-size-caption) var(--font-sans); line-height: 16px; color: var(--fg-3); }
 .home-keys kbd:not(:first-child) { margin-left: var(--space-sm); }
 .home-page .page-actions .btn { display: inline-flex; align-items: center; gap: var(--space-sm); }
+.home-needs { display: inline-flex; align-items: center; gap: var(--space-xs); margin-right: var(--space-xs); font-size: var(--font-size-label); color: var(--fg-3); white-space: nowrap; }
+.home-needs:hover { color: var(--fg); }
 .home-page .page-actions .btn kbd, .detail-page .page-actions .btn kbd { font: var(--font-size-caption) var(--font-sans); color: var(--on-accent-muted); }
 .ctx-item kbd { float: right; margin-left: var(--space-xl); font: var(--font-size-caption) var(--font-sans); color: var(--fg-4); }
 .ctx-item:not(:disabled):is(:hover, :focus-visible) kbd { color: var(--fg-3); }

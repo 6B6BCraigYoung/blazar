@@ -88,6 +88,11 @@ impl Failure {
     pub fn node_href(&self) -> Option<String> {
         (self.cause == FailureCause::Node).then(|| format!("/nodes/{}", api::enc(&self.node)))
     }
+
+    /// The dot colour, see [`vocab::failure_tone`].
+    pub const fn tone(&self) -> vocab::Tone {
+        vocab::failure_tone(self.cause)
+    }
 }
 
 pub fn clock(iso: &str) -> String {

@@ -341,6 +341,19 @@ pub const fn next_step(cause: blazar_core_types::failure::FailureCause) -> &'sta
     }
 }
 
+/// The dot colour of a failure, the one rule the workspace cards and the console rail share:
+/// a failure that one click on 「继续」 picks up again (a dropped connection, a busy server)
+/// is orange like anything else waiting on you; the rest — machine, login, quota, a lost
+/// conversation, anything unknown — are red. Only the dot carries it; the text stays grey.
+#[must_use]
+pub const fn failure_tone(cause: blazar_core_types::failure::FailureCause) -> Tone {
+    if cause.continues() {
+        Tone::Attention
+    } else {
+        Tone::Failed
+    }
+}
+
 #[must_use]
 pub fn retry_round(attempt: u64, max: u64) -> String {
     if max > 0 {
@@ -353,6 +366,19 @@ pub fn retry_round(attempt: u64, max: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_failures_you_can_just_continue_are_orange() {
+        use blazar_core_types::failure::FailureCause;
+        for cause in FailureCause::ALL {
+            let want = if matches!(cause, FailureCause::Network | FailureCause::Busy) {
+                Tone::Attention
+            } else {
+                Tone::Failed
+            };
+            assert_eq!(failure_tone(cause), want, "{cause:?}");
+        }
+    }
 
     #[test]
     fn running_and_failed_never_share_a_tone() {

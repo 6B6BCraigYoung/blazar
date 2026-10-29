@@ -89,6 +89,16 @@ impl Item {
             || self.open_denial()
             || (self.kind == "run_failed" && !self.handled && !self.archived)
     }
+
+    /// The dot colour in the console rail and the pop-up cards: requests are orange, failures
+    /// follow [`Failure::tone`], everything else is grey.
+    pub fn tone(&self) -> Tone {
+        match self.kind.as_str() {
+            "approval" | "question" | "denied" => Tone::Attention,
+            "run_failed" => self.failure.as_ref().map_or(Tone::Failed, Failure::tone),
+            _ => Tone::Other,
+        }
+    }
 }
 
 fn href_of(it: &Value, k: &str, ws: &str, thread: &str, chats: bool) -> String {
@@ -1152,7 +1162,7 @@ fn row_view(ctx: Ctx, i: usize, it: Item, pending: Option<Value>) -> impl IntoVi
                 ctx.menu.set(Some(MenuAt::from(&e, i)));
             }
         >
-            <span class="inbox-dot" aria-hidden="true"></span>
+            <span class="inbox-dot" data-tone=it.tone().key() aria-hidden="true"></span>
             <div class="inbox-col">
                 <a
                     class="inbox-main"

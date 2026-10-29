@@ -58,8 +58,8 @@
 .console-rail[data-mode="summary"] .inbox-row[data-needs="true"]:not([data-sel="true"]), .pop.card .inbox-row[data-needs="true"] { box-shadow: none; }
 .console-rail[data-mode="summary"] .inbox-dot, .pop.card .inbox-dot { grid-area: dot; margin: 0; }
 .console-rail[data-mode="summary"] .inbox-dot, .pop.card .inbox-dot { --tone: var(--status-other); width: 7px; height: 7px; opacity: 1; background: var(--tone); }
-.console-rail[data-mode="summary"] .inbox-row:is([data-kind="approval"], [data-kind="question"], [data-kind="denied"]) .inbox-dot, .pop.card .inbox-row:is([data-kind="approval"], [data-kind="question"], [data-kind="denied"]) .inbox-dot { --tone: var(--status-attention); }
-.console-rail[data-mode="summary"] .inbox-row[data-kind="run_failed"] .inbox-dot, .pop.card .inbox-row[data-kind="run_failed"] .inbox-dot { --tone: var(--status-failed); }
+.console-rail[data-mode="summary"] .inbox-dot[data-tone="attention"], .pop.card .inbox-dot[data-tone="attention"] { --tone: var(--status-attention); }
+.console-rail[data-mode="summary"] .inbox-dot[data-tone="failed"], .pop.card .inbox-dot[data-tone="failed"] { --tone: var(--status-failed); }
 .console-rail[data-mode="summary"] .inbox-row:not([data-unread="true"]) .inbox-dot, .pop.card .inbox-row:not([data-unread="true"]) .inbox-dot { background: transparent; box-shadow: inset 0 0 0 1.5px var(--tone); }
 .console-rail[data-mode="summary"] .meta-kind, .pop.card .meta-kind { display: none; }
 .console-rail[data-mode="summary"] .inbox-meta, .pop.card .inbox-meta { grid-area: meta; padding: 0; flex-wrap: wrap; white-space: normal; color: var(--fg-3); }
