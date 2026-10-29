@@ -18,6 +18,8 @@ pub struct Request {
     pub method: &'static str,
     pub path: String,
     pub body: Value,
+    /// 5 秒后真的发出去却没成功时，toast 的前缀（“没删掉：服务繁忙，稍后再试”）。
+    pub failed: &'static str,
 }
 
 impl Request {
@@ -26,19 +28,27 @@ impl Request {
             method: "DELETE",
             path,
             body: Value::Object(Default::default()),
+            failed: "没删掉",
         }
     }
 
     pub fn post(path: String) -> Self {
         Self {
             method: "POST",
+            failed: "没做成",
             ..Self::delete(path)
         }
+    }
+
+    #[must_use]
+    pub const fn failing(mut self, lead: &'static str) -> Self {
+        self.failed = lead;
+        self
     }
 }
 
 struct Pending {
-    request: Request,
+    requests: Vec<Request>,
     undo: Box<dyn Fn()>,
     done: Box<dyn Fn()>,
     toast: u32,
@@ -68,9 +78,19 @@ pub fn later(
     undo: impl Fn() + 'static,
     done: impl Fn() + 'static,
 ) {
+    later_all(text, vec![request], undo, done);
+}
+
+/// [`later`] for several requests behind one toast (a batch archive): 撤销 cancels them all.
+pub fn later_all(
+    text: impl Into<String>,
+    requests: Vec<Request>,
+    undo: impl Fn() + 'static,
+    done: impl Fn() + 'static,
+) {
     let id = LEDGER.with(|l| {
         l.borrow_mut().add(Pending {
-            request,
+            requests,
             undo: Box::new(undo),
             done: Box::new(done),
             toast: 0,
@@ -93,24 +113,37 @@ pub fn remove_row(
     request: Request,
     done: impl Fn() + 'static,
 ) {
-    hidden().update(|h| {
-        h.insert(id.clone());
-    });
-    let back = id.clone();
-    later(
+    remove_rows(text, vec![(id, request)], done);
+}
+
+/// Hide several rows at once and send their requests after 5 seconds, behind one 撤销
+/// (e.g. 「已归档 3 个智能体，正在运行的任务会被取消」).
+pub fn remove_rows(
+    text: impl Into<String>,
+    rows: Vec<(String, Request)>,
+    done: impl Fn() + 'static,
+) {
+    let (ids, requests): (Vec<String>, Vec<Request>) = rows.into_iter().unzip();
+    hidden().update(|h| h.extend(ids.iter().cloned()));
+    let back = ids.clone();
+    later_all(
         text,
-        request,
+        requests,
         move || {
             hidden().update(|h| {
-                h.remove(&back);
+                for id in &back {
+                    h.remove(id);
+                }
             });
         },
         move || {
             done();
-            let id = id.clone();
+            let ids = ids.clone();
             gloo_timers::callback::Timeout::new(SETTLE_MS, move || {
                 hidden().update(|h| {
-                    h.remove(&id);
+                    for id in &ids {
+                        h.remove(id);
+                    }
                 });
             })
             .forget();
@@ -128,12 +161,21 @@ fn cancel(id: u32) {
 
 fn send(p: Pending) {
     spawn_local(async move {
-        match api::send::<Value>(p.request.method, &p.request.path, &p.request.body).await {
-            Ok(_) => (p.done)(),
-            Err(e) => {
-                toast::toast(format!("没删掉：{e}"));
-                (p.undo)();
+        let total = p.requests.len();
+        let mut failed = 0;
+        for r in &p.requests {
+            if let Err(e) = api::send::<Value>(r.method, &r.path, &r.body).await {
+                if failed == 0 {
+                    toast::toast_error(r.failed, &e);
+                }
+                failed += 1;
             }
+        }
+        if failed > 0 {
+            (p.undo)();
+        }
+        if failed < total {
+            (p.done)();
         }
     });
 }
@@ -155,15 +197,17 @@ pub fn undo_last() -> bool {
 
 fn flush_now() {
     for (_, p) in LEDGER.with(|l| l.borrow_mut().drain()) {
-        let init = web_sys::RequestInit::new();
-        init.set_method(p.request.method);
-        let _ = js_sys::Reflect::set(init.as_ref(), &"keepalive".into(), &JsValue::TRUE);
-        init.set_body(&JsValue::from_str(&p.request.body.to_string()));
-        if let Ok(headers) = web_sys::Headers::new() {
-            let _ = headers.set("content-type", "application/json");
-            init.set_headers_headers(&headers);
+        for r in &p.requests {
+            let init = web_sys::RequestInit::new();
+            init.set_method(r.method);
+            let _ = js_sys::Reflect::set(init.as_ref(), &"keepalive".into(), &JsValue::TRUE);
+            init.set_body(&JsValue::from_str(&r.body.to_string()));
+            if let Ok(headers) = web_sys::Headers::new() {
+                let _ = headers.set("content-type", "application/json");
+                init.set_headers_headers(&headers);
+            }
+            let _ = window().fetch_with_str_and_init(&r.path, &init);
         }
-        let _ = window().fetch_with_str_and_init(&p.request.path, &init);
     }
 }
 

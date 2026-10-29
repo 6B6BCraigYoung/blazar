@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 
 use crate::api;
 use crate::chat_model::{HistItem, Row};
-use crate::components::toast::toast;
+use crate::components::toast::{toast, toast_error_en};
 use crate::realtime::Bus;
 use crate::storage;
 
@@ -222,7 +222,7 @@ impl Chat {
                     });
                 }
                 Ok(r) => toast(r["reason"].as_str().unwrap_or("Rename failed").to_owned()),
-                Err(e) => toast(format!("Rename failed: {e}")),
+                Err(e) => toast_error_en("Rename failed", &e),
             }
         });
     }
@@ -295,7 +295,9 @@ impl Chat {
                     );
                     self.replace_rows(rows);
                 }
-                Err(e) => self.local_errors.set(vec![e.to_string()]),
+                Err(e) => self.local_errors.set(vec![
+                    crate::vocab_en::lead("Couldn't load this conversation", e.explained_en()).0,
+                ]),
             }
             self.loading.set(false);
             self.load_checkpoints();

@@ -14,7 +14,7 @@ use crate::components::group::ListGroup;
 use crate::components::icon;
 use crate::components::page_head::PageHead;
 use crate::components::rows::{RowAction, RowKey, RowMenu, Rows};
-use crate::components::toast::toast;
+use crate::components::toast::{toast, toast_error};
 use crate::components::undo::{self, Request};
 use crate::{fmt, vocab};
 
@@ -46,8 +46,8 @@ pub(crate) fn rename_chat(app: AppData, id: String, current: String) {
         .await
         {
             Ok(r) if r["ok"].as_bool() == Some(true) => app.load_chats(),
-            Ok(r) => toast(r["reason"].as_str().unwrap_or("没能重命名").to_owned()),
-            Err(e) => toast(format!("没能重命名：{e}")),
+            Ok(r) => toast_error("没能重命名", r["reason"].as_str().unwrap_or_default()),
+            Err(e) => toast_error("没能重命名", &e),
         }
     });
 }

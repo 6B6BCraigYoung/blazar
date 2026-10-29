@@ -54,7 +54,7 @@ pub fn TransferSettings() -> impl IntoView {
                     api::post_text::<ImportReport>("/api/import?dry_run=true", text.clone())
                         .await
                         .map(|report| Pending { name, text, report })
-                        .map_err(|e| e.message)
+                        .map_err(|e| e.explained().0)
                 }
                 None => Err("读不了这个文件".to_owned()),
             };
@@ -169,7 +169,7 @@ fn ImportDialog(pending: Pending, on_close: Callback<()>) -> impl IntoView {
                     report.set(r);
                     status.set(("已导入。".to_owned(), false));
                 }
-                Err(e) => status.set((e.message, true)),
+                Err(e) => status.set((crate::vocab::lead("没导入", e.explained()).0, true)),
             }
             busy.set(false);
         });

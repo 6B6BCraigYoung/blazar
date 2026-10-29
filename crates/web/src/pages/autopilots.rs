@@ -8,7 +8,7 @@ use crate::components::{
     modal::Modal,
     rows::{RowAction, RowKey, RowMenu, Rows},
     status::{EmptyState, InlineError, LoadingState},
-    toast::toast,
+    toast::{toast, toast_error},
     undo::{self, Request},
 };
 use crate::{api, fmt};
@@ -73,7 +73,7 @@ impl ApUi {
                     }
                     refresh(self.rev);
                 }
-                Err(e) => toast(e.to_string()),
+                Err(e) => toast_error("操作失败", &e),
             }
             self.busy.try_set(false);
         });
@@ -217,7 +217,8 @@ pub fn AutopilotsPage() -> impl IntoView {
                                 Err(e) => {
                                     view! {
                                         <InlineError
-                                            message=format!("无法读取自动化：{e}")
+                                            lead="无法读取自动化"
+                                            error=e.clone()
                                             retry=Callback::new(move |()| refresh(ui.rev))
                                         />
                                     }
@@ -366,7 +367,8 @@ fn AutopilotDetail(id: String, ui: ApUi) -> impl IntoView {
                             Err(e) => {
                                 view! {
                                     <InlineError
-                                        message=format!("无法读取自动化：{e}")
+                                        lead="无法读取自动化"
+                                        error=e.clone()
                                         retry=Callback::new(move |()| refresh(ui.rev))
                                         class="pad"
                                     />
@@ -1099,7 +1101,7 @@ fn AutopilotEditor(init: Value, ui: ApUi) -> impl IntoView {
                                     Err(e) => {
                                         view! {
                                             <InlineError
-                                                message=e.to_string()
+                                                error=e.clone()
                                                 retry=Callback::new(move |()| {
                                                     preview_revision.update(|n| *n = n.wrapping_add(1))
                                                 })
@@ -1150,7 +1152,7 @@ fn AutopilotEditor(init: Value, ui: ApUi) -> impl IntoView {
                             "权限模式",
                             permission,
                             &[
-                                ("", "跟随智能体 / 运行时设置"),
+                                ("", "跟随智能体设置"),
                                 ("acceptEdits", "自动批准改文件"),
                                 ("bypassPermissions", "全部放行"),
                                 ("plan", "只规划"),

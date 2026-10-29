@@ -5,7 +5,7 @@ use crate::components::group::ListGroup;
 use crate::components::icon;
 use crate::components::rows::{MenuAt, RowAction, RowMenu};
 use crate::components::status::{InlineError, LoadingState, Status, Tone};
-use crate::components::toast::toast;
+use crate::components::toast::{toast, toast_error};
 use crate::failure::{self, Failure};
 use crate::pages::workspaces::retry_workspace;
 use crate::{api, app_state::use_app, fmt, storage};
@@ -226,7 +226,7 @@ pub fn resolve_item(id: String, done: impl Fn() + 'static) {
     spawn_local(async move {
         match api::send::<Value>("POST", &format!("/api/inbox/{id}/resolve"), &json!({})).await {
             Ok(_) => done(),
-            Err(e) => toast(e.to_string()),
+            Err(e) => toast_error("没能标为已处理", &e),
         }
     });
 }
@@ -262,7 +262,7 @@ fn answer_ask(ctx: Ctx, it: &Item, text: String) {
                 toast("已回复");
                 refresh(ctx.rev);
             }
-            Err(e) => toast(format!("没能回复：{e}")),
+            Err(e) => toast_error("没能回复", &e),
         }
     });
 }
@@ -348,7 +348,7 @@ pub fn mark_inbox(action: &str, ids: Vec<String>, done: impl Fn() + 'static) {
         }
         match api::send::<Value>("POST", "/api/inbox", &body).await {
             Ok(_) => done(),
-            Err(e) => toast(e.to_string()),
+            Err(e) => toast_error("操作失败", &e),
         }
     });
 }
@@ -480,7 +480,7 @@ fn decide_denial(ctx: Ctx, it: &Item, allow: bool) {
                                 .to_owned(),
                         ),
                         Ok(_) => toast("已允许，正在重试"),
-                        Err(e) => toast(format!("已允许，但没能重试：{e}")),
+                        Err(e) => toast_error("已允许，但没能重试", &e),
                     }
                 } else if !allow {
                     toast("已跳过");
@@ -492,7 +492,7 @@ fn decide_denial(ctx: Ctx, it: &Item, allow: bool) {
                     .unwrap_or("这条操作已经决定过了")
                     .to_owned(),
             ),
-            Err(e) => toast(format!("没能记录：{e}")),
+            Err(e) => toast_error("没能记录", &e),
         }
         decided(ctx, tid);
     });
@@ -626,10 +626,7 @@ pub fn InboxAll() -> impl IntoView {
                 None => view! { <LoadingState text="加载通知…" /> }.into_any(),
                 Some(Err(e)) => {
                     view! {
-                        <InlineError
-                            message=e.to_string()
-                            retry=Callback::new(move |_| refresh(rev))
-                        />
+                        <InlineError error=e.clone() retry=Callback::new(move |_| refresh(rev)) />
                     }
                         .into_any()
                 }

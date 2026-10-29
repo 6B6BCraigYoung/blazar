@@ -242,14 +242,28 @@ fn has_cjk(text: &str) -> bool {
 /// 不直接给人看，只说“出了点问题”。
 #[must_use]
 pub fn explain(raw: &str, status: Option<u16>) -> (String, Option<String>) {
+    explain_with(raw, status, error, VAGUE)
+}
+
+/// 认不出来的错误统一说这一句；[`lead`] 遇到它就只留前缀。
+pub const VAGUE: &str = "出了点问题";
+
+/// [`explain`] 的骨架，中英文共用：`translate` 是 [`error`] 或 `vocab_en::error`，
+/// `vague` 是认不出来时说的那句话。
+pub(crate) fn explain_with(
+    raw: &str,
+    status: Option<u16>,
+    translate: fn(&str, Option<u16>) -> String,
+    vague: &str,
+) -> (String, Option<String>) {
     let raw = raw.trim();
     let detail = || Some(raw.to_owned()).filter(|r| !r.is_empty() && !r.starts_with("HTTP "));
-    let why = error(raw, status);
+    let why = translate(raw, status);
     if why != raw {
         return (why, detail());
     }
     if !has_cjk(raw) {
-        return ("出了点问题".into(), detail());
+        return (vague.into(), detail());
     }
     if let Some((head, tail)) = raw.split_once('：')
         && has_cjk(head)
@@ -259,6 +273,50 @@ pub fn explain(raw: &str, status: Option<u16>) -> (String, Option<String>) {
         return (head.trim().to_owned(), Some(tail.trim().to_owned()));
     }
     (raw.to_owned(), None)
+}
+
+/// 给一句人话加上“在做什么”的前缀：“没保存上：服务繁忙，稍后再试”。
+/// 认不出来的错误只留前缀（“没保存上”），原文还在「详情」里。
+#[must_use]
+pub fn lead(lead: &str, shown: (String, Option<String>)) -> (String, Option<String>) {
+    lead_with(lead, shown, VAGUE, "：")
+}
+
+pub(crate) fn lead_with(
+    lead: &str,
+    (text, detail): (String, Option<String>),
+    vague: &str,
+    sep: &str,
+) -> (String, Option<String>) {
+    let lead = lead.trim().trim_end_matches(['：', ':']).trim_end();
+    if lead.is_empty() || text.starts_with(lead) {
+        (text, detail)
+    } else if text == vague || text.is_empty() {
+        (lead.to_owned(), detail)
+    } else {
+        (format!("{lead}{sep}{text}"), detail)
+    }
+}
+
+/// 用量页的失败原因：原文先翻成一句短话（[`cause`]），说法相同的合成一行、次数相加，
+/// 原文都留着放进「详情」。顺序按次数从多到少，次数相同时保持原来的先后。
+#[must_use]
+pub fn failure_reasons(rows: &[(f64, String)]) -> Vec<(f64, String, Vec<String>)> {
+    let mut out: Vec<(f64, String, Vec<String>)> = Vec::new();
+    for (n, raw) in rows {
+        let why = cause(raw);
+        let raw = raw.trim();
+        let original = (!raw.is_empty() && raw != why).then(|| raw.to_owned());
+        match out.iter_mut().find(|(_, w, _)| *w == why) {
+            Some((total, _, originals)) => {
+                *total += n;
+                originals.extend(original.filter(|o| !originals.contains(o)));
+            }
+            None => out.push((*n, why, original.into_iter().collect())),
+        }
+    }
+    out.sort_by(|a, b| b.0.total_cmp(&a.0));
+    out
 }
 
 pub fn http_code(raw: &str) -> Option<u16> {
@@ -475,6 +533,87 @@ mod tests {
         let (text, detail) = explain("connection refused", None);
         assert_eq!(text, "连不上服务，请检查网络");
         assert_eq!(detail.as_deref(), Some("connection refused"));
+    }
+
+    #[test]
+    fn explaining_twice_changes_nothing() {
+        for raw in [
+            "API Error: 529 Overloaded",
+            "ssh: connect to host 10.0.0.7 port 22: Operation timed out",
+            "rate_limit",
+            "invalid api key",
+            "permission denied",
+            "billing_error",
+            "server_error",
+            "deadline exceeded",
+            "Failed to fetch",
+            "HTTP 404",
+            "ENOSPC",
+            "bash: x: command not found",
+            "database is locked",
+            "退出码 2：tar",
+        ] {
+            let once = explain(raw, None).0;
+            assert_eq!(explain(&once, None), (once.clone(), None), "{raw}");
+        }
+    }
+
+    #[test]
+    fn leads_say_what_was_being_done() {
+        let shown = |raw: &str| explain(raw, None);
+        assert_eq!(
+            lead("没保存上", shown("API Error: 529 Overloaded")),
+            (
+                "没保存上：服务繁忙，稍后再试".to_owned(),
+                Some("API Error: 529 Overloaded".to_owned())
+            )
+        );
+        assert_eq!(
+            lead("无法加载设置：", shown("database is locked")),
+            (
+                "无法加载设置".to_owned(),
+                Some("database is locked".to_owned())
+            )
+        );
+        assert_eq!(
+            lead("", shown("工作区不存在")),
+            ("工作区不存在".to_owned(), None)
+        );
+        assert_eq!(
+            lead("改名失败", shown("改名失败：名字重复了")),
+            ("改名失败：名字重复了".to_owned(), None)
+        );
+    }
+
+    #[test]
+    fn failure_reasons_read_as_causes_and_keep_their_originals() {
+        let rows = [
+            (2.0, "API Error: 529 overloaded".to_owned()),
+            (
+                5.0,
+                "agent 异常退出（退出码 1）。stderr: Error: ENOSPC: no space left on device, write"
+                    .to_owned(),
+            ),
+            (1.0, "API Error: 529 Overloaded".to_owned()),
+            (1.0, "API Error: 529 overloaded".to_owned()),
+        ];
+        let got = failure_reasons(&rows);
+        assert_eq!(got.len(), 2);
+        assert_eq!(got[0].0, 5.0);
+        assert_eq!(got[0].1, "机器的磁盘满了");
+        assert_eq!(got[1].0, 4.0);
+        assert_eq!(got[1].1, "服务繁忙（529）");
+        assert_eq!(
+            got[1].2,
+            vec![
+                "API Error: 529 overloaded".to_owned(),
+                "API Error: 529 Overloaded".to_owned()
+            ]
+        );
+        assert_eq!(
+            failure_reasons(&[(1.0, String::new())]),
+            vec![(1.0, "请求没有成功".to_owned(), vec![])]
+        );
     }
 
     #[test]

@@ -588,8 +588,6 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 .node-lat, .node-seen { color: var(--fg-3); }
 .node-row[data-off="true"] :is(.node-name, .node-link, .node-ws) { color: var(--fg-3); }
 .node-row[data-off="true"] .node-name:hover { color: var(--fg); }
-.machines-foot { display: flex; align-items: center; gap: var(--space-sm); margin: calc(-1 * var(--space-md)) 0 0 var(--space-xl); }
-.machines-foot .linkbtn { font-size: inherit; }
 .machines-menu { min-width: 180px; }
 .confirm-list { display: flex; flex-direction: column; margin: var(--space-xs) 0 var(--space-md); border-radius: var(--r-md); background: var(--bg-raised); max-height: 260px; overflow-y: auto; overscroll-behavior: contain; }
 .confirm-row { display: flex; align-items: center; gap: var(--space-control); min-height: 36px; padding: 0 var(--space-lg); border-bottom: 1px solid var(--line); cursor: default; }
@@ -605,8 +603,6 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 .nodes-page .nodes-details p, .nodes-dialog .nodes-details p { margin: var(--space-sm) 0; }
 .nodes-page .nodes-details .kv .v, .nodes-dialog .nodes-details .kv .v { overflow: visible; text-overflow: clip; overflow-wrap: anywhere; white-space: pre-wrap; }
 .nodes-page .nodes-details .mono, .nodes-dialog .nodes-details .mono { overflow-wrap: anywhere; white-space: pre-wrap; }
-.nodes-page .nodes-section-heading { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-control); margin: var(--space-2xl) 0 var(--space-control); }
-.nodes-page .nodes-section-heading h2 { margin: 0; font-size: var(--font-size-section-title); font-weight: var(--font-weight-semibold); }
 .nodes-page .nodes-form, .nodes-dialog .nodes-form { border: 0; padding: 0; margin: 0; min-width: 0; }
 .nodes-page .nodes-table { max-width: 100%; overflow-x: auto; }
 .nodes-page .nodes-table .tb { min-width: 420px; }

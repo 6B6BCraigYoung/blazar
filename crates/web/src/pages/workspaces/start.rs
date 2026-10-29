@@ -252,23 +252,20 @@ pub fn Start() -> impl IntoView {
             false,
             view! { <p class="start-note">"正在检测 Claude Code 和 Codex…"</p> }.into_any(),
         ),
-        (Some(Err(e)), _) => {
-            let (message, detail) = e.explained();
-            (
-                false,
-                view! {
-                    <InlineError
-                        message=format!("检测失败：{message}")
-                        detail
-                        retry=Callback::new(move |_| {
-                            runtimes.refetch();
-                            accounts.refetch();
-                        })
-                    />
-                }
-                .into_any(),
-            )
-        }
+        (Some(Err(e)), _) => (
+            false,
+            view! {
+                <InlineError
+                    lead="检测失败"
+                    error=e.clone()
+                    retry=Callback::new(move |_| {
+                        runtimes.refetch();
+                        accounts.refetch();
+                    })
+                />
+            }
+            .into_any(),
+        ),
         (Some(Ok(r)), Some(accounts)) => {
             let accounts = accounts.ok();
             let lines: Vec<RuntimeLine> = r

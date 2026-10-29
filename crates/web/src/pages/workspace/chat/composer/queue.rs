@@ -144,7 +144,8 @@ pub(super) fn QueueEditor(chat: Chat, queued: Queued) -> impl IntoView {
                     let _ = chat.editing_queue.try_set(None);
                 }
                 Err(e) => {
-                    let _ = error.try_set(e.to_string());
+                    let _ =
+                        error.try_set(crate::vocab_en::lead("Couldn't save", e.explained_en()).0);
                 }
             }
         });
@@ -162,7 +163,7 @@ pub(super) fn QueueEditor(chat: Chat, queued: Queued) -> impl IntoView {
             <p class="muted">"Attachments, file context and send settings are kept."</p>
             <Show when=move || {
                 !error.get().is_empty()
-            }>{move || view! { <InlineError message=error.get() /> }}</Show>
+            }>{move || view! { <InlineError message=error.get() plain=true english=true /> }}</Show>
             <div class="dlg-foot">
                 <button class="btn" disabled=move || busy.get() on:click=move |_| close()>
                     "Cancel"
@@ -240,7 +241,7 @@ pub(super) fn FailedEditor(
             <p class="muted">"File context and send settings are kept. Retry after saving."</p>
             <Show when=move || {
                 !error.get().is_empty()
-            }>{move || view! { <InlineError message=error.get() /> }}</Show>
+            }>{move || view! { <InlineError message=error.get() plain=true english=true /> }}</Show>
             <div class="dlg-foot">
                 <button class="btn" on:click=move |_| on_close.run(())>
                     "Cancel"

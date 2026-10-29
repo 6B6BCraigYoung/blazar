@@ -14,7 +14,7 @@ use crate::components::modal::Modal;
 use crate::components::page_head::PageHead;
 use crate::components::prefs::{PrefGroup, PrefRow};
 use crate::components::status::{Checking, InlineError};
-use crate::components::toast::toast;
+use crate::components::toast::{toast, toast_error};
 use crate::fmt;
 use crate::realtime::use_bus;
 
@@ -173,7 +173,7 @@ pub fn SimApp(id: &'static str, name: &'static str) -> impl IntoView {
                 "node": node, "version": inst_version.get_untracked(), "accept_eula": inst_eula.get_untracked(),
             })).await {
                 Ok(r) => toast(format!("已在 {} 上开始安装", fmt::machine(&s(&r, "node")))),
-                Err(e) => toast(e.to_string()),
+                Err(e) => toast_error("没能开始安装", &e),
             }
             inst_busy.set(false);
             poll_install();
@@ -199,7 +199,7 @@ pub fn SimApp(id: &'static str, name: &'static str) -> impl IntoView {
             )
             .await
             {
-                toast(e.to_string());
+                toast_error("没能取消安装", &e);
             }
             poll_install();
         });
@@ -285,7 +285,7 @@ pub fn SimApp(id: &'static str, name: &'static str) -> impl IntoView {
             .await
             {
                 Ok(_) => do_scan(),
-                Err(e) => toast(e.to_string()),
+                Err(e) => toast_error("没保存上", &e),
             }
             busy.set(false);
         });
@@ -320,7 +320,7 @@ pub fn SimApp(id: &'static str, name: &'static str) -> impl IntoView {
                     viewing.set(Some((s(&r, "node"), s(&r, "display"))));
                     rev.update(|n| *n += 1);
                 }
-                Err(e) => toast(e.to_string()),
+                Err(e) => toast_error("没能启动", &e),
             }
             busy.set(false);
         });
@@ -347,7 +347,7 @@ pub fn SimApp(id: &'static str, name: &'static str) -> impl IntoView {
                     });
                     do_scan();
                 }
-                Err(e) => toast(e.to_string()),
+                Err(e) => toast_error("没能准备虚拟显示", &e),
             }
             busy.set(false);
         });
@@ -356,7 +356,7 @@ pub fn SimApp(id: &'static str, name: &'static str) -> impl IntoView {
         spawn_local(async move {
             match api::get::<Value>("/api/sims/display/setup-script").await {
                 Ok(v) => script.set(Some(s(&v, "script"))),
-                Err(e) => toast(e.to_string()),
+                Err(e) => toast_error("没能读取脚本", &e),
             }
         });
     };
@@ -400,7 +400,7 @@ pub fn SimApp(id: &'static str, name: &'static str) -> impl IntoView {
                 }
             };
             if let Err(e) = r {
-                toast(e.to_string());
+                toast_error("操作失败", &e);
             }
             rev.update(|n| *n += 1);
         });
@@ -531,9 +531,12 @@ pub fn SimApp(id: &'static str, name: &'static str) -> impl IntoView {
                     scan.get()
                         .map(|r| match r {
                             Err(e) => {
+                                let (text, detail) = crate::vocab::explain(&e, None);
                                 view! {
                                     <PrefRow label="程序">
-                                        <span class="pref-text bad">{e}</span>
+                                        <span class="pref-text bad" title=detail>
+                                            {text}
+                                        </span>
                                     </PrefRow>
                                 }
                                     .into_any()
@@ -948,7 +951,7 @@ pub fn SimApp(id: &'static str, name: &'static str) -> impl IntoView {
                     Some(Err(e)) => {
                         view! {
                             <InlineError
-                                message=e.to_string()
+                                error=e.clone()
                                 retry=Callback::new(move |_| rev.update(|n| *n += 1))
                             />
                         }
@@ -1183,12 +1186,12 @@ fn SimViewer(node: String, disp: String, on_close: Callback<()>) -> impl IntoVie
                 "playing" => ("播放中".to_owned(), false),
                 "closed" => ("已断开".to_owned(), false),
                 other => match other.split_once(':') {
-                    Some(("error", e)) => (e.to_owned(), true),
+                    Some(("error", e)) => (crate::vocab::explain(e, None).0, true),
                     Some(("ended", e)) => (
                         if e.is_empty() {
                             "推流结束".to_owned()
                         } else {
-                            format!("推流结束：{e}")
+                            crate::vocab::lead("推流结束", crate::vocab::explain(e, None)).0
                         },
                         true,
                     ),

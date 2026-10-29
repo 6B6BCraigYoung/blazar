@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 use crate::api::{self, Accounts};
 use crate::app_state::AppData;
 use crate::components::dialog::{self, Choice};
-use crate::components::toast::toast;
+use crate::components::toast::{toast, toast_error, toast_error_en};
 use crate::{fmt, vocab};
 
 pub const CONTINUE: &str = "Continue";
@@ -176,8 +176,8 @@ pub fn mark_handled(app: AppData, ws: String, session: Option<String>, en: bool)
                 });
                 app.load_state();
             }
-            Err(e) if en => toast(format!("Couldn't mark as handled: {e}")),
-            Err(e) => toast(format!("没能标为已处理：{e}")),
+            Err(e) if en => toast_error_en("Couldn't mark as handled", &e),
+            Err(e) => toast_error("没能标为已处理", &e),
         }
     });
 }
@@ -195,7 +195,7 @@ fn prompt(app: AppData, ws: String, body: Value, done: &'static str, failed: &'s
                 toast(done);
                 app.load_state();
             }
-            Err(e) => toast(format!("{failed}：{e}")),
+            Err(e) => toast_error(failed, &e),
         }
     });
 }
@@ -217,15 +217,9 @@ pub fn probe_node(app: AppData, node: String, en: bool) {
         app.load_state();
         match probed {
             Ok(_) if en => toast(format!("{} is back online", fmt::machine(&node))),
-            Err(e) if en => toast(format!(
-                "Still can't connect: {}",
-                crate::vocab_en::error(&e.to_string(), None)
-            )),
+            Err(e) if en => toast_error_en("Still can't connect", &e),
             Ok(_) => toast(format!("{} 连上了", fmt::machine(&node))),
-            Err(e) => toast(format!(
-                "还是连不上：{}",
-                vocab::error(&e.to_string(), None)
-            )),
+            Err(e) => toast_error("还是连不上", &e),
         }
     });
 }
@@ -240,7 +234,7 @@ pub fn login(runtime: String, account: Option<String>, en: bool) {
             toast(if en {
                 "Couldn't load accounts. Log in on the Runtimes page."
             } else {
-                "读取账号失败，请到运行时页面登录。"
+                "读取账号失败，请到「账号与额度」登录。"
             });
             return;
         };
@@ -254,7 +248,7 @@ pub fn login(runtime: String, account: Option<String>, en: bool) {
         match picked {
             Some(a) => crate::pages::runtimes::login(&a),
             None if en => toast("No account for this runtime. Add one on the Runtimes page."),
-            None => toast("没有这个运行时的账号，请先到运行时页面添加。"),
+            None => toast("还没有这个软件的账号，请先到「账号与额度」添加。"),
         }
     });
 }
@@ -278,7 +272,7 @@ pub async fn pick_other_account(runtime: &str, exclude: Option<&str>, en: bool) 
         toast(if en {
             "No other account available. Add or log in to one on the Runtimes page."
         } else {
-            "没有其他可用账号，请先在运行时页面添加或登录。"
+            "没有其他可用账号，请先在「账号与额度」添加或登录。"
         });
         return None;
     }

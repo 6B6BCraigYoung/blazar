@@ -2045,7 +2045,7 @@ pub fn Log(chat: Chat, tick: RwSignal<u32>, log_h: RwSignal<f64>) -> impl IntoVi
                                 <div class="cc-row cc-err">
                                     <span class="cc-dot" aria-hidden="true"></span>
                                     <div class="cc-main">
-                                        <InlineError message=e />
+                                        <InlineError message=e plain=true english=true />
                                     </div>
                                 </div>
                             }

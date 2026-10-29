@@ -8,7 +8,7 @@ use crate::components::{
     modal::Modal,
     rows::{RowAction, RowKey, RowMenu, Rows},
     status::{EmptyState, InlineError, LoadingState},
-    toast::toast,
+    toast::{toast, toast_error},
     undo::{self, Request},
 };
 use crate::{api, fmt, md, storage};
@@ -351,7 +351,7 @@ impl TaskUi {
                     }
                     refresh(self.rev);
                 }
-                Err(e) => toast(e.to_string()),
+                Err(e) => toast_error("操作失败", &e),
             };
             self.busy.try_set(false);
         });
@@ -549,7 +549,8 @@ pub fn TasksPage() -> impl IntoView {
                                 Err(e) => {
                                     view! {
                                         <InlineError
-                                            message=format!("无法读取任务：{e}")
+                                            lead="无法读取任务"
+                                            error=e.clone()
                                             retry=Callback::new(move |()| refresh(ui.rev))
                                         />
                                     }
@@ -914,7 +915,7 @@ fn TaskEditor(init: Value, ui: TaskUi) -> impl IntoView {
                             } else {
                                 "已开始".into()
                             }),
-                            Err(e) => toast(e.to_string()),
+                            Err(e) => toast_error("没能开始", &e),
                         }
                         ui.busy.try_set(false);
                         refresh(ui.rev);
@@ -1067,7 +1068,7 @@ fn TaskDetail(id: String, ui: TaskUi) -> impl IntoView {
                     });
                     refresh(ui.rev);
                 }
-                Err(e) => toast(e.to_string()),
+                Err(e) => toast_error("没记下", &e),
             }
             ui.comment_sending.try_update(|ids| {
                 ids.remove(&id);
@@ -1096,7 +1097,8 @@ fn TaskDetail(id: String, ui: TaskUi) -> impl IntoView {
                             Err(e) => {
                                 view! {
                                     <InlineError
-                                        message=format!("无法读取任务：{e}")
+                                        lead="无法读取任务"
+                                        error=e.clone()
                                         retry=Callback::new(move |()| refresh(ui.rev))
                                         class="pad"
                                     />
@@ -1192,7 +1194,7 @@ fn TaskDetail(id: String, ui: TaskUi) -> impl IntoView {
                                                                             toast("已请求停止");
                                                                             refresh(ui.rev);
                                                                         }
-                                                                        Err(e) => toast(e.to_string()),
+                                                                        Err(e) => toast_error("没能停止", &e),
                                                                     }
                                                                     ui.busy.try_set(false);
                                                                 });
@@ -1403,10 +1405,10 @@ fn TaskDetail(id: String, ui: TaskUi) -> impl IntoView {
                                                                         }
                                                                         toast("飞书文档已创建");
                                                                     } else {
-                                                                        toast(format!("创建失败：{}", s(&r, "detail")));
+                                                                        toast_error("创建失败", &s(&r, "detail"));
                                                                     }
                                                                 }
-                                                                Err(e) => toast(e.to_string()),
+                                                                Err(e) => toast_error("创建失败", &e),
                                                             }
                                                             ui.busy.try_set(false);
                                                         });
@@ -1461,7 +1463,7 @@ fn TaskDetail(id: String, ui: TaskUi) -> impl IntoView {
                                                                             Some(("在 Obsidian 中打开".into(), s(&r, "open"))),
                                                                         );
                                                                 }
-                                                                Err(e) => toast(e.to_string()),
+                                                                Err(e) => toast_error("没存上", &e),
                                                             }
                                                             ui.busy.try_set(false);
                                                         });

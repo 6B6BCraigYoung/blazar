@@ -134,7 +134,8 @@ pub(super) fn NotifySettings() -> impl IntoView {
             Some(Err(e)) => {
                 view! {
                     <InlineError
-                        message=format!("无法加载提醒设置：{e}")
+                        lead="无法加载提醒设置"
+                        error=e.clone()
                         retry=Callback::new(move |_| server.refetch())
                     />
                 }

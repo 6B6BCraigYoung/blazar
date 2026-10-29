@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 
 use crate::api;
 use crate::app_state::use_app;
-use crate::components::toast::toast;
+use crate::components::toast::{toast, toast_error};
 use crate::fmt;
 
 use super::dialog::{self, Choice};
@@ -38,10 +38,6 @@ fn remember_dir(node: &str, chosen: &str) {
         None => return,
     };
     crate::storage::save_raw(&format!("blazar.new-ws.dir.{node}"), parent);
-}
-
-fn failed(what: &str, e: &api::ApiError) -> String {
-    format!("{what}：{}", crate::vocab::error(&e.message, e.status))
 }
 
 /// 家目录写成 ~，其余照原样。
@@ -364,7 +360,7 @@ fn Dialog() -> impl IntoView {
                         browse();
                     }
                 }
-                Err(e) => toast(failed("新建文件夹失败", &e)),
+                Err(e) => toast_error("新建文件夹失败", &e),
             }
         });
     };
@@ -452,7 +448,7 @@ fn Dialog() -> impl IntoView {
                         app.new_ws.set(false);
                         app.load_state();
                     }
-                    Err(e) => toast(failed("创建失败", &e)),
+                    Err(e) => toast_error("创建失败", &e),
                 }
             });
             return;
@@ -489,7 +485,7 @@ fn Dialog() -> impl IntoView {
                         navigate(&format!("/w/{id}"), Default::default());
                     }
                 }
-                Err(e) => toast(failed("创建失败", &e)),
+                Err(e) => toast_error("创建失败", &e),
             }
         });
     };

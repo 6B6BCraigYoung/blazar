@@ -4,7 +4,7 @@ use leptos::task::spawn_local;
 use crate::api;
 use crate::components::modal::Modal;
 use crate::components::status::{InlineError, LoadingState};
-use crate::components::toast::toast;
+use crate::components::toast::{toast, toast_error};
 use crate::git_preferences::GitPreferences;
 
 use super::{Form, Git};
@@ -44,7 +44,7 @@ pub(super) fn GitForm(f: Form, git: Git, form: RwSignal<Option<Form>>) -> impl I
                     Some(Err(error)) => {
                         view! {
                             <InlineError
-                                message=error.to_string()
+                                error=error.clone()
                                 retry=Callback::new(move |_| {
                                     revision.update(|n| *n = n.wrapping_add(1))
                                 })
@@ -118,7 +118,7 @@ fn GitFormReady(
                         body.set(v["body"].as_str().unwrap_or_default().to_owned());
                     }
                     Ok(v) => body.set(v["text"].as_str().unwrap_or_default().to_owned()),
-                    Err(e) => toast(e.to_string()),
+                    Err(e) => toast_error("没能生成", &e),
                 }
                 let _ = drafting.try_set(false);
             });

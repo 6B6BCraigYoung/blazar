@@ -2,7 +2,7 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 
 use crate::api::{self, GitOpResult, GitStatus};
-use crate::components::toast::toast;
+use crate::components::toast::toast_error;
 use crate::realtime::use_bus;
 
 use super::Git;
@@ -71,10 +71,14 @@ impl Git {
                 Some(r)
             }
             Err(e) => {
-                let _ = self
-                    .out
-                    .try_set(Some((op.to_owned(), false, e.to_string())));
-                toast(e.to_string());
+                let _ = self.out.try_set(Some((
+                    op.to_owned(),
+                    false,
+                    e.detail
+                        .clone()
+                        .map_or_else(|| e.to_string(), |d| format!("{e}\n{d}")),
+                )));
+                toast_error("操作失败", &e);
                 None
             }
         }

@@ -1,6 +1,6 @@
 use crate::action_gate::ActionGate;
 use crate::components::status::StateOf;
-use crate::components::toast::toast;
+use crate::components::toast::{toast, toast_error};
 use crate::{api, app_state::use_app, realtime::use_bus};
 use blazar_core_types::api::ServerEvent;
 use leptos::prelude::*;
@@ -39,8 +39,8 @@ fn send_decision(
                     toast(if allow { "已允许" } else { "已拒绝" });
                 }
             }
-            Ok(r) => toast(r["reason"].as_str().unwrap_or("没能送达").to_owned()),
-            Err(e) => toast(e.to_string()),
+            Ok(r) => toast_error("没能送达", r["reason"].as_str().unwrap_or_default()),
+            Err(e) => toast_error("没能送达", &e),
         }
         let _ = gate.try_update(|g| {
             g.complete(&id, false);
@@ -91,7 +91,7 @@ pub fn allow_always(
                     done();
                 });
             }
-            Err(e) => toast(crate::vocab::error(&e.to_string(), None)),
+            Err(e) => toast_error("没能加上这条规则", &e),
         }
     });
 }
@@ -113,7 +113,7 @@ fn offer_rule_undo(rule: String, what: String) {
                 let path = format!("/api/approval-rules/{}", api::enc(&rule));
                 match api::send::<Value>("DELETE", &path, &json!({})).await {
                     Ok(_) => toast("下次还会问你"),
-                    Err(e) => toast(crate::vocab::error(&e.to_string(), None)),
+                    Err(e) => toast_error("没能撤回", &e),
                 }
             });
         },
@@ -482,9 +482,13 @@ pub fn AssigneeField(value: RwSignal<String>) -> impl IntoView {
                             .err()
                             .or_else(|| o.1.as_ref().err())
                             .map(|e| {
+                                let (text, detail) = crate::vocab::lead(
+                                    "指派列表加载失败",
+                                    e.explained(),
+                                );
                                 view! {
-                                    <small class="bad">
-                                        {format!("指派列表加载失败：{e}")}
+                                    <small class="bad" title=detail>
+                                        {text}
                                     </small>
                                 }
                             })

@@ -7,7 +7,7 @@ use leptos::task::spawn_local;
 use crate::api::{self, GitStatus, PrDetail};
 use crate::components::dialog::{self, Choice};
 use crate::components::status::InlineError;
-use crate::components::toast::toast;
+use crate::components::toast::{toast, toast_error};
 use crate::fmt;
 
 mod forms;
@@ -281,7 +281,7 @@ impl Git {
                                 .unwrap_or("这条分支上没找到 PR")
                                 .to_owned(),
                         ),
-                        Err(e) => toast(e.to_string()),
+                        Err(e) => toast_error("没能查到 PR", &e),
                     }
                 }
                 _ => {}
@@ -554,7 +554,7 @@ pub fn BranchItems(git: Git, close: Callback<()>) -> impl IntoView {
                         .unwrap_or_default();
                     let _ = targets.try_set(Some(list));
                 }
-                Err(e) => toast(e.to_string()),
+                Err(e) => toast_error("没能读取分支", &e),
             }
         });
     };

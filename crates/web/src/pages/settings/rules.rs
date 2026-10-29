@@ -57,7 +57,8 @@ pub(super) fn RuleSettings() -> impl IntoView {
                     Some(Err(e)) => {
                         view! {
                             <InlineError
-                                message=format!("无法加载设置：{e}")
+                                lead="无法加载设置"
+                                error=e.clone()
                                 retry=Callback::new(move |_| data.refetch())
                             />
                         }

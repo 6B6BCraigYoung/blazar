@@ -7,7 +7,7 @@ use crate::components::modal::Modal;
 use crate::components::page_head::PageHead;
 use crate::components::rows::{RowAction, RowKey, RowMenu, Rows, open_row};
 use crate::components::status::{EmptyState, InlineError, LoadingState};
-use crate::components::toast::toast;
+use crate::components::toast::{toast, toast_error};
 use crate::components::undo::{self, Request};
 use crate::{api, md, storage};
 use leptos::prelude::*;
@@ -197,7 +197,7 @@ pub fn SkillsPage() -> impl IntoView {
     };
     view! {
         <div class="page wide agent-page skills-page">
-            <PageHead title="智能体" nav=|| crate::components::section::agents("/skills") />
+            <PageHead title="技能" nav=|| crate::components::section::agents("/skills") />
             <div class="seg agent-tabs" role="group" aria-label="技能内容">
                 {[("skills", "已安装"), ("market", "发现"), ("mcp", "MCP 服务器")]
                     .into_iter()
@@ -290,7 +290,8 @@ pub fn SkillsPage() -> impl IntoView {
                             Some(Err(e)) => {
                                 view! {
                                     <InlineError
-                                        message=format!("无法加载技能库：{e}")
+                                        lead="无法加载技能库"
+                                        error=e.clone()
                                         retry=Callback::new(move |_| rev.update(|r| *r += 1))
                                     />
                                 }
@@ -308,7 +309,7 @@ pub fn SkillsPage() -> impl IntoView {
                                             <Blank
                                                 icon=icon::APPS
                                                 title=empty::never("MCP 服务器")
-                                                detail="MCP 服务器给智能体接上外部工具，添加后在角色档案里启用。"
+                                                detail="MCP 服务器给智能体接上外部工具，添加后在智能体里启用。"
                                                 action=Action::new(
                                                     "添加 MCP 服务器",
                                                     move || mcp.set(Some(json!({"transport":"stdio"}))),
@@ -870,7 +871,8 @@ fn SkillImport(close: Callback<()>) -> impl IntoView {
                 Some(Err(e)) => {
                     view! {
                         <InlineError
-                            message=format!("无法查找本机技能：{e}")
+                            lead="无法查找本机技能"
+                            error=e.clone()
                             retry=Callback::new(move |_| data.refetch())
                         />
                     }
@@ -1455,7 +1457,8 @@ fn SkillMarket(preview: RwSignal<Option<(Value, bool)>>, refresh: RwSignal<u32>)
                 Some(Err(e)) => {
                     view! {
                         <InlineError
-                            message=format!("无法加载技能来源：{e}")
+                            lead="无法加载技能来源"
+                            error=e.clone()
                             retry=Callback::new(move |_| rev.update(|r| *r += 1))
                         />
                     }
@@ -1554,7 +1557,7 @@ fn SkillMarket(preview: RwSignal<Option<(Value, bool)>>, refresh: RwSignal<u32>)
                                                         key_open.set(false);
                                                         rev.update(|r| *r += 1);
                                                     }
-                                                    Err(e) => toast(e.to_string()),
+                                                    Err(e) => toast_error("没能更新密钥", &e),
                                                 }
                                                 key_busy.set(false);
                                             });
@@ -1574,7 +1577,8 @@ fn SkillMarket(preview: RwSignal<Option<(Value, bool)>>, refresh: RwSignal<u32>)
                 Some(Err(e)) => {
                     view! {
                         <InlineError
-                            message=format!("搜索失败：{e}")
+                            lead="搜索失败"
+                            error=e.clone()
                             retry=Callback::new(move |_| results.refetch())
                         />
                     }
@@ -1706,7 +1710,8 @@ fn MarketPreview(install: Value, update: bool, close: Callback<()>) -> impl Into
                 Some(Err(e)) => {
                     view! {
                         <InlineError
-                            message=format!("无法加载技能内容：{e}")
+                            lead="无法加载技能内容"
+                            error=e.clone()
                             retry=Callback::new(move |_| data.refetch())
                         />
                     }

@@ -261,7 +261,6 @@ pub fn WsHead(
             .get()
             .and_then(|d| d.err())
             .filter(|e| !e.not_found())
-            .map(|e| e.to_string())
     });
     let failed = Signal::derive(move || error.with(Option::is_some));
     let branch = move || {
@@ -385,7 +384,7 @@ pub fn WsHead(
                     })
             }}
             <WsStatus id=id.clone() failed />
-            {move || error.get().map(|e| view! { <InlineError message=e /> })}
+            {move || error.get().map(|e| view! { <InlineError error=e /> })}
             <span class="grow"></span>
             <button
                 type="button"

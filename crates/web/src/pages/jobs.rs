@@ -8,7 +8,7 @@ use crate::components::{
     modal::Modal,
     rows::{RowAction, RowKey, RowMenu, Rows},
     status::{InlineError, LoadingState, StateOf},
-    toast::toast,
+    toast::{toast, toast_error},
 };
 use crate::vocab::duration as span;
 use crate::{api, fmt};
@@ -177,7 +177,7 @@ pub fn JobsPage() -> impl IntoView {
             .await
             {
                 Ok(_) => toast("已结束"),
-                Err(e) => toast(e.to_string()),
+                Err(e) => toast_error("没能结束", &e),
             }
             killing.try_set(String::new());
             refresh(rev);
@@ -232,7 +232,8 @@ pub fn JobsPage() -> impl IntoView {
                 Some(Err(e)) => {
                     view! {
                         <InlineError
-                            message=format!("无法读取后台任务：{e}")
+                            lead="无法读取后台任务"
+                            error=e.clone()
                             retry=Callback::new(move |()| refresh(rev))
                         />
                     }
@@ -407,7 +408,7 @@ fn JobLog(job: Value, on_close: Callback<()>) -> impl IntoView {
                     note.try_set(s(&v, "path"));
                 }
                 Err(e) => {
-                    note.try_set(format!("读不到日志：{e}"));
+                    note.try_set(crate::vocab::lead("读不到日志", e.explained()).0);
                 }
             }
             busy.try_set(false);

@@ -5,7 +5,7 @@ use serde_json::{Value, json};
 
 use crate::api;
 use crate::chat_model::Row;
-use crate::components::toast::toast;
+use crate::components::toast::{toast, toast_error_en};
 use crate::storage;
 
 use super::delivery::{steer_request, take_composer};
@@ -283,7 +283,7 @@ impl Chat {
                 Ok(run) => {
                     let _ = self.shells.try_update(|s| s.push(run));
                 }
-                Err(e) => toast(format!("Command failed: {e}")),
+                Err(e) => toast_error_en("Command failed", &e),
             }
             let _ = self.shell_busy.try_set(false);
         });
@@ -398,10 +398,7 @@ impl Chat {
                         self.queue.set(q);
                         toast(format!("Will send when {} is back", self.machine()));
                     }
-                    Err(e) => toast(format!(
-                        "Couldn't queue, message kept: {}",
-                        crate::vocab_en::error(&e.message, e.status)
-                    )),
+                    Err(e) => toast_error_en("Couldn't queue, message kept", &e),
                 }
                 return;
             }
@@ -444,10 +441,7 @@ impl Chat {
                             self.queue.set(q);
                             toast("Queued. Sends after this turn.");
                         }
-                        Err(e) => toast(format!(
-                            "Couldn't queue, message kept: {}",
-                            crate::vocab_en::error(&e.message, e.status)
-                        )),
+                        Err(e) => toast_error_en("Couldn't queue, message kept", &e),
                     }
                 }
                 Ok(r) => {
@@ -464,25 +458,25 @@ impl Chat {
                     if started == Some(false) {
                         self.drop_pending(pid);
                         let why = r["activity"]["reason"].as_str().unwrap_or("").to_owned();
-                        toast(if why.is_empty() {
-                            "Agent failed to start".to_owned()
-                        } else {
-                            why.clone()
-                        });
+                        toast_error_en("Agent failed to start", &why);
                         let logged = r["activity"]["failed"] == json!(true);
                         if !logged && self.context_is_current(&context) {
-                            self.local_errors
-                                .update(|e| e.push(format!("Agent failed to start: {why}")));
+                            self.local_errors.update(|e| {
+                                e.push(
+                                    crate::vocab_en::lead(
+                                        "Agent failed to start",
+                                        crate::vocab_en::explain(&why, None),
+                                    )
+                                    .0,
+                                );
+                            });
                         }
                     }
                 }
                 Err(e) => {
                     self.drop_pending(pid);
                     self.deliveries.update(|d| d.finish(pid, false));
-                    toast(format!(
-                        "Send failed, message kept: {}",
-                        crate::vocab_en::error(&e.message, e.status)
-                    ));
+                    toast_error_en("Send failed, message kept", &e);
                 }
             }
             gloo_timers::future::TimeoutFuture::new(60_000).await;
@@ -550,7 +544,7 @@ impl Chat {
                     r["session_id"].as_str().map(str::to_owned),
                     r["thread_id"].as_str().map(str::to_owned),
                 ),
-                Err(e) => toast(format!("Couldn't continue: {e}")),
+                Err(e) => toast_error_en("Couldn't continue", &e),
             }
         });
     }
@@ -590,7 +584,7 @@ impl Chat {
                     );
                     toast(format!("Continuing with {label}"));
                 }
-                Err(e) => toast(format!("Send failed: {e}")),
+                Err(e) => toast_error_en("Send failed", &e),
             }
         });
     }

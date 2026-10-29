@@ -8,7 +8,7 @@ use crate::components::prefs::{PrefAdvanced, PrefGroup, PrefRow, Switch};
 use crate::components::{
     dialog::{Choice, ask},
     status::{Checking, EmptyState, InlineError, LoadingState, Status, Tone},
-    toast::toast,
+    toast::{toast, toast_error},
 };
 use crate::{api, app_state::use_app};
 
@@ -294,7 +294,7 @@ fn AppDetail(id: &'static str, name: &'static str) -> impl IntoView {
                     />
                     <div class="detail-body">
                         <InlineError
-                            message=e.to_string()
+                            error=e.clone()
                             retry=Callback::new(move |_| rev.update(|n| *n += 1))
                         />
                     </div>
@@ -419,7 +419,7 @@ fn ConnectApp(
                         tick.update(|n| *n += 1);
                     }
                     Err(e) => {
-                        toast(e.to_string());
+                        toast_error("没能开始", &e);
                         poll.update(JobPoll::start_failed);
                         job.set(None);
                         tick.update(|n| *n += 1);
@@ -886,7 +886,7 @@ fn ConnectJob(id: &'static str, data: Value, tick: RwSignal<u32>) -> impl IntoVi
                                                 .await
                                             {
                                                 Ok(_) => tick.update(|n| *n += 1),
-                                                Err(e) => toast(e.to_string()),
+                                                Err(e) => toast_error("没能取消", &e),
                                             }
                                             cancel.set(false);
                                         });
@@ -1013,7 +1013,10 @@ fn LarkSettings(initial: Value) -> impl IntoView {
                     } else {
                         format!("发送失败：\n{}", text(&r, "detail"))
                     }),
-                    Err(e) => output.set(e.to_string()),
+                    Err(e) => {
+                        let (text, detail) = crate::vocab::lead("发送失败", e.explained());
+                        output.set(detail.map_or_else(|| text.clone(), |d| format!("{text}\n{d}")));
+                    }
                 }
             } else {
                 output.set("设置保存失败，测试未执行，请检查提示后重试。".into());
@@ -1055,7 +1058,7 @@ fn LarkSettings(initial: Value) -> impl IntoView {
                     output.set(serde_json::to_string_pretty(&r).unwrap_or_default());
                     toast("飞书技能导入完成，可在智能体能力页配置");
                 }
-                Err(e) => toast(e.to_string()),
+                Err(e) => toast_error("导入失败", &e),
             }
             busy.set(false);
         });
@@ -1260,7 +1263,7 @@ fn LarkCalls() -> impl IntoView {
                     }
                         .into_any()
                 }
-                Some(Err(e)) => view! { <InlineError message=e.to_string() /> }.into_any(),
+                Some(Err(e)) => view! { <InlineError error=e.clone() /> }.into_any(),
                 Some(Ok(v)) => {
                     let list = rows(&v);
                     if list.is_empty() {
@@ -1344,7 +1347,7 @@ fn Obsidian(initial: Value, rev: RwSignal<u32>, checking: Signal<bool>) -> impl 
                         .with_value(|go| go(&format!("/w/{}", text(&r, "id")), Default::default()));
                     rev.update(|n| *n += 1);
                 }
-                Err(e) => toast(e.to_string()),
+                Err(e) => toast_error("没能创建工作区", &e),
             }
             busy.set(false);
         });
@@ -1372,7 +1375,7 @@ fn Obsidian(initial: Value, rev: RwSignal<u32>, checking: Signal<bool>) -> impl 
                 .await
                 {
                     Ok(v) => output.set(Some(v)),
-                    Err(e) => toast(e.to_string()),
+                    Err(e) => toast_error("写入失败", &e),
                 }
             }
             busy.set(false);

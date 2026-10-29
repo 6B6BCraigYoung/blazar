@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 use wasm_bindgen::JsCast;
 
 use crate::api;
-use crate::components::toast::toast;
+use crate::components::toast::{toast, toast_error};
 use crate::loopback::{away_from_page, forwarded, loopback_port};
 use crate::realtime::use_bus;
 use crate::storage;
@@ -317,7 +317,7 @@ pub fn PreviewBar(
                     }
                 }
                 Err(e) => {
-                    toast(e.to_string());
+                    toast_error("操作失败", &e);
                     if e.to_string().contains("还没配置") {
                         scripts_open.set(true);
                     }
@@ -763,7 +763,7 @@ fn ScriptsDialog(
         let saved = save();
         spawn_local(async move {
             if let Err(e) = saved.await {
-                toast(e.to_string());
+                toast_error("没保存上", &e);
                 let _ = busy.try_set(false);
                 return;
             }
@@ -783,7 +783,7 @@ fn ScriptsDialog(
                         let _ = runs.try_set(result);
                     }
                 }
-                Err(e) => toast(e.to_string()),
+                Err(e) => toast_error("没能运行", &e),
             }
             let _ = busy.try_set(false);
         });
@@ -798,7 +798,7 @@ fn ScriptsDialog(
                 cfg.with(|draft| {
                     if let Some(error) = &draft.error {
                         view! {
-                            <InlineError message=format!("读取脚本设置失败：{error}") />
+                            <InlineError lead="读取脚本设置失败" message=error.clone() />
                             <button
                                 class="btn"
                                 disabled=move || busy.get()
@@ -970,7 +970,7 @@ fn ScriptsDialog(
                                         on_close();
                                     }
                                 }
-                                Err(e) => toast(e.to_string()),
+                                Err(e) => toast_error("没保存上", &e),
                             }
                             let _ = busy.try_set(false);
                         });

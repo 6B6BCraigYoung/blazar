@@ -7,7 +7,7 @@ use crate::components::modal::Modal;
 use crate::components::page_head::{MenuItem, MoreMenu, PageHead};
 use crate::components::rows::{RowAction, RowKey, RowMenu, Rows};
 use crate::components::status::{InlineError, LoadingState, StateOf};
-use crate::components::toast::toast;
+use crate::components::toast::{toast, toast_error};
 use crate::components::undo::{self, Request};
 use crate::realtime::use_bus;
 use crate::{api, app_state::use_app, fmt};
@@ -143,7 +143,7 @@ pub fn BotsPage() -> impl IntoView {
         spawn_local(async move {
             if let Err(e) = post(&format!("/api/bots/{}/{suffix}", api::enc(&id)), json!({})).await
             {
-                toast(e.to_string());
+                toast_error("操作失败", &e);
             }
             refresh(rev);
             app.load_bots();
@@ -267,10 +267,7 @@ pub fn BotsPage() -> impl IntoView {
                 None => view! { <LoadingState text="读取 bot…" /> }.into_any(),
                 Some(Err(e)) => {
                     view! {
-                        <InlineError
-                            message=e.to_string()
-                            retry=Callback::new(move |_| refresh(rev))
-                        />
+                        <InlineError error=e.clone() retry=Callback::new(move |_| refresh(rev)) />
                     }
                         .into_any()
                 }
@@ -599,7 +596,8 @@ fn NewBotForm(on_close: Callback<()>) -> impl IntoView {
             <details class="runtime-details">
                 <summary>"更多设置"</summary>
                 <label class="field">
-                    "运行时" <select on:change=move |e| runtime.set(event_target_value(&e))>
+                    "Claude Code / Codex"
+                    <select on:change=move |e| runtime.set(event_target_value(&e))>
                         <option value="claude" selected=true>
                             "Claude Code"
                         </option>
@@ -607,7 +605,7 @@ fn NewBotForm(on_close: Callback<()>) -> impl IntoView {
                     </select>
                 </label>
                 <label class="field">
-                    "改用已有的角色档案（选了就不用写职责）"
+                    "改用已有的智能体（选了就不用写职责）"
                     <select on:change=move |e| agent.set(event_target_value(&e))>
                         <option value="" selected=move || agent.get().is_empty()>
                             "不用"
@@ -785,7 +783,7 @@ pub fn BotPage() -> impl IntoView {
                         toast(done);
                     }
                 }
-                Err(e) => toast(e.to_string()),
+                Err(e) => toast_error("操作失败", &e),
             }
             refresh(rev);
             app.load_bots();
@@ -824,16 +822,24 @@ pub fn BotPage() -> impl IntoView {
             "已认领",
         );
     };
+    let release = move |cid: String, what: String| {
+        undo::remove_row(
+            format!("已释放「{what}」，别的 bot 现在可以占用它"),
+            cid.clone(),
+            Request::delete(format!("/api/claims/{}", api::enc(&cid))).failing("没释放"),
+            move || {
+                refresh(rev);
+                app.load_bots();
+            },
+        );
+    };
     view! {
         <div class="page work-page bot-page">
             {move || match data.get() {
                 None => view! { <LoadingState text="读取 bot…" /> }.into_any(),
                 Some(Err(e)) => {
                     view! {
-                        <InlineError
-                            message=e.to_string()
-                            retry=Callback::new(move |_| refresh(rev))
-                        />
+                        <InlineError error=e.clone() retry=Callback::new(move |_| refresh(rev)) />
                     }
                         .into_any()
                 }
@@ -1279,8 +1285,16 @@ pub fn BotPage() -> impl IntoView {
                                                             .into_iter()
                                                             .map(|c| {
                                                                 let cid = s(&c, "id");
+                                                                let rid = cid.clone();
+                                                                let what = format!(
+                                                                    "{} {}",
+                                                                    fmt::machine(&s(&c, "node")),
+                                                                    s(&c, "scope"),
+                                                                );
                                                                 view! {
-                                                                    <li>
+                                                                    <li style=move || {
+                                                                        if undo::shows(&rid) { "" } else { "display: none" }
+                                                                    }>
                                                                         <span class="mono">
                                                                             {format!(
                                                                                 "{} {}",
@@ -1301,12 +1315,7 @@ pub fn BotPage() -> impl IntoView {
                                                                             type="button"
                                                                             class="btn small ghost"
                                                                             disabled=move || busy.get()
-                                                                            on:click=move |_| call(
-                                                                                "DELETE",
-                                                                                format!("/api/claims/{}", api::enc(&cid)),
-                                                                                json!({}),
-                                                                                "已释放",
-                                                                            )
+                                                                            on:click=move |_| release(cid.clone(), what.clone())
                                                                         >
                                                                             "释放"
                                                                         </button>

@@ -4,7 +4,7 @@ use serde_json::{Value, json};
 use crate::api;
 use crate::chat_model;
 use crate::components::dialog::{self, Choice};
-use crate::components::toast::toast;
+use crate::components::toast::{toast, toast_error_en};
 
 use super::delivery::steer_request;
 use super::{Chat, Queued};
@@ -25,7 +25,7 @@ impl Chat {
             {
                 Ok(r) if r["interrupted"].as_bool() == Some(true) => toast("Stopped"),
                 Ok(r) => toast(r["reason"].as_str().unwrap_or("Couldn't stop").to_owned()),
-                Err(e) => toast(format!("Stop failed: {e}")),
+                Err(e) => toast_error_en("Stop failed", &e),
             }
         });
     }
@@ -119,7 +119,7 @@ impl Chat {
                         .unwrap_or("The decision was not delivered, please retry")
                         .to_owned(),
                 ),
-                Err(error) => toast(format!("Send failed, input kept: {error}")),
+                Err(error) => toast_error_en("Send failed, input kept", &error),
             }
         });
     }
@@ -153,7 +153,7 @@ impl Chat {
                         .unwrap_or("This action was already decided")
                         .to_owned(),
                 ),
-                Err(e) => toast(format!("Couldn't record the decision: {e}")),
+                Err(e) => toast_error_en("Couldn't record the decision", &e),
             }
         });
     }
@@ -198,14 +198,14 @@ impl Chat {
                                 leptos::task::spawn_local(async move {
                                     match api::send::<Value>("DELETE", &path, &json!({})).await {
                                         Ok(_) => toast("It will ask next time"),
-                                        Err(e) => toast(format!("Couldn't undo: {e}")),
+                                        Err(e) => toast_error_en("Couldn't undo", &e),
                                     }
                                 });
                             },
                         );
                     }
                 }
-                Err(e) => toast(e.to_string()),
+                Err(e) => toast_error_en("Couldn't add the rule", &e),
             }
         });
     }
@@ -277,7 +277,7 @@ impl Chat {
             }
             .await;
             if let Err(e) = r {
-                toast(e.to_string());
+                toast_error_en("Couldn't send", &e);
             }
             self.load_queue();
         });
@@ -363,7 +363,7 @@ impl Chat {
                     });
                 }
                 Err(e) => {
-                    toast(format!("Retry failed: {e}"));
+                    toast_error_en("Retry failed", &e);
                     self.git.changed.update(|n| *n += 1);
                     if self.context_is_current(&context) {
                         self.load_history();
@@ -414,7 +414,7 @@ impl Chat {
                         toast("Rewound");
                     }
                 }
-                Err(e) => toast(format!("Rewind failed: {e}")),
+                Err(e) => toast_error_en("Rewind failed", &e),
             }
         });
     }

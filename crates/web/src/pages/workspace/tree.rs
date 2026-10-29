@@ -6,7 +6,7 @@ use crate::components::status::{EmptyState, InlineError};
 
 use crate::api::{self, ChangeKind, DirItems, TreeEntry};
 use crate::components::dialog::{self, Choice};
-use crate::components::toast::toast;
+use crate::components::toast::{toast, toast_error};
 
 use super::files::Files;
 
@@ -73,7 +73,7 @@ fn reveal_path(path: String) {
         if let Err(e) =
             crate::desktop::invoke("reveal_path", &serde_json::json!({ "path": path })).await
         {
-            toast(format!("没能在访达中显示：{e}"));
+            toast_error("没能在访达中显示", &e);
         }
     });
 }
@@ -127,7 +127,7 @@ fn rename_entry(ws: String, m: Menu) {
         )
         .await
         {
-            toast(format!("没能重命名：{e}"));
+            toast_error("没能重命名", &e);
         }
     });
 }
@@ -172,7 +172,7 @@ fn remove_entry(ws: String, m: Menu, files: Files) {
                     files.close(p);
                 }
             }
-            Err(e) => toast(format!("没能删除：{e}")),
+            Err(e) => toast_error("没能删除", &e),
         }
     });
 }
@@ -861,8 +861,8 @@ pub fn FileTree(
                                 };
                                 view! {
                                     <InlineError
-                                        message=format!("读取{label}失败：{}", error.message)
-                                        detail=error.detail
+                                        lead=format!("读取{label}失败")
+                                        error=error
                                         class="tree-state"
                                         retry=Callback::new(move |_| {
                                             fetch.with_value(|load| load(path.clone()))

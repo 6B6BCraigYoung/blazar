@@ -4,7 +4,7 @@ use serde_json::{Value, json};
 use crate::api;
 use crate::components::prefs::{PrefGroup, PrefRow, Sheet, Switch};
 use crate::components::status::{InlineError, LoadingState};
-use crate::components::toast::{flash, toast};
+use crate::components::toast::{flash, toast, toast_error};
 
 const BOT_LIMIT_MAX: u64 = 16;
 
@@ -19,7 +19,7 @@ async fn save(body: Value) -> bool {
             true
         }
         Err(e) => {
-            toast(format!("没保存上：{e}"));
+            toast_error("没保存上", &e);
             false
         }
     }
@@ -60,7 +60,8 @@ fn Concurrency() -> impl IntoView {
         None => view! { <LoadingState text="正在加载…" /> }.into_any(),
         Some(Err(e)) => view! {
             <InlineError
-                message=format!("无法加载设置：{e}")
+                lead="无法加载设置"
+                error=e.clone()
                 retry=Callback::new(move |_| data.refetch())
             />
         }
@@ -124,7 +125,8 @@ fn AlertRules() -> impl IntoView {
                 Some(Err(e)) => {
                     view! {
                         <InlineError
-                            message=format!("无法加载提醒规则：{e}")
+                            lead="无法加载提醒规则"
+                            error=e.clone()
                             retry=Callback::new(move |_| data.refetch())
                         />
                     }

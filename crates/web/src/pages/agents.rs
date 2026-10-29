@@ -16,13 +16,14 @@ use crate::components::modal::Modal;
 use crate::components::page_head::{MenuItem, MoreMenu, PageHead};
 use crate::components::rows::{RowAction, RowKey, RowMenu, Rows, open_row};
 use crate::components::status::{EmptyState, InlineError, LoadingState, StateOf};
-use crate::components::toast::toast;
+use crate::components::toast::{toast, toast_error};
 use crate::components::undo::{self, Request};
 use crate::{api, fmt, storage};
 
 pub(super) fn text(v: &Value, key: &str) -> String {
     v[key].as_str().unwrap_or_default().to_owned()
 }
+
 fn list(v: &Value, key: &str) -> Vec<Value> {
     v[key].as_array().cloned().unwrap_or_default()
 }
@@ -75,8 +76,9 @@ pub(super) fn remove_profile(agent: &Value, forever: bool, done: impl Fn() + 'st
         )
     } else {
         (
-            format!("已归档「{name}」"),
-            Request::post(format!("/api/agent-profiles/{}/archive", api::enc(&id))),
+            format!("已归档「{name}」，正在运行的任务会被取消"),
+            Request::post(format!("/api/agent-profiles/{}/archive", api::enc(&id)))
+                .failing("没归档"),
         )
     };
     undo::remove_row(text, id, request, done);
@@ -202,7 +204,7 @@ pub fn AgentsPage() -> impl IntoView {
             .await
             {
                 Ok(_) => rev.update(|r| *r += 1),
-                Err(e) => toast(e.to_string()),
+                Err(e) => toast_error("没处理成", &e),
             }
             busy.set(false);
         });
@@ -259,13 +261,22 @@ pub fn AgentsPage() -> impl IntoView {
                 "archive"
             };
             let ids = selected.get_untracked();
-            if action == "archive"
-                && !confirm(
-                    "归档选中的角色档案？",
-                    "正在运行的任务会被取消，配置与历史保留，可以稍后恢复。",
-                )
-                .await
-            {
+            // Archiving can be taken back, so it gets the same 5-second undo as one row
+            // rather than a confirm; the toast says what it does to running work.
+            if action == "archive" {
+                let rows = ids
+                    .iter()
+                    .map(|id| {
+                        let path = format!("/api/agent-profiles/{}/archive", api::enc(id));
+                        (id.clone(), Request::post(path).failing("没归档"))
+                    })
+                    .collect();
+                undo::remove_rows(
+                    format!("已归档 {} 个智能体，正在运行的任务会被取消", ids.len()),
+                    rows,
+                    move || rev.update(|v| *v += 1),
+                );
+                selected.set(HashSet::new());
                 busy.set(false);
                 return;
             }
@@ -296,7 +307,7 @@ pub fn AgentsPage() -> impl IntoView {
         <div class="page wide agent-page">
             <PageHead title="智能体" nav=|| crate::components::section::agents("/agents")>
                 <a class="btn primary" href="/agents/new">
-                    "新建角色档案"
+                    "新建智能体"
                 </a>
             </PageHead>
             <Show when=has_any>
@@ -320,7 +331,7 @@ pub fn AgentsPage() -> impl IntoView {
                     </select>
                     <input
                         class="filter"
-                        aria-label="搜索角色档案"
+                        aria-label="搜索智能体"
                         placeholder="搜索名称或描述…"
                         prop:value=move || query.get()
                         on:input=move |e| query.set(event_target_value(&e))
@@ -349,12 +360,12 @@ pub fn AgentsPage() -> impl IntoView {
                     </select>
                     <select
                         class="filter"
-                        aria-label="运行时"
+                        aria-label="Claude Code / Codex"
                         prop:value=move || rt.get()
                         on:change=move |e| rt.set(event_target_value(&e))
                     >
                         <option value="" prop:selected=move || rt.get().is_empty()>
-                            "运行时：全部"
+                            "全部"
                         </option>
                         {move || {
                             runtimes
@@ -367,7 +378,7 @@ pub fn AgentsPage() -> impl IntoView {
                                             let id = r.id.clone();
                                             view! {
                                                 <option value=r.id prop:selected=move || rt.get() == id>
-                                                    {format!("运行时：{}", r.label)}
+                                                    {r.label}
                                                 </option>
                                             }
                                         })
@@ -421,7 +432,8 @@ pub fn AgentsPage() -> impl IntoView {
                     .map(|e| {
                         view! {
                             <InlineError
-                                message=format!("无法检查运行时：{e}")
+                                lead="无法检查 Claude Code / Codex"
+                                error=e
                                 retry=Callback::new(move |_| runtimes.refetch())
                             />
                         }
@@ -456,11 +468,12 @@ pub fn AgentsPage() -> impl IntoView {
                     })
             }}
             {move || match profiles.get() {
-                None => view! { <LoadingState text="正在加载角色档案…" /> }.into_any(),
+                None => view! { <LoadingState text="正在加载智能体…" /> }.into_any(),
                 Some(Err(e)) => {
                     view! {
                         <InlineError
-                            message=format!("无法加载角色档案：{e}")
+                            lead="无法加载智能体"
+                            error=e
                             retry=Callback::new(move |_| rev.update(|v| *v += 1))
                         />
                     }
@@ -504,7 +517,7 @@ pub fn AgentsPage() -> impl IntoView {
                             view! {
                                 <Blank
                                     icon=icon::FILTER
-                                    title=empty::unmatched("角色档案")
+                                    title=empty::unmatched("智能体")
                                     detail="调整搜索或筛选条件后再试。"
                                     action=Action::clear(move || {
                                         query.set(String::new());
@@ -518,8 +531,8 @@ pub fn AgentsPage() -> impl IntoView {
                             view! {
                                 <Blank
                                     icon=icon::ID_CARD
-                                    title=empty::never("归档的角色档案")
-                                    detail="归档的角色档案会保留在这里，随时可以恢复。"
+                                    title=empty::never("归档的智能体")
+                                    detail="归档的智能体会保留在这里，随时可以恢复。"
                                     action=Action::new(
                                         "看在用的",
                                         move || scope.set("all".into()),
@@ -531,9 +544,9 @@ pub fn AgentsPage() -> impl IntoView {
                             view! {
                                 <Blank
                                     icon=icon::ID_CARD
-                                    title=empty::never("角色档案")
-                                    detail="角色档案保存一个智能体的指令、运行时和模型，之后可以直接拿来对话或派活。"
-                                    action=Action::new("新建角色档案", move || create.run(()))
+                                    title=empty::never("智能体")
+                                    detail="智能体记下一套指令、用 Claude Code 还是 Codex、用哪个模型，之后可以直接拿来对话或派活。"
+                                    action=Action::new("新建智能体", move || create.run(()))
                                 />
                             }
                                 .into_any()
@@ -546,9 +559,9 @@ pub fn AgentsPage() -> impl IntoView {
                                     <thead>
                                         <tr>
                                             <th>"选择"</th>
-                                            <th>"角色档案"</th>
+                                            <th>"智能体"</th>
                                             <th>"状态"</th>
-                                            <th>"运行时 / 模型"</th>
+                                            <th>"Claude Code / Codex · 模型"</th>
                                             <th>"近 30 天"</th>
                                             <th>"最近活跃"</th>
                                         </tr>
@@ -716,12 +729,12 @@ pub fn AgentCreatePage() -> impl IntoView {
     view! {
         <div class="page agent-page">
             <PageHead
-                parent=("角色档案", "/agents")
+                parent=("智能体", "/agents")
                 title=Signal::derive(move || {
                     if query.with(|q| q.get("template").is_some()) {
-                        "复制角色档案".to_owned()
+                        "复制智能体".to_owned()
                     } else {
-                        "新建角色档案".to_owned()
+                        "新建智能体".to_owned()
                     }
                 })
             />
@@ -730,7 +743,8 @@ pub fn AgentCreatePage() -> impl IntoView {
                 Some(Err(e)) => {
                     view! {
                         <InlineError
-                            message=format!("无法加载配置：{e}")
+                            lead="无法加载配置"
+                            error=e
                             retry=Callback::new(move |_| data.refetch())
                         />
                     }
@@ -780,14 +794,15 @@ pub fn AgentProfilePage() -> impl IntoView {
     view! {
         <div class="page wide agent-page">
             {move || match data.get() {
-                None => view! { <LoadingState text="正在加载角色档案…" /> }.into_any(),
+                None => view! { <LoadingState text="正在加载智能体…" /> }.into_any(),
                 Some(Err(e)) => {
                     view! {
                         <InlineError
-                            message=format!("无法加载角色档案：{e}")
+                            lead="无法加载智能体"
+                            error=e
                             retry=Callback::new(move |_| rev.update(|v| *v += 1))
                         />
-                        <a href="/agents">"返回角色档案列表"</a>
+                        <a href="/agents">"返回智能体列表"</a>
                     }
                         .into_any()
                 }
@@ -796,7 +811,7 @@ pub fn AgentProfilePage() -> impl IntoView {
                     let closed = archived(&a.get_value());
                     view! {
                         <PageHead
-                            parent=("角色档案", "/agents")
+                            parent=("智能体", "/agents")
                             title=text(&a.get_value(), "name")
                         >
                             <AgentActions agent=a.get_value() rev blocked=dirty />
@@ -805,7 +820,7 @@ pub fn AgentProfilePage() -> impl IntoView {
                             .then(|| {
                                 view! {
                                     <div class="card notice">
-                                        "已归档，恢复后可以再次选择这个角色档案。"
+                                        "已归档，恢复后可以再次选择这个智能体。"
                                     </div>
                                 }
                             })}
@@ -833,7 +848,7 @@ pub fn AgentProfilePage() -> impl IntoView {
                                 </span>
                             </div>
                         </div>
-                        <div class="seg agent-tabs" role="group" aria-label="角色档案内容">
+                        <div class="seg agent-tabs" role="group" aria-label="智能体内容">
                             {[
                                 ("overview", "概览"),
                                 ("work", "工作记录"),
@@ -857,7 +872,7 @@ pub fn AgentProfilePage() -> impl IntoView {
                                                     if !dirty.get_untracked()
                                                         || confirm(
                                                                 "放弃未保存的修改？",
-                                                                "当前角色档案尚未保存。",
+                                                                "当前智能体尚未保存。",
                                                             )
                                                             .await
                                                     {
@@ -980,7 +995,7 @@ fn AgentActions(agent: Value, rev: RwSignal<u32>, blocked: RwSignal<bool>) -> im
                     });
                     rev.update(|r| *r += 1);
                 }
-                Err(e) => toast(e.to_string()),
+                Err(e) => toast_error("没处理成", &e),
             }
             busy.set(false);
         });
@@ -1031,11 +1046,13 @@ fn AgentActions(agent: Value, rev: RwSignal<u32>, blocked: RwSignal<bool>) -> im
                                 ) if availability(&a.get_value(), &r.runtimes) != "unbound" => {
                                     pick.set(true)
                                 }
-                                Some(Err(e)) => toast(e.to_string()),
+                                Some(Err(e)) => toast_error("无法检查 Claude Code / Codex", &e),
                                 Some(Ok(_)) => {
-                                    toast("请先在设置中绑定已安装的运行时")
+                                    toast(
+                                        "先装好 Claude Code 或 Codex，再到「账号与额度」里登录",
+                                    )
                                 }
-                                None => toast("正在读取运行时，请稍后再试"),
+                                None => toast("正在检查 Claude Code / Codex，请稍后再试"),
                             }
                         }
                     >
@@ -1156,7 +1173,7 @@ fn AgentOverview(agent: Value) -> impl IntoView {
                     )}
                 </p>
                 <dl class="agent-facts">
-                    <dt>"运行时"</dt>
+                    <dt>"用的软件"</dt>
                     <dd>{text(&agent, "runtime_label")}</dd>
                     <dt>"并发"</dt>
                     <dd>{n(&agent, "max_concurrent")}</dd>
@@ -1237,7 +1254,7 @@ fn AgentRuns(runs: Vec<Value>) -> impl IntoView {
                             <Blank
                                 icon=icon::ACTIVITY
                                 title=empty::never("运行记录")
-                                detail="用这个角色档案开始对话或派活后，每次运行都会记在这里。"
+                                detail="用这个智能体开始对话或派活后，每次运行都会记在这里。"
                                 inset=true
                             />
                         }
@@ -1337,11 +1354,11 @@ fn AgentCapabilities(agent: Value, kind: &'static str) -> impl IntoView {
             </div>
             <p class="muted">
                 {if kind == "skills" {
-                    "勾选的技能在下一轮运行时生效，不会改动运行时自己的技能目录。"
+                    "勾选的技能在下一轮生效，不会改动 Claude Code / Codex 自己的技能目录。"
                 } else if matches!(text(&agent, "runtime").as_str(), "claude" | "codex") {
                     "勾选的 MCP 服务器在下一轮启动时合并进配置。"
                 } else {
-                    "当前运行时不支持加载 MCP 服务器；Claude Code 与 Codex 支持此能力。"
+                    "只有 Claude Code 与 Codex 支持加载 MCP 服务器。"
                 }}
             </p>
             {move || match data.get() {
@@ -1349,7 +1366,8 @@ fn AgentCapabilities(agent: Value, kind: &'static str) -> impl IntoView {
                 Some(Err(e)) => {
                     view! {
                         <InlineError
-                            message=format!("无法加载能力：{e}")
+                            lead="无法加载能力"
+                            error=e
                             retry=Callback::new(move |_| rev.update(|v| *v += 1))
                         />
                     }
@@ -1400,7 +1418,7 @@ fn AgentCapabilities(agent: Value, kind: &'static str) -> impl IntoView {
                                                     .await
                                                 {
                                                     Ok(_) => toast("已保存，下一轮生效"),
-                                                    Err(e) => toast(e.to_string()),
+                                                    Err(e) => toast_error("没保存上", &e),
                                                 }
                                                 busy.set(false);
                                                 rev.update(|r| *r += 1);
@@ -1489,7 +1507,7 @@ fn AgentEditor(
                 if current.is_empty() {
                     original.update(pick);
                 } else {
-                    toast("原运行时未安装，已改用可用运行时并重置模型与权限。");
+                    toast("原来用的软件没装，已改用可用的 Claude Code / Codex，并重置模型与权限。");
                 }
             }
         }
@@ -1529,7 +1547,7 @@ fn AgentEditor(
             return;
         }
         if text(&body, "runtime").is_empty() {
-            error.set("请先安装一个运行时".into());
+            error.set("先装好 Claude Code 或 Codex".into());
             return;
         }
         busy.set(true);
@@ -1543,7 +1561,7 @@ fn AgentEditor(
             };
             match api::send::<Value>(if create { "POST" } else { "PUT" }, &path, &body).await {
                 Ok(v) => {
-                    toast("已保存角色档案");
+                    toast("已保存智能体");
                     if create {
                         dirty.set(false);
                         if !crate::files_js::confirm_leave().await {
@@ -1567,7 +1585,7 @@ fn AgentEditor(
                         on_saved.run(v);
                     }
                 }
-                Err(e) => error.set(e.to_string()),
+                Err(e) => error.set(crate::vocab::lead("没保存上", e.explained()).0),
             }
             busy.set(false);
         });
@@ -1588,7 +1606,8 @@ fn AgentEditor(
                     .map(|e| {
                         view! {
                             <InlineError
-                                message=format!("无法加载运行时：{e}")
+                                lead="无法检查 Claude Code / Codex"
+                                error=e
                                 retry=Callback::new(move |_| rts.refetch())
                             />
                         }
@@ -1601,7 +1620,8 @@ fn AgentEditor(
                     .map(|e| {
                         view! {
                             <InlineError
-                                message=format!("无法加载账号：{e}")
+                                lead="无法加载账号"
+                                error=e
                                 retry=Callback::new(move |_| accounts.refetch())
                             />
                         }
@@ -1701,7 +1721,7 @@ fn AgentEditor(
                 <div class="card pad" hidden=section == "instructions">
                     <h3>"执行配置"</h3>
                     <label class="field">
-                        "运行时"
+                        "Claude Code / Codex"
                         <select
                             prop:value=move || text(&draft.get(), "runtime")
                             on:change=move |e| {
@@ -1720,7 +1740,7 @@ fn AgentEditor(
                             }
                         >
                             <option value="" prop:selected=move || runtime.get().is_empty()>
-                                "选择运行时"
+                                "选择 Claude Code 或 Codex"
                             </option>
                             {move || {
                                 rts.get()
@@ -1768,7 +1788,7 @@ fn AgentEditor(
                                 value=""
                                 prop:selected=move || text(&draft.get(), "account").is_empty()
                             >
-                                "跟随运行时"
+                                "跟着「账号与额度」里选的"
                             </option>
                             <option
                                 value="auto"
@@ -1883,7 +1903,7 @@ fn AgentEditor(
                                     text(&draft.get(), "permission_mode").is_empty()
                                 }
                             >
-                                "按运行时设置"
+                                "按软件自己的设置"
                             </option>
                             {move || {
                                 let modes: Vec<&str> = match runtime.get().as_str() {
@@ -1984,7 +2004,8 @@ fn AgentEditor(
                 </details>
             </fieldset>
             {move || {
-                (!error.get().is_empty()).then(|| view! { <InlineError message=error.get() /> })
+                (!error.get().is_empty())
+                    .then(|| view! { <InlineError message=error.get() plain=true /> })
             }}
             {(!closed)
                 .then(|| {

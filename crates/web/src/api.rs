@@ -67,6 +67,21 @@ impl ApiError {
             None => crate::vocab::explain(&self.message, self.status),
         }
     }
+
+    /// The same for a conversation (English). `message` was already turned into Chinese when
+    /// the error was read, so the English sentence is made from the original (`detail`) when
+    /// that is what got translated.
+    #[must_use]
+    pub fn explained_en(&self) -> (String, Option<String>) {
+        if let Some(d) = &self.detail {
+            let why = crate::vocab_en::error(d, self.status);
+            if why != *d {
+                return (why, Some(d.clone()));
+            }
+        }
+        let (text, detail) = crate::vocab_en::explain(&self.message, self.status);
+        (text, self.detail.clone().or(detail))
+    }
 }
 
 impl std::fmt::Display for ApiError {

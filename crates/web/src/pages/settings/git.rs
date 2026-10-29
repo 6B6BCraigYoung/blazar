@@ -14,7 +14,8 @@ pub(super) fn GitSettings() -> impl IntoView {
         None => view! { <LoadingState text="正在加载设置…" /> }.into_any(),
         Some(Err(e)) => view! {
             <InlineError
-                message=format!("无法加载设置：{e}")
+                lead="无法加载设置"
+                error=e.clone()
                 retry=Callback::new(move |_| data.refetch())
             />
         }

@@ -8,7 +8,7 @@ use wasm_bindgen::JsCast;
 use crate::app_state::use_app;
 use crate::components::icon;
 use crate::components::page_head::PageHead;
-use crate::components::toast::{flash, toast};
+use crate::components::toast::{flash, toast_error};
 use crate::{api, storage};
 
 mod about;
@@ -127,7 +127,7 @@ pub(super) async fn save(method: &str, path: &str, body: Value) -> bool {
             true
         }
         Err(e) => {
-            toast(format!("没保存上：{e}"));
+            toast_error("没保存上", &e);
             false
         }
     }

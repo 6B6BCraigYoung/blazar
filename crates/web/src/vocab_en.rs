@@ -76,6 +76,23 @@ pub fn error(raw: &str, status: Option<u16>) -> String {
     }
 }
 
+/// What an unrecognised error says in a conversation; [`lead`] keeps only its prefix then.
+pub const VAGUE: &str = "Something went wrong";
+
+/// The English twin of [`crate::vocab::explain`]: one plain sentence, plus the original text
+/// to fold under “Details”.
+#[must_use]
+pub fn explain(raw: &str, status: Option<u16>) -> (String, Option<String>) {
+    crate::vocab::explain_with(raw, status, error, VAGUE)
+}
+
+/// “Rename failed: Service overloaded. Try again shortly”; an unrecognised error keeps only
+/// the prefix (“Rename failed”), its original stays under “Details”.
+#[must_use]
+pub fn lead(lead: &str, shown: (String, Option<String>)) -> (String, Option<String>) {
+    crate::vocab::lead_with(lead, shown, VAGUE, ": ")
+}
+
 #[must_use]
 pub fn cause(raw: &str) -> String {
     let raw = raw.trim();
@@ -180,6 +197,25 @@ mod tests {
         assert_eq!(cause(""), "Request failed");
         assert_eq!(next_step(FailureCause::Quota), "Switch account…");
         assert_eq!(retry_round(3, 0), "attempt 3");
+    }
+
+    #[test]
+    fn unknown_errors_fold_their_original_text_in_english() {
+        assert_eq!(
+            explain("database is locked", Some(500)),
+            (VAGUE.to_owned(), Some("database is locked".to_owned()))
+        );
+        assert_eq!(
+            lead("Rename failed", explain("API Error: 529 overloaded", None)),
+            (
+                "Rename failed: Service overloaded. Try again shortly".to_owned(),
+                Some("API Error: 529 overloaded".to_owned())
+            )
+        );
+        assert_eq!(
+            lead("Stop failed", explain("weird", None)),
+            ("Stop failed".to_owned(), Some("weird".to_owned()))
+        );
     }
 
     #[test]

@@ -720,7 +720,7 @@ def seed_rows(db):
     for key, name, rt, desc, model, color, avatar in agents:
         db.execute("INSERT INTO agents (id, name, runtime, description, instructions, model, color, avatar, starters, created_at, updated_at)"
                    " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                   (AGENTS[key], name, rt, desc, desc + "\n\n这是演示用的角色档案。", model, color, avatar,
+                   (AGENTS[key], name, rt, desc, desc + "\n\n这是演示用的智能体。", model, color, avatar,
                     json.dumps(["看看最近的改动", "跑一遍测试"], ensure_ascii=False), iso(ago(days=15)), iso(ago(days=2))))
     for i, (name, desc, body) in enumerate([
         ("demo-release-notes", "根据 git log 写发布说明", "# 发布说明\n\n读最近一次 tag 以来的提交，按 feat/fix 分组写成中文发布说明。"),
@@ -1165,8 +1165,8 @@ def theme(value):
 
 
 TITLES = {"/": "中控台", "/workspaces": "工作区", "/chats": "全部对话", "/tasks": "任务", "/autopilots": "任务",
-          "/jobs": "任务", "/bots": "bot", "/agents": "智能体", "/agents/new": "新建角色档案", "/skills": "智能体",
-          "/apps": "接入的软件", "/runtimes": "智能体", "/nodes": "机器与组网", "/usage": "智能体"}
+          "/jobs": "任务", "/bots": "bot", "/agents": "智能体", "/agents/new": "新建智能体", "/skills": "技能",
+          "/apps": "接入的软件", "/runtimes": "账号与额度", "/nodes": "机器与组网", "/usage": "用量"}
 
 
 def section_title(route):
@@ -1223,12 +1223,12 @@ ROUTES = [
     ("autopilots", "/autopilots", "自动化列表"),
     ("jobs", "/jobs", "后台任务列表"),
     ("bots", "/bots", "bot 列表"),
-    ("agents", "/agents", "角色档案列表"),
-    ("agents-new", "/agents/new", "新建角色档案表单"),
+    ("agents", "/agents", "智能体列表"),
+    ("agents-new", "/agents/new", "新建智能体表单"),
     ("skills", "/skills", "技能库"),
     ("apps", "/apps", "接入的软件（办公 / 仿真）"),
-    ("runtimes", "/runtimes", "运行时与账号额度"),
-    ("nodes", "/nodes", "机器与组网"),
+    ("runtimes", "/runtimes", "账号与额度"),
+    ("nodes", "/nodes", "机器与组网（机器表和「添加机器」）"),
     ("usage", "/usage", "用量统计（近 30 天）"),
     ("settings", "/settings", "设置首页（外观分区）"),
 ]
@@ -1240,7 +1240,7 @@ SETTINGS = [
 
 TABS = [
     ("tasks", "/tasks", [("all", "全部", "/tasks"), ("autopilots", "自动化", "/autopilots"), ("jobs", "后台任务", "/jobs")]),
-    ("agents", "/agents", [("profiles", "角色档案", "/agents"), ("skills", "技能", "/skills"), ("runtimes", "运行时", "/runtimes"),
+    ("agents", "/agents", [("profiles", "智能体", "/agents"), ("skills", "技能", "/skills"), ("runtimes", "账号与额度", "/runtimes"),
                            ("usage", "用量", "/usage")]),
 ]
 
@@ -1322,7 +1322,7 @@ def row_menu_parts():
         ("autopilots", "/autopilots", "button.work-ap-row", "自动化行的右键菜单（打开、简介、立即运行、暂停、删除）"),
         ("jobs", "/jobs", "tr.job-row", "后台任务行的右键菜单（打开、复制命令、结束）"),
         ("bots", "/bots", "article.bot-card", "bot 行的右键菜单（打开、暂停、归档）"),
-        ("agents", "/agents", "tr.agent-row", "角色档案行的右键菜单（打开、复制、归档）"),
+        ("agents", "/agents", "tr.agent-row", "智能体行的右键菜单（打开、复制、归档）"),
         ("skills", "/skills", "tr.skill-row", "技能行的右键菜单（打开、更新、删除）"),
     ]
     return [(f"{slug}-row-menu", route, expect,
@@ -1466,19 +1466,21 @@ def plan(round_name):
     items += palette_parts(ws_rows_exist())
     items.append(("status-popover", "/", "侧栏「设置」旁状态圆点的弹层（连接、机器、提醒）",
                   ({"action": "click", "selector": "button.side-dot"}, {"action": "wait", "ms": 300}), False))
-    items.append(("nodes-advanced", "/nodes", "机器页表格下方「设置…」或「高级…」打开的机器发现面板",
-                  ({"action": "wait", "selector": ".machines-foot .linkbtn", "timeout_ms": 8000},
-                   {"action": "click", "selector": ".machines-foot .linkbtn"},
+    team_btn = ".nodes-page .page-actions .nodes-team"
+    items.append(("nodes-team", "/nodes", "机器页页头「邀请同事 / 加入团队」打开的弹窗（这台电脑的团队连接、邀请同事、邀请记录）",
+                  ({"action": "wait", "selector": team_btn, "timeout_ms": 8000},
+                   {"action": "click", "selector": team_btn},
                    {"action": "wait", "selector": "[data-modal-root]", "timeout_ms": 4000}), False))
     items.append(("bots-advanced", "/bots", "bot 页页头「高级…」打开的面板：最多同时运行几个 bot、什么时候提醒",
                   ({"action": "click", "selector": ".bots-page .page-head button[aria-haspopup=\"dialog\"]"},
                    {"action": "wait", "selector": "[data-modal-root]", "timeout_ms": 4000}), False))
-    mesh_more = ".nodes-page .pref-group .pref-more-btn"
-    items.append(("nodes-mesh-advanced", "/nodes", "团队组网「本机组网」一组的「高级…」打开的组网详情面板",
-                  ({"action": "wait", "selector": mesh_more, "timeout_ms": 8000},
-                   {"action": "scroll", "selector": "main.main", "top": "end", "settle_ms": 300},
+    mesh_more = ".nodes-team-sheet .pref-group .pref-more-btn"
+    items.append(("nodes-mesh-advanced", "/nodes", "「邀请同事 / 加入团队」弹窗里「这台电脑」一组的「高级…」（组网详情、EasyTier 配置、机器发现）",
+                  ({"action": "wait", "selector": team_btn, "timeout_ms": 8000},
+                   {"action": "click", "selector": team_btn},
+                   {"action": "wait", "selector": mesh_more, "timeout_ms": 8000},
                    {"action": "click", "selector": mesh_more},
-                   {"action": "wait", "selector": "[data-modal-root]", "timeout_ms": 4000}), False))
+                   {"action": "wait", "ms": 400}), False))
     items.append(("settings-return", "", "设置页按 Esc 回到进入前的页面（这里从中控台的完整消息列表进入）",
                   ({"action": "navigate", "path": "/?inbox=all", "settle_ms": 600},
                    {"action": "navigate", "path": "/settings?s=chat", "settle_ms": 600},
@@ -1489,7 +1491,7 @@ def plan(round_name):
                       " ORDER BY created_at", (PROJECTS["demo-legacy"],))
     if not ws_rows:
         TITLES["/workspaces"] = "开始"
-        items.append(("start", "/workspaces", "首次打开的「开始」清单：运行时、机器、第一个工作区", (), False))
+        items.append(("start", "/workspaces", "首次打开的「开始」清单：Claude Code / Codex、机器、第一个工作区", (), False))
         items.append(("start-new-workspace", "/workspaces", "开始清单里「选择项目文件夹…」打开的对话框",
                       ({"action": "click", "selector": ".start-actions .btn.primary"}, {"action": "wait", "ms": 600}), False))
         return state, items
@@ -1569,11 +1571,11 @@ def detail_pages():
     for bid, handle in db_rows("SELECT id, handle FROM bots WHERE archived_at IS NULL ORDER BY handle"):
         items.append((f"bot-{slugify(handle)}", f"/bots/{bid}", f"bot 详情：{handle}", (), True))
     for aid, name in db_rows("SELECT id, name FROM agents WHERE archived_at IS NULL AND id LIKE ? ORDER BY id", (PREFIX + "%",)):
-        items.append((f"agent-{aid[-2:]}", f"/agent/{aid}", f"角色档案详情：{name}", (), True))
+        items.append((f"agent-{aid[-2:]}", f"/agent/{aid}", f"智能体详情：{name}", (), True))
     for app in ["lark", "github", "obsidian", "isaacsim", "mujoco"]:
         items.append((f"app-{app}", f"/apps/{app}", f"接入的软件详情：{app}", (), True))
     for rt in ["claude", "codex"]:
-        items.append((f"runtime-{rt}", f"/runtimes/{rt}", f"运行时详情：{rt}", (), True))
+        items.append((f"runtime-{rt}", f"/runtimes/{rt}", f"账号与额度详情：{rt}", (), True))
     for node in ["local", NODE]:
         items.append((f"node-{slugify(node)}", f"/nodes/{node}", f"机器详情：{node}", (), True))
     for (name,) in db_rows("SELECT name FROM projects WHERE id LIKE ? ORDER BY name", (PREFIX + "%",)):
@@ -1582,14 +1584,14 @@ def detail_pages():
     items.append(("app-github-advanced", "/apps/github", "接入的软件详情里「高级…」打开的连接详情面板",
                   ({"action": "wait", "selector": ".pref-more-btn", "timeout_ms": 8000},
                    {"action": "click", "selector": ".pref-more-btn"}, sheet), False))
-    items.append(("runtime-claude-advanced", "/runtimes/claude", "运行时详情里「配置」组的「高级…」打开的高级配置面板",
+    items.append(("runtime-claude-advanced", "/runtimes/claude", "账号与额度详情里「配置」组的「高级…」打开的高级配置面板",
                   ({"action": "wait", "selector": ".pref-group:last-child .pref-more-btn", "timeout_ms": 8000},
                    {"action": "click", "selector": ".pref-group:last-child .pref-more-btn"}, sheet), False))
-    confirm_btn = ".nodes-page .page-actions .btn[aria-haspopup=\"dialog\"]"
-    items.append(("nodes-confirm", "/nodes", "机器页页头「确认 N 台…」打开的批量确认面板（勾选机器、选开发机或个人电脑）",
+    confirm_btn = ".nodes-page .page-actions .nodes-confirm"
+    items.append(("nodes-confirm", "/nodes", "机器页页头「确认 N 台…」打开的批量确认面板（勾选机器、选可派活或个人电脑）",
                   ({"action": "wait", "selector": confirm_btn, "timeout_ms": 8000},
                    {"action": "click", "selector": confirm_btn}, sheet), False))
-    items.append(("nodes-row-menu", "/nodes", "机器行的右键菜单（打开、新建工作区、设为开发机或个人电脑）",
+    items.append(("nodes-row-menu", "/nodes", "机器行的右键菜单（打开、新建工作区、设为可派活的机器或个人电脑）",
                   ({"action": "wait", "selector": ".node-row[data-index=\"1\"]", "timeout_ms": 8000},
                    {"action": "context_menu", "selector": ".node-row[data-index=\"1\"]"}), False))
     pending_confirm = ".nodes-page.detail-page .page-actions .btn:not(.primary)[aria-haspopup=\"dialog\"]"

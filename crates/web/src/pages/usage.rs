@@ -49,7 +49,7 @@ pub fn UsagePage() -> impl IntoView {
     });
     view! {
         <div class="page usage-page">
-            <PageHead title="智能体" nav=|| crate::components::section::agents("/usage") />
+            <PageHead title="用量" nav=|| crate::components::section::agents("/usage") />
             <Show
                 when=move || !never()
                 fallback=|| {
@@ -94,7 +94,8 @@ pub fn UsagePage() -> impl IntoView {
                     Some(Err(e)) => {
                         view! {
                             <InlineError
-                                message=format!("无法加载运行分析：{e}")
+                                lead="无法加载运行分析"
+                                error=e.clone()
                                 retry=Callback::new(move |_| analytics.refetch())
                             />
                         }
@@ -111,7 +112,8 @@ pub fn UsagePage() -> impl IntoView {
                         Some(Err(e)) => {
                             view! {
                                 <InlineError
-                                    message=format!("无法加载累计用量：{e}")
+                                    lead="无法加载累计用量"
+                                    error=e.clone()
                                     retry=Callback::new(move |_| usage.refetch())
                                 />
                             }
@@ -154,7 +156,10 @@ pub fn UsagePage() -> impl IntoView {
                                         })
                                         .collect_view()}
                                 </div>
-                                <UsageTable title="按运行时" data=u["by_agent"].clone() />
+                                <UsageTable
+                                    title="按 Claude Code / Codex"
+                                    data=u["by_agent"].clone()
+                                />
                                 <UsageTable title="按机器" data=u["by_node"].clone() />
                                 {(!workspaces.is_empty())
                                     .then(|| {
@@ -393,7 +398,12 @@ fn Analytics(data: Value, days: u32, widen: Callback<()>) -> impl IntoView {
         })
         .collect::<Vec<_>>();
     let board = list(&data, "board");
-    let reasons = list(&data, "reasons");
+    let reasons = crate::vocab::failure_reasons(
+        &list(&data, "reasons")
+            .iter()
+            .map(|r| (n(r, "n"), s(r, "why")))
+            .collect::<Vec<_>>(),
+    );
     let has_reasons = !reasons.is_empty();
     view! {
         <div class="usage-kpis">
@@ -535,7 +545,7 @@ fn Analytics(data: Value, days: u32, widen: Callback<()>) -> impl IntoView {
                         <table class="settings-table">
                             <thead>
                                 <tr>
-                                    <th>"智能体 / 运行时"</th>
+                                    <th>"智能体"</th>
                                     <th class="num">"运行"</th>
                                     <th class="num">"成功率"</th>
                                     <th class="num">"平均耗时"</th>
@@ -606,11 +616,22 @@ fn Analytics(data: Value, days: u32, widen: Callback<()>) -> impl IntoView {
             } else {
                 reasons
                     .into_iter()
-                    .map(|r| {
+                    .map(|(count, why, originals)| {
                         view! {
                             <div class="settings-row">
-                                <b>{format!("{:.0} 次", n(&r, "n"))}</b>
-                                <span>{s(&r, "why")}</span>
+                                <b>{format!("{count:.0} 次")}</b>
+                                <span>
+                                    {why}
+                                    {(!originals.is_empty())
+                                        .then(|| {
+                                            view! {
+                                                <details class="ui-detail">
+                                                    <summary>"详情"</summary>
+                                                    <pre>{originals.join("\n")}</pre>
+                                                </details>
+                                            }
+                                        })}
+                                </span>
                             </div>
                         }
                     })

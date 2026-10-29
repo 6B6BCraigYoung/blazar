@@ -11,7 +11,7 @@ use crate::components::dialog::{self, Choice};
 use crate::components::modal::Modal;
 use crate::components::prefs::{PrefGroup, PrefRow};
 use crate::components::status::{InlineError, LoadingState, Status};
-use crate::components::toast::toast;
+use crate::components::toast::{toast, toast_error};
 use crate::components::undo::{self, Request};
 use crate::fmt;
 use crate::vocab::{self, Tone};
@@ -91,7 +91,7 @@ pub fn rename_workspace(app: AppData, id: String) {
                 toast("已改名");
                 app.load_state();
             }
-            Err(e) => toast(format!("改名失败：{e}")),
+            Err(e) => toast_error("改名失败", &e),
         }
     });
 }
@@ -129,7 +129,7 @@ pub fn retry_workspace(app: AppData, id: String, session: String) {
                 toast("已重新开始");
                 app.load_state();
             }
-            Err(e) => toast(format!("没能重试：{e}")),
+            Err(e) => toast_error("没能重试", &e),
         }
     });
 }
@@ -139,7 +139,7 @@ pub fn remove_workspace(app: AppData, id: String) {
         let d = match api::get::<Value>(&format!("/api/workspaces/{id}/detail")).await {
             Ok(d) => d,
             Err(e) => {
-                toast(format!("读取详情失败：{e}"));
+                toast_error("读取详情失败", &e);
                 return;
             }
         };
@@ -173,7 +173,7 @@ pub fn remove_workspace(app: AppData, id: String) {
                 toast(outcome_text(removed_head(isolated), &r));
                 app.load_state();
             }
-            Err(e) => toast(format!("操作失败：{e}")),
+            Err(e) => toast_error("操作失败", &e),
         }
     });
 }
@@ -243,7 +243,7 @@ pub fn Inspector(id: String, on_close: impl Fn() + Copy + Send + Sync + 'static)
                     app.load_state();
                     rev.update(|n| *n += 1);
                 }
-                Err(e) => toast(format!("操作失败：{e}")),
+                Err(e) => toast_error("操作失败", &e),
             }
         });
     };
@@ -275,7 +275,7 @@ pub fn Inspector(id: String, on_close: impl Fn() + Copy + Send + Sync + 'static)
                     Some(Err(e)) => {
                         view! {
                             <InlineError
-                                message=e.to_string()
+                                error=e.clone()
                                 retry=Callback::new(move |_| rev.update(|n| *n += 1))
                             />
                             <div class="dlg-foot">

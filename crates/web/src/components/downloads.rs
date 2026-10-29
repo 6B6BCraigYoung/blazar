@@ -7,7 +7,7 @@ use serde_json::Value;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
 
-use crate::components::toast::toast;
+use crate::components::toast::toast_error;
 use crate::download_model::{Speed, percent, progress_line};
 use crate::files_js;
 
@@ -198,7 +198,7 @@ async fn desktop(url: String, name: String) {
         Err(e) => Err(e),
     };
     if let Err(e) = result {
-        toast(format!("没能下载：{}", js_message(&e)));
+        toast_error("没能下载", &js_message(&e));
     }
 }
 
@@ -208,7 +208,7 @@ async fn browser(url: String, name: String) {
         Ok(h) if h.is_null() || h.is_undefined() => return,
         Ok(h) => h,
         Err(e) => {
-            toast(format!("没能下载：{}", js_message(&e)));
+            toast_error("没能下载", &js_message(&e));
             return;
         }
     };
@@ -258,7 +258,7 @@ fn cancel(d: Downloads, key: u32, source: Source) {
             if let Err(e) =
                 crate::desktop::invoke("cancel_download", &serde_json::json!({ "id": id })).await
             {
-                toast(format!("没能取消：{e}"));
+                toast_error("没能取消", &e);
             }
         }),
         Source::Browser => {
@@ -276,7 +276,7 @@ fn reveal(id: u64) {
         if let Err(e) =
             crate::desktop::invoke("reveal_download", &serde_json::json!({ "id": id })).await
         {
-            toast(format!("没能在访达中显示：{e}"));
+            toast_error("没能在访达中显示", &e);
         }
     });
 }

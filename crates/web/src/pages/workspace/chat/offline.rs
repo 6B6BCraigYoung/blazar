@@ -2,7 +2,7 @@ use leptos::prelude::*;
 use serde_json::{Value, json};
 
 use crate::app_state::use_app;
-use crate::components::toast::toast;
+use crate::components::toast::toast_error_en;
 use crate::link_state::NodeLink;
 
 use super::state::Chat;
@@ -46,10 +46,7 @@ fn retry(app: crate::app_state::AppData, chat: Chat, retrying: RwSignal<bool>) {
         app.load_state();
         let _ = retrying.try_set(false);
         if let Err(e) = probed {
-            toast(format!(
-                "Still can't connect: {}",
-                crate::vocab_en::error(&e.message, e.status)
-            ));
+            toast_error_en("Still can't connect", &e);
         }
     });
 }

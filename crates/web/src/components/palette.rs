@@ -8,7 +8,7 @@ use wasm_bindgen::JsCast;
 
 use crate::app_state::use_app;
 use crate::components::icon;
-use crate::components::toast::toast;
+use crate::components::toast::{toast, toast_error};
 use crate::palette_match::score;
 use crate::{api, fmt, storage};
 
@@ -69,10 +69,10 @@ const PAGES: &[(&str, &str, &str, &str, Option<&str>)] = &[
         None,
     ),
     (
-        "角色档案",
+        "智能体",
         "/agents",
         icon::ID_CARD,
-        "agents jsda juesedangan 智能体",
+        "agents znt zhinengti jsda juesedangan 角色档案",
         None,
     ),
     (
@@ -83,10 +83,10 @@ const PAGES: &[(&str, &str, &str, &str, Option<&str>)] = &[
         None,
     ),
     (
-        "运行时",
+        "账号与额度",
         "/runtimes",
         icon::ACTIVITY,
-        "runtimes yxs yunxingshi 账号 claude codex",
+        "runtimes zhyed zhanghao edu yxs yunxingshi 运行时 账号 额度 claude codex",
         None,
     ),
     (
@@ -526,7 +526,7 @@ async fn probe(name: String) {
     .await
     {
         Ok(_) => toast(format!("已检查 {}", fmt::machine(&name))),
-        Err(e) => toast(format!("检查失败：{e}")),
+        Err(e) => toast_error("检查失败", &e),
     }
 }
 
@@ -737,7 +737,7 @@ pub fn Palette() -> impl IntoView {
                                 crate::desktop::invoke("reveal_path", &json!({ "path": path }))
                                     .await
                             {
-                                toast(format!("没能在访达中显示：{e}"));
+                                toast_error("没能在访达中显示", &e);
                             }
                         });
                     }));

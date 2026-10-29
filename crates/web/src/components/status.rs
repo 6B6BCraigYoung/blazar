@@ -1,5 +1,7 @@
 use leptos::prelude::*;
 
+use crate::api::ApiError;
+
 pub use crate::vocab::Tone;
 
 #[component]
@@ -28,13 +30,40 @@ pub fn EmptyState(
     }
 }
 
+/// 一条行内错误。默认说人话：`error`（一个 [`ApiError`]）或 `message`（原文）先过
+/// [`crate::vocab::explain`]，原文折进「详情」；`lead` 是“在做什么”的前缀（“无法加载设置”）。
+/// 已经是人话的文字用 `plain`（或者自己给了 `detail`）原样显示。对话里用 `english`。
 #[component]
 pub fn InlineError(
-    #[prop(into)] message: String,
+    #[prop(optional, into)] message: String,
+    #[prop(optional, into)] error: Option<ApiError>,
+    #[prop(optional, into)] lead: String,
+    #[prop(optional)] plain: bool,
+    #[prop(optional)] english: bool,
     #[prop(optional)] retry: Option<Callback<()>>,
     #[prop(default = "")] class: &'static str,
     #[prop(into, default = None)] detail: Option<String>,
 ) -> impl IntoView {
+    let (message, detail) = if plain || detail.is_some() {
+        (message, detail)
+    } else {
+        match (&error, english) {
+            (Some(e), false) => e.explained(),
+            (Some(e), true) => e.explained_en(),
+            (None, false) => crate::vocab::explain(&message, None),
+            (None, true) => crate::vocab_en::explain(&message, None),
+        }
+    };
+    let (message, detail) = if english {
+        crate::vocab_en::lead(&lead, (message, detail))
+    } else {
+        crate::vocab::lead(&lead, (message, detail))
+    };
+    let (more, again) = if english {
+        ("Details", "Retry")
+    } else {
+        ("详情", "重试")
+    };
     view! {
         <div class=format!("ui-state ui-error {class}") role="alert">
             <span>{message}</span>
@@ -42,7 +71,7 @@ pub fn InlineError(
                 .map(|d| {
                     view! {
                         <details class="ui-detail">
-                            <summary>"详情"</summary>
+                            <summary>{more}</summary>
                             <pre>{d}</pre>
                         </details>
                     }
@@ -51,7 +80,7 @@ pub fn InlineError(
                 .map(|retry| {
                     view! {
                         <button type="button" class="btn small" on:click=move |_| retry.run(())>
-                            "重试"
+                            {again}
                         </button>
                     }
                 })}

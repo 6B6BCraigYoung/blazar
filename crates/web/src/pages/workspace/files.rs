@@ -302,7 +302,9 @@ impl Files {
                     }
                     api::put_editor_context(&ws, &path).await;
                 }
-                Err(e) => self.error.set(Some((format!("打开失败：{e}"), e.detail))),
+                Err(e) => self
+                    .error
+                    .set(Some(crate::vocab::lead("打开失败", e.explained()))),
             }
         });
     }
@@ -396,7 +398,9 @@ impl Files {
                     }
                 }
                 Ok(_) => self.conflict(path),
-                Err(e) => self.error.set(Some((format!("保存失败：{e}"), e.detail))),
+                Err(e) => self
+                    .error
+                    .set(Some(crate::vocab::lead("保存失败", e.explained()))),
             }
         });
     }

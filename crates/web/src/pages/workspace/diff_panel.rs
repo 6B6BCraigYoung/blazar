@@ -9,7 +9,7 @@ use crate::components::empty::Blank;
 use crate::components::icon;
 use crate::components::menu::menu_keydown;
 use crate::components::status::{InlineError, LoadingState};
-use crate::components::toast::{self, toast};
+use crate::components::toast::{self, toast, toast_error};
 use crate::components::undo::{self, Request};
 use leptos::task::spawn_local;
 use serde::{Deserialize, Serialize};
@@ -152,7 +152,7 @@ impl DiffState {
         let path = self.comments_path();
         spawn_local(async move {
             if let Err(e) = api::send::<Value>("POST", &path, &json!({ "comments": [c] })).await {
-                toast(format!("意见没存上：{e}"));
+                toast_error("意见没存上", &e);
             }
         });
     }
@@ -685,7 +685,7 @@ fn expand_up(ws: String, d: DiffState, path: String, hunk: usize) {
         let r = match api::read_file(&ws, &path).await {
             Ok(r) => r,
             Err(e) => {
-                toast(format!("没能读取文件：{e}"));
+                toast_error("没能读取文件", &e);
                 return;
             }
         };
@@ -979,7 +979,7 @@ fn discard(d: DiffState, body: Value, what: String) {
                     None => toast(format!("已丢弃{what}，这次没能留下撤销")),
                 }
             }
-            Err(e) => toast(format!("没丢掉：{e}")),
+            Err(e) => toast_error("没丢掉", &e),
         }
     });
 }
@@ -991,7 +991,7 @@ fn restore(d: DiffState, ws: String, token: String) {
             Ok(_) => {
                 let _ = d.reload.try_update(|n| *n += 1);
             }
-            Err(e) => toast(format!("没撤销：{e}")),
+            Err(e) => toast_error("没撤销", &e),
         }
     });
 }
