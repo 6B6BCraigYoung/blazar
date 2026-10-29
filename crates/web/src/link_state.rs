@@ -67,6 +67,17 @@ pub fn slow(latency_ms: Option<f64>) -> bool {
     latency_ms.is_some_and(|ms| ms.is_finite() && ms > SLOW_MS)
 }
 
+/// 机器表「状态」列里离线的说法：`ago` 是「5 小时前」这样的相对时间，得到「5 小时前离线」；
+/// 不知道上次在线是什么时候（空串）就只说「离线」。
+#[must_use]
+pub fn offline_text(ago: &str) -> String {
+    if ago.is_empty() {
+        "离线".into()
+    } else {
+        format!("{ago}离线")
+    }
+}
+
 /// 实时连接的心跳：每 15 秒问一次 hub，连着两次没回应就当断了，重连。
 pub const HEARTBEAT_EVERY_MS: u32 = 15_000;
 /// 一次心跳最多等多久。
@@ -176,6 +187,13 @@ mod tests {
         assert!(running_activity("starting"));
         assert!(!running_activity("awaiting_approval"));
         assert!(!running_activity("idle"));
+    }
+
+    #[test]
+    fn offline_says_how_long_ago() {
+        assert_eq!(offline_text("5 小时前"), "5 小时前离线");
+        assert_eq!(offline_text("刚刚"), "刚刚离线");
+        assert_eq!(offline_text(""), "离线");
     }
 
     #[test]

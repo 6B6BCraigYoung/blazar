@@ -322,7 +322,7 @@ fn NodeDetail(name: String) -> impl IntoView {
     view! {
         <div class="page nodes-page detail-page">
             <PageHead
-                parent=("机器与组网", "/nodes")
+                parent=("机器", "/nodes")
                 icon=|| view! { <span class="ic" inner_html=icon::svg(icon::NODES)></span> }
                 title=title
                 status=move || {

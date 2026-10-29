@@ -2,6 +2,7 @@ use super::*;
 use crate::components::menu::menu_keydown;
 use crate::components::rows::open_row;
 use crate::fmt;
+use crate::link_state;
 use blazar_core_types::api::NodeView;
 use leptos::ev;
 use leptos::html;
@@ -57,30 +58,78 @@ fn last_seen(n: &NodeView) -> String {
         .unwrap_or_else(|| "—".into())
 }
 
+/// 状态列和圆点说的是同一件事：等你确认（橙）、在线（绿）、离线（灰）。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum State {
+    Pending,
+    Online,
+    Offline,
+}
+
+impl State {
+    fn of(n: &NodeView) -> Self {
+        if n.is_pending() {
+            Self::Pending
+        } else if n.status == "online" {
+            Self::Online
+        } else {
+            Self::Offline
+        }
+    }
+
+    /// 圆点的颜色，只用在小圆点上。
+    const fn tone(self) -> &'static str {
+        match self {
+            Self::Pending => "attention",
+            Self::Online => "ok",
+            Self::Offline => "other",
+        }
+    }
+}
+
+fn state_text(state: State, n: &NodeView) -> String {
+    match state {
+        State::Pending => "等你确认".into(),
+        State::Online => "在线".into(),
+        State::Offline => {
+            link_state::offline_text(&n.last_seen_at.as_deref().map(fmt::ago).unwrap_or_default())
+        }
+    }
+}
+
+fn addr_of(n: &NodeView) -> Option<String> {
+    n.ipv4.clone().filter(|v| !v.trim().is_empty())
+}
+
 #[component]
-pub(super) fn MachineTable(nodes: Signal<Vec<NodeView>>) -> impl IntoView {
+pub(super) fn MachineTable(
+    nodes: Signal<Vec<NodeView>>,
+    on_confirm: Callback<String>,
+) -> impl IntoView {
     let menu = RwSignal::new(None::<MenuAt>);
+    // 每一行都没有地址时整列不显示。
+    let with_addr = Memo::new(move |_| nodes.with(|l| l.iter().any(|n| addr_of(n).is_some())));
     view! {
         <div class="machines">
             <table>
                 <thead>
                     <tr>
-                        <th aria-label="状态"></th>
+                        <th aria-hidden="true"></th>
                         <th>"名称"</th>
-                        <th>"地址"</th>
+                        {move || with_addr.get().then(|| view! { <th>"地址"</th> })}
                         <th>"连接"</th>
-                        <th class="num">"延迟"</th>
                         <th class="num">"工作区"</th>
-                        <th>"最后在线"</th>
+                        <th>"状态"</th>
                     </tr>
                 </thead>
                 <tbody>
                     {move || {
+                        let addr = with_addr.get();
                         nodes
                             .get()
                             .into_iter()
                             .enumerate()
-                            .map(|(i, n)| row_view(i, n, menu))
+                            .map(|(i, n)| row_view(i, n, addr, menu, on_confirm))
                             .collect_view()
                     }}
                 </tbody>
@@ -97,38 +146,41 @@ pub(super) fn MachineTable(nodes: Signal<Vec<NodeView>>) -> impl IntoView {
     }
 }
 
-fn row_view(i: usize, n: NodeView, menu: RwSignal<Option<MenuAt>>) -> impl IntoView {
+fn row_view(
+    i: usize,
+    n: NodeView,
+    with_addr: bool,
+    menu: RwSignal<Option<MenuAt>>,
+    on_confirm: Callback<String>,
+) -> impl IntoView {
     let online = n.status == "online";
+    let state = State::of(&n);
     let href = format!("/nodes/{}", api::enc(&n.name));
-    let addr = n
-        .ipv4
-        .clone()
-        .filter(|v| !v.is_empty())
-        .unwrap_or_else(|| "—".into());
-    let latency = (online && n.network.as_deref() == Some("easytier"))
-        .then_some(n.latency_ms)
-        .flatten()
-        .map(|ms| format!("{ms:.0} ms"))
-        .unwrap_or_default();
-    let seen = if online {
-        "在线".to_owned()
-    } else {
-        last_seen(&n)
-    };
-    let badge = if n.is_pending() {
-        Some(
-            view! {
-                <span class="status node-badge" data-tone="attention">
-                    "待确认"
-                </span>
-            }
-            .into_any(),
-        )
-    } else if n.is_personal() {
-        Some(view! { <span class="gchip">"个人电脑"</span> }.into_any())
-    } else {
-        None
-    };
+    let addr = with_addr.then(|| {
+        let a = addr_of(&n).unwrap_or_else(|| "—".into());
+        view! {
+            <td class="node-addr" title=a.clone()>
+                {a.clone()}
+            </td>
+        }
+    });
+    // 知道延迟、而且超过 300ms 才在状态后面加灰字「较慢」。
+    let slow = state == State::Online && n.name != "local" && link_state::slow(n.latency_ms);
+    let badge = (!n.is_pending() && n.is_personal())
+        .then(|| view! { <span class="gchip">"个人电脑"</span> });
+    let confirm = (state == State::Pending).then(|| {
+        let name = n.name.clone();
+        view! {
+            <button
+                type="button"
+                class="btn small node-confirm"
+                aria-haspopup="dialog"
+                on:click=move |_| on_confirm.run(name.clone())
+            >
+                "确认"
+            </button>
+        }
+    });
     view! {
         <tr
             class="node-row"
@@ -148,11 +200,7 @@ fn row_view(i: usize, n: NodeView, menu: RwSignal<Option<MenuAt>>) -> impl IntoV
             }
         >
             <td>
-                <span
-                    class="dot"
-                    role="img"
-                    aria-label=if online { "在线" } else { "离线" }
-                ></span>
+                <span class="dot" data-tone=state.tone() aria-hidden="true"></span>
             </td>
             <td>
                 <a class="node-name" href=href>
@@ -160,13 +208,14 @@ fn row_view(i: usize, n: NodeView, menu: RwSignal<Option<MenuAt>>) -> impl IntoV
                 </a>
                 {badge}
             </td>
-            <td class="node-addr" title=addr.clone()>
-                {addr.clone()}
-            </td>
+            {addr}
             <td class="node-link">{connection(&n)}</td>
-            <td class="node-lat num">{latency}</td>
             <td class="node-ws num">{n.workspace_count}</td>
-            <td class="node-seen">{seen}</td>
+            <td class="node-state" data-state=state.tone()>
+                <span class="node-state-text">{state_text(state, &n)}</span>
+                {slow.then(|| view! { <span class="node-slow">"较慢"</span> })}
+                {confirm}
+            </td>
         </tr>
     }
 }

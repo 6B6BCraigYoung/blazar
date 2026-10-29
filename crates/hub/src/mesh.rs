@@ -615,7 +615,7 @@ async fn issuer_config(st: &Shared) -> Option<IssuerConfig> {
 }
 
 const NO_ISSUER: &str =
-    "还没有配置签发节点：在「机器与组网」→「邀请同事」→「签发设置」里填上持有网络密钥的那台机器";
+    "还没有配置签发节点：在「机器」→「邀请同事」→「签发设置」里填上持有网络密钥的那台机器";
 
 fn issuer_admin(st: &Shared, cfg: &IssuerConfig) -> (MeshAdmin, EasyTierMesh) {
     let transport: Arc<dyn NodeTransport> = if cfg.via == "local" {

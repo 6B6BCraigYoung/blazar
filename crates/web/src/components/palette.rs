@@ -104,10 +104,10 @@ const PAGES: &[(&str, &str, &str, &str, Option<&str>)] = &[
         None,
     ),
     (
-        "机器与组网",
+        "机器",
         "/nodes",
         icon::NODES,
-        "nodes mesh jq jiqi zuwang 节点 ssh",
+        "nodes mesh jq jiqi zuwang 组网 机器与组网 节点 ssh",
         None,
     ),
     (

@@ -217,7 +217,8 @@ pub fn NodesPage() -> impl IntoView {
     let invite_in = NodeRef::<leptos::html::Input>::new();
     let toml_in = NodeRef::<leptos::html::Input>::new();
     let ssh_pick = RwSignal::new(false);
-    let confirm = RwSignal::new(false);
+    // 要确认的机器名：页面上方的提示打开全部待确认的，行里的「确认」只打开那一台。
+    let confirm = RwSignal::new(None::<Vec<String>>);
     let team = RwSignal::new(false);
     let nodes = move || {
         app.state
@@ -270,7 +271,7 @@ pub fn NodesPage() -> impl IntoView {
             }
         >
             <PageHead
-                title="机器与组网"
+                title="机器"
                 lead="选择一台机器，创建或打开工作区。"
                 status=move || {
                     let n = nodes()
@@ -280,29 +281,13 @@ pub fn NodesPage() -> impl IntoView {
                     view! { <Status tone=Tone::Other label=format!("{n} 台机器在线") /> }
                 }
             >
-                {move || {
-                    let n = pending_count.get();
-                    (n > 0)
-                        .then(|| {
-                            view! {
-                                <button
-                                    type="button"
-                                    class="btn nodes-confirm"
-                                    aria-haspopup="dialog"
-                                    on:click=move |_| confirm.set(true)
-                                >
-                                    {format!("确认 {n} 台…")}
-                                </button>
-                            }
-                        })
-                }}
                 <button
                     type="button"
                     class="btn ghost nodes-team"
                     aria-haspopup="dialog"
                     on:click=move |_| team.set(true)
                 >
-                    "邀请同事 / 加入团队"
+                    "邀请同事"
                 </button>
                 <button class="btn primary" on:click=move |_| ssh_pick.set(true)>
                     "添加机器"
@@ -329,6 +314,33 @@ pub fn NodesPage() -> impl IntoView {
                                     on:input=move |e| q.set(event_target_value(&e))
                                 />
                             </div>
+                        }
+                    })
+            }}
+            {move || {
+                let n = pending_count.get();
+                (n > 0 && !loading.get())
+                    .then(|| {
+                        view! {
+                            <p class="nodes-pending" role="status">
+                                {format!("有 {n} 台机器等你确认")}
+                                " · "
+                                <button
+                                    type="button"
+                                    class="linkbtn nodes-pending-open"
+                                    aria-haspopup="dialog"
+                                    on:click=move |_| {
+                                        let names = nodes()
+                                            .into_iter()
+                                            .filter(|n| n.is_pending())
+                                            .map(|n| n.name)
+                                            .collect();
+                                        confirm.set(Some(names));
+                                    }
+                                >
+                                    "查看"
+                                </button>
+                            </p>
                         }
                     })
             }}
@@ -371,26 +383,36 @@ pub fn NodesPage() -> impl IntoView {
                     }
                         .into_any();
                 }
-                view! { <MachineTable nodes=shown /> }.into_any()
+                view! {
+                    <MachineTable
+                        nodes=shown
+                        on_confirm=Callback::new(move |name| confirm.set(Some(vec![name])))
+                    />
+                }
+                    .into_any()
             }}
             <MultiMachine />
             {move || {
                 confirm
                     .get()
-                    .then(|| {
+                    .map(|names| {
                         let pending = app
                             .state
                             .with_untracked(|s| {
                                 s.as_ref()
                                     .map(|s| {
-                                        s.nodes.iter().filter(|n| n.is_pending()).cloned().collect()
+                                        s.nodes
+                                            .iter()
+                                            .filter(|n| n.is_pending() && names.contains(&n.name))
+                                            .cloned()
+                                            .collect()
                                     })
                                     .unwrap_or_default()
                             });
                         view! {
                             <ConfirmSheet
                                 pending
-                                on_close=Callback::new(move |()| confirm.set(false))
+                                on_close=Callback::new(move |()| confirm.set(None))
                             />
                         }
                     })

@@ -409,7 +409,7 @@ fn MainNav(keys: RwSignal<u32>) -> impl IntoView {
                 &["/agents", "/agent", "/skills", "/library", "/runtimes", "/accounts", "/usage"],
             )}
             {nav("/apps", icon::APPS, "接入的软件", none, calm, false)}
-            {section("/nodes", icon::NODES, "机器与组网", none, calm, &["/nodes", "/mesh"])}
+            {section("/nodes", icon::NODES, "机器", none, calm, &["/nodes", "/mesh"])}
         </div>
         <div class="foot">
             {nav("/settings", icon::GEAR, "设置", none, calm, false)} <StatusDot />

@@ -162,7 +162,7 @@ fn tray(app: &AppHandle, account: &Submenu<Wry>) -> tauri::Result<()> {
             &item(app, "act:palette", "命令面板", None)?,
             &PredefinedMenuItem::separator(app)?,
             &item(app, "go:/", "中控台", None)?,
-            &item(app, "go:/nodes", "机器与组网", None)?,
+            &item(app, "go:/nodes", "机器", None)?,
             &item(app, "go:/usage", "用量", None)?,
             &PredefinedMenuItem::separator(app)?,
             account,
@@ -321,7 +321,7 @@ fn go_menu(app: &AppHandle) -> tauri::Result<Submenu<Wry>> {
             &PredefinedMenuItem::separator(app)?,
             &item(app, "go:/agents", "智能体", None)?,
             &item(app, "go:/apps", "接入的软件", None)?,
-            &item(app, "go:/nodes", "机器与组网", None)?,
+            &item(app, "go:/nodes", "机器", None)?,
         ],
     )
 }

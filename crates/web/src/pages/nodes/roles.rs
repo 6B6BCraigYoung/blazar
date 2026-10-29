@@ -85,7 +85,7 @@ pub(super) fn ConfirmSheet(pending: Vec<NodeView>, on_close: Callback<()>) -> im
                                 />
                                 <span
                                     class="dot"
-                                    data-off=(!online).to_string()
+                                    data-tone=if online { "ok" } else { "other" }
                                     aria-hidden="true"
                                 ></span>
                                 <span class="confirm-name">{n.name.clone()}</span>
