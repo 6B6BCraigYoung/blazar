@@ -97,3 +97,9 @@
 @media (max-width: 1100px) {
   .console-rail { flex-basis: 320px; width: 320px; }
 }
+/* The same approval is already in the open conversation: quiet the card and let the
+   conversation be the one place to answer it. */
+.inbox-here { display: none; margin-top: var(--space-xs); color: var(--fg-3); font-size: var(--font-size-label); }
+.inbox-row[data-here="true"] { opacity: .6; }
+.inbox-row[data-here="true"] .inbox-act { display: none; }
+.inbox-row[data-here="true"] .inbox-here { display: block; }

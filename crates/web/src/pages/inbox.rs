@@ -36,6 +36,11 @@ pub(crate) const KINDS: &[(&str, &str)] = &[
 
 pub(crate) const ALL: &str = "/?inbox=all";
 
+/// The conversation open beside the console rail. A card asking about something that
+/// conversation already shows is quietened instead of being handled twice.
+#[derive(Clone, Copy)]
+pub struct OpenThread(pub Signal<Option<String>>);
+
 #[derive(Clone, PartialEq)]
 pub struct Item {
     pub id: String,
@@ -950,12 +955,25 @@ fn row_view(ctx: Ctx, i: usize, it: Item, pending: Option<Value>) -> impl IntoVi
             question_panel(ctx, aid, &a, href.clone(), item_id)
         } else {
             let (label, what) = approval_summary(&a["request"], "");
+            // The preview holds only the real command or the prompt itself; a fleet call
+            // gets its 「派活 → 工作区」 line above it, a shell command needs no label.
+            let raw_tool = a["request"]["tool_name"].as_str().unwrap_or("");
+            let fleet = crate::chat_model::is_fleet(raw_tool);
+            let shell = crate::chat_model::SHELL_TOOLS
+                .contains(&crate::chat_model::tool_name(raw_tool).as_str());
+            let lead = fleet.then(|| label.clone());
+            let shown = if fleet || shell {
+                what.clone()
+            } else {
+                format!("{label}  {what}")
+            };
             let (a1, a2, a3, a4) = (aid.clone(), aid.clone(), aid.clone(), aid.clone());
             let (a5, req, ws) = (aid.clone(), a["request"].clone(), it.workspace.clone());
             view! {
                 <div class="inbox-act" data-ui-guard="">
+                    {lead.map(|l| view! { <span class="inbox-lead">{l}</span> })}
                     <code class="inbox-cmd" title=what.clone()>
-                        {format!("{label}  {what}")}
+                        {shown}
                     </code>
                     <button
                         type="button"
@@ -1000,10 +1018,19 @@ fn row_view(ctx: Ctx, i: usize, it: Item, pending: Option<Value>) -> impl IntoVi
             .into_any()
         }
     });
+    let open = use_context::<OpenThread>();
+    let thread = it.thread.clone();
+    let open_request = it.open_request();
+    let here = move || {
+        open_request
+            && !thread.is_empty()
+            && open.is_some_and(|o| o.0.with(|t| t.as_deref() == Some(thread.as_str())))
+    };
     view! {
         <div
             class="inbox-row lrow"
             role="listitem"
+            data-here=move || here().to_string()
             data-index=i.to_string()
             data-kind=it.kind.clone()
             data-unread=(!read).to_string()
@@ -1037,6 +1064,8 @@ fn row_view(ctx: Ctx, i: usize, it: Item, pending: Option<Value>) -> impl IntoVi
                         .then(|| view! { <span class="inbox-body">{it.body.clone()}</span> })}
                 </a>
                 {panel}
+                {open_request
+                    .then(|| view! { <span class="inbox-here">"在当前对话里"</span> })}
                 {asking}
                 {denied}
                 {acts}

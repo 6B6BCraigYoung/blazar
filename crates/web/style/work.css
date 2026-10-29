@@ -177,3 +177,4 @@
 .inbox-reply { flex: 1 1 200px; min-width: 160px; height: 26px; padding: 0 var(--space-control); border: var(--field-border); border-radius: var(--r-md); background: var(--bg-canvas); color: var(--fg); font: var(--font-size-label-readable) var(--font-sans); outline: none; }
 .inbox-reply:focus { border-color: var(--border-strong); }
 @media (max-width: 620px) { .inbox-row { flex-wrap: wrap; } .inbox-meta { width: 100%; padding-left: calc(8px + var(--space-xl)); } }
+.inbox-lead { flex: 1 1 100%; color: var(--fg-2); font-size: var(--font-size-label); }

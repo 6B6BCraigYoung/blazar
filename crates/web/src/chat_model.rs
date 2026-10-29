@@ -21,7 +21,7 @@ pub use builder::build;
 pub use finish::step_sig;
 pub use groups::{Group, group_sig, group_steps};
 pub use tools::{
-    SHELL_TOOLS, edit_diff, is_fleet, plain_label, raw_input, rel_path, tool_name, tool_title,
+    SHELL_TOOLS, edit_diff, fleet_target, is_fleet, raw_input, rel_path, tool_name, tool_title,
     write_preview,
 };
 

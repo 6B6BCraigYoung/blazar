@@ -140,11 +140,32 @@ pub fn approval_summary(request: &Value, root: &str) -> (String, String) {
     } else if tool.is_empty() {
         "工具".to_owned()
     } else if crate::chat_model::is_fleet(request["tool_name"].as_str().unwrap_or("")) {
-        crate::chat_model::plain_label(&tool).to_owned()
+        fleet_label(&tool, &request["input"])
     } else {
         tool
     };
     (label, crate::chat_model::approval_what(request, root))
+}
+
+/// Outside a conversation a fleet call reads in Chinese and names where the work goes,
+/// e.g. 「派活 → nebula-web」; the English tool words stay inside the chat.
+fn fleet_label(tool: &str, input: &Value) -> String {
+    let verb = match tool {
+        "send_prompt" => "派活",
+        "copy_files" => "拷文件",
+        "job_spawn" => "起后台任务",
+        "create_workspace" => return "建工作区".to_owned(),
+        "job_kill" => return "结束后台任务".to_owned(),
+        _ => return "调度".to_owned(),
+    };
+    let id = crate::chat_model::fleet_target(tool, input).unwrap_or_default();
+    let name = use_context::<crate::app_state::AppData>()
+        .and_then(|app| app.workspace(&id))
+        .map(|w| w.name);
+    match name {
+        Some(n) => format!("{verb} → {n}"),
+        None => verb.to_owned(),
+    }
 }
 
 pub fn approval_line(request: &Value) -> String {
