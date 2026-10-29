@@ -65,10 +65,14 @@ pub(super) fn AdvancedSheet(
                 }
             }
         >
-            <p>"组网机器会自动出现；也可以从本机 SSH 配置中选择机器。SSH 机器无需加入组网。"</p>
+            <p>
+                "组网机器会自动出现；也可以从本机 SSH 配置中选择机器。SSH 机器无需加入组网。"
+            </p>
             <PrefRow label="发现来源">
                 <span class="pref-text">
-                    {move || source.get().unwrap_or_else(|| "暂时无法发现组网机器".into())}
+                    {move || {
+                        source.get().unwrap_or_else(|| "暂时无法发现组网机器".into())
+                    }}
                 </span>
             </PrefRow>
             <PrefRow label="发现组网机器" detail="重新读取组网里的机器。">
@@ -97,7 +101,11 @@ pub(super) fn AdvancedSheet(
                     on:input=move |e| via.set(event_target_value(&e))
                 />
             </PrefRow>
-            <PrefRow label="容器名" detail="EasyTier 跑在容器里时填写。" for_id="mesh-container">
+            <PrefRow
+                label="容器名"
+                detail="EasyTier 跑在容器里时填写。"
+                for_id="mesh-container"
+            >
                 <input
                     id="mesh-container"
                     class="settings-input mono"

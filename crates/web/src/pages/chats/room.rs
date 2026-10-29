@@ -42,27 +42,30 @@ pub fn ConsolePage() -> impl IntoView {
     view! {
         {move || match opened.get() {
             Some((id, path)) => {
-                let latest = app.chats.with_untracked(|a| {
-                    a.threads
-                        .iter()
-                        .max_by(|x, y| x.when().cmp(y.when()))
-                        .map(|t| t.id.clone())
-                });
+                let latest = app
+                    .chats
+                    .with_untracked(|a| {
+                        a.threads.iter().max_by(|x, y| x.when().cmp(y.when())).map(|t| t.id.clone())
+                    });
                 let thread = Signal::derive(move || {
-                    location.pathname.with(|p| {
-                        p.strip_prefix("/chats/")
-                            .map(|t| t.trim_end_matches('/'))
-                            .filter(|t| !t.is_empty() && *t != "new")
-                            .map(str::to_owned)
-                            .or_else(|| (p == "/").then(|| latest.clone()).flatten())
-                    })
+                    location
+                        .pathname
+                        .with(|p| {
+                            p.strip_prefix("/chats/")
+                                .map(|t| t.trim_end_matches('/'))
+                                .filter(|t| !t.is_empty() && *t != "new")
+                                .map(str::to_owned)
+                                .or_else(|| (p == "/").then(|| latest.clone()).flatten())
+                        })
                 });
                 view! { <Room id path thread /> }.into_any()
             }
-            None => match failed.get() {
-                Some(e) => view! { <InlineError message=e /> }.into_any(),
-                None => view! { <LoadingState text="正在加载对话…" /> }.into_any(),
-            },
+            None => {
+                match failed.get() {
+                    Some(e) => view! { <InlineError message=e /> }.into_any(),
+                    None => view! { <LoadingState text="正在加载对话…" /> }.into_any(),
+                }
+            }
         }}
     }
 }
@@ -161,7 +164,10 @@ fn Room(id: String, path: String, thread: Signal<Option<String>>) -> impl IntoVi
     });
     let hint = crate::shortcuts::label(&crate::shortcuts::current("newchat"));
     view! {
-        <div class="ws chat-room console" data-rail=move || if all.get() { "all" } else { "summary" }>
+        <div
+            class="ws chat-room console"
+            data-rail=move || if all.get() { "all" } else { "summary" }
+        >
             <header class="ws-head chat-room-head console-head">
                 <h1 class="console-title">"中控台"</h1>
                 <ChatPicker chat go />
@@ -327,7 +333,10 @@ fn ChatPicker(chat: Chat, go: Callback<String>) -> impl IntoView {
                                             let on = current.as_deref() == Some(t.id.as_str());
                                             let href = format!("/chats/{}", t.id);
                                             let label = vocab::state(t.state()).0;
-                                            let sub = format!("{label} · {}", crate::fmt::ago(t.when()));
+                                            let sub = format!(
+                                                "{label} · {}",
+                                                crate::fmt::ago(t.when()),
+                                            );
                                             view! {
                                                 <button
                                                     type="button"

@@ -612,7 +612,9 @@ fn Dialog() -> impl IntoView {
                                             ></span>
                                             <span class="nm">
                                                 {e.name.clone()}
-                                                {e.is_repo.then(|| view! { <span class="tag">"Git"</span> })}
+                                                {e
+                                                    .is_repo
+                                                    .then(|| view! { <span class="tag">"Git"</span> })}
                                             </span>
                                             {e
                                                 .children

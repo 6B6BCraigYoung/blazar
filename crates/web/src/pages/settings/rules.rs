@@ -95,7 +95,11 @@ pub(super) fn RuleSettings() -> impl IntoView {
                                     <PrefItem
                                         id=id
                                         selected
-                                        title=format!("{} {}", text(&r, "tool"), text(&r, "pattern"))
+                                        title=format!(
+                                            "{} {}",
+                                            text(&r, "tool"),
+                                            text(&r, "pattern"),
+                                        )
                                         code=true
                                         detail=format!("{scope} · 命中 {} 次", r["hits"])
                                         trailing=move || {
@@ -135,7 +139,9 @@ pub(super) fn RuleSettings() -> impl IntoView {
             </PrefList>
             <PrefAdvanced title="规则怎样匹配">
                 <p>"默认没有规则；含 shell 控制符的命令不会自动批准。"</p>
-                <p>"工具名可以写 Read、Edit、Bash，或 mcp__x__* 这样带通配的 MCP 工具名；路径或命令前缀留空时匹配该工具的全部调用。"</p>
+                <p>
+                    "工具名可以写 Read、Edit、Bash，或 mcp__x__* 这样带通配的 MCP 工具名；路径或命令前缀留空时匹配该工具的全部调用。"
+                </p>
             </PrefAdvanced>
         </PrefGroup>
         <Show when=move || adding.get()>
@@ -237,7 +243,10 @@ fn RuleSheet(on_close: Callback<()>, on_saved: Callback<()>) -> impl IntoView {
             </label>
             <label class="field">
                 "范围"
-                <select prop:value=move || ws.get() on:change=move |e| ws.set(event_target_value(&e))>
+                <select
+                    prop:value=move || ws.get()
+                    on:change=move |e| ws.set(event_target_value(&e))
+                >
                     <option value="" selected=move || ws.get().is_empty()>
                         "全局"
                     </option>

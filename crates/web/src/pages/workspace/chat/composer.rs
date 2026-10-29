@@ -1163,7 +1163,10 @@ pub fn Composer(
                                         <span class="ic" inner_html=icon("plug")></span>
                                         <span class="cb-tx">
                                             "MCP"
-                                            {(n > 0).then(|| view! { <span class="muted">{format!(" {n}")}</span> })}
+                                            {(n > 0)
+                                                .then(|| {
+                                                    view! { <span class="muted">{format!(" {n}")}</span> }
+                                                })}
                                         </span>
                                     </button>
                                 }
@@ -1190,7 +1193,9 @@ pub fn Composer(
                         {move || {
                             model_label()
                                 .1
-                                .map(|e| view! { <span class="muted">{format!("· {e} effort")}</span> })
+                                .map(|e| {
+                                    view! { <span class="muted">{format!("· {e} effort")}</span> }
+                                })
                         }}
                     </button>
                     <Show when=move || chat.fresh.get() && chat.view.get().is_some()>
@@ -1224,13 +1229,20 @@ pub fn Composer(
                                         type="button"
                                         class="cb-btn cb-ctx"
                                         data-on=on.to_string()
-                                        aria-label=if on { "Remove current file" } else { "Add current file" }
+                                        aria-label=if on {
+                                            "Remove current file"
+                                        } else {
+                                            "Add current file"
+                                        }
                                         title=tip
                                         on:click=move |_| {
                                             chat.ctx_on.set(if on { None } else { Some(f2.clone()) })
                                         }
                                     >
-                                        <span class="ic" inner_html=icon(if on { "tick" } else { "plus" })></span>
+                                        <span
+                                            class="ic"
+                                            inner_html=icon(if on { "tick" } else { "plus" })
+                                        ></span>
                                         <span class="cb-tx">{name}</span>
                                     </button>
                                 }
@@ -1267,7 +1279,11 @@ pub fn Composer(
                                                 Some(id) => chat.account(&id).map(|a| a.label)?,
                                                 None => "Auto-balance".to_owned(),
                                             };
-                                            Some(view! { <span class="muted">{format!(" · {label}")}</span> })
+                                            Some(
+                                                view! {
+                                                    <span class="muted">{format!(" · {label}")}</span>
+                                                },
+                                            )
                                         })
                                         .flatten()
                                 }}

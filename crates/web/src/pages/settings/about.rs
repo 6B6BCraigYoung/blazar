@@ -40,9 +40,7 @@ pub(super) fn AboutSettings() -> impl IntoView {
                 let counts = a["counts"]
                     .as_object()
                     .map(|c| {
-                        c.iter()
-                            .map(|(k, v)| (k.clone(), v.to_string()))
-                            .collect::<Vec<_>>()
+                        c.iter().map(|(k, v)| (k.clone(), v.to_string())).collect::<Vec<_>>()
                     })
                     .unwrap_or_default();
                 let version = text(&a, "version");
@@ -54,7 +52,10 @@ pub(super) fn AboutSettings() -> impl IntoView {
                 );
                 let source = text(&a["engine"], "source");
                 view! {
-                    <PrefGroup title="Blazar" note="文档在仓库 README.md。Blazar 代码使用 MIT 许可证。">
+                    <PrefGroup
+                        title="Blazar"
+                        note="文档在仓库 README.md。Blazar 代码使用 MIT 许可证。"
+                    >
                         <PrefRow label="版本">
                             <code>{version}</code>
                         </PrefRow>
@@ -93,12 +94,7 @@ pub(super) fn AboutSettings() -> impl IntoView {
                         note="Monaco Editor、xterm.js：MIT；IBM Plex Sans、JetBrains Mono：SIL OFL 1.1。完整声明见 THIRD-PARTY-NOTICES.md。"
                     >
                         <PrefRow label="组网引擎" detail=engine>
-                            <a
-                                class="btn"
-                                href=source
-                                target="_blank"
-                                rel="noopener noreferrer"
-                            >
+                            <a class="btn" href=source target="_blank" rel="noopener noreferrer">
                                 "对应版本源码 ↗"
                             </a>
                         </PrefRow>
@@ -158,7 +154,9 @@ pub(super) fn AboutSettings() -> impl IntoView {
                                 }
                             }
                             apply_ui_preferences();
-                            toast("已恢复默认，刷新页面后布局和快捷键全部生效");
+                            toast(
+                                "已恢复默认，刷新页面后布局和快捷键全部生效",
+                            );
                             resetting.set(false);
                         });
                     }

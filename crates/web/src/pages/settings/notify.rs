@@ -234,8 +234,7 @@ fn AlertRuleSettings() -> impl IntoView {
                         .collect_view()
                         .into_any()
                 }
-            }}
-            <PrefAdvanced title="提醒规则">
+            }} <PrefAdvanced title="提醒规则">
                 <p>
                     "hub 每 30 秒检查一次，事情发生时也会立刻检查。同一件事持续期间只提醒一次，消失后在收件箱里标为已解决。"
                 </p>
@@ -302,9 +301,7 @@ fn AlertRuleRow(rule: Value) -> impl IntoView {
                                     }
                                     _ => {
                                         event_target::<web_sys::HtmlInputElement>(&e)
-                                            .set_value(
-                                                &old.map(|n| n.to_string()).unwrap_or_default(),
-                                            );
+                                            .set_value(&old.map(|n| n.to_string()).unwrap_or_default());
                                         toast(format!("阈值要在 {min} 到 {max} 之间"));
                                     }
                                 }

@@ -106,14 +106,7 @@ fn ProviderList(list: Vec<Value>, rev: RwSignal<i32>) -> impl IntoView {
         }
     });
     view! {
-        <PrefList
-            label="技能来源"
-            selected
-            on_add=add
-            on_remove=remove
-            on_edit=edit
-            busy=busy
-        >
+        <PrefList label="技能来源" selected on_add=add on_remove=remove on_edit=edit busy=busy>
             {list
                 .get_value()
                 .into_iter()

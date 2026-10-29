@@ -141,12 +141,19 @@ pub(super) fn MeshLocal(
                         return view! {
                             <PrefRow label="状态" detail=detail>
                                 {if running {
-                                    view! { <Status tone=Tone::Other label="已连接" /> }.into_any()
+                                    view! { <Status tone=Tone::Other label="已连接" /> }
+                                        .into_any()
                                 } else {
-                                    view! { <Status tone=Tone::Failed label="未连接" /> }.into_any()
+                                    view! { <Status tone=Tone::Failed label="未连接" /> }
+                                        .into_any()
                                 }}
                                 <span class="pref-text mono">{addr_row}</span>
-                                <MoreMenu label="更多…".to_owned() text="更多…" items=menu disabled=busy />
+                                <MoreMenu
+                                    label="更多…".to_owned()
+                                    text="更多…"
+                                    items=menu
+                                    disabled=busy
+                                />
                             </PrefRow>
                             {other
                                 .map(|o| {
@@ -194,11 +201,18 @@ pub(super) fn MeshLocal(
                         return view! {
                             <PrefRow
                                 label="状态"
-                                detail=format!("连接由 {label} 提供，Blazar 复用这个连接，无需重新加入。")
+                                detail=format!(
+                                    "连接由 {label} 提供，Blazar 复用这个连接，无需重新加入。",
+                                )
                             >
                                 <Status tone=Tone::Other label="已连接" />
                                 <span class="pref-text mono">{addr}</span>
-                                <MoreMenu label="更多…".to_owned() text="更多…" items=menu disabled=busy />
+                                <MoreMenu
+                                    label="更多…".to_owned()
+                                    text="更多…"
+                                    items=menu
+                                    disabled=busy
+                                />
                             </PrefRow>
                             <PrefAdvanced title="组网详情">
                                 {text_row("网络", net.clone(), true)}
@@ -254,7 +268,12 @@ pub(super) fn MeshLocal(
                             detail="用邀请文件或 EasyTier 配置加入，也可以直接把它拖到这里。"
                         >
                             <Status tone=Tone::Other label="未加入" />
-                            <MoreMenu label="更多…".to_owned() text="更多…" items=menu disabled=busy />
+                            <MoreMenu
+                                label="更多…".to_owned()
+                                text="更多…"
+                                items=menu
+                                disabled=busy
+                            />
                         </PrefRow>
                         {(!bundled)
                             .then(|| {
@@ -272,11 +291,18 @@ pub(super) fn MeshLocal(
                                 "引擎",
                                 format!(
                                     "EasyTier {version}{}",
-                                    if bundled { "（随安装包提供）" } else { "（未提供）" },
+                                    if bundled {
+                                        "（随安装包提供）"
+                                    } else {
+                                        "（未提供）"
+                                    },
                                 ),
                                 true,
                             )}
-                            <PrefRow label="EasyTier 配置" detail="从空白模板开始写一份配置，预览后应用。">
+                            <PrefRow
+                                label="EasyTier 配置"
+                                detail="从空白模板开始写一份配置，预览后应用。"
+                            >
                                 <button type="button" class="btn" on:click=move |_| new_config()>
                                     "新建配置"
                                 </button>

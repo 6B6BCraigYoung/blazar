@@ -57,7 +57,9 @@ pub(super) fn ConfirmSheet(pending: Vec<NodeView>, on_close: Callback<()>) -> im
                 }
             }
         >
-            <p>"组网里发现了这些机器。开发机可以运行任务；个人电脑只显示在线状态，不会出现在选择机器的地方。"</p>
+            <p>
+                "组网里发现了这些机器。开发机可以运行任务；个人电脑只显示在线状态，不会出现在选择机器的地方。"
+            </p>
             <div class="confirm-list" role="group" aria-label="待确认的机器">
                 {pending
                     .into_iter()
@@ -81,9 +83,15 @@ pub(super) fn ConfirmSheet(pending: Vec<NodeView>, on_close: Callback<()>) -> im
                                             });
                                     }
                                 />
-                                <span class="dot" data-off=(!online).to_string() aria-hidden="true"></span>
+                                <span
+                                    class="dot"
+                                    data-off=(!online).to_string()
+                                    aria-hidden="true"
+                                ></span>
                                 <span class="confirm-name">{n.name.clone()}</span>
-                                <span class="confirm-addr">{n.ipv4.clone().unwrap_or_default()}</span>
+                                <span class="confirm-addr">
+                                    {n.ipv4.clone().unwrap_or_default()}
+                                </span>
                             </label>
                         }
                     })

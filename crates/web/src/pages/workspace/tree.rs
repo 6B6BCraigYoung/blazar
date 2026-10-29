@@ -789,8 +789,7 @@ pub fn FileTree(
                 let Some(btn) = e
                     .target()
                     .and_then(|t| wasm_bindgen::JsCast::dyn_into::<web_sys::Element>(t).ok())
-                    .and_then(|t| t.closest("button.tn").ok().flatten())
-                else {
+                    .and_then(|t| t.closest("button.tn").ok().flatten()) else {
                     return;
                 };
                 if btn.get_attribute("data-more").as_deref() == Some("true") {
@@ -1014,10 +1013,13 @@ pub fn FileTree(
                                                 </span>
                                                 {if dir {
                                                     row.has_change
-                                                        .then(|| view! { <span class="chg" aria-hidden="true"></span> })
+                                                        .then(|| {
+                                                            view! { <span class="chg" aria-hidden="true"></span> }
+                                                        })
                                                         .into_any()
                                                 } else {
-                                                    view! { <span class=format!("ch {cls}")>{mark}</span> }.into_any()
+                                                    view! { <span class=format!("ch {cls}")>{mark}</span> }
+                                                        .into_any()
                                                 }}
                                             </button>
                                         }

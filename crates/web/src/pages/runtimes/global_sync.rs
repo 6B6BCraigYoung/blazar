@@ -74,8 +74,7 @@ pub(super) fn GlobalSync(
     view! {
         <details class="runtime-details global-sync">
             <summary>
-                "终端与 Cursor"
-                <span class="status" data-tone="other">
+                "终端与 Cursor" <span class="status" data-tone="other">
                     {move || match state.get() {
                         None => "加载中",
                         Some(Err(_)) => "待重试",

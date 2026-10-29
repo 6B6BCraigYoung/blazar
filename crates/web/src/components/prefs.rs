@@ -111,7 +111,9 @@ pub fn PrefAdvanced(
                 "高级…"
             </button>
         </div>
-        <Show when=move || open.get()>
+        <Show when=move || {
+            open.get()
+        }>
             {
                 let children = children.clone();
                 view! {
@@ -190,9 +192,9 @@ pub fn PrefList(
                 tabindex="0"
                 node_ref=root
                 on:focus=move |e| {
-                    let onto_self = e.target().is_some_and(|t| {
-                        e.current_target().is_some_and(|c| t == c)
-                    });
+                    let onto_self = e
+                        .target()
+                        .is_some_and(|t| { e.current_target().is_some_and(|c| t == c) });
                     if !onto_self {
                         return;
                     }
@@ -222,9 +224,7 @@ pub fn PrefList(
                             let _ = rows[next].focus();
                         }
                         "Backspace" | "Delete" => {
-                            if let Some(id) = selected.get_untracked()
-                                && !busy.get_untracked()
-                            {
+                            if let Some(id) = selected.get_untracked() && !busy.get_untracked() {
                                 e.prevent_default();
                                 on_remove.run(id);
                             }
@@ -326,7 +326,8 @@ pub fn PrefItem(
         >
             <div class="pref-item-main">
                 {title}
-                {(!detail.is_empty()).then(|| view! { <span class="pref-item-detail">{detail}</span> })}
+                {(!detail.is_empty())
+                    .then(|| view! { <span class="pref-item-detail">{detail}</span> })}
             </div>
             {trailing.map(|t| view! { <div class="pref-item-trailing">{t.run()}</div> })}
         </div>

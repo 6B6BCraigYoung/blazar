@@ -748,7 +748,10 @@ pub fn Palette() -> impl IntoView {
                             placeholder=move || {
                                 match focus.get() {
                                     Some(it) => format!("「{}」的操作…", it.title),
-                                    None => "搜索工作区、对话、页面、命令和机器…".to_owned(),
+                                    None => {
+                                        "搜索工作区、对话、页面、命令和机器…"
+                                            .to_owned()
+                                    }
                                 }
                             }
                             autocomplete="off"
@@ -773,7 +776,9 @@ pub fn Palette() -> impl IntoView {
                                 if let Some(item) = focus.get() {
                                     let list = shown_actions();
                                     if list.is_empty() {
-                                        return view! { <div class="pal-empty">"没有匹配的结果"</div> }
+                                        return view! {
+                                            <div class="pal-empty">"没有匹配的结果"</div>
+                                        }
                                             .into_any();
                                     }
                                     return view! {
@@ -805,7 +810,9 @@ pub fn Palette() -> impl IntoView {
                                 }
                                 let sections = sections();
                                 if sections.is_empty() {
-                                    return view! { <div class="pal-empty">"没有匹配的结果"</div> }
+                                    return view! {
+                                        <div class="pal-empty">"没有匹配的结果"</div>
+                                    }
                                         .into_any();
                                 }
                                 let mut n = 0usize;
@@ -833,8 +840,7 @@ pub fn Palette() -> impl IntoView {
                                                         {match right {
                                                             Some(k) => view! { <kbd>{k}</kbd> }.into_any(),
                                                             None => {
-                                                                view! { <span class="c">{it.kind()}</span> }
-                                                                    .into_any()
+                                                                view! { <span class="c">{it.kind()}</span> }.into_any()
                                                             }
                                                         }}
                                                     </button>

@@ -89,8 +89,7 @@ pub(super) fn Tray(chat: Chat, log_h: RwSignal<f64>) -> impl IntoView {
                                     <span class="chev" aria-hidden="true"></span>
                                 </button>
                             }
-                        })}
-                    <span class="grow"></span>
+                        })} <span class="grow"></span>
                     {(n > 0)
                         .then(|| {
                             view! {
@@ -100,7 +99,9 @@ pub(super) fn Tray(chat: Chat, log_h: RwSignal<f64>) -> impl IntoView {
                                     title="Review changes in the inspector"
                                     on:click=move |_| chat.show_diff.run(())
                                 >
-                                    <span class="n">{format!("{n} file{}", if n == 1 { "" } else { "s" })}</span>
+                                    <span class="n">
+                                        {format!("{n} file{}", if n == 1 { "" } else { "s" })}
+                                    </span>
                                     <span class="ok">{format!("+{added}")}</span>
                                     <span class="bad">{format!("−{removed}")}</span>
                                     <span class="sep">"·"</span>

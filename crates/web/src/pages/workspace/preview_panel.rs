@@ -543,11 +543,20 @@ pub fn PreviewBar(ws: String, active: Signal<bool>, isolated: Signal<bool>) -> i
                             .into_iter()
                             .rev()
                             .collect();
-                        let origin = origin::describe(d.source.as_deref(), d.port, &d.ports, d.running);
+                        let origin = origin::describe(
+                            d.source.as_deref(),
+                            d.port,
+                            &d.ports,
+                            d.running,
+                        );
                         view! {
                             <div class="pv-origin">{origin}</div>
                             <pre class="pv-log">
-                                {if tail.is_empty() { "（还没有输出）".to_owned() } else { tail }}
+                                {if tail.is_empty() {
+                                    "（还没有输出）".to_owned()
+                                } else {
+                                    tail
+                                }}
                             </pre>
                         }
                     });
@@ -590,7 +599,8 @@ pub fn PreviewBar(ws: String, active: Signal<bool>, isolated: Signal<bool>) -> i
                     let (title, detail, action) = if d.running {
                         (
                             "预览已启动".to_owned(),
-                            "还没识别出地址，可以在上方输入地址，或打开日志看看。".to_owned(),
+                            "还没识别出地址，可以在上方输入地址，或打开日志看看。"
+                                .to_owned(),
                             None,
                         )
                     } else if !d.reason.is_empty() {
@@ -599,7 +609,8 @@ pub fn PreviewBar(ws: String, active: Signal<bool>, isolated: Signal<bool>) -> i
                         if c.dev.trim().is_empty() {
                             (
                                 format!("将连接 localhost:{port}"),
-                                "还没有启动命令，可以自己启动服务后刷新。".to_owned(),
+                                "还没有启动命令，可以自己启动服务后刷新。"
+                                    .to_owned(),
                                 Some(settings),
                             )
                         } else {
@@ -618,7 +629,8 @@ pub fn PreviewBar(ws: String, active: Signal<bool>, isolated: Signal<bool>) -> i
                     } else {
                         (
                             "还没有启动命令".to_owned(),
-                            "在脚本设置里填上启动命令，或指定一个端口。".to_owned(),
+                            "在脚本设置里填上启动命令，或指定一个端口。"
+                                .to_owned(),
                             Some(settings),
                         )
                     };
@@ -815,7 +827,10 @@ fn ScriptsDialog(
                 |c| c.dev.clone(),
                 |c, v| c.dev = v,
             )}
-            <label class="field" title="填了就直接用这个端口拼预览地址，不再从日志或监听端口识别。">
+            <label
+                class="field"
+                title="填了就直接用这个端口拼预览地址，不再从日志或监听端口识别。"
+            >
                 "预览端口（可选）"
                 <input
                     class="mono"

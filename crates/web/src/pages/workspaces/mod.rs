@@ -170,7 +170,10 @@ fn ProjectDetail(project: Signal<Option<String>>) -> impl IntoView {
                             .into_any()
                     }}
                 </PrefGroup>
-                <PrefGroup title="项目" note="同名项目的工作区归为一组，在侧栏里可以直接跳到。">
+                <PrefGroup
+                    title="项目"
+                    note="同名项目的工作区归为一组，在侧栏里可以直接跳到。"
+                >
                     <PrefRow label="名称">
                         <span class="pref-text">{move || title.get()}</span>
                     </PrefRow>
@@ -516,7 +519,10 @@ fn Home() -> impl IntoView {
                                 view! {
                                     <RowMenu
                                         at
-                                        label=format!("{} 的操作", fmt::ws_title(&row.ws.name, &row.ws.node))
+                                        label=format!(
+                                            "{} 的操作",
+                                            fmt::ws_title(&row.ws.name, &row.ws.node),
+                                        )
                                         groups=home_menu(ctx, &row, pending)
                                         on_close=Callback::new(move |()| ctx.menu.set(None))
                                     />
@@ -671,7 +677,9 @@ fn card_view(ctx: Ctx, i: usize, row: Row, pending: Option<Value>) -> impl IntoV
             <span class="home-sub">
                 <span class="home-step" title=full>
                     {(!step.label.is_empty())
-                        .then(|| view! { <span class="home-step-label">{step.label.clone()}</span> })}
+                        .then(|| {
+                            view! { <span class="home-step-label">{step.label.clone()}</span> }
+                        })}
                     {(!step.code.is_empty()).then(|| view! { <code>{step.code.clone()}</code> })}
                 </span>
                 {trailing}

@@ -206,7 +206,8 @@ pub fn Start() -> impl IntoView {
                     false,
                     view! {
                         <p class="start-note">
-                            "没有检测到 Claude Code 或 Codex。" <a href="/runtimes">"去看看"</a>
+                            "没有检测到 Claude Code 或 Codex。"
+                            <a href="/runtimes">"去看看"</a>
                         </p>
                     }
                     .into_any(),
@@ -226,7 +227,12 @@ pub fn Start() -> impl IntoView {
                                             .action
                                             .map(|action| match action {
                                                 LineAction::Link(label, href) => {
-                                                    view! { <a class="linkbtn" href=href>{label}</a> }.into_any()
+                                                    view! {
+                                                        <a class="linkbtn" href=href>
+                                                            {label}
+                                                        </a>
+                                                    }
+                                                        .into_any()
                                                 }
                                                 LineAction::Login(a) => {
                                                     view! {
@@ -266,7 +272,8 @@ pub fn Start() -> impl IntoView {
                         >
                             <span class="start-mark" aria-hidden="true">
                                 {if done {
-                                    view! { <span inner_html=icon::svg(icon::TICK)></span> }.into_any()
+                                    view! { <span inner_html=icon::svg(icon::TICK)></span> }
+                                        .into_any()
                                 } else {
                                     "1".into_any()
                                 }}
@@ -277,12 +284,17 @@ pub fn Start() -> impl IntoView {
                             </div>
                         </li>
                     }
-                }}
-                <li class="start-step" data-done="true">
-                    <span class="start-mark" aria-hidden="true" inner_html=icon::svg(icon::TICK)></span>
+                }} <li class="start-step" data-done="true">
+                    <span
+                        class="start-mark"
+                        aria-hidden="true"
+                        inner_html=icon::svg(icon::TICK)
+                    ></span>
                     <div class="start-body">
                         <b>"机器"</b>
-                        <p class="start-note">"本机已就绪。组网里的其他机器以后再分类。"</p>
+                        <p class="start-note">
+                            "本机已就绪。组网里的其他机器以后再分类。"
+                        </p>
                     </div>
                 </li>
                 <li
@@ -345,7 +357,14 @@ pub fn Start() -> impl IntoView {
                             }
                         />
                         {move || {
-                            busy.get().map(|b| view! { <p class="start-note" role="status">{b}</p> })
+                            busy.get()
+                                .map(|b| {
+                                    view! {
+                                        <p class="start-note" role="status">
+                                            {b}
+                                        </p>
+                                    }
+                                })
                         }}
                     </div>
                 </li>

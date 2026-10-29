@@ -102,7 +102,11 @@ pub(super) fn HookSettings() -> impl IntoView {
                                             "{} · {}{}",
                                             label_in(EVENTS, &text(&h, "event")),
                                             label_in(TARGETS, &text(&h, "target")),
-                                            if flag(&h, "blocking") { " · 失败时阻止执行" } else { "" },
+                                            if flag(&h, "blocking") {
+                                                " · 失败时阻止执行"
+                                            } else {
+                                                ""
+                                            },
                                         )
                                     />
                                 }
@@ -115,19 +119,10 @@ pub(super) fn HookSettings() -> impl IntoView {
             <PrefAdvanced title="执行说明与变量">
                 <p>"一轮开始前的脚本可在失败时阻止执行。"</p>
                 <p>
-                    "脚本能读到这些变量："
-                    <code>"BLAZAR_EVENT"</code>
-                    "、"
-                    <code>"BLAZAR_WORKSPACE"</code>
-                    "、"
-                    <code>"BLAZAR_NODE"</code>
-                    "、"
-                    <code>"BLAZAR_CWD"</code>
-                    "、"
-                    <code>"BLAZAR_SESSION"</code>
-                    "、"
-                    <code>"BLAZAR_TOOL"</code>
-                    "。"
+                    "脚本能读到这些变量：" <code>"BLAZAR_EVENT"</code> "、"
+                    <code>"BLAZAR_WORKSPACE"</code> "、" <code>"BLAZAR_NODE"</code> "、"
+                    <code>"BLAZAR_CWD"</code> "、" <code>"BLAZAR_SESSION"</code> "、"
+                    <code>"BLAZAR_TOOL"</code> "。"
                 </p>
             </PrefAdvanced>
         </PrefGroup>

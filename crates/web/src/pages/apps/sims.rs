@@ -487,7 +487,9 @@ pub fn SimApp(id: &'static str, name: &'static str) -> impl IntoView {
         <div class="detail-body">
             <PrefGroup
                 title="启动"
-                note=format!("选一个远端工作区，Blazar 在它所在的机器上找 {name}，然后点上方「启动」。")
+                note=format!(
+                    "选一个远端工作区，Blazar 在它所在的机器上找 {name}，然后点上方「启动」。",
+                )
             >
                 <PrefRow label="工作区" for_id="sim-ws">
                     <select
@@ -591,7 +593,9 @@ pub fn SimApp(id: &'static str, name: &'static str) -> impl IntoView {
                                         missing.join("、"),
                                     )
                                 } else if mine.is_empty() {
-                                    format!("{node} 上没有桌面会话，会用虚拟显示。{ffmpeg_hint}")
+                                    format!(
+                                        "{node} 上没有桌面会话，会用虚拟显示。{ffmpeg_hint}",
+                                    )
                                 } else {
                                     ffmpeg_hint.to_owned()
                                 };
@@ -833,7 +837,11 @@ pub fn SimApp(id: &'static str, name: &'static str) -> impl IntoView {
                     <input
                         id="sim-inst-ver"
                         class="settings-input"
-                        placeholder=if id == "isaacsim" { "例如 5.1.0.0" } else { "留空装最新" }
+                        placeholder=if id == "isaacsim" {
+                            "例如 5.1.0.0"
+                        } else {
+                            "留空装最新"
+                        }
                         prop:value=move || inst_version.get()
                         on:input=move |e| inst_version.set(event_target_value(&e))
                     />
@@ -881,7 +889,11 @@ pub fn SimApp(id: &'static str, name: &'static str) -> impl IntoView {
                         install_running()
                             .then(|| {
                                 view! {
-                                    <button type="button" class="btn" on:click=move |_| cancel_install()>
+                                    <button
+                                        type="button"
+                                        class="btn"
+                                        on:click=move |_| cancel_install()
+                                    >
                                         "取消"
                                     </button>
                                 }
@@ -919,7 +931,11 @@ pub fn SimApp(id: &'static str, name: &'static str) -> impl IntoView {
                                 </PrefRow>
                                 <pre class="settings-pre sim-inst-log pref-log">
                                     <span class="sim-log-flow">
-                                        {if log.is_empty() { "（还没有输出）".to_owned() } else { log }}
+                                        {if log.is_empty() {
+                                            "（还没有输出）".to_owned()
+                                        } else {
+                                            log
+                                        }}
                                     </span>
                                 </pre>
                             }
@@ -946,7 +962,10 @@ pub fn SimApp(id: &'static str, name: &'static str) -> impl IntoView {
                         list.reverse();
                         if list.is_empty() {
                             return view! {
-                                <PrefRow label="还没有启动过" detail="启动后，这里会列出每次启动的机器和画面。" />
+                                <PrefRow
+                                    label="还没有启动过"
+                                    detail="启动后，这里会列出每次启动的机器和画面。"
+                                />
                             }
                                 .into_any();
                         }
@@ -962,7 +981,11 @@ pub fn SimApp(id: &'static str, name: &'static str) -> impl IntoView {
                                 let (l1, l2, l3) = (lid.clone(), lid.clone(), lid.clone());
                                 view! {
                                     <PrefRow
-                                        label=format!("{} · {}", s(&l, "workspace_name"), fmt::machine(&node))
+                                        label=format!(
+                                            "{} · {}",
+                                            s(&l, "workspace_name"),
+                                            fmt::machine(&node),
+                                        )
                                         detail=format!(
                                             "{disp} · {} · {}",
                                             fmt::ago(&s(&l, "started_at")),

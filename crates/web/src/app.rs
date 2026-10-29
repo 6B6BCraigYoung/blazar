@@ -29,9 +29,7 @@ fn Main(children: Children) -> impl IntoView {
             class="main"
             node_ref=main
             on:scroll=move |_| {
-                if let Some(m) = main.get_untracked()
-                    && m.scroll_left() != 0
-                {
+                if let Some(m) = main.get_untracked() && m.scroll_left() != 0 {
                     m.set_scroll_left(0);
                     crate::client_log::note("layout", "main scrolled sideways, reset");
                 }

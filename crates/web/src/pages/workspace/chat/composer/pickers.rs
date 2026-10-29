@@ -374,21 +374,23 @@ pub(super) fn model_pop(chat: Chat, pop: RwSignal<Option<Pop>>) -> impl IntoView
                 .filter(|m| !m.is_empty() && sel.model.is_none() && !chat.fresh.get())
                 .map(|m| super::presentation::model_name(&m))
                 .filter(|m| !m.starts_with(now.as_str()) && !now.starts_with(m.as_str()))?;
-            Some(view! {
-                <button
-                    class="cp-row cp-stale"
-                    data-ui-guard=""
-                    on:click=move |_| {
-                        chat.use_default_model();
-                        pop.set(None);
-                    }
-                >
-                    <span class="cp-t">
-                        <b>{format!("Running {running} · default is now {now}")}</b>
-                        <span>{format!("Switch this session to {now}")}</span>
-                    </span>
-                </button>
-            })
+            Some(
+                view! {
+                    <button
+                        class="cp-row cp-stale"
+                        data-ui-guard=""
+                        on:click=move |_| {
+                            chat.use_default_model();
+                            pop.set(None);
+                        }
+                    >
+                        <span class="cp-t">
+                            <b>{format!("Running {running} · default is now {now}")}</b>
+                            <span>{format!("Switch this session to {now}")}</span>
+                        </span>
+                    </button>
+                },
+            )
         }}
         {move || {
             let rt = rt.clone();

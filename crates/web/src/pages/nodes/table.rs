@@ -117,8 +117,12 @@ fn row_view(i: usize, n: NodeView, menu: RwSignal<Option<MenuAt>>) -> impl IntoV
     };
     let badge = if n.is_pending() {
         Some(
-            view! { <span class="status node-badge" data-tone="attention">"待确认"</span> }
-                .into_any(),
+            view! {
+                <span class="status node-badge" data-tone="attention">
+                    "待确认"
+                </span>
+            }
+            .into_any(),
         )
     } else if n.is_personal() {
         Some(view! { <span class="gchip">"个人电脑"</span> }.into_any())
@@ -144,7 +148,11 @@ fn row_view(i: usize, n: NodeView, menu: RwSignal<Option<MenuAt>>) -> impl IntoV
             }
         >
             <td>
-                <span class="dot" role="img" aria-label=if online { "在线" } else { "离线" }></span>
+                <span
+                    class="dot"
+                    role="img"
+                    aria-label=if online { "在线" } else { "离线" }
+                ></span>
             </td>
             <td>
                 <a class="node-name" href=href>

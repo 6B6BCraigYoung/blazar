@@ -68,11 +68,16 @@ fn RemoteHubNotice(state: Value) -> impl IntoView {
     view! {
         <PrefRow
             label="连接到"
-            detail=format!("{label} 上的 hub。工作区、对话和账号都在那台机器上。")
+            detail=format!(
+                "{label} 上的 hub。工作区、对话和账号都在那台机器上。",
+            )
         >
             <span>{if connected { "已连上" } else { "没连上" }}</span>
         </PrefRow>
-        <PrefRow label="切回本机 hub" detail="Blazar 会重启，改用这台电脑上的 hub。远程 hub 照常运行。">
+        <PrefRow
+            label="切回本机 hub"
+            detail="Blazar 会重启，改用这台电脑上的 hub。远程 hub 照常运行。"
+        >
             <button
                 type="button"
                 class="btn"
@@ -86,7 +91,8 @@ fn RemoteHubNotice(state: Value) -> impl IntoView {
                         let result = switch_hub(
                                 json!({"mode": "embedded"}),
                                 "切回本机 hub",
-                                "Blazar 会重启，改用这台电脑上的 hub。远程 hub 照常运行。".into(),
+                                "Blazar 会重启，改用这台电脑上的 hub。远程 hub 照常运行。"
+                                    .into(),
                             )
                             .await;
                         if let Err(e) = result {
@@ -207,7 +213,8 @@ fn HubModeForm(state: Value) -> impl IntoView {
                                 .await
                             {
                                 Ok(v) => {
-                                    status.set((v.as_str().unwrap_or("能连上").to_owned(), false))
+                                    status
+                                        .set((v.as_str().unwrap_or("能连上").to_owned(), false))
                                 }
                                 Err(e) => status.set((e, true)),
                             }

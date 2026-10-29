@@ -360,16 +360,22 @@ pub fn GitView(git: Git, files: Files, draft: RwSignal<Option<String>>) -> impl 
                                     label="分支"
                                     groups=vec![
                                         vec![
-                                            RowAction::new("改名…", move || form.set(Some(Form::Rename))),
-                                            RowAction::new("复制分支名", move || {
-                                                let name = name.clone();
-                                                spawn_local(async move {
-                                                    let p = window().navigator().clipboard().write_text(&name);
-                                                    if wasm_bindgen_futures::JsFuture::from(p).await.is_ok() {
-                                                        toast("已复制分支名");
-                                                    }
-                                                });
-                                            }),
+                                            RowAction::new(
+                                                "改名…",
+                                                move || form.set(Some(Form::Rename)),
+                                            ),
+                                            RowAction::new(
+                                                "复制分支名",
+                                                move || {
+                                                    let name = name.clone();
+                                                    spawn_local(async move {
+                                                        let p = window().navigator().clipboard().write_text(&name);
+                                                        if wasm_bindgen_futures::JsFuture::from(p).await.is_ok() {
+                                                            toast("已复制分支名");
+                                                        }
+                                                    });
+                                                },
+                                            ),
                                         ],
                                     ]
                                     on_close=Callback::new(move |()| branch_menu.set(None))
@@ -461,7 +467,9 @@ pub fn GitView(git: Git, files: Files, draft: RwSignal<Option<String>>) -> impl 
                         let inside = e
                             .related_target()
                             .and_then(|t| t.dyn_into::<web_sys::Node>().ok())
-                            .zip(e.current_target().and_then(|t| t.dyn_into::<web_sys::Node>().ok()))
+                            .zip(
+                                e.current_target().and_then(|t| t.dyn_into::<web_sys::Node>().ok()),
+                            )
                             .is_some_and(|(t, me)| me.contains(Some(&t)));
                         if !inside {
                             more.set(false);
@@ -513,7 +521,9 @@ pub fn GitView(git: Git, files: Files, draft: RwSignal<Option<String>>) -> impl 
                                                 run("fetch");
                                             }
                                         >
-                                            {move || if busy("fetch") { "拉取中…" } else { "拉取远端" }}
+                                            {move || {
+                                                if busy("fetch") { "拉取中…" } else { "拉取远端" }
+                                            }}
                                         </button>
                                     }
                                 })}
@@ -619,7 +629,11 @@ pub fn GitView(git: Git, files: Files, draft: RwSignal<Option<String>>) -> impl 
                                 on:click=move |_| run("push")
                             >
                                 {move || {
-                                    if busy("push") { "推送中…".to_owned() } else { push_label.clone() }
+                                    if busy("push") {
+                                        "推送中…".to_owned()
+                                    } else {
+                                        push_label.clone()
+                                    }
                                 }}
                             </button>
                         }
@@ -853,7 +867,8 @@ pub fn GitView(git: Git, files: Files, draft: RwSignal<Option<String>>) -> impl 
                 <div class="gp-col">
                     <h5>
                         {commits_title}
-                        {(!g.commits.is_empty()).then(|| view! { <span class="muted">{n_commits}</span> })}
+                        {(!g.commits.is_empty())
+                            .then(|| view! { <span class="muted">{n_commits}</span> })}
                     </h5>
                     {commits}
                 </div>

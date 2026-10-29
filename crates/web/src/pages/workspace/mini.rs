@@ -18,17 +18,31 @@ pub fn MiniBar(
     });
     let prompt = move || chat.get().map_or_else(String::new, |c| c.prompt.get());
     let busy = move || chat.get().is_some_and(|c| c.running.get());
+    let dock = move || {
+        chat.get().map(|c| {
+            view! {
+                <div class="ws-mini-dock">
+                    <Dock chat=c />
+                </div>
+            }
+        })
+    };
     view! {
         <div class="ws-mini">
-            {move || chat.get().map(|c| view! { <div class="ws-mini-dock"><Dock chat=c /></div> })}
-            <div class="ws-mini-bar">
+            {dock} <div class="ws-mini-bar">
                 <span class="status" data-tone=move || status.get().1.key()>
                     {move || status.get().0}
                 </span>
                 <input
                     class="ws-mini-in"
                     aria-label="给智能体发消息"
-                    placeholder=move || if busy() { "追加一句，回车发送…" } else { "发消息，回车发送…" }
+                    placeholder=move || {
+                        if busy() {
+                            "追加一句，回车发送…"
+                        } else {
+                            "发消息，回车发送…"
+                        }
+                    }
                     prop:value=prompt
                     on:input=move |e| {
                         if let Some(c) = chat.get_untracked() {

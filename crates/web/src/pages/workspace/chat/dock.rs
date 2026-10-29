@@ -267,13 +267,7 @@ fn ApprovalCard(chat: Chat, p: Pending) -> impl IntoView {
         view! {
             <pre class="acmd">{what}</pre>
             {match diff {
-                Extra::Diff {
-                    rows,
-                    more,
-                    added,
-                    start,
-                    ..
-                } if tn == "Write" => {
+                Extra::Diff { rows, more, added, start, .. } if tn == "Write" => {
                     Some(
                         view! {
                             <div class="cc-new" style=diff_style(&rows, start)>
@@ -285,9 +279,7 @@ fn ApprovalCard(chat: Chat, p: Pending) -> impl IntoView {
                             .into_any(),
                     )
                 }
-                Extra::Diff {
-                    rows, more, start, ..
-                } => {
+                Extra::Diff { rows, more, start, .. } => {
                     Some(
                         view! {
                             <div
@@ -360,7 +352,9 @@ fn ApprovalCard(chat: Chat, p: Pending) -> impl IntoView {
                     on:input=move |e| reject.set(event_target_value(&e))
                 />
             </div>
-            <div class="ahint">"1–3 to select · ↑↓ to move · ↩ to confirm · Esc to cancel"</div>
+            <div class="ahint">
+                "1–3 to select · ↑↓ to move · ↩ to confirm · Esc to cancel"
+            </div>
         </div>
     }
 }

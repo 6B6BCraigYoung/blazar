@@ -205,13 +205,21 @@ pub(super) fn Issuer(m: Mesh) -> impl IntoView {
                                             disabled=move || busy.get() || no_entry
                                             on:click=move |_| generate()
                                         >
-                                            {move || if busy.get() { "生成中…" } else { "生成邀请文件" }}
+                                            {move || {
+                                                if busy.get() {
+                                                    "生成中…"
+                                                } else {
+                                                    "生成邀请文件"
+                                                }
+                                            }}
                                         </button>
                                     </PrefRow>
                                     {no_entry
                                         .then(|| {
                                             view! {
-                                                <p class="pref-status bad">"请先在签发设置中填写入网地址。"</p>
+                                                <p class="pref-status bad">
+                                                    "请先在签发设置中填写入网地址。"
+                                                </p>
                                             }
                                         })}
                                     <p class="pref-status" role="status" aria-live="polite">
@@ -468,7 +476,8 @@ pub(super) fn Invites(m: Mesh) -> impl IntoView {
         <ListGroup title="邀请记录" count=count>
             {move || match v.get() {
                 None => {
-                    view! { <LoadingState text="正在读取邀请…" class="pref-empty" /> }.into_any()
+                    view! { <LoadingState text="正在读取邀请…" class="pref-empty" /> }
+                        .into_any()
                 }
                 Some(Err(e)) => {
                     view! {
@@ -496,7 +505,11 @@ pub(super) fn Invites(m: Mesh) -> impl IntoView {
                             })}
                         {(v["issuer_checked"].as_bool() != Some(true))
                             .then(|| {
-                                view! { <p class="pref-status">"签发节点连不上，状态未核对"</p> }
+                                view! {
+                                    <p class="pref-status">
+                                        "签发节点连不上，状态未核对"
+                                    </p>
+                                }
                             })}
                         {if list.is_empty() {
                             view! {

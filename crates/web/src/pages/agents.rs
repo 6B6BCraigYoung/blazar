@@ -479,10 +479,11 @@ pub fn AgentsPage() -> impl IntoView {
                         .unwrap_or_default();
                     profiles
                         .retain(|a| {
-                            undo::shows(&text(a, "id")) && (q.is_empty()
-                                || format!("{} {}", text(a, "name"), text(a, "description"))
-                                    .to_lowercase()
-                                    .contains(&q)) && (r.is_empty() || text(a, "runtime") == r)
+                            undo::shows(&text(a, "id"))
+                                && (q.is_empty()
+                                    || format!("{} {}", text(a, "name"), text(a, "description"))
+                                        .to_lowercase()
+                                        .contains(&q)) && (r.is_empty() || text(a, "runtime") == r)
                                 && (av == "all" || availability(a, &rts) == av)
                         });
                     let order = sort.get();
@@ -519,7 +520,10 @@ pub fn AgentsPage() -> impl IntoView {
                                     icon=icon::ID_CARD
                                     title=empty::never("归档的角色档案")
                                     detail="归档的角色档案会保留在这里，随时可以恢复。"
-                                    action=Action::new("看在用的", move || scope.set("all".into()))
+                                    action=Action::new(
+                                        "看在用的",
+                                        move || scope.set("all".into()),
+                                    )
                                 />
                             }
                                 .into_any()
@@ -567,7 +571,10 @@ pub fn AgentsPage() -> impl IntoView {
                                                         data-menu=move || rows.menu_on(i).to_string()
                                                         on:focusin=move |_| rows.sel.set(Some(i))
                                                         on:contextmenu=move |e| rows.open_menu(&e, i)
-                                                        on:click=move |e: ev::MouseEvent| open_row(&e, "a.agent-name")
+                                                        on:click=move |e: ev::MouseEvent| open_row(
+                                                            &e,
+                                                            "a.agent-name",
+                                                        )
                                                     >
                                                         <td>
                                                             <input
@@ -788,7 +795,10 @@ pub fn AgentProfilePage() -> impl IntoView {
                     let a = StoredValue::new(a);
                     let closed = archived(&a.get_value());
                     view! {
-                        <PageHead parent=("角色档案", "/agents") title=text(&a.get_value(), "name")>
+                        <PageHead
+                            parent=("角色档案", "/agents")
+                            title=text(&a.get_value(), "name")
+                        >
                             <AgentActions agent=a.get_value() rev blocked=dirty />
                         </PageHead>
                         {closed
@@ -994,7 +1004,10 @@ fn AgentActions(agent: Value, rev: RwSignal<u32>, blocked: RwSignal<bool>) -> im
                 }
                     .into_any()
             } else {
-                let copy = format!("/agents/new?template={}", api::enc(&text(&a.get_value(), "id")));
+                let copy = format!(
+                    "/agents/new?template={}",
+                    api::enc(&text(&a.get_value(), "id")),
+                );
                 let mut items = vec![
                     MenuItem::new(
                         "复制",
@@ -1019,7 +1032,9 @@ fn AgentActions(agent: Value, rev: RwSignal<u32>, blocked: RwSignal<bool>) -> im
                                     pick.set(true)
                                 }
                                 Some(Err(e)) => toast(e.to_string()),
-                                Some(Ok(_)) => toast("请先在设置中绑定已安装的运行时"),
+                                Some(Ok(_)) => {
+                                    toast("请先在设置中绑定已安装的运行时")
+                                }
                                 None => toast("正在读取运行时，请稍后再试"),
                             }
                         }
@@ -1122,7 +1137,9 @@ fn AgentOverview(agent: Value) -> impl IntoView {
                     </div>
                     <div>
                         <b>
-                            {crate::vocab::duration(agent["avg_secs_30d"].as_f64().unwrap_or_default())}
+                            {crate::vocab::duration(
+                                agent["avg_secs_30d"].as_f64().unwrap_or_default(),
+                            )}
                         </b>
                         <span>"平均耗时"</span>
                     </div>
@@ -1146,9 +1163,15 @@ fn AgentOverview(agent: Value) -> impl IntoView {
                     <dt>"思考"</dt>
                     <dd>{text(&agent, "thinking_level")}</dd>
                     <dt>"创建"</dt>
-                    <dd title=text(&agent, "created_at")>{fmt::ago(&text(&agent, "created_at"))}</dd>
+                    <dd title=text(
+                        &agent,
+                        "created_at",
+                    )>{fmt::ago(&text(&agent, "created_at"))}</dd>
                     <dt>"更新"</dt>
-                    <dd title=text(&agent, "updated_at")>{fmt::ago(&text(&agent, "updated_at"))}</dd>
+                    <dd title=text(
+                        &agent,
+                        "updated_at",
+                    )>{fmt::ago(&text(&agent, "updated_at"))}</dd>
                 </dl>
             </div>
         </div>

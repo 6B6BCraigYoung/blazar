@@ -320,22 +320,26 @@ pub fn TasksPage() -> impl IntoView {
                                 Ok(_) => {
                                     let shown_status = |t: &Value| {
                                         hidden.get()
-                                            || !matches!(s(t, "status").as_str(), "backlog" | "cancelled")
+                                            || !matches!(
+                                                s(t, "status").as_str(),
+                                                "backlog" | "cancelled"
+                                            )
                                     };
                                     let list = filtered();
                                     let board = mode.get() == "board";
                                     let mut counter = 0usize;
-                                    shown.set(
-                                        STATUSES
-                                            .iter()
-                                            .filter(|(k, _)| {
-                                                hidden.get() || !matches!(*k, "backlog" | "cancelled")
-                                            })
-                                            .flat_map(|(key, _)| {
-                                                list.iter().filter(|t| s(t, "status") == *key).cloned()
-                                            })
-                                            .collect(),
-                                    );
+                                    shown
+                                        .set(
+                                            STATUSES
+                                                .iter()
+                                                .filter(|(k, _)| {
+                                                    hidden.get() || !matches!(*k, "backlog" | "cancelled")
+                                                })
+                                                .flat_map(|(key, _)| {
+                                                    list.iter().filter(|t| s(t, "status") == *key).cloned()
+                                                })
+                                                .collect(),
+                                        );
                                     if !list.iter().any(shown_status) {
                                         return if has_any() {
                                             view! {

@@ -112,7 +112,12 @@ fn WsStatus(id: String, failed: Signal<bool>) -> impl IntoView {
                         .into_any()
                 }
                 None => {
-                    view! { <span class="status" data-tone=tone.key()>{label}</span> }.into_any()
+                    view! {
+                        <span class="status" data-tone=tone.key()>
+                            {label}
+                        </span>
+                    }
+                        .into_any()
                 }
             }
         }}
@@ -201,9 +206,7 @@ fn WsMenu(groups: Vec<Vec<Item>>) -> impl IntoView {
                                         let hint = it
                                             .keys
                                             .map(|k| {
-                                                crate::shortcuts::label(
-                                                    &crate::shortcuts::current(k),
-                                                )
+                                                crate::shortcuts::label(&crate::shortcuts::current(k))
                                             })
                                             .filter(|k| !k.is_empty());
                                         view! {

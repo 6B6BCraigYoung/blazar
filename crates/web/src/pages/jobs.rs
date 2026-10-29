@@ -107,7 +107,9 @@ fn owner(j: &Value) -> AnyView {
                 href=format!("/bots/{}", api::enc(&s(j, "bot_id")))
                 title=s(j, "bot_handle")
             >
-                {Some(s(j, "bot_name")).filter(|n| !n.is_empty()).unwrap_or_else(|| s(j, "bot_handle"))}
+                {Some(s(j, "bot_name"))
+                    .filter(|n| !n.is_empty())
+                    .unwrap_or_else(|| s(j, "bot_handle"))}
             </a>
         }
         .into_any(),
@@ -227,13 +229,15 @@ pub fn JobsPage() -> impl IntoView {
             </Show>
             {move || match data.get() {
                 None => view! { <LoadingState text="正在读取后台任务…" /> }.into_any(),
-                Some(Err(e)) => view! {
-                    <InlineError
-                        message=format!("无法读取后台任务：{e}")
-                        retry=Callback::new(move |()| refresh(rev))
-                    />
+                Some(Err(e)) => {
+                    view! {
+                        <InlineError
+                            message=format!("无法读取后台任务：{e}")
+                            retry=Callback::new(move |()| refresh(rev))
+                        />
+                    }
+                        .into_any()
                 }
-                .into_any(),
                 Some(Ok(list)) if list.is_empty() => {
                     if filter.with(String::is_empty) {
                         view! {
@@ -259,89 +263,101 @@ pub fn JobsPage() -> impl IntoView {
                 Some(Ok(list)) => {
                     shown.set(list.clone());
                     view! {
-                    <ListGroup>
-                        <div class="jobs-table">
-                            <table class="tb">
-                                <thead>
-                                    <tr>
-                                        <th>"状态"</th>
-                                        <th>"标签"</th>
-                                        <th>"机器"</th>
-                                        <th>"发起方"</th>
-                                        <th class="num">"开始"</th>
-                                        <th class="num">"已运行"</th>
-                                        <th class="num">"截止"</th>
-                                        <th class="num">"退出码"</th>
-                                        <th class="jobs-actions-head">"操作"</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {list
-                                        .into_iter()
-                                        .enumerate()
-                                        .map(|(i, j)| {
-                                            let error = s(&j, "last_error");
-                                            let (for_log, for_open, row) = (j.clone(), j.clone(), j.clone());
-                                            let started = s(&j, "created_at");
-                                            view! {
-                                                <tr
-                                                    class="job-row"
-                                                    tabindex="-1"
-                                                    data-index=i.to_string()
-                                                    data-sel=move || rows.selected(i).to_string()
-                                                    data-menu=move || rows.menu_on(i).to_string()
-                                                    on:focusin=move |_| rows.sel.set(Some(i))
-                                                    on:contextmenu=move |e| rows.open_menu(&e, i)
-                                                    on:dblclick=move |_| log_of.set(Some(for_open.clone()))
-                                                >
-                                                    <td>
-                                                        <StateOf
-                                                            state=s(&j, "status")
-                                                            title=(!error.is_empty()).then(|| error.clone())
-                                                        />
-                                                    </td>
-                                                    <td class="jobs-label">
-                                                        <div class="jobs-label-text" title=s(&j, "command")>
-                                                            {s(&j, "label")}
-                                                        </div>
-                                                        {(!waits(&j).is_empty())
-                                                            .then(|| {
-                                                                view! {
-                                                                    <div class="jobs-waits muted" title=waits(&j)>
-                                                                        {waits(&j)}
-                                                                    </div>
-                                                                }
-                                                            })}
-                                                    </td>
-                                                    <td>{fmt::machine(&s(&j, "node"))}</td>
-                                                    <td>{owner(&j)}</td>
-                                                    <td class="num" title=started.clone()>
-                                                        {fmt::ago(&started)}
-                                                    </td>
-                                                    <td class="num">{move || elapsed(&row, now.get())}</td>
-                                                    <td class="num">{move || deadline(&j, now.get())}</td>
-                                                    <td class="num">{exit_code(&for_log)}</td>
-                                                    <td class="jobs-actions">
-                                                        <button
-                                                            class="btn small"
-                                                            on:click=move |_| log_of.set(Some(for_log.clone()))
-                                                        >
-                                                            "日志"
-                                                        </button>
-                                                    </td>
-                                                </tr>
-                                            }
-                                        })
-                                        .collect_view()}
-                                </tbody>
-                            </table>
-                        </div>
-                    </ListGroup>
-                }
-                .into_any()
+                        <ListGroup>
+                            <div class="jobs-table">
+                                <table class="tb">
+                                    <thead>
+                                        <tr>
+                                            <th>"状态"</th>
+                                            <th>"标签"</th>
+                                            <th>"机器"</th>
+                                            <th>"发起方"</th>
+                                            <th class="num">"开始"</th>
+                                            <th class="num">"已运行"</th>
+                                            <th class="num">"截止"</th>
+                                            <th class="num">"退出码"</th>
+                                            <th class="jobs-actions-head">"操作"</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {list
+                                            .into_iter()
+                                            .enumerate()
+                                            .map(|(i, j)| {
+                                                let error = s(&j, "last_error");
+                                                let (for_log, for_open, row) = (
+                                                    j.clone(),
+                                                    j.clone(),
+                                                    j.clone(),
+                                                );
+                                                let started = s(&j, "created_at");
+                                                view! {
+                                                    <tr
+                                                        class="job-row"
+                                                        tabindex="-1"
+                                                        data-index=i.to_string()
+                                                        data-sel=move || rows.selected(i).to_string()
+                                                        data-menu=move || rows.menu_on(i).to_string()
+                                                        on:focusin=move |_| rows.sel.set(Some(i))
+                                                        on:contextmenu=move |e| rows.open_menu(&e, i)
+                                                        on:dblclick=move |_| log_of.set(Some(for_open.clone()))
+                                                    >
+                                                        <td>
+                                                            <StateOf
+                                                                state=s(&j, "status")
+                                                                title=(!error.is_empty()).then(|| error.clone())
+                                                            />
+                                                        </td>
+                                                        <td class="jobs-label">
+                                                            <div class="jobs-label-text" title=s(&j, "command")>
+                                                                {s(&j, "label")}
+                                                            </div>
+                                                            {(!waits(&j).is_empty())
+                                                                .then(|| {
+                                                                    view! {
+                                                                        <div class="jobs-waits muted" title=waits(&j)>
+                                                                            {waits(&j)}
+                                                                        </div>
+                                                                    }
+                                                                })}
+                                                        </td>
+                                                        <td>{fmt::machine(&s(&j, "node"))}</td>
+                                                        <td>{owner(&j)}</td>
+                                                        <td class="num" title=started.clone()>
+                                                            {fmt::ago(&started)}
+                                                        </td>
+                                                        <td class="num">{move || elapsed(&row, now.get())}</td>
+                                                        <td class="num">{move || deadline(&j, now.get())}</td>
+                                                        <td class="num">{exit_code(&for_log)}</td>
+                                                        <td class="jobs-actions">
+                                                            <button
+                                                                class="btn small"
+                                                                on:click=move |_| log_of.set(Some(for_log.clone()))
+                                                            >
+                                                                "日志"
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                }
+                                            })
+                                            .collect_view()}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </ListGroup>
+                    }
+                        .into_any()
                 }
             }}
-            {move || log_of.get().map(|j| view! { <JobLog job=j on_close=Callback::new(move |()| log_of.set(None)) /> })}
+            {move || {
+                log_of
+                    .get()
+                    .map(|j| {
+                        view! {
+                            <JobLog job=j on_close=Callback::new(move |()| log_of.set(None)) />
+                        }
+                    })
+            }}
             {move || {
                 rows.menu
                     .get()
@@ -401,7 +417,9 @@ fn JobLog(job: Value, on_close: Callback<()>) -> impl IntoView {
     view! {
         <Modal label=title.clone() class="dlg wide jobs-log" on_close>
             <h3>{title}</h3>
-            <pre class="jobs-log-text" tabindex="0" node_ref=pre>{move || text.get()}</pre>
+            <pre class="jobs-log-text" tabindex="0" node_ref=pre>
+                {move || text.get()}
+            </pre>
             <div class="jobs-log-note muted">{move || note.get()}</div>
             <div class="dlg-foot">
                 <button

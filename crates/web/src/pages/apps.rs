@@ -116,7 +116,10 @@ fn AppLogo(id: &'static str) -> impl IntoView {
 pub fn AppsPage() -> impl IntoView {
     view! {
         <div class="page apps-page">
-            <PageHead title="接入的软件" lead="连接常用软件，让智能体协助处理工作。" />
+            <PageHead
+                title="接入的软件"
+                lead="连接常用软件，让智能体协助处理工作。"
+            />
             <section class="apps-section">
                 <h2>"办公"</h2>
                 <div class="apps-grid">
@@ -169,13 +172,23 @@ fn AppCard(id: &'static str, name: &'static str, desc: &'static str) -> impl Int
             <p class="muted">{desc}</p>
             <div class="apps-card-status" aria-live="polite">
                 {move || match data.get() {
-                    None => match shown.get() {
-                        Some(value) => {
-                            view! { <AppStatus label=state(id, &value) tone=state_tone(id, &value) /> }
-                                .into_any()
+                    None => {
+                        match shown.get() {
+                            Some(value) => {
+                                view! {
+                                    <AppStatus
+                                        label=state(id, &value)
+                                        tone=state_tone(id, &value)
+                                    />
+                                }
+                                    .into_any()
+                            }
+                            None => {
+                                view! { <AppStatus label="读取中…" tone="neutral" /> }
+                                    .into_any()
+                            }
                         }
-                        None => view! { <AppStatus label="读取中…" tone="neutral" /> }.into_any(),
-                    },
+                    }
                     Some(Err(error)) => {
                         view! {
                             <span title=error.to_string()>
@@ -274,7 +287,11 @@ fn AppDetail(id: &'static str, name: &'static str) -> impl IntoView {
             }
             (None, Some(Err(e))) => {
                 view! {
-                    <PageHead parent=("接入的软件", "/apps") icon=move || view! { <AppLogo id /> } title=name />
+                    <PageHead
+                        parent=("接入的软件", "/apps")
+                        icon=move || view! { <AppLogo id /> }
+                        title=name
+                    />
                     <div class="detail-body">
                         <InlineError
                             message=e.to_string()
@@ -286,7 +303,11 @@ fn AppDetail(id: &'static str, name: &'static str) -> impl IntoView {
             }
             _ => {
                 view! {
-                    <PageHead parent=("接入的软件", "/apps") icon=move || view! { <AppLogo id /> } title=name />
+                    <PageHead
+                        parent=("接入的软件", "/apps")
+                        icon=move || view! { <AppLogo id /> }
+                        title=name
+                    />
                     <div class="detail-body">
                         <LoadingState text="读取连接…" />
                     </div>
@@ -666,7 +687,9 @@ fn ConnectApp(
                             }
                         })}
                 </PrefRow>
-                <Show when=move || id == "lark" && installed && configured && scope.get() == "domains">
+                <Show when=move || {
+                    id == "lark" && installed && configured && scope.get() == "domains"
+                }>
                     <PrefRow label="自选权限">
                         <div class="settings-checks">
                             {DOMAINS
@@ -704,7 +727,9 @@ fn ConnectApp(
                         let version = version.clone();
                         view! {
                             <PrefRow label="版本">
-                                <code>{if version.is_empty() { "—".to_owned() } else { version }}</code>
+                                <code>
+                                    {if version.is_empty() { "—".to_owned() } else { version }}
+                                </code>
                             </PrefRow>
                         }
                     }
@@ -734,10 +759,16 @@ fn ConnectApp(
                             </PrefRow>
                         }
                     }
-                    <p>"安装与登录在本机执行，令牌由软件自己的命令行管理。"</p>
+                    <p>
+                        "安装与登录在本机执行，令牌由软件自己的命令行管理。"
+                    </p>
                     {(id == "lark")
                         .then(|| {
-                            view! { <p>"绑定已有应用需要 App ID 和 Secret，请在终端配置。"</p> }
+                            view! {
+                                <p>
+                                    "绑定已有应用需要 App ID 和 Secret，请在终端配置。"
+                                </p>
+                            }
                         })}
                 </PrefAdvanced>
             </PrefGroup>
@@ -772,7 +803,10 @@ fn ConnectApp(
                             title="使用 GitHub"
                             note="在工作区的 Git 面板创建 PR、查看状态和检查结果。远端工作区使用所在机器上的 gh 登录态，这里管理本机连接。"
                         >
-                            <PrefRow label="PR 默认设置" detail="草稿 PR、分支前缀和 AI 起草。">
+                            <PrefRow
+                                label="PR 默认设置"
+                                detail="草稿 PR、分支前缀和 AI 起草。"
+                            >
                                 <a class="btn" href="/settings?s=git">
                                     "打开设置"
                                 </a>
@@ -1162,7 +1196,9 @@ fn LarkSettings(initial: Value) -> impl IntoView {
                             <PrefRow label=label for_id=id.clone()>
                                 <Switch
                                     id=id
-                                    checked=Signal::derive(move || kinds.get().iter().any(|s| s == kind))
+                                    checked=Signal::derive(move || {
+                                        kinds.get().iter().any(|s| s == kind)
+                                    })
                                     disabled=busy
                                     on_change=move |checked: bool| {
                                         let old = kinds.get_untracked();
@@ -1180,7 +1216,10 @@ fn LarkSettings(initial: Value) -> impl IntoView {
                         }
                     })
                     .collect_view()}
-                <PrefRow label="测试" detail="按当前设置预览一条提醒，或真的发一条到接收方。">
+                <PrefRow
+                    label="测试"
+                    detail="按当前设置预览一条提醒，或真的发一条到接收方。"
+                >
                     <button
                         type="button"
                         class="btn"
@@ -1216,14 +1255,18 @@ fn LarkCalls() -> impl IntoView {
             <p>"只记录命令，不记录消息或文档正文等参数。"</p>
             {move || match data.get() {
                 None => {
-                    view! { <LoadingState text="读取调用记录…" class="apps-inline-state" /> }
+                    view! {
+                        <LoadingState text="读取调用记录…" class="apps-inline-state" />
+                    }
                         .into_any()
                 }
                 Some(Err(e)) => view! { <InlineError message=e.to_string() /> }.into_any(),
                 Some(Ok(v)) => {
                     let list = rows(&v);
                     if list.is_empty() {
-                        view! { <EmptyState title="还没有调用记录" class="apps-inline-state" /> }
+                        view! {
+                            <EmptyState title="还没有调用记录" class="apps-inline-state" />
+                        }
                             .into_any()
                     } else {
                         list.into_iter()
@@ -1362,10 +1405,16 @@ fn Obsidian(initial: Value, rev: RwSignal<u32>, checking: Signal<bool>) -> impl 
                 })}
         </PageHead>
         <div class="detail-body">
-            <PrefGroup title="笔记库" note="列表来自 Obsidian 记录的本机 Markdown 文件夹，无需插件或登录。">
+            <PrefGroup
+                title="笔记库"
+                note="列表来自 Obsidian 记录的本机 Markdown 文件夹，无需插件或登录。"
+            >
                 {if !installed {
                     view! {
-                        <PrefRow label="Obsidian" detail="装好并打开一个库后，回到这里会自动重新检测。">
+                        <PrefRow
+                            label="Obsidian"
+                            detail="装好并打开一个库后，回到这里会自动重新检测。"
+                        >
                             <span class="pref-text">"未安装"</span>
                         </PrefRow>
                     }
@@ -1393,7 +1442,8 @@ fn Obsidian(initial: Value, rev: RwSignal<u32>, checking: Signal<bool>) -> impl 
                             view! {
                                 <PrefRow label=text(&v, "name") detail=detail>
                                     {if !exists {
-                                        view! { <span class="pref-text">"找不到"</span> }.into_any()
+                                        view! { <span class="pref-text">"找不到"</span> }
+                                            .into_any()
                                     } else if !ws.is_empty() {
                                         view! {
                                             <a class="btn" href=format!("/w/{}", api::enc(&ws))>

@@ -79,7 +79,9 @@ fn section_with_pill(
             <span class="nm">{label}</span>
             <span
                 class="n"
-                data-pill=move || (pill && urgent.get() && count.with(|c| !c.is_empty())).to_string()
+                data-pill=move || {
+                    (pill && urgent.get() && count.with(|c| !c.is_empty())).to_string()
+                }
             >
                 {move || count.get()}
             </span>
@@ -249,8 +251,7 @@ fn MainNav(keys: RwSignal<u32>) -> impl IntoView {
                 Signal::derive(move || n(app.attention_count())),
                 waiting,
                 &["/running", "/waiting", "/workspaces", "/w", "/project"],
-            )}
-            {section("/bots", icon::BOT, "bot", none, calm, &["/bots"])}
+            )} {section("/bots", icon::BOT, "bot", none, calm, &["/bots"])}
             {section(
                 "/tasks",
                 icon::TASKS,
@@ -296,22 +297,13 @@ fn MainNav(keys: RwSignal<u32>) -> impl IntoView {
                 "智能体",
                 none,
                 calm,
-                &[
-                    "/agents",
-                    "/agent",
-                    "/skills",
-                    "/library",
-                    "/runtimes",
-                    "/accounts",
-                    "/usage",
-                ],
+                &["/agents", "/agent", "/skills", "/library", "/runtimes", "/accounts", "/usage"],
             )}
             {nav("/apps", icon::APPS, "接入的软件", none, calm, false)}
             {section("/nodes", icon::NODES, "机器与组网", none, calm, &["/nodes", "/mesh"])}
         </div>
         <div class="foot">
-            {nav("/settings", icon::GEAR, "设置", none, calm, false)}
-            <StatusDot />
+            {nav("/settings", icon::GEAR, "设置", none, calm, false)} <StatusDot />
         </div>
     }
 }
@@ -429,9 +421,17 @@ fn StatusDot() -> impl IntoView {
                         <span class="v">
                             <span
                                 class="status"
-                                data-tone=move || if bus.connected.get() { "other" } else { "failed" }
+                                data-tone=move || {
+                                    if bus.connected.get() { "other" } else { "failed" }
+                                }
                             >
-                                {move || if bus.connected.get() { "已连接" } else { "正在重新连接…" }}
+                                {move || {
+                                    if bus.connected.get() {
+                                        "已连接"
+                                    } else {
+                                        "正在重新连接…"
+                                    }
+                                }}
                             </span>
                         </span>
                     </div>

@@ -277,8 +277,7 @@ pub(super) fn diff_rows(rows: &[(char, String)], start: Option<u32>) -> impl Int
             view! {
                 <div class=cls>
                     {start.map(|_| view! { <span class="dn">{num}</span> })}
-                    <span class="dm">{mark}</span>
-                    <span class="dt">{text}</span>
+                    <span class="dm">{mark}</span> <span class="dt">{text}</span>
                 </div>
             }
         })
@@ -600,7 +599,8 @@ fn tool_view(t: Tool, chat: Chat, opened: Opened, ws: String) -> AnyView {
                             view! {
                                 <span class="cc-cnt">
                                     {(a > 0).then(|| view! { <i class="ok">{format!("+{a}")}</i> })}
-                                    {(r > 0).then(|| view! { <i class="bad">{format!("−{r}")}</i> })}
+                                    {(r > 0)
+                                        .then(|| view! { <i class="bad">{format!("−{r}")}</i> })}
                                 </span>
                             }
                         })}
@@ -608,7 +608,11 @@ fn tool_view(t: Tool, chat: Chat, opened: Opened, ws: String) -> AnyView {
                         .as_ref()
                         .map(|_| {
                             view! {
-                                <span class="cc-go" title="Show in Changes" inner_html=CHEVRON></span>
+                                <span
+                                    class="cc-go"
+                                    title="Show in Changes"
+                                    inner_html=CHEVRON
+                                ></span>
                             }
                         })}
                 </div>
@@ -932,16 +936,13 @@ fn UserMsg(
                 let Some(u) = e
                     .target()
                     .and_then(|t| t.dyn_into::<web_sys::Element>().ok())
-                    .and_then(|t| t.closest(".cc-user[data-stuck]").ok().flatten())
-                else {
+                    .and_then(|t| t.closest(".cc-user[data-stuck]").ok().flatten()) else {
                     return;
                 };
                 let on_control = e
                     .target()
                     .and_then(|t| t.dyn_into::<web_sys::Element>().ok())
-                    .is_some_and(|t| {
-                        t.closest("button, a, textarea").ok().flatten().is_some()
-                    });
+                    .is_some_and(|t| { t.closest("button, a, textarea").ok().flatten().is_some() });
                 if on_control {
                     return;
                 }
@@ -1163,8 +1164,7 @@ fn warn_view(chat: Chat, denied: Vec<String>, calls: Vec<DeniedCall>, auto: bool
             <div class="cc-row cc-warn">
                 <span class="cc-dot"></span>
                 <div class="cc-main">
-                    {format!("{} actions were denied and not run:", denied.len())}
-                    {listed(denied)}
+                    {format!("{} actions were denied and not run:", denied.len())} {listed(denied)}
                     <div class="muted small">
                         "The current mode denies these actions. Switch to Edit automatically or Auto and retry."
                     </div>
@@ -1188,10 +1188,7 @@ fn warn_view(chat: Chat, denied: Vec<String>, calls: Vec<DeniedCall>, auto: bool
         <div class="cc-row cc-warn">
             <span class="cc-dot"></span>
             <div class="cc-main">
-                {cards
-                    .into_iter()
-                    .map(|c| denial_card(chat, c, place.clone()))
-                    .collect_view()}
+                {cards.into_iter().map(|c| denial_card(chat, c, place.clone())).collect_view()}
                 {(!rest.is_empty())
                     .then(|| {
                         view! {
@@ -1264,8 +1261,10 @@ fn denial_card(chat: Chat, c: DeniedCall, place: (String, String)) -> AnyView {
     view! {
         <div class="cc-deny" data-state=state>
             <div class="cd-head">
-                {hard.then(|| view! { <span class="dot" data-tone="failed" aria-hidden="true"></span> })}
-                {head}
+                {hard
+                    .then(|| {
+                        view! { <span class="dot" data-tone="failed" aria-hidden="true"></span> }
+                    })} {head}
             </div>
             <div class="cd-cmd">
                 <pre class="acmd">{c.what.clone()}</pre>
@@ -1289,14 +1288,21 @@ fn denial_card(chat: Chat, c: DeniedCall, place: (String, String)) -> AnyView {
                 {target
                     .map(|h| {
                         view! {
-                            <span title="The command actually runs on this machine">{format!("Target {h}")}</span>
+                            <span title="The command actually runs on this machine">
+                                {format!("Target {h}")}
+                            </span>
                         }
                     })}
                 {reason
                     .map(|r| {
                         view! {
-                            <span title=format!("[{r}]")>
-                                {format!("Reason: {}", blazar_core_types::denial::reason_label_en(&r))}
+                            <span title=format!(
+                                "[{r}]",
+                            )>
+                                {format!(
+                                    "Reason: {}",
+                                    blazar_core_types::denial::reason_label_en(&r),
+                                )}
                             </span>
                         }
                     })}
@@ -1318,7 +1324,9 @@ fn denial_card(chat: Chat, c: DeniedCall, place: (String, String)) -> AnyView {
                                 type="button"
                                 class="btn primary"
                                 disabled=move || busy.get()
-                                on:click=move |_| chat.decide_denial(sid_a.clone(), tid_a.clone(), true)
+                                on:click=move |_| {
+                                    chat.decide_denial(sid_a.clone(), tid_a.clone(), true)
+                                }
                             >
                                 "Allow once and retry"
                             </button>
@@ -1326,7 +1334,9 @@ fn denial_card(chat: Chat, c: DeniedCall, place: (String, String)) -> AnyView {
                                 type="button"
                                 class="btn ghost"
                                 disabled=move || busy.get()
-                                on:click=move |_| chat.decide_denial(sid_n.clone(), tid_n.clone(), false)
+                                on:click=move |_| {
+                                    chat.decide_denial(sid_n.clone(), tid_n.clone(), false)
+                                }
                             >
                                 "Skip"
                             </button>
@@ -1336,7 +1346,9 @@ fn denial_card(chat: Chat, c: DeniedCall, place: (String, String)) -> AnyView {
             {hard
                 .then(|| {
                     view! {
-                        <div class="cd-note">"To run it, copy the command into a terminal yourself."</div>
+                        <div class="cd-note">
+                            "To run it, copy the command into a terminal yourself."
+                        </div>
                     }
                 })}
         </div>
@@ -1674,7 +1686,9 @@ fn Spinner(chat: Chat, tick: RwSignal<u32>) -> impl IntoView {
             </span>
             <span class="tx">{move || format!("{}…", WORDS[word.get()])}</span>
             <span class="tk">{elapsed}</span>
-            {move || tokens().map(|n| view! { <span class="tk">{format!("· ↑{n} tokens")}</span> })}
+            {move || {
+                tokens().map(|n| view! { <span class="tk">{format!("· ↑{n} tokens")}</span> })
+            }}
             {move || {
                 chat.running.get().then(|| view! { <span class="tk">"· esc to interrupt"</span> })
             }}
@@ -1928,22 +1942,23 @@ pub fn Log(chat: Chat, tick: RwSignal<u32>, log_h: RwSignal<f64>) -> impl IntoVi
                         });
                         let head = turn.head.clone();
                         let last_reply = Memo::new(move |_| {
-                            turns.with(|ts| {
-                                let t = ts.iter().find(|t| t.head == head)?;
-                                chat.transcript
-                                    .with(|tr| {
-                                        t.keys
-                                            .iter()
-                                            .rev()
-                                            .find(|k| {
-                                                matches!(
-                                                    tr.item(k),
-                                                    Some(Item { body: Body::Assistant { .. }, .. })
-                                                )
-                                            })
-                                            .cloned()
-                                    })
-                            })
+                            turns
+                                .with(|ts| {
+                                    let t = ts.iter().find(|t| t.head == head)?;
+                                    chat.transcript
+                                        .with(|tr| {
+                                            t.keys
+                                                .iter()
+                                                .rev()
+                                                .find(|k| {
+                                                    matches!(
+                                                        tr.item(k),
+                                                        Some(Item { body: Body::Assistant { .. }, .. })
+                                                    )
+                                                })
+                                                .cloned()
+                                        })
+                                })
                         });
                         view! {
                             <div class="cc-turn" data-current=move || current.get().to_string()>
@@ -2017,7 +2032,10 @@ fn Empty(chat: Chat) -> impl IntoView {
                             .to_owned();
                         view! {
                             <div class="cc-hero">
-                                <span class="cc-hero-mark" inner_html=crate::rt_logo::glyph(&rt)></span>
+                                <span
+                                    class="cc-hero-mark"
+                                    inner_html=crate::rt_logo::glyph(&rt)
+                                ></span>
                                 <span>{name}</span>
                             </div>
                             <div class="cc-tip">

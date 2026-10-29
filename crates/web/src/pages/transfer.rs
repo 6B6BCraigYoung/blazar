@@ -78,7 +78,10 @@ pub fn TransferSettings() -> impl IntoView {
                     "导出"
                 </a>
             </PrefRow>
-            <PrefRow label="导入配置" detail="先预览会新建和跳过什么，再决定导入。">
+            <PrefRow
+                label="导入配置"
+                detail="先预览会新建和跳过什么，再决定导入。"
+            >
                 <button
                     type="button"
                     class="btn"
@@ -190,10 +193,7 @@ fn ImportDialog(pending: Pending, on_close: Callback<()>) -> impl IntoView {
                                 })
                         };
                         view! {
-                            <details
-                                class="transfer-group"
-                                open=action == ImportAction::Attention
-                            >
+                            <details class="transfer-group" open=action == ImportAction::Attention>
                                 <summary>
                                     <span>{action_title(action)}</span>
                                     <span class="transfer-count">{move || items().len()}</span>
@@ -202,8 +202,7 @@ fn ImportDialog(pending: Pending, on_close: Callback<()>) -> impl IntoView {
                                     {move || {
                                         let list = items();
                                         if list.is_empty() {
-                                            return view! { <li class="muted">"没有"</li> }
-                                                .into_any();
+                                            return view! { <li class="muted">"没有"</li> }.into_any();
                                         }
                                         list.into_iter()
                                             .map(|i| {
@@ -216,9 +215,7 @@ fn ImportDialog(pending: Pending, on_close: Callback<()>) -> impl IntoView {
                                                         <span class="transfer-key">{i.key.clone()}</span>
                                                         {(!detail.is_empty())
                                                             .then(|| {
-                                                                view! {
-                                                                    <span class="transfer-detail">{detail}</span>
-                                                                }
+                                                                view! { <span class="transfer-detail">{detail}</span> }
                                                             })}
                                                     </li>
                                                 }
@@ -234,12 +231,7 @@ fn ImportDialog(pending: Pending, on_close: Callback<()>) -> impl IntoView {
             </div>
             <ul class="transfer-notes">
                 {move || {
-                    report
-                        .get()
-                        .notes
-                        .into_iter()
-                        .map(|n| view! { <li>{n}</li> })
-                        .collect_view()
+                    report.get().notes.into_iter().map(|n| view! { <li>{n}</li> }).collect_view()
                 }}
             </ul>
             <p class="transfer-status" class:bad=move || status.get().1>

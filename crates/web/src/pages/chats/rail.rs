@@ -52,7 +52,11 @@ pub fn Rail(all: Signal<bool>, rail_mode: Callback<bool>) -> impl IntoView {
         cleared.set(top);
     };
     view! {
-        <aside class="console-rail" aria-label="消息" data-mode=move || if all.get() { "all" } else { "summary" }>
+        <aside
+            class="console-rail"
+            aria-label="消息"
+            data-mode=move || if all.get() { "all" } else { "summary" }
+        >
             <Show
                 when=move || all.get()
                 fallback=move || {
@@ -81,24 +85,33 @@ pub fn Rail(all: Signal<bool>, rail_mode: Callback<bool>) -> impl IntoView {
                             </h3>
                             <Show
                                 when=move || needs.with(|l| !l.is_empty())
-                                fallback=|| view! { <p class="rail-empty">"都处理完了，新的请求会出现在这里。"</p> }
+                                fallback=|| {
+                                    view! {
+                                        <p class="rail-empty">
+                                            "都处理完了，新的请求会出现在这里。"
+                                        </p>
+                                    }
+                                }
                             >
                                 <InboxCards items=needs rev label="需要你处理" />
                             </Show>
                         </section>
                         <section class="rail-feed" aria-label="动态">
                             <h3 class="rail-title">
-                                "动态"
-                                <span class="grow"></span>
+                                "动态" <span class="grow"></span>
                                 <Show when=move || feed.with(|l| !l.is_empty())>
                                     <button type="button" class="linkbtn" on:click=clear_feed>
                                         "清理"
                                     </button>
                                 </Show>
-                                <a class="rail-link" href=ALL on:click=move |e| {
-                                    e.prevent_default();
-                                    rail_mode.run(true);
-                                }>
+                                <a
+                                    class="rail-link"
+                                    href=ALL
+                                    on:click=move |e| {
+                                        e.prevent_default();
+                                        rail_mode.run(true);
+                                    }
+                                >
                                     "查看全部"
                                 </a>
                             </h3>

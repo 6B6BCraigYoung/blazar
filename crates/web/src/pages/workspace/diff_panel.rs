@@ -374,7 +374,10 @@ pub fn DiffBar(
                     (n > 0)
                         .then(|| {
                             view! {
-                                <span class="pill-note" title="随下一条消息一起发给智能体">
+                                <span
+                                    class="pill-note"
+                                    title="随下一条消息一起发给智能体"
+                                >
                                     {format!("{n} 条意见待发")}
                                 </span>
                             }
@@ -472,7 +475,9 @@ pub fn DiffBar(
                                 on:click=pick("difffold")
                             >
                                 <span>
-                                    {move || if all_folded() { "全部展开" } else { "全部折叠" }}
+                                    {move || {
+                                        if all_folded() { "全部展开" } else { "全部折叠" }
+                                    }}
                                 </span>
                                 <kbd>{hint("difffold")}</kbd>
                             </button>
@@ -961,7 +966,15 @@ fn file_body(
                         for k in 0..dels.len().max(adds.len()) {
                             let dl = dels.get(k).copied();
                             let al = adds.get(k).copied();
-                            out.push(view! { <div class="dr2">{half(dl, "old", &path, editing, mark)}{half(al, "new", &path, editing, mark)}</div> }.into_any());
+                            out.push(
+                                view! {
+                                    <div class="dr2">
+                                        {half(dl, "old", &path, editing, mark)}
+                                        {half(al, "new", &path, editing, mark)}
+                                    </div>
+                                }
+                                .into_any(),
+                            );
                             if let Some(l) = dl {
                                 out.push(
                                     comments_at(&path, "old", l.old.unwrap_or(0), editing, d, ws)

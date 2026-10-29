@@ -417,7 +417,10 @@ fn NodeDetail(name: String) -> impl IntoView {
                                     .as_deref()
                                     .and_then(|p| app.workspace(p))
                                     .map(|p| {
-                                        format!("属于「{}」 · ", crate::fmt::ws_title(&p.name, &p.node))
+                                        format!(
+                                            "属于「{}」 · ",
+                                            crate::fmt::ws_title(&p.name, &p.node),
+                                        )
                                     })
                                     .unwrap_or_default();
                                 view! {
@@ -449,7 +452,9 @@ fn NodeDetail(name: String) -> impl IntoView {
                         let egress_bad = facts.egress == Some(false);
                         let egress = match facts.egress {
                             Some(true) => "能连上",
-                            Some(false) => "连不上，请在运行时的「高级配置」里配置代理。",
+                            Some(false) => {
+                                "连不上，请在运行时的「高级配置」里配置代理。"
+                            }
                             None => "—",
                         };
                         let endpoints = facts.endpoints.clone();
@@ -522,14 +527,21 @@ fn NodeDetail(name: String) -> impl IntoView {
                             })
                     }}
                 </PrefGroup>
-                <PrefGroup title="运行时" note="这台机器上装了哪些运行时，以及登录状态。">
+                <PrefGroup
+                    title="运行时"
+                    note="这台机器上装了哪些运行时，以及登录状态。"
+                >
                     {move || match agents.get() {
                         None if scanning.get() => {
-                            view! { <p class="pref-status">"正在读取运行时…"</p> }.into_any()
+                            view! { <p class="pref-status">"正在读取运行时…"</p> }
+                                .into_any()
                         }
                         None => {
                             view! {
-                                <PrefRow label="尚未检查" detail="读取已安装的运行时及登录状态。">
+                                <PrefRow
+                                    label="尚未检查"
+                                    detail="读取已安装的运行时及登录状态。"
+                                >
                                     {offline_note}
                                     <button
                                         type="button"
@@ -567,7 +579,10 @@ fn NodeDetail(name: String) -> impl IntoView {
                                 .filter(|a| a["path"].is_string())
                                 .collect();
                             let rescan = view! {
-                                <PrefRow label="重新读取" detail="安装或登录后，重新检查一次。">
+                                <PrefRow
+                                    label="重新读取"
+                                    detail="安装或登录后，重新检查一次。"
+                                >
                                     {offline_note}
                                     <button
                                         type="button"
@@ -650,7 +665,11 @@ fn NodeDetail(name: String) -> impl IntoView {
                                                                     Callback::new(move |_| scan()),
                                                                 )
                                                             >
-                                                                {if authed == Some(true) { "重新登录" } else { "登录" }}
+                                                                {if authed == Some(true) {
+                                                                    "重新登录"
+                                                                } else {
+                                                                    "登录"
+                                                                }}
                                                             </button>
                                                         }
                                                     })}
@@ -687,8 +706,14 @@ fn NodeDetail(name: String) -> impl IntoView {
                     }}
                 </PrefGroup>
                 <super::hubs::NodeHubs name=nm.get_value() online=Signal::derive(online) />
-                <PrefGroup title="维护" note="查找已不属于工作区的目录，确认后删除。">
-                    <PrefRow label="残留目录" detail="磁盘上未被 Blazar 记录的隔离工作区和私有目录。">
+                <PrefGroup
+                    title="维护"
+                    note="查找已不属于工作区的目录，确认后删除。"
+                >
+                    <PrefRow
+                        label="残留目录"
+                        detail="磁盘上未被 Blazar 记录的隔离工作区和私有目录。"
+                    >
                         {offline_note}
                         <button
                             type="button"
@@ -696,12 +721,15 @@ fn NodeDetail(name: String) -> impl IntoView {
                             disabled=move || listing_left.get() || sweeping.get() || !online()
                             on:click=move |_| leftovers()
                         >
-                            {move || if listing_left.get() { "查找中…" } else { "查找残留" }}
+                            {move || {
+                                if listing_left.get() { "查找中…" } else { "查找残留" }
+                            }}
                         </button>
                     </PrefRow>
                     {move || match left.get() {
                         None if listing_left.get() => {
-                            view! { <p class="pref-status">"正在查找残留目录…"</p> }.into_any()
+                            view! { <p class="pref-status">"正在查找残留目录…"</p> }
+                                .into_any()
                         }
                         None => ().into_any(),
                         Some(Err(e)) => {
@@ -744,7 +772,12 @@ fn NodeDetail(name: String) -> impl IntoView {
                                         let detail = [
                                             Some(s(&l, "branch")).filter(|x| !x.is_empty()),
                                             Some(kb(l["size_kb"].as_f64().unwrap_or(0.0))),
-                                            Some(format!("闲置 {} 天", l["idle_days"].as_i64().unwrap_or(0))),
+                                            Some(
+                                                format!(
+                                                    "闲置 {} 天",
+                                                    l["idle_days"].as_i64().unwrap_or(0),
+                                                ),
+                                            ),
                                             Some(orphan_state(&l)),
                                         ]
                                             .into_iter()
@@ -790,7 +823,13 @@ fn NodeDetail(name: String) -> impl IntoView {
                                         disabled=move || sweeping.get()
                                         on:click=move |_| sweep()
                                     >
-                                        {move || if sweeping.get() { "删除中…" } else { "删除所选目录" }}
+                                        {move || {
+                                            if sweeping.get() {
+                                                "删除中…"
+                                            } else {
+                                                "删除所选目录"
+                                            }
+                                        }}
                                     </button>
                                 </PrefRow>
                             }

@@ -25,12 +25,10 @@ pub fn PageHead(
                             "/"
                         </span>
                     }
-                })}
-            {icon.map(|icon| view! { <span class="page-icon">{icon.run()}</span> })}
+                })} {icon.map(|icon| view! { <span class="page-icon">{icon.run()}</span> })}
             <h1>{move || title.get()}</h1>
             {status.map(|status| view! { <span class="page-status">{status.run()}</span> })}
-            {nav.map(|nav| nav.run())}
-            <span class="grow"></span>
+            {nav.map(|nav| nav.run())} <span class="grow"></span>
             {children.map(|children| view! { <div class="page-actions">{children()}</div> })}
         </header>
         {lead.map(|lead| view! { <p class="page-lead">{lead}</p> })}

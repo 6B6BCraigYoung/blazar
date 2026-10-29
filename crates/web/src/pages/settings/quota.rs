@@ -72,7 +72,11 @@ pub(super) fn QuotaSettings() -> impl IntoView {
                                         busy.set(true);
                                         leptos::task::spawn_local(async move {
                                             let t = n as f64 / 100.0;
-                                            if !save("PUT", "/api/settings", json!({"quota": {"threshold": t}}))
+                                            if !save(
+                                                    "PUT",
+                                                    "/api/settings",
+                                                    json!({"quota": {"threshold": t}}),
+                                                )
                                                 .await
                                             {
                                                 limit.set(old);

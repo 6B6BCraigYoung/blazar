@@ -48,12 +48,7 @@ fn lifetime_chip(b: &Value) -> Option<AnyView> {
     }
     let hours = b["idle_ttl_secs"].as_i64().unwrap_or(86_400) / 3600;
     let title = format!("临时 bot：闲置 {hours} 小时后自动归档");
-    Some(
-        view! {
-            <span title=title>"临时"</span>
-        }
-        .into_any(),
-    )
+    Some(view! { <span title=title>"临时"</span> }.into_any())
 }
 
 fn mail_status(s: &str) -> &'static str {
@@ -280,7 +275,10 @@ pub fn BotsPage() -> impl IntoView {
                                     icon=icon::BOT
                                     title=empty::never("归档的 bot")
                                     detail="临时 bot 闲置到期后会归档到这里，可以恢复。"
-                                    action=Action::new("返回在用的", move || archived.set(false))
+                                    action=Action::new(
+                                        "返回在用的",
+                                        move || archived.set(false),
+                                    )
                                 />
                             }
                                 .into_any()
@@ -350,7 +348,10 @@ pub fn BotsPage() -> impl IntoView {
                                                 } else {
                                                     "没有待处理邮件".into()
                                                 }}
-                                                {b["hot"].as_bool().filter(|h| *h).map(|_| " · 保持在线")}
+                                                {b["hot"]
+                                                    .as_bool()
+                                                    .filter(|h| *h)
+                                                    .map(|_| " · 保持在线")}
                                                 {b["last_active_at"]
                                                     .as_str()
                                                     .map(|t| format!(" · 最近活动 {}", fmt::ago(t)))}
@@ -371,7 +372,9 @@ pub fn BotsPage() -> impl IntoView {
                                                             "认领 "
                                                             {claims
                                                                 .iter()
-                                                                .map(|c| format!("{} {}", fmt::machine(&s(c, "node")), s(c, "scope")))
+                                                                .map(|c| {
+                                                                    format!("{} {}", fmt::machine(&s(c, "node")), s(c, "scope"))
+                                                                })
                                                                 .collect::<Vec<_>>()
                                                                 .join("，")}
                                                         </div>
@@ -618,9 +621,7 @@ fn NewBotForm(on_close: Callback<()>) -> impl IntoView {
                         <option value="worker" selected=true>
                             "执行 · 负责具体工作"
                         </option>
-                        <option value="lead">
-                            "总控 · 可以给其他 bot 派活"
-                        </option>
+                        <option value="lead">"总控 · 可以给其他 bot 派活"</option>
                     </select>
                 </label>
                 <label class="field">
@@ -870,55 +871,71 @@ pub fn BotPage() -> impl IntoView {
                             } else {
                                 let mut items = Vec::new();
                                 if temporary {
-                                    items.push(MenuItem::new(
-                                        "转为固定",
-                                        move || call(
-                                            "POST",
-                                            format!("/api/bots/{}/promote", api::enc(&b6)),
-                                            json!({}),
-                                            "已转为固定 bot，不再自动归档",
-                                        ),
-                                    ));
+                                    items
+                                        .push(
+                                            MenuItem::new(
+                                                "转为固定",
+                                                move || call(
+                                                    "POST",
+                                                    format!("/api/bots/{}/promote", api::enc(&b6)),
+                                                    json!({}),
+                                                    "已转为固定 bot，不再自动归档",
+                                                ),
+                                            ),
+                                        );
                                 }
-                                items.push(MenuItem::new(
-                                    if hot { "结束保持在线" } else { "保持在线 30 分钟" },
-                                    move || call(
-                                        "PUT",
-                                        format!("/api/bots/{}", api::enc(&b1)),
-                                        json!({ "hot_for_secs": if hot { 0 } else { 1800 } }),
-                                        if hot {
-                                            "已结束保持在线"
-                                        } else {
-                                            "接下来 30 分钟保持在线，新消息会立即送达"
-                                        },
-                                    ),
-                                ));
-                                items.push(MenuItem::new(
-                                    if paused { "恢复" } else { "暂停" },
-                                    move || call(
-                                        "POST",
-                                        format!(
-                                            "/api/bots/{}/{}",
-                                            api::enc(&b2),
-                                            if paused { "resume" } else { "pause" },
+                                items
+                                    .push(
+                                        MenuItem::new(
+                                            if hot {
+                                                "结束保持在线"
+                                            } else {
+                                                "保持在线 30 分钟"
+                                            },
+                                            move || call(
+                                                "PUT",
+                                                format!("/api/bots/{}", api::enc(&b1)),
+                                                json!({ "hot_for_secs": if hot { 0 } else { 1800 } }),
+                                                if hot {
+                                                    "已结束保持在线"
+                                                } else {
+                                                    "接下来 30 分钟保持在线，新消息会立即送达"
+                                                },
+                                            ),
                                         ),
-                                        json!({}),
-                                        "",
-                                    ),
-                                ));
-                                items.push(MenuItem::danger(
-                                    "归档",
-                                    move || {
-                                        let id = b3.clone();
-                                        let name = name.clone();
-                                        spawn_local(async move {
-                                            if crate::files_js::confirm_leave().await {
-                                                nav.with_value(|n| n("/bots", Default::default()));
-                                                archive_bot(&id, &name, move || app.load_bots());
-                                            }
-                                        });
-                                    },
-                                ));
+                                    );
+                                items
+                                    .push(
+                                        MenuItem::new(
+                                            if paused { "恢复" } else { "暂停" },
+                                            move || call(
+                                                "POST",
+                                                format!(
+                                                    "/api/bots/{}/{}",
+                                                    api::enc(&b2),
+                                                    if paused { "resume" } else { "pause" },
+                                                ),
+                                                json!({}),
+                                                "",
+                                            ),
+                                        ),
+                                    );
+                                items
+                                    .push(
+                                        MenuItem::danger(
+                                            "归档",
+                                            move || {
+                                                let id = b3.clone();
+                                                let name = name.clone();
+                                                spawn_local(async move {
+                                                    if crate::files_js::confirm_leave().await {
+                                                        nav.with_value(|n| n("/bots", Default::default()));
+                                                        archive_bot(&id, &name, move || app.load_bots());
+                                                    }
+                                                });
+                                            },
+                                        ),
+                                    );
                                 view! {
                                     <MoreMenu
                                         label="更多操作".to_owned()
@@ -1249,9 +1266,15 @@ pub fn BotPage() -> impl IntoView {
                                                                 view! {
                                                                     <li>
                                                                         <span class="mono">
-                                                                            {format!("{} {}", fmt::machine(&s(&c, "node")), s(&c, "scope"))}
+                                                                            {format!(
+                                                                                "{} {}",
+                                                                                fmt::machine(&s(&c, "node")),
+                                                                                s(&c, "scope"),
+                                                                            )}
                                                                         </span>
-                                                                        <span class="gchip">{crate::vocab::term(&s(&c, "mode")).to_owned()}</span>
+                                                                        <span class="gchip">
+                                                                            {crate::vocab::term(&s(&c, "mode")).to_owned()}
+                                                                        </span>
                                                                         {c["hands"]
                                                                             .as_str()
                                                                             .map(|h| {
@@ -1304,7 +1327,9 @@ pub fn BotPage() -> impl IntoView {
                                                     .filter(|n| n.name != "local")
                                                     .map(|n| {
                                                         view! {
-                                                            <option value=n.name.clone()>{fmt::machine(&n.name)}</option>
+                                                            <option value=n
+                                                                .name
+                                                                .clone()>{fmt::machine(&n.name)}</option>
                                                         }
                                                     })
                                                     .collect_view()}

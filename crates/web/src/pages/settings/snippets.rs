@@ -54,14 +54,19 @@ pub(super) fn SnippetSettings() -> impl IntoView {
         );
     });
     view! {
-        <PrefGroup
-            note="把验收清单、代码规范等常用内容存下来，在对话里输入 @ 选择片段。"
-        >
+        <PrefGroup note="把验收清单、代码规范等常用内容存下来，在对话里输入 @ 选择片段。">
             <PrefList
                 label="片段"
                 selected
                 on_add=Callback::new(move |()| {
-                    draft.set(Some(Draft { id: None, name: String::new(), body: String::new() }))
+                    draft
+                        .set(
+                            Some(Draft {
+                                id: None,
+                                name: String::new(),
+                                body: String::new(),
+                            }),
+                        )
                 })
                 on_remove=remove
                 on_edit=edit

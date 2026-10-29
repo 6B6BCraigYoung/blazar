@@ -351,10 +351,7 @@ pub fn NodesPage() -> impl IntoView {
                     .get()
                     .map(|message| {
                         view! {
-                            <InlineError
-                                message
-                                retry=Callback::new(move |_| app.load_state())
-                            />
+                            <InlineError message retry=Callback::new(move |_| app.load_state()) />
                         }
                     })
             }}
@@ -370,7 +367,11 @@ pub fn NodesPage() -> impl IntoView {
                     let filtered = !q.with(String::is_empty);
                     return view! {
                         <EmptyState
-                            title=if filtered { "没有匹配的机器" } else { "还没有可用机器" }
+                            title=if filtered {
+                                "没有匹配的机器"
+                            } else {
+                                "还没有可用机器"
+                            }
                             detail=if filtered {
                                 "换个名称搜索，或清空筛选。"
                             } else {

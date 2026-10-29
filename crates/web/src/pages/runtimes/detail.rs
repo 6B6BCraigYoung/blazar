@@ -213,14 +213,15 @@ pub(super) fn RuntimeDetail(id: String) -> impl IntoView {
                 status=move || {
                     view! {
                         {move || {
-                            rt().map(|r| {
-                                let a = accounts
-                                    .get()
-                                    .and_then(Result::ok)
-                                    .and_then(|a| active_account(&a, &id_s.get_value()));
-                                let (text, tone) = runtime_status(&r, a.as_ref());
-                                view! { <Status tone label=text title=a.map(|a| a.label) /> }
-                            })
+                            rt()
+                                .map(|r| {
+                                    let a = accounts
+                                        .get()
+                                        .and_then(Result::ok)
+                                        .and_then(|a| active_account(&a, &id_s.get_value()));
+                                    let (text, tone) = runtime_status(&r, a.as_ref());
+                                    view! { <Status tone label=text title=a.map(|a| a.label) /> }
+                                })
                         }}
                         <Checking busy=checking />
                     }
@@ -299,7 +300,10 @@ pub(super) fn RuntimeDetail(id: String) -> impl IntoView {
                             </PrefGroup>
                         }
                     })}
-                <PrefGroup title="配置" note="按机器单独设置，或保留全局默认。改动随手保存。">
+                <PrefGroup
+                    title="配置"
+                    note="按机器单独设置，或保留全局默认。改动随手保存。"
+                >
                     <PrefRow label="适用机器" for_id="rt-node">
                         <select
                             id="rt-node"
@@ -311,7 +315,11 @@ pub(super) fn RuntimeDetail(id: String) -> impl IntoView {
                             {node_options}
                         </select>
                     </PrefRow>
-                    <PrefRow label="程序路径" detail="安装在自定义位置时填写。" for_id="rt-path">
+                    <PrefRow
+                        label="程序路径"
+                        detail="安装在自定义位置时填写。"
+                        for_id="rt-path"
+                    >
                         <input
                             id="rt-path"
                             class="settings-input"
@@ -333,7 +341,11 @@ pub(super) fn RuntimeDetail(id: String) -> impl IntoView {
                             }
                         />
                     </PrefRow>
-                    <PrefRow label="模型" detail="留空用运行时自己的默认模型。" for_id="rt-model">
+                    <PrefRow
+                        label="模型"
+                        detail="留空用运行时自己的默认模型。"
+                        for_id="rt-model"
+                    >
                         <input
                             id="rt-model"
                             class="settings-input"
@@ -357,7 +369,9 @@ pub(super) fn RuntimeDetail(id: String) -> impl IntoView {
                     </PrefRow>
                     <PrefRow label="权限模式" for_id="rt-permission">
                         {if modes.is_empty() {
-                            view! { <span class="pref-text">"此运行时不支持权限模式"</span> }
+                            view! {
+                                <span class="pref-text">"此运行时不支持权限模式"</span>
+                            }
                                 .into_any()
                         } else {
                             view! {
@@ -378,7 +392,10 @@ pub(super) fn RuntimeDetail(id: String) -> impl IntoView {
                                         ));
                                     }
                                 >
-                                    <option value="" selected=move || draft.get().permission.is_empty()>
+                                    <option
+                                        value=""
+                                        selected=move || draft.get().permission.is_empty()
+                                    >
                                         "默认"
                                     </option>
                                     {modes
@@ -399,7 +416,11 @@ pub(super) fn RuntimeDetail(id: String) -> impl IntoView {
                                 .into_any()
                         }}
                     </PrefRow>
-                    <PrefRow label="最大并发" detail="1 到 16 个同时运行的会话。" for_id="rt-concurrency">
+                    <PrefRow
+                        label="最大并发"
+                        detail="1 到 16 个同时运行的会话。"
+                        for_id="rt-concurrency"
+                    >
                         <input
                             id="rt-concurrency"
                             class="settings-input"
@@ -432,21 +453,22 @@ pub(super) fn RuntimeDetail(id: String) -> impl IntoView {
                             <code>{move || program.get()}</code>
                         </PrefRow>
                         {move || {
-                            rt().map(|r| {
-                                view! {
-                                    <PrefRow label="版本">
-                                        <code>{r.version.unwrap_or_else(|| "—".into())}</code>
-                                    </PrefRow>
-                                    <PrefRow label="路径">
-                                        <code>{r.path.unwrap_or_else(|| "—".into())}</code>
-                                    </PrefRow>
-                                    <PrefRow label="登录方式">
-                                        <span class="pref-text">
-                                            {r.auth_hint.unwrap_or_else(|| "—".into())}
-                                        </span>
-                                    </PrefRow>
-                                }
-                            })
+                            rt()
+                                .map(|r| {
+                                    view! {
+                                        <PrefRow label="版本">
+                                            <code>{r.version.unwrap_or_else(|| "—".into())}</code>
+                                        </PrefRow>
+                                        <PrefRow label="路径">
+                                            <code>{r.path.unwrap_or_else(|| "—".into())}</code>
+                                        </PrefRow>
+                                        <PrefRow label="登录方式">
+                                            <span class="pref-text">
+                                                {r.auth_hint.unwrap_or_else(|| "—".into())}
+                                            </span>
+                                        </PrefRow>
+                                    }
+                                })
                         }}
                         {move || {
                             found()
@@ -514,7 +536,10 @@ pub(super) fn RuntimeDetail(id: String) -> impl IntoView {
                                                     .join(" · ");
                                                 view! {
                                                     <PrefRow
-                                                        label=c.node.clone().unwrap_or_else(|| "（全局默认）".into())
+                                                        label=c
+                                                            .node
+                                                            .clone()
+                                                            .unwrap_or_else(|| "（全局默认）".into())
                                                         detail=detail
                                                     >
                                                         <button

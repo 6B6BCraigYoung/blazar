@@ -62,7 +62,11 @@ pub fn UsagePage() -> impl IntoView {
                     }
                 }
             >
-                <div class="settings-actions usage-period" role="group" aria-label="统计时间范围">
+                <div
+                    class="settings-actions usage-period"
+                    role="group"
+                    aria-label="统计时间范围"
+                >
                     <h2>{move || format!("近 {} 天", days.get())}</h2>
                     <div class="seg">
                         {[7, 30, 90]
@@ -101,7 +105,9 @@ pub fn UsagePage() -> impl IntoView {
                 <details class="usage-details">
                     <summary>"累计 Token 与费用"</summary>
                     {move || match usage.get() {
-                        None => view! { <LoadingState text="正在加载累计用量…" /> }.into_any(),
+                        None => {
+                            view! { <LoadingState text="正在加载累计用量…" /> }.into_any()
+                        }
                         Some(Err(e)) => {
                             view! {
                                 <InlineError
@@ -125,7 +131,8 @@ pub fn UsagePage() -> impl IntoView {
                             let mut workspaces = list(&u, "by_workspace");
                             workspaces
                                 .sort_by(|a, b| {
-                                    n(&b["usage"], "cost_usd").total_cmp(&n(&a["usage"], "cost_usd"))
+                                    n(&b["usage"], "cost_usd")
+                                        .total_cmp(&n(&a["usage"], "cost_usd"))
                                 });
                             view! {
                                 <div class="usage-kpis">
@@ -172,9 +179,15 @@ pub fn UsagePage() -> impl IntoView {
                                                                     view! {
                                                                         <tr>
                                                                             <td>{s(&w, "workspace")}</td>
-                                                                            <td class="num">{format!("{:.0}", n(&w["usage"], "calls"))}</td>
-                                                                            <td class="num">{format!("{:.0}", n(&w["usage"], "output"))}</td>
-                                                                            <td class="num">{format!("${:.4}", n(&w["usage"], "cost_usd"))}</td>
+                                                                            <td class="num">
+                                                                                {format!("{:.0}", n(&w["usage"], "calls"))}
+                                                                            </td>
+                                                                            <td class="num">
+                                                                                {format!("{:.0}", n(&w["usage"], "output"))}
+                                                                            </td>
+                                                                            <td class="num">
+                                                                                {format!("${:.4}", n(&w["usage"], "cost_usd"))}
+                                                                            </td>
                                                                         </tr>
                                                                     }
                                                                 })
@@ -465,8 +478,7 @@ fn Analytics(data: Value, days: u32, widen: Callback<()>) -> impl IntoView {
                                 </div>
                             }
                         })
-                        .collect_view()}
-                    <div class="usage-line" inner_html=line_svg></div>
+                        .collect_view()} <div class="usage-line" inner_html=line_svg></div>
                 </div>
             </div>
             <div class="settings-actions muted">
@@ -539,7 +551,10 @@ fn Analytics(data: Value, days: u32, widen: Callback<()>) -> impl IntoView {
                                         view! {
                                             <tr
                                                 class="link-row"
-                                                on:click=move |e: leptos::ev::MouseEvent| open_row(&e, "a.cell-link")
+                                                on:click=move |e: leptos::ev::MouseEvent| open_row(
+                                                    &e,
+                                                    "a.cell-link",
+                                                )
                                             >
                                                 <td>
                                                     {match b["agent_id"].as_str() {

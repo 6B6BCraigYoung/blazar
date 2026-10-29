@@ -254,7 +254,11 @@ pub fn Inspector(id: String, on_close: impl Fn() + Copy + Send + Sync + 'static)
             .unwrap_or_else(|| crate::home_rows::status("", None))
     };
     view! {
-        <Modal label="工作区简介" class="dlg wide ws-info" on_close=Callback::new(move |_| close())>
+        <Modal
+            label="工作区简介"
+            class="dlg wide ws-info"
+            on_close=Callback::new(move |_| close())
+        >
             <div
                 class="ws-info-body"
                 on:keydown=move |e: ev::KeyboardEvent| {
@@ -289,7 +293,11 @@ pub fn Inspector(id: String, on_close: impl Fn() + Copy + Send + Sync + 'static)
                         let project = d["project"].as_str().unwrap_or("—").to_owned();
                         let branch = s("branch");
                         let base: String = s("base_commit").chars().take(10).collect();
-                        let origin = if s("origin") == "task" { "批量派发" } else { "手动创建" };
+                        let origin = if s("origin") == "task" {
+                            "批量派发"
+                        } else {
+                            "手动创建"
+                        };
                         let created = fmt::ago(&s("created_at"));
                         let sessions: Vec<Value> = d["sessions"]
                             .as_array()
@@ -370,14 +378,18 @@ pub fn Inspector(id: String, on_close: impl Fn() + Copy + Send + Sync + 'static)
                                         .into_iter()
                                         .take(8)
                                         .map(|x| {
-                                            let runtime = vocab::term(x["runtime"].as_str().unwrap_or(""))
+                                            let runtime = vocab::term(
+                                                    x["runtime"].as_str().unwrap_or(""),
+                                                )
                                                 .to_owned();
                                             let title = x["title"]
                                                 .as_str()
                                                 .filter(|t| !t.trim().is_empty())
                                                 .unwrap_or("新对话")
                                                 .to_owned();
-                                            let (status, _) = vocab::state(x["status"].as_str().unwrap_or(""));
+                                            let (status, _) = vocab::state(
+                                                x["status"].as_str().unwrap_or(""),
+                                            );
                                             view! {
                                                 <PrefRow
                                                     label=format!("{runtime} · {title}")

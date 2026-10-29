@@ -131,9 +131,7 @@ pub(super) fn ShortcutSettings() -> impl IntoView {
         flash("已保存");
     };
     view! {
-        <PrefGroup
-            note="点一下快捷键，按下新的组合键；⌫ 清除，Esc 取消。不带 ⌘ / Ctrl 的组合在输入框内不生效。"
-        >
+        <PrefGroup note="点一下快捷键，按下新的组合键；⌫ 清除，Esc 取消。不带 ⌘ / Ctrl 的组合在输入框内不生效。">
             {SHORTCUTS
                 .iter()
                 .map(move |&(id, label, default)| {
@@ -234,7 +232,10 @@ pub(super) fn ShortcutSettings() -> impl IntoView {
                         if ask(
                                 "恢复默认快捷键",
                                 "自定义快捷键将被清除。",
-                                vec![Choice::plain("保留自定义"), Choice::danger("恢复默认")],
+                                vec![
+                                    Choice::plain("保留自定义"),
+                                    Choice::danger("恢复默认"),
+                                ],
                             )
                             .await != Some(1)
                         {
