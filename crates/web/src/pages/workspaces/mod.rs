@@ -574,6 +574,8 @@ fn key_hint(ask: bool) -> AnyView {
             <span class="home-keys">
                 <kbd>{approval_key_hint(0)}</kbd>
                 "允许"
+                <kbd>{approval_key_hint(1)}</kbd>
+                "总是允许"
                 <kbd>{approval_key_hint(2)}</kbd>
                 "拒绝"
             </span>

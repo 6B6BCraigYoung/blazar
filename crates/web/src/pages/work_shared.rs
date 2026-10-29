@@ -14,6 +14,17 @@ pub fn decide_approval(
     answers: Option<Value>,
     done: impl Fn() + 'static,
 ) {
+    send_decision(gate, id, allow, answers, true, done);
+}
+
+fn send_decision(
+    gate: RwSignal<ActionGate>,
+    id: String,
+    allow: bool,
+    answers: Option<Value>,
+    announce: bool,
+    done: impl Fn() + 'static,
+) {
     if !gate.write().begin(&id) {
         return;
     }
@@ -24,7 +35,9 @@ pub fn decide_approval(
         }
         match api::send::<Value>("POST", &format!("/api/approvals/{id}"), &body).await {
             Ok(r) if r["delivered"].as_bool() == Some(true) => {
-                toast(if allow { "已允许" } else { "已拒绝" });
+                if announce {
+                    toast(if allow { "已允许" } else { "已拒绝" });
+                }
             }
             Ok(r) => toast(r["reason"].as_str().unwrap_or("没能送达").to_owned()),
             Err(e) => toast(e.to_string()),
@@ -52,7 +65,9 @@ pub fn allow_always(
         };
         let ok = crate::components::dialog::ask(
             "不再询问",
-            &format!("在这个工作区里总是允许「{what}」？\n\n之后可以在设置里关掉。"),
+            &format!(
+                "在这个工作区里总是允许「{what}」？\n\n以后同样的操作不再问你。在「设置 → 自动批准」里能看到这条规则，随时关掉或删除。"
+            ),
             vec![
                 crate::components::dialog::Choice::plain("取消"),
                 crate::components::dialog::Choice::plain("总是允许"),
@@ -69,10 +84,40 @@ pub fn allow_always(
         )
         .await
         {
-            Ok(_) => decide_approval(gate, id, true, None, done),
-            Err(e) => toast(e.to_string()),
+            Ok(r) => {
+                let rule = r["id"].as_str().unwrap_or_default().to_owned();
+                send_decision(gate, id, true, None, false, move || {
+                    offer_rule_undo(rule.clone(), what.clone());
+                    done();
+                });
+            }
+            Err(e) => toast(crate::vocab::error(&e.to_string(), None)),
         }
     });
+}
+
+/// A new always-allow rule is announced with a way to take it back on the spot; the
+/// approval itself stays allowed, only later ones go back to asking.
+fn offer_rule_undo(rule: String, what: String) {
+    if rule.is_empty() {
+        toast(format!("已允许，以后不再问「{what}」"));
+        return;
+    }
+    crate::components::toast::offer(
+        format!("已允许，以后不再问「{what}」"),
+        "撤销",
+        8000,
+        move || {
+            let rule = rule.clone();
+            spawn_local(async move {
+                let path = format!("/api/approval-rules/{}", api::enc(&rule));
+                match api::send::<Value>("DELETE", &path, &json!({})).await {
+                    Ok(_) => toast("下次还会问你"),
+                    Err(e) => toast(crate::vocab::error(&e.to_string(), None)),
+                }
+            });
+        },
+    );
 }
 
 pub fn approval_key_hint(i: usize) -> String {

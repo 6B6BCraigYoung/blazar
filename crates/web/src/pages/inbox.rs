@@ -950,7 +950,8 @@ fn row_view(ctx: Ctx, i: usize, it: Item, pending: Option<Value>) -> impl IntoVi
             question_panel(ctx, aid, &a, href.clone(), item_id)
         } else {
             let (label, what) = approval_summary(&a["request"], "");
-            let (a1, a2, a3, a4) = (aid.clone(), aid.clone(), aid.clone(), aid);
+            let (a1, a2, a3, a4) = (aid.clone(), aid.clone(), aid.clone(), aid.clone());
+            let (a5, req, ws) = (aid.clone(), a["request"].clone(), it.workspace.clone());
             view! {
                 <div class="inbox-act" data-ui-guard="">
                     <code class="inbox-cmd" title=what.clone()>
@@ -964,6 +965,26 @@ fn row_view(ctx: Ctx, i: usize, it: Item, pending: Option<Value>) -> impl IntoVi
                     >
                         "允许"
                         <kbd>{approval_key_hint(0)}</kbd>
+                    </button>
+                    <button
+                        type="button"
+                        class="btn small"
+                        disabled=move || ctx.gate.with(|g| g.busy(&a5))
+                        on:click=move |_| {
+                            allow_always(
+                                ctx.gate,
+                                aid.clone(),
+                                req.clone(),
+                                ws.clone(),
+                                move || {
+                                    let _ = ctx.appr_rev.try_update(|n| *n += 1);
+                                    refresh(ctx.rev);
+                                },
+                            )
+                        }
+                    >
+                        "总是允许"
+                        <kbd>{approval_key_hint(1)}</kbd>
                     </button>
                     <button
                         type="button"

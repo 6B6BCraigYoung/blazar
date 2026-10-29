@@ -170,7 +170,7 @@ impl Chat {
             let ok = dialog::ask(
                 "Don't ask again",
                 &format!(
-                    "Always allow \"{what}\" in this workspace?\n\nYou can turn this off in Settings."
+                    "Always allow \"{what}\" in this workspace?\n\nThe same action won't ask again here. The rule is listed in Settings → 自动批准, where you can turn it off or delete it."
                 ),
                 vec![Choice::plain("Cancel"), Choice::plain("Always allow")],
             )
@@ -185,7 +185,26 @@ impl Chat {
             )
             .await
             {
-                Ok(_) => self.decide(id, true, String::new(), None),
+                Ok(r) => {
+                    self.decide(id, true, String::new(), None);
+                    let rule = r["id"].as_str().unwrap_or_default().to_owned();
+                    if !rule.is_empty() {
+                        crate::components::toast::offer(
+                            format!("Allowed. \"{what}\" won't ask again here"),
+                            "Undo",
+                            8000,
+                            move || {
+                                let path = format!("/api/approval-rules/{}", api::enc(&rule));
+                                leptos::task::spawn_local(async move {
+                                    match api::send::<Value>("DELETE", &path, &json!({})).await {
+                                        Ok(_) => toast("It will ask next time"),
+                                        Err(e) => toast(format!("Couldn't undo: {e}")),
+                                    }
+                                });
+                            },
+                        );
+                    }
+                }
                 Err(e) => toast(e.to_string()),
             }
         });
