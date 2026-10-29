@@ -216,8 +216,21 @@ struct ScriptRun {
 }
 
 #[component]
-pub fn PreviewBar(ws: String, active: Signal<bool>, isolated: Signal<bool>) -> impl IntoView {
+pub fn PreviewBar(
+    ws: String,
+    active: Signal<bool>,
+    isolated: Signal<bool>,
+    /// 有没有预览可看（开发服务在跑或有预览地址），右侧面板据此决定要不要标签行。
+    live: RwSignal<bool>,
+) -> impl IntoView {
     let dev = RwSignal::new(None::<Dev>);
+    Effect::new(move |_| {
+        let on = dev.with(|d| {
+            d.as_ref()
+                .is_some_and(|d| d.running || d.preview_url.is_some())
+        });
+        live.set(on);
+    });
     let load_error = RwSignal::new(None::<String>);
     let busy = RwSignal::new(None::<&'static str>);
     let url_override = RwSignal::new(String::new());

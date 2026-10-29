@@ -79,35 +79,24 @@ pub fn Inspector(
             .into_any()
         }
     };
+    // 预览有没有东西可看（开发服务在跑或有预览地址），由预览栏报上来。
+    let preview_live = RwSignal::new(false);
+    // 只开着「更改」、又没有打开的文件和预览时，不要标签行：放大和关闭挪进差异栏。
+    let bare = Signal::derive(move || {
+        lay().tab == Tab::Changes && files.open_tabs.with(Vec::is_empty) && !preview_live.get()
+    });
     // 「更改」的入口只有页头那一个按钮，标签里不再放第二个。
     view! {
-        <div class="rhead insp-head">
-            <div class="rtabs" role="tablist" aria-label="右侧面板">
-                {tab(Tab::Editor, "编辑器")}
-                {tab(Tab::Preview, "预览")}
+        <Show when=move || !bare.get()>
+            <div class="rhead insp-head">
+                <div class="rtabs" role="tablist" aria-label="右侧面板">
+                    {tab(Tab::Editor, "编辑器")}
+                    {tab(Tab::Preview, "预览")}
+                </div>
+                <span class="grow"></span>
+                <PanelButtons state />
             </div>
-            <span class="grow"></span>
-            <button
-                type="button"
-                class="laybtn insp-max"
-                aria-label=move || {
-                    if lay().max { "还原右侧面板" } else { "放大右侧面板" }
-                }
-                title=move || if lay().max { "还原右侧面板" } else { "放大右侧面板" }
-                aria-pressed=move || lay().max.to_string()
-                inner_html=move || if lay().max { ICON_RESTORE } else { ICON_MAX }
-                on:click=move |_| state.set_max(!lay().max)
-            ></button>
-            <button
-                type="button"
-                class="laybtn"
-                aria-label="关闭右侧面板"
-                title="关闭 Esc"
-                on:click=move |_| state.close()
-            >
-                "×"
-            </button>
-        </div>
+        </Show>
         <div class="insp-body">
             <div
                 class="ipane ed"
@@ -150,13 +139,39 @@ pub fn Inspector(
                 </div>
             </div>
             <div class="ipane col" data-active=on(Tab::Changes)>
-                <DiffBar d=diff git collapsed draft state />
+                <DiffBar d=diff git collapsed draft state bare />
                 <GitLine git draft />
                 <DiffView ws=ws.clone() d=diff files collapsed />
             </div>
             <div class="ipane col" data-active=on(Tab::Preview)>
-                <PreviewBar ws=ws.clone() active=preview_on isolated />
+                <PreviewBar ws=ws.clone() active=preview_on isolated live=preview_live />
             </div>
         </div>
+    }
+}
+
+/// 右侧面板的放大 / 还原和关闭。平时在标签行最右边；没有标签行时在差异栏最右边。
+#[component]
+pub fn PanelButtons(state: LayoutState) -> impl IntoView {
+    let max = move || state.lay.with(|l| l.max);
+    view! {
+        <button
+            type="button"
+            class="laybtn insp-max"
+            aria-label=move || if max() { "还原右侧面板" } else { "放大右侧面板" }
+            title=move || if max() { "还原右侧面板" } else { "放大右侧面板" }
+            aria-pressed=move || max().to_string()
+            inner_html=move || if max() { ICON_RESTORE } else { ICON_MAX }
+            on:click=move |_| state.set_max(!max())
+        ></button>
+        <button
+            type="button"
+            class="laybtn"
+            aria-label="关闭右侧面板"
+            title="关闭 Esc"
+            on:click=move |_| state.close()
+        >
+            "×"
+        </button>
     }
 }

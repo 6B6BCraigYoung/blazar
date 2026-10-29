@@ -1,16 +1,12 @@
-//! 「更改」视图里和提交、推送、PR 有关的部分：右上角的主按钮、⋯ 菜单里的 Git 操作，
-//! 以及差异上方那一行分支状态。看改了什么的列表就是差异本身，这里不再列一遍。
+//! 「更改」视图里和提交、推送、PR 有关的部分：右上角的主按钮、⋯ 菜单里的 Git 操作、
+//! 差异栏上的分支下拉，以及冲突、提交列表这些按需出现在差异上方的条。看改了什么的列表就是差异本身，这里不再列一遍。
 
-use leptos::html;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
-use wasm_bindgen::JsCast;
 
 use crate::api::{self, GitStatus, PrDetail};
 use crate::components::dialog::{self, Choice};
-use crate::components::menu::menu_keydown;
-use crate::components::rows::{MenuAt, RowAction, RowMenu};
-use crate::components::status::{InlineError, Status, Tone};
+use crate::components::status::InlineError;
 use crate::components::toast::toast;
 use crate::fmt;
 
@@ -30,6 +26,8 @@ pub struct Git {
     pub pr: RwSignal<Option<PrDetail>>,
     pub reload: RwSignal<u32>,
     pub changed: RwSignal<u32>,
+    /// 提交列表在差异上方展开着没有；开关在分支下拉里。
+    pub commits_open: RwSignal<bool>,
     form: RwSignal<Option<Form>>,
     ws: StoredValue<String>,
 }
@@ -330,6 +328,7 @@ pub fn NextButton(git: Git) -> impl IntoView {
 }
 
 /// 「更改」⋯ 菜单里的 Git 部分。主按钮已经露出来的那一项不再重复；变基和强制推送收在「高级」里。
+/// 同步、改分支名、要合到哪里在分支下拉里，这里不重复。
 #[component]
 pub fn GitMenuItems(git: Git, close: Callback<()>) -> impl IntoView {
     let advanced = RwSignal::new(false);
@@ -395,30 +394,6 @@ pub fn GitMenuItems(git: Git, close: Callback<()>) -> impl IntoView {
                     format!("合并进 {target}"),
                     "在本地把这条分支合进去",
                     Callback::new(move |()| git.run("merge")),
-                )
-                .into_any(),
-            );
-        }
-        if c.fetch {
-            items.push(
-                item(
-                    if git.busy_with("fetch") {
-                        "同步中…".into()
-                    } else {
-                        "同步到最新".into()
-                    },
-                    "从远端取回最新的状态，不改你的文件",
-                    Callback::new(move |()| git.run("fetch")),
-                )
-                .into_any(),
-            );
-        }
-        if c.rename {
-            items.push(
-                item(
-                    "改分支名…".into(),
-                    "",
-                    Callback::new(move |()| git.form.set(Some(Form::Rename))),
                 )
                 .into_any(),
             );
@@ -505,17 +480,60 @@ pub fn GitMenuItems(git: Git, close: Callback<()>) -> impl IntoView {
     }
 }
 
-/// 差异上方的一行：在哪条分支、要合到哪里、推没推、PR 怎样；进行到一半的合并或变基也在这里。
-#[component]
-pub fn GitLine(git: Git, draft: RwSignal<Option<String>>) -> impl IntoView {
-    let menu = RwSignal::new(None::<Vec<String>>);
-    let menu_trigger = NodeRef::<html::Button>::new();
-    let branch_menu = RwSignal::new(None::<MenuAt>);
-    let commits_open = RwSignal::new(false);
-    let any_busy = move || git.any_busy();
-    let busy = move |op: &str| git.busy_with(op);
+/// 差异栏上分支按钮的图标。
+pub const ICON_BRANCH: &str = r#"<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="8" r="2"/><path d="M6 7v10M18 10c0 5-12 3-12 7"/></svg>"#;
 
+/// 分支按钮上的名字：没在分支上时写提交号。
+pub fn branch_label(git: Git) -> String {
+    git.status.with(|g| {
+        g.as_ref().map_or_else(String::new, |g| {
+            if g.detached {
+                format!("{}（没在分支上）", g.head)
+            } else {
+                g.branch.clone()
+            }
+        })
+    })
+}
+
+/// 分支按钮旁的小圆点：和远端分叉、PR 检查失败或要求修改时亮，落后于要合到的分支时提醒。
+pub fn branch_tone(git: Git) -> Option<&'static str> {
+    let pr = git.pr.with(|d| {
+        d.as_ref().and_then(|d| {
+            if d.checks.failed > 0 || d.mergeable == "CONFLICTING" {
+                Some("failed")
+            } else if d.review == "CHANGES_REQUESTED" {
+                Some("attention")
+            } else {
+                None
+            }
+        })
+    });
+    git.status.with(|g| {
+        let g = g.as_ref().filter(|g| g.repo)?;
+        if !g.remote.is_empty() && !g.upstream.is_empty() && g.up_behind > 0 {
+            Some("failed")
+        } else if pr.is_some() {
+            pr
+        } else if g.has_target() && g.behind > 0 {
+            Some("attention")
+        } else {
+            None
+        }
+    })
+}
+
+/// 差异栏上的分支下拉：在哪条分支、推没推、要合到哪里、提交列表、PR 状态、同步、改名。
+#[component]
+pub fn BranchItems(git: Git, close: Callback<()>) -> impl IntoView {
+    let picking = RwSignal::new(false);
+    let targets = RwSignal::new(None::<Vec<String>>);
     let pick_target = move || {
+        if picking.get_untracked() {
+            picking.set(false);
+            return;
+        }
+        picking.set(true);
         let Some(g) = git.snapshot() else {
             return;
         };
@@ -534,15 +552,15 @@ pub fn GitLine(git: Git, draft: RwSignal<Option<String>>) -> impl IntoView {
                                 .collect()
                         })
                         .unwrap_or_default();
-                    let _ = menu.try_set(Some(list));
+                    let _ = targets.try_set(Some(list));
                 }
                 Err(e) => toast(e.to_string()),
             }
         });
     };
-
     let set_target = move |b: String| {
-        menu.set(None);
+        close.run(());
+        picking.set(false);
         spawn_local(async move {
             if git
                 .op("set-target", serde_json::json!({ "branch": b }))
@@ -557,223 +575,323 @@ pub fn GitLine(git: Git, draft: RwSignal<Option<String>>) -> impl IntoView {
             }
         });
     };
-
-    let line = move |g: &GitStatus| {
+    let item = move |label: String, title: &'static str, act: Callback<()>| {
+        view! {
+            <button
+                type="button"
+                role="menuitem"
+                title=title
+                disabled=move || git.any_busy()
+                on:click=move |_| {
+                    close.run(());
+                    act.run(());
+                }
+            >
+                <span>{label}</span>
+            </button>
+        }
+    };
+    move || {
+        let g = git.status.get()?;
+        if !g.repo {
+            return None;
+        }
+        let c = can(&g);
         let tgt = g.has_target();
-        let target = short_target(g);
-        let branch = if g.detached {
-            format!("没在任何分支上 · {}", g.head)
-        } else {
-            g.branch.clone()
-        };
-        let can_rename = !g.detached && g.op.is_none();
-        let target_label = if g.target.is_empty() {
-            "选一个分支".to_owned()
-        } else {
-            target.clone()
-        };
-        let guess = g.target_guess && !g.target.is_empty();
-        let branch_name = g.branch.clone();
-        let n_commits = g.commits.len();
-        let commits_label = if tgt {
-            format!("{} 个提交", g.ahead)
-        } else {
-            format!(
-                "{n_commits}{} 个提交",
-                if n_commits >= 40 { "+" } else { "" }
-            )
-        };
-        let behind = (tgt && g.behind > 0).then(|| {
-            view! {
-                <Status
-                    tone=Tone::Attention
-                    label=format!("{target} 上有 {} 个新提交", g.behind)
-                    title="这条分支还没有这些提交，合并或创建 PR 时会一起处理"
-                        .to_owned()
-                />
-            }
-        });
-        let sync = if g.remote.is_empty() {
-            Some(view! { <span>"没有远端"</span> }.into_any())
+        let target = short_target(&g);
+        let sync: Option<(Option<&'static str>, String)> = if g.remote.is_empty() {
+            Some((None, "没有远端".to_owned()))
         } else if g.detached {
             None
         } else if g.upstream.is_empty() {
-            Some(view! { <span>"还没推送过"</span> }.into_any())
+            Some((None, "还没推送过".to_owned()))
         } else if g.up_behind > 0 {
-            let label = if g.up_ahead > 0 {
-                "和远端各有对方没有的提交".to_owned()
-            } else {
-                format!("远端有 {} 个本地没有的提交", g.up_behind)
-            };
-            Some(view! { <Status tone=Tone::Failed label /> }.into_any())
+            Some((
+                Some("failed"),
+                if g.up_ahead > 0 {
+                    "和远端各有对方没有的提交".to_owned()
+                } else {
+                    format!("远端有 {} 个本地没有的提交", g.up_behind)
+                },
+            ))
         } else if g.up_ahead > 0 {
-            Some(view! { <span>{format!("{} 个提交还没推送", g.up_ahead)}</span> }.into_any())
+            Some((None, format!("{} 个提交还没推送", g.up_ahead)))
         } else {
-            Some(view! { <span>"已推送"</span> }.into_any())
+            Some((None, "已推送".to_owned()))
         };
-        let running =
-            (g.running > 0).then(|| view! { <Status tone=Tone::Run label="智能体运行中" /> });
-        view! {
-            <div class="gp-line">
-                <span
-                    class="gp-br"
-                    title=if can_rename { "当前分支（右键改名）" } else { "当前分支" }
-                    on:contextmenu=move |e: leptos::ev::MouseEvent| {
-                        if can_rename {
-                            e.prevent_default();
-                            branch_menu.set(Some(MenuAt::from(&e, 0)));
+        let note_row = |tone: Option<&'static str>, text: String| {
+            view! {
+                <span class="dv-note-row">
+                    {tone
+                        .map(|t| {
+                            view! { <span class="dot" data-tone=t aria-hidden="true"></span> }
+                        })} {text}
+                </span>
+            }
+        };
+        let info = view! {
+            <div class="menu-note dv-branch-note">
+                {sync.map(|(t, s)| note_row(t, s))}
+                {(tgt && g.behind > 0)
+                    .then(|| note_row(
+                        Some("attention"),
+                        format!("{target} 上有 {} 个新提交", g.behind),
+                    ))}
+                {(g.running > 0).then(|| note_row(Some("run"), "智能体运行中".to_owned()))}
+            </div>
+        };
+
+        // 已经在要合到的那条分支上（比如就在 main 上），没有「合到哪里」可选。
+        let target_pick = (!g.detached && !g.on_target()).then(|| {
+            let target_label = if g.target.is_empty() {
+                "选一个分支".to_owned()
+            } else {
+                target.clone()
+            };
+            let guess = g.target_guess && !g.target.is_empty();
+            let cur = g.target.clone();
+            view! {
+                <button
+                    type="button"
+                    role="menuitem"
+                    class="menu-sub"
+                    aria-expanded=move || picking.get().to_string()
+                    title="这条分支最终要合到哪里。「这条分支的全部改动」、合并和 PR 都以它为准"
+                    on:click=move |_| pick_target()
+                >
+                    <span>{format!("合到 {target_label}")}</span>
+                    {guess.then(|| view! { <small>"自动"</small> })}
+                    <span class="chev" aria-hidden="true">
+                        {move || if picking.get() { "▾" } else { "▸" }}
+                    </span>
+                </button>
+                <Show when=move || {
+                    picking.get()
+                }>
+                    {
+                        let cur = cur.clone();
+                        move || match targets.get() {
+                            None => {
+                                view! { <div class="menu-note">"读取分支…"</div> }.into_any()
+                            }
+                            Some(list) => {
+                                let cur = cur.clone();
+                                view! {
+                                    <button
+                                        type="button"
+                                        role="menuitemradio"
+                                        class="menu-adv"
+                                        aria-checked=guess.to_string()
+                                        title="main、master 或远端的默认分支"
+                                        on:click=move |_| set_target(String::new())
+                                    >
+                                        <span>"自动选择"</span>
+                                    </button>
+                                    {list
+                                        .into_iter()
+                                        .map(|b| {
+                                            let checked = !guess && b == cur;
+                                            let label = b
+                                                .strip_prefix("origin/")
+                                                .map_or_else(|| b.clone(), |s| format!("{s}（远端）"));
+                                            view! {
+                                                <button
+                                                    type="button"
+                                                    role="menuitemradio"
+                                                    class="menu-adv"
+                                                    aria-checked=checked.to_string()
+                                                    on:click=move |_| set_target(b.clone())
+                                                >
+                                                    <span>{label}</span>
+                                                </button>
+                                            }
+                                        })
+                                        .collect_view()}
+                                }
+                                    .into_any()
+                            }
                         }
                     }
+                </Show>
+            }
+        });
+
+        let n_commits = g.commits.len();
+        let commits = (n_commits > 0).then(|| {
+            let label = if tgt {
+                format!("{} 个提交", g.ahead)
+            } else {
+                format!(
+                    "{n_commits}{} 个提交",
+                    if n_commits >= 40 { "+" } else { "" }
+                )
+            };
+            let title = if tgt {
+                format!("这条分支有、{target} 没有的提交，列在差异上方")
+            } else {
+                "这条分支上的提交，列在差异上方".to_owned()
+            };
+            view! {
+                <button
+                    type="button"
+                    role="menuitemcheckbox"
+                    aria-checked=move || git.commits_open.get().to_string()
+                    title=title
+                    on:click=move |_| {
+                        close.run(());
+                        git.commits_open.update(|o| *o = !*o);
+                    }
                 >
-                    <svg
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="1.7"
-                        stroke-linecap="round"
-                    >
-                        <circle cx="6" cy="5" r="2" />
-                        <circle cx="6" cy="19" r="2" />
-                        <circle cx="18" cy="8" r="2" />
-                        <path d="M6 7v10M18 10c0 5-12 3-12 7" />
-                    </svg>
-                    <b>{branch}</b>
-                </span>
-                {move || {
-                    branch_menu
-                        .get()
-                        .map(|at| {
-                            let name = branch_name.clone();
-                            view! {
-                                <RowMenu
-                                    at
-                                    label="分支"
-                                    groups=vec![
-                                        vec![
-                                            RowAction::new(
-                                                "改名…",
-                                                move || git.form.set(Some(Form::Rename)),
-                                            ),
-                                            RowAction::new(
-                                                "复制分支名",
-                                                move || {
-                                                    let name = name.clone();
-                                                    spawn_local(async move {
-                                                        let p = window().navigator().clipboard().write_text(&name);
-                                                        if wasm_bindgen_futures::JsFuture::from(p).await.is_ok() {
-                                                            toast("已复制分支名");
-                                                        }
-                                                    });
-                                                },
-                                            ),
-                                        ],
-                                    ]
-                                    on_close=Callback::new(move |()| branch_menu.set(None))
-                                />
-                            }
-                        })
-                }}
-                <span class="more">
-                    <button
-                        class="gp-target"
-                        node_ref=menu_trigger
-                        aria-haspopup="menu"
-                        aria-expanded=move || menu.get().is_some().to_string()
-                        title="这条分支最终要合到哪里。「这条分支的全部改动」、合并和 PR 都以它为准"
-                        on:click=move |_| pick_target()
-                    >
-                        "合到 "
-                        <b>{target_label}</b>
-                        {guess.then(|| view! { <i>" 自动"</i> })}
-                        " ▾"
-                    </button>
-                    {move || {
-                        menu.get()
-                            .map(|list| {
-                                let cur = git
-                                    .status
-                                    .with_untracked(|s| {
-                                        s.as_ref().map(|s| s.target.clone()).unwrap_or_default()
-                                    });
-                                let menu_root = NodeRef::<html::Div>::new();
-                                view! {
-                                    <div
-                                        class="menu"
-                                        node_ref=menu_root
-                                        role="menu"
-                                        aria-label="要合到哪里"
-                                        on:keydown=move |event| {
-                                            if let Some(root) = menu_root.get_untracked() {
-                                                menu_keydown(
-                                                    &event,
-                                                    root.unchecked_ref(),
-                                                    Callback::new(move |_| {
-                                                        menu.set(None);
-                                                        if let Some(trigger) = menu_trigger.get_untracked() {
-                                                            let _ = trigger.focus();
-                                                        }
-                                                    }),
-                                                );
-                                            }
-                                        }
-                                        on:mouseleave=move |_| menu.set(None)
-                                    >
-                                        <button
-                                            role="menuitem"
-                                            title="main、master 或远端的默认分支"
-                                            on:click=move |_| set_target(String::new())
-                                        >
-                                            "自动选择"
-                                        </button>
-                                        <div class="menu-sep"></div>
-                                        {list
-                                            .into_iter()
-                                            .map(|b| {
-                                                let label = if b == cur {
-                                                    format!("✓ {b}")
-                                                } else {
-                                                    b.clone()
-                                                };
-                                                view! {
-                                                    <button
-                                                        role="menuitem"
-                                                        on:click=move |_| set_target(b.clone())
-                                                    >
-                                                        {label}
-                                                    </button>
-                                                }
-                                            })
-                                            .collect_view()}
-                                    </div>
-                                }
-                            })
-                    }}
-                </span>
-                {(n_commits > 0)
-                    .then(|| {
-                        view! {
-                            <button
-                                type="button"
-                                class="gp-link"
-                                aria-expanded=move || commits_open.get().to_string()
-                                title=if tgt {
-                                    format!("这条分支有、{target} 没有的提交")
-                                } else {
-                                    "这条分支上的提交".to_owned()
-                                }
-                                on:click=move |_| commits_open.update(|o| *o = !*o)
-                            >
-                                {commits_label}
-                                " ▾"
-                            </button>
+                    <span>{label}</span>
+                </button>
+            }
+        });
+
+        let pr = g.pr.clone().map(|pr| {
+            move || {
+                let d = git.pr.get();
+                let state = d
+                    .as_ref()
+                    .map(|d| d.state.clone())
+                    .or_else(|| pr.state.clone())
+                    .unwrap_or_default();
+                let state_label = match state.as_str() {
+                    "OPEN" => "待合并",
+                    "MERGED" => "已合并",
+                    "CLOSED" => "已关闭",
+                    s => s,
+                }
+                .to_owned();
+                let mut notes: Vec<String> = Vec::new();
+                let mut tone = None;
+                if let Some(d) = &d {
+                    if d.draft {
+                        notes.push("草稿".into());
+                    }
+                    if d.checks.failed > 0 {
+                        tone = Some("failed");
+                        notes.push(format!("{} 项检查失败", d.checks.failed));
+                    } else if d.checks.pending > 0 {
+                        notes.push(format!("{} 项检查进行中", d.checks.pending));
+                    } else if d.checks.pass > 0 {
+                        notes.push(format!("{} 项检查通过", d.checks.pass));
+                    }
+                    match d.review.as_str() {
+                        "APPROVED" => notes.push("已批准".into()),
+                        "CHANGES_REQUESTED" => {
+                            tone = tone.or(Some("attention"));
+                            notes.push("要求修改".into());
                         }
-                    })}
-                {behind}
-                {sync}
-                {running}
-            </div>
+                        _ => {}
+                    }
+                    if d.mergeable == "CONFLICTING" {
+                        tone = Some("failed");
+                        notes.push("和要合到的分支有冲突".into());
+                    }
+                }
+                let title = d.as_ref().map(|d| d.title.clone()).unwrap_or_default();
+                let number = pr.number.map(|n| n.to_string()).unwrap_or_default();
+                view! {
+                    <div class="menu-sep"></div>
+                    <a
+                        role="menuitem"
+                        class="dv-pr"
+                        href=pr.url.clone()
+                        target="_blank"
+                        rel="noopener"
+                        title=title
+                        data-s=state.to_lowercase()
+                        on:click=move |_| close.run(())
+                    >
+                        <span class="dv-note-row">
+                            {tone
+                                .map(|t| {
+                                    view! {
+                                        <span class="dot" data-tone=t aria-hidden="true"></span>
+                                    }
+                                })} {format!("PR #{number} · {state_label}")}
+                        </span>
+                        {(!notes.is_empty()).then(|| view! { <small>{notes.join(" · ")}</small> })}
+                    </a>
+                    <button type="button" role="menuitem" on:click=move |_| git.run("pr-refresh")>
+                        <span>
+                            {move || {
+                                if git.busy_with("pr-refresh") {
+                                    "查询中…"
+                                } else {
+                                    "刷新 PR 状态"
+                                }
+                            }}
+                        </span>
+                    </button>
+                }
+            }
+        });
+
+        let mut tail: Vec<AnyView> = Vec::new();
+        if c.fetch {
+            tail.push(
+                item(
+                    if git.busy_with("fetch") {
+                        "同步中…".into()
+                    } else {
+                        "同步到最新".into()
+                    },
+                    "从远端取回最新的状态，不改你的文件",
+                    Callback::new(move |()| git.run("fetch")),
+                )
+                .into_any(),
+            );
         }
-    };
+        if c.rename {
+            tail.push(
+                item(
+                    "改分支名…".into(),
+                    "",
+                    Callback::new(move |()| git.form.set(Some(Form::Rename))),
+                )
+                .into_any(),
+            );
+        }
+        if !g.detached {
+            let name = g.branch.clone();
+            tail.push(
+                item(
+                    "复制分支名".into(),
+                    "",
+                    Callback::new(move |()| {
+                        let name = name.clone();
+                        spawn_local(async move {
+                            let p = window().navigator().clipboard().write_text(&name);
+                            if wasm_bindgen_futures::JsFuture::from(p).await.is_ok() {
+                                toast("已复制分支名");
+                            }
+                        });
+                    }),
+                )
+                .into_any(),
+            );
+        }
+        let first = target_pick.is_some() || commits.is_some();
+        Some(view! {
+            {info}
+            {first.then(|| view! { <div class="menu-sep"></div> })}
+            {target_pick}
+            {commits}
+            {pr}
+            {(!tail.is_empty()).then(|| view! { <div class="menu-sep"></div> })}
+            {tail}
+        })
+    }
+}
+
+/// 差异栏下面按需出现的几条：读不到分支状态、不是 Git 仓库、进行到一半的合并或变基、
+/// 展开的提交列表、操作输出。平时一条都没有，分支的其余信息都在差异栏的分支下拉里。
+#[component]
+pub fn GitLine(git: Git, draft: RwSignal<Option<String>>) -> impl IntoView {
+    let any_busy = move || git.any_busy();
+    let busy = move |op: &str| git.busy_with(op);
+    let commits_open = git.commits_open;
 
     let commits = move |g: &GitStatus| {
         (commits_open.get() && !g.commits.is_empty()).then(|| {
@@ -797,7 +915,19 @@ pub fn GitLine(git: Git, draft: RwSignal<Option<String>>) -> impl IntoView {
                     }
                 })
                 .collect_view();
-            view! { <div class="gp-commits">{rows}</div> }
+            let n = g.commits.len();
+            view! {
+                <div class="gp-commits">
+                    <div class="gp-commits-head">
+                        <span>{format!("{n} 个提交")}</span>
+                        <span class="grow"></span>
+                        <button class="linkbtn" on:click=move |_| commits_open.set(false)>
+                            "收起"
+                        </button>
+                    </div>
+                    {rows}
+                </div>
+            }
         })
     };
 
@@ -848,84 +978,10 @@ pub fn GitLine(git: Git, draft: RwSignal<Option<String>>) -> impl IntoView {
         })
     };
 
-    let pr_line = move |g: &GitStatus| {
-        g.pr.clone().map(|pr| {
-            move || {
-                let d = git.pr.get();
-                let state = d
-                    .as_ref()
-                    .map(|d| d.state.clone())
-                    .or_else(|| pr.state.clone())
-                    .unwrap_or_default();
-                let state_label = match state.as_str() {
-                    "OPEN" => "待合并",
-                    "MERGED" => "已合并",
-                    "CLOSED" => "已关闭",
-                    s => s,
-                }
-                .to_owned();
-                let extra = d.map(|d| {
-                    let checks = if d.checks.failed > 0 {
-                        Some((Tone::Failed, format!("{} 项检查失败", d.checks.failed)))
-                    } else if d.checks.pending > 0 {
-                        Some((Tone::Run, format!("{} 项检查进行中", d.checks.pending)))
-                    } else if d.checks.pass > 0 {
-                        Some((Tone::Other, format!("{} 项检查通过", d.checks.pass)))
-                    } else {
-                        None
-                    };
-                    let review = match d.review.as_str() {
-                        "APPROVED" => Some((Tone::Other, "已批准")),
-                        "CHANGES_REQUESTED" => Some((Tone::Attention, "要求修改")),
-                        _ => None,
-                    };
-                    view! {
-                        {d.draft.then(|| view! { <span>"草稿"</span> })}
-                        {checks.map(|(tone, t)| view! { <Status tone label=t /> })}
-                        {review.map(|(tone, t)| view! { <Status tone label=t /> })}
-                        {(d.mergeable == "CONFLICTING")
-                            .then(|| {
-                                view! {
-                                    <Status
-                                        tone=Tone::Failed
-                                        label="和要合到的分支有冲突"
-                                    />
-                                }
-                            })}
-                        <span class="gp-prt">{d.title}</span>
-                    }
-                });
-                view! {
-                    <div class="gp-line gp-pr" data-s=state.to_lowercase()>
-                        <b>
-                            {format!(
-                                "PR #{}",
-                                pr.number.map(|n| n.to_string()).unwrap_or_default(),
-                            )}
-                        </b>
-                        <span>{state_label}</span>
-                        {extra}
-                        <span class="grow"></span>
-                        <a class="linkbtn" href=pr.url.clone() target="_blank" rel="noopener">
-                            "在网页上打开"
-                        </a>
-                        <button class="linkbtn" on:click=move |_| git.run("pr-refresh")>
-                            {move || {
-                                if busy("pr-refresh") { "查询中…" } else { "刷新状态" }
-                            }}
-                        </button>
-                    </div>
-                }
-            }
-        })
-    };
-
     view! {
         <div class="gitline">
             {move || match git.status.get() {
-                None => {
-                    view! { <div class="gp-line muted">"读取分支状态…"</div> }.into_any()
-                }
+                None => ().into_any(),
                 Some(_) if git.load_error.with(Option::is_some) => {
                     view! {
                         <InlineError
@@ -947,9 +1003,7 @@ pub fn GitLine(git: Git, draft: RwSignal<Option<String>>) -> impl IntoView {
                 Some(g) => {
                     view! {
                         {op_bar(&g)}
-                        {line(&g)}
                         {commits(&g)}
-                        {pr_line(&g)}
                     }
                         .into_any()
                 }

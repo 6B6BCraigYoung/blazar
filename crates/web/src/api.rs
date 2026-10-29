@@ -485,7 +485,12 @@ pub struct GitStatus {
 
 impl GitStatus {
     pub fn has_target(&self) -> bool {
-        self.target_ok && !self.same
+        self.target_ok && !self.on_target()
+    }
+
+    /// 当前就在要合到的那条分支上（`main` 对 `main` 或 `origin/main`）：没有「合到哪里」可言。
+    pub fn on_target(&self) -> bool {
+        self.same || crate::git_policy::on_target(&self.branch, &self.target)
     }
 }
 

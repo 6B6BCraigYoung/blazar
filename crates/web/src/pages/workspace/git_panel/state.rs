@@ -17,6 +17,7 @@ impl Git {
             pr: RwSignal::new(None),
             reload: RwSignal::new(0),
             changed: RwSignal::new(0),
+            commits_open: RwSignal::new(false),
             form: RwSignal::new(None),
             ws: StoredValue::new(ws.to_owned()),
         }

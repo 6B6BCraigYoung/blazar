@@ -21,7 +21,7 @@ use crate::realtime::use_bus;
 use crate::storage;
 
 use super::files::Files;
-use super::git_panel::{Git, GitMenuItems, NextButton};
+use super::git_panel::{self, BranchItems, Git, GitMenuItems, NextButton};
 use super::layout::{LayoutState, Tab};
 
 const CHEV_DOWN: &str = r#"<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6.5 8 10.5l4-4"/></svg>"#;
@@ -292,6 +292,8 @@ fn BarMenu(
     #[prop(optional, into)] title: Option<String>,
     #[prop(into)] class: String,
     open: RwSignal<bool>,
+    #[prop(optional)] icon: Option<&'static str>,
+    #[prop(optional, into)] dot: Option<Signal<Option<&'static str>>>,
     children: ChildrenFn,
 ) -> impl IntoView {
     let root = NodeRef::<html::Div>::new();
@@ -327,7 +329,19 @@ fn BarMenu(
                 aria-expanded=move || open.get().to_string()
                 on:click=move |_| open.update(|o| *o = !*o)
             >
-                {move || label.get()}
+                {icon.map(|i| view! { <span class="ico" aria-hidden="true" inner_html=i></span> })}
+                <span class="lbl">{move || label.get()}</span>
+                {dot
+                    .map(|d| {
+                        move || {
+                            d.get()
+                                .map(|t| {
+                                    view! {
+                                        <span class="dot" data-tone=t aria-hidden="true"></span>
+                                    }
+                                })
+                        }
+                    })}
                 {(!more)
                     .then(|| {
                         view! { <span class="chev" aria-hidden="true" inner_html=CHEV_DOWN></span> }
@@ -359,6 +373,9 @@ pub fn DiffBar(
     collapsed: RwSignal<HashSet<String>>,
     draft: RwSignal<Option<String>>,
     state: LayoutState,
+    /// 右侧面板没有标签行时（只开着「更改」），放大和关闭按钮挪到这一栏的最右边。
+    #[prop(into)]
+    bare: Signal<bool>,
 ) -> impl IntoView {
     let empty = move || d.files.with(Vec::is_empty);
     let all_folded = move || !empty() && collapsed.with(HashSet::len) >= d.files.with(Vec::len);
@@ -456,21 +473,30 @@ pub fn DiffBar(
             d.set_prefs(|p| p.base = b.into());
         }
     };
+    let on_target = move || {
+        git.status
+            .with(|g| g.as_ref().is_some_and(|g| g.on_target()))
+    };
     let base_label = Signal::derive(move || {
-        if p().base == "target" {
+        if p().base == "target" && !on_target() {
             "这条分支的全部改动".to_owned()
         } else {
             "这次的改动".to_owned()
         }
     });
     let close_more = Callback::new(move |()| more_open.set(false));
+    let branch_open = RwSignal::new(false);
+    let close_branch = Callback::new(move |()| branch_open.set(false));
+    let is_repo = move || git.status.with(|g| g.as_ref().is_some_and(|g| g.repo));
+    let branch_name = Signal::derive(move || git_panel::branch_label(git));
+    let branch_dot = Signal::derive(move || git_panel::branch_tone(git));
     view! {
         <div class="diffbar">
             <BarMenu label=base_label aria="比较的范围" class="dv-base" open=base_open>
                 <button
                     type="button"
                     role="menuitemradio"
-                    aria-checked=move || (p().base != "target").to_string()
+                    aria-checked=move || (p().base != "target" || on_target()).to_string()
                     on:click=set_base("head")
                 >
                     <span>"这次的改动"</span>
@@ -479,7 +505,11 @@ pub fn DiffBar(
                 <button
                     type="button"
                     role="menuitemradio"
-                    aria-checked=move || (p().base == "target").to_string()
+                    aria-checked=move || (p().base == "target" && !on_target()).to_string()
+                    disabled=on_target
+                    title=move || {
+                        on_target().then_some("就在要合到的分支上，没有别的可比")
+                    }
                     on:click=set_base("target")
                 >
                     <span>
@@ -517,6 +547,19 @@ pub fn DiffBar(
                     })
             }}
             <span class="grow"></span>
+            <Show when=is_repo>
+                <BarMenu
+                    label=branch_name
+                    aria="分支"
+                    title="分支：推送状态、要合到哪里、提交列表、PR"
+                    class="dv-branch"
+                    icon=git_panel::ICON_BRANCH
+                    dot=branch_dot
+                    open=branch_open
+                >
+                    <BranchItems git close=close_branch />
+                </BarMenu>
+            </Show>
             <BarMenu label="显示" aria="显示" class="" open=show_open>
                 <button
                     type="button"
@@ -592,6 +635,9 @@ pub fn DiffBar(
                 <GitMenuItems git close=close_more />
             </BarMenu>
             <NextButton git />
+            <Show when=move || bare.get()>
+                <super::inspector::PanelButtons state />
+            </Show>
         </div>
     }
 }
@@ -602,6 +648,29 @@ fn line_code(l: &Line) -> String {
     } else {
         l.text.clone()
     }
+}
+
+/// 一行代码；`spans` 里的部分是这一对行里真正改了的词，包一层加重底色。
+fn code_view(code: &str, spans: &[(usize, usize)]) -> AnyView {
+    if spans.is_empty() {
+        return code.to_owned().into_any();
+    }
+    let mut out: Vec<AnyView> = Vec::with_capacity(spans.len() * 2 + 1);
+    let mut at = 0;
+    for &(a, b) in spans {
+        let (Some(before), Some(word)) = (code.get(at..a), code.get(a..b)) else {
+            return code.to_owned().into_any();
+        };
+        if !before.is_empty() {
+            out.push(before.to_owned().into_any());
+        }
+        out.push(view! { <span class="dw">{word.to_owned()}</span> }.into_any());
+        at = b;
+    }
+    if let Some(rest) = code.get(at..).filter(|r| !r.is_empty()) {
+        out.push(rest.to_owned().into_any());
+    }
+    out.collect_view().into_any()
 }
 
 fn new_side_len(h: &diff::Hunk) -> u32 {
@@ -724,7 +793,7 @@ pub fn DiffView(
             } else if p().base == "target" {
                 let b = d.base.get();
                 if b.is_empty() {
-                    "先在上面选这条分支要合到哪里，才能看它的全部改动".to_owned()
+                    "先在上面的分支下拉里选这条分支要合到哪里，才能看它的全部改动".to_owned()
                 } else {
                     format!("和 {} 比没有改动", b.strip_prefix("origin/").unwrap_or(&b))
                 }
@@ -1130,6 +1199,7 @@ fn file_body(
             }
             .into_any(),
         );
+        let words = diff::hunk_words(h);
         if split {
             let mut i = 0;
             let ls = &h.lines;
@@ -1143,8 +1213,8 @@ fn file_body(
                         out.push(
                             view! {
                                 <div class="dr2">
-                                    {half(Some(l), "old", &path, editing, mark)}
-                                    {half(Some(l), "new", &path, editing, mark)}
+                                    {half(Some(l), "old", &[], &path, editing, mark)}
+                                    {half(Some(l), "new", &[], &path, editing, mark)}
                                 </div>
                             }
                             .into_any(),
@@ -1158,21 +1228,35 @@ fn file_body(
                         let mut dels = Vec::new();
                         let mut adds = Vec::new();
                         while i < ls.len() && ls[i].kind == Kind::Del {
-                            dels.push(&ls[i]);
+                            dels.push((&ls[i], words[i].as_slice()));
                             i += 1;
                         }
                         while i < ls.len() && ls[i].kind == Kind::Add {
-                            adds.push(&ls[i]);
+                            adds.push((&ls[i], words[i].as_slice()));
                             i += 1;
                         }
                         for k in 0..dels.len().max(adds.len()) {
-                            let dl = dels.get(k).copied();
-                            let al = adds.get(k).copied();
+                            let (dl, dw) = dels.get(k).copied().unzip();
+                            let (al, aw) = adds.get(k).copied().unzip();
                             out.push(
                                 view! {
                                     <div class="dr2">
-                                        {half(dl, "old", &path, editing, mark)}
-                                        {half(al, "new", &path, editing, mark)}
+                                        {half(
+                                            dl,
+                                            "old",
+                                            dw.unwrap_or_default(),
+                                            &path,
+                                            editing,
+                                            mark,
+                                        )}
+                                        {half(
+                                            al,
+                                            "new",
+                                            aw.unwrap_or_default(),
+                                            &path,
+                                            editing,
+                                            mark,
+                                        )}
                                     </div>
                                 }
                                 .into_any(),
@@ -1194,7 +1278,7 @@ fn file_body(
                 }
             }
         } else {
-            for l in &h.lines {
+            for (li, l) in h.lines.iter().enumerate() {
                 if l.kind == Kind::Note {
                     out.push(
                         view! {
@@ -1238,7 +1322,7 @@ fn file_body(
                             {add_btn(&path, side, line, &code, editing)}
                         </span>
                         <span class="dg">{g}</span>
-                        <span class="dc">{code.clone()}</span>
+                        <span class="dc">{code_view(&code, &words[li])}</span>
                     </div>
                 }.into_any());
                 out.push(comments_at(&path, side, line, editing, d).into_any());
@@ -1275,6 +1359,7 @@ fn add_btn(
 fn half(
     l: Option<&Line>,
     side: &'static str,
+    spans: &[(usize, usize)],
     path: &str,
     editing: RwSignal<Option<Editing>>,
     mark: Option<u32>,
@@ -1298,7 +1383,7 @@ fn half(
             data-focus=hit.then_some("true")
         >
             <span class="ln">{n.to_string()}{add_btn(path, side, n, &code, editing)}</span>
-            <span class="dc">{code.clone()}</span>
+            <span class="dc">{code_view(&code, spans)}</span>
         </div>
     }
     .into_any()

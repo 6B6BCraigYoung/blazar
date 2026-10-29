@@ -47,8 +47,17 @@ pub(super) fn Tray(chat: Chat, log_h: RwSignal<f64>) -> impl IntoView {
     // Before any conversation has run here, the changes were already in the folder; say so
     // rather than presenting them like the agent's work.
     let existing = Memo::new(move |_| chat.threads.with(Vec::is_empty));
+    // The 更改 view already shows the same summary; while it's open the tray doesn't repeat it.
+    let lay = use_context::<crate::pages::workspace::layout::LayoutState>();
+    let diff_open = Memo::new(move |_| {
+        lay.is_some_and(|l| {
+            l.lay
+                .with(|l| l.inspect && l.tab == crate::pages::workspace::layout::Tab::Changes)
+        })
+    });
     move || {
         let (n, added, removed) = changes.get();
+        let n = if diff_open.get() { 0 } else { n };
         let todos = todos.get();
         if todos.is_none() && n == 0 {
             return None;
