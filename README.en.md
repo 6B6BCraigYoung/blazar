@@ -33,6 +33,17 @@ To run an agent, the machine running the task needs Claude Code, Codex, or anoth
 2. **Open a workspace**: select New workspace, choose the machine and project directory, and create a Git worktree if you need a separate branch.
 3. **Give work to an agent**: choose a runtime, send a task, handle approvals in the conversation, and review the code changes.
 
+## Console and inbox
+
+- **Console**: the home page orders workspaces by who is waiting on you, and a "Needs you" rail collects pending approvals, decisions and failed runs.
+- **Blocked-call retries**: a tool call stopped by the safety check becomes a card; allow it once and retry, and it stays in the inbox until you decide.
+- **Decision cards**: when an agent needs you to choose, it sends a card with options; pick one or reply and the conversation resumes.
+- **Failure cards**: a failed run names its cause and offers the next step, such as retry, sign in again, or mark as handled.
+- **Resume after network loss**: interrupted sessions resume when the network returns, and the UI event stream picks up where it left off.
+- **Multiple accounts**: each runtime can hold several Claude Code or Codex accounts, and new sessions are spread across them by remaining quota.
+
+See the [CHANGELOG](CHANGELOG.md#english) for what changed in each release.
+
 ## Multiple machines
 
 Blazar uses EasyTier to connect machines. Join a network with a `.blazar` invite file or import an existing EasyTier configuration. The network service runs independently and requires administrator permission to enable; code and agents run on the selected machine.
