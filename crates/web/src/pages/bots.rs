@@ -223,7 +223,7 @@ pub fn BotsPage() -> impl IntoView {
                     title="同时运行几个 bot、什么时候提醒"
                     on:click=move |_| advanced.set(true)
                 >
-                    "高级…"
+                    "规则与上限…"
                 </button>
                 <button type="button" class="btn primary" on:click=move |_| creating.set(true)>
                     "新建 bot"
@@ -235,13 +235,24 @@ pub fn BotsPage() -> impl IntoView {
                     .filter(|_| has_active() && !archived.get())
                     .and_then(|r| r.ok())
                     .map(|f| {
-                        let nodes: Vec<_> = app
-                            .nodes()
-                            .into_iter()
-                            .filter(|n| n.is_usable())
-                            .collect();
-                        let online = nodes.iter().filter(|n| n.status == "online").count();
-                        let alerts = arr(&f, "alerts");
+                        let (count, waiting) = data
+                            .with(|d| {
+                                d.as_ref()
+                                    .and_then(|r| r.as_ref().ok())
+                                    .map(|r| {
+                                        let bots = arr(r, "bots");
+                                        let live = bots
+                                            .iter()
+                                            .filter(|b| b["archived"].as_bool() != Some(true))
+                                            .count();
+                                        let waiting = bots
+                                            .iter()
+                                            .filter(|b| s(b, "state") == "awaiting")
+                                            .count();
+                                        (live, waiting)
+                                    })
+                            })
+                            .unwrap_or((0, 0));
                         let facts = arr(&f, "unhealthy_facts");
                         let late = (!facts.is_empty())
                             .then(|| {
@@ -257,6 +268,8 @@ pub fn BotsPage() -> impl IntoView {
                                     })
                                     .collect::<Vec<_>>()
                                     .join("\n");
+                                // Only what's about the bots themselves; machines and notices have
+                                // their own pages.
                                 view! {
                                     <span title=format!(
                                         "这些 bot 该定时报一次状态，已经过了时间还没报：\n{title}",
@@ -265,9 +278,8 @@ pub fn BotsPage() -> impl IntoView {
                             });
                         view! {
                             <div class="bots-summary muted">
-                                {format!("{online}/{} 台机器在线", nodes.len())}
-                                {(!alerts.is_empty())
-                                    .then(|| format!(" · {} 条待处理通知", alerts.len()))}
+                                {format!("{count} 个 bot")}
+                                {(waiting > 0).then(|| format!(" · {waiting} 个在等你"))}
                                 {late}
                             </div>
                         }

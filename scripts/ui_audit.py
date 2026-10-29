@@ -1471,7 +1471,7 @@ def plan(round_name):
                   ({"action": "wait", "selector": team_btn, "timeout_ms": 8000},
                    {"action": "click", "selector": team_btn},
                    {"action": "wait", "selector": "[data-modal-root]", "timeout_ms": 4000}), False))
-    items.append(("bots-advanced", "/bots", "bot 页页头「高级…」打开的面板：最多同时运行几个 bot、什么时候提醒",
+    items.append(("bots-advanced", "/bots", "bot 页页头「规则与上限…」打开的面板：最多同时运行几个 bot、什么时候提醒；页头统计只写 bot 自己的事（N 个 bot · N 个在等你 · N 项检查没跟上）",
                   ({"action": "click", "selector": ".bots-page .page-head button[aria-haspopup=\"dialog\"]"},
                    {"action": "wait", "selector": "[data-modal-root]", "timeout_ms": 4000}), False))
     mesh_more = ".nodes-team-sheet .pref-group .pref-more-btn"
