@@ -62,7 +62,13 @@ pub fn Rail(all: Signal<bool>, rail_mode: Callback<bool>) -> impl IntoView {
                 fallback=move || {
                     view! {
                         <div class="rail-head">
-                            <h2>"消息"</h2>
+                            <h2>
+                                "需要你处理"
+                                {move || {
+                                    let n = needs.with(Vec::len);
+                                    (n > 0).then(|| view! { <em>{n}</em> })
+                                }}
+                            </h2>
                             <span class="grow"></span>
                             <Show when=move || { app.inbox_unread.get() > 0 }>
                                 <button
@@ -76,13 +82,6 @@ pub fn Rail(all: Signal<bool>, rail_mode: Callback<bool>) -> impl IntoView {
                             </Show>
                         </div>
                         <section class="rail-needs" aria-label="需要你处理">
-                            <h3 class="rail-title">
-                                "需要你处理"
-                                {move || {
-                                    let n = needs.with(Vec::len);
-                                    (n > 0).then(|| view! { <em>{n}</em> })
-                                }}
-                            </h3>
                             <Show
                                 when=move || needs.with(|l| !l.is_empty())
                                 fallback=|| {

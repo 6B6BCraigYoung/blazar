@@ -1,4 +1,5 @@
 .main:has(.console) { background: var(--bg-page); }
+.console { --chat-surface: var(--bg-page); }
 .console .ws-head { background: var(--bg-page); }
 .console-head { height: 52px; gap: var(--space-lg); padding: 0 var(--space-xl) 0 var(--space-2xl); }
 .console-title { margin: 0; flex: 0 0 auto; font-size: var(--font-size-page-title); font-weight: var(--font-weight-semibold); line-height: var(--line-height-heading); white-space: nowrap; }
@@ -29,7 +30,9 @@
 .console-rail { flex: 0 0 372px; width: 372px; min-width: 0; display: flex; flex-direction: column; padding: 0 var(--space-xl) var(--space-xl); border-left: var(--line-side); background: var(--bg-page); overflow-y: auto; overscroll-behavior: contain; }
 .rail-head { flex: 0 0 auto; display: flex; align-items: center; gap: var(--space-md); height: 52px; }
 .rail-head h2 { margin: 0; font-size: var(--font-size-section-title); font-weight: var(--font-weight-semibold); }
-.rail-head .linkbtn, .rail-link { font-size: var(--font-size-label); color: var(--accent); text-decoration: none; }
+.rail-head h2 em { margin-left: var(--space-sm); font-style: normal; font-weight: var(--font-weight-regular); color: var(--fg-3); font-variant-numeric: tabular-nums; }
+.rail-head .linkbtn, .rail-link { font-size: var(--font-size-label); color: var(--fg-3); text-decoration: none; }
+.rail-head .linkbtn:hover, .rail-link:hover { color: var(--fg); }
 .rail-head .linkbtn:disabled { opacity: .45; cursor: default; }
 .rail-back { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: var(--space-xs); font-size: var(--font-size-section-title); font-weight: var(--font-weight-semibold); color: var(--fg); }
 .rail-back .ic { padding-bottom: 2px; font-size: 20px; line-height: 1; color: var(--fg-3); }
@@ -54,7 +57,11 @@
 .console-rail[data-mode="summary"] .inbox-row[data-sel="true"], .console-rail[data-mode="summary"] .inbox-row[data-menu="true"] { background: var(--bg-selected); box-shadow: none; }
 .console-rail[data-mode="summary"] .inbox-row[data-needs="true"]:not([data-sel="true"]), .pop.card .inbox-row[data-needs="true"] { box-shadow: none; }
 .console-rail[data-mode="summary"] .inbox-dot, .pop.card .inbox-dot { grid-area: dot; margin: 0; }
-.console-rail[data-mode="summary"] .inbox-row:not([data-unread="true"]) .inbox-dot, .pop.card .inbox-row:not([data-unread="true"]) .inbox-dot { display: none; }
+.console-rail[data-mode="summary"] .inbox-dot, .pop.card .inbox-dot { --tone: var(--status-other); width: 7px; height: 7px; opacity: 1; background: var(--tone); }
+.console-rail[data-mode="summary"] .inbox-row:is([data-kind="approval"], [data-kind="question"], [data-kind="denied"]) .inbox-dot, .pop.card .inbox-row:is([data-kind="approval"], [data-kind="question"], [data-kind="denied"]) .inbox-dot { --tone: var(--status-attention); }
+.console-rail[data-mode="summary"] .inbox-row[data-kind="run_failed"] .inbox-dot, .pop.card .inbox-row[data-kind="run_failed"] .inbox-dot { --tone: var(--status-failed); }
+.console-rail[data-mode="summary"] .inbox-row:not([data-unread="true"]) .inbox-dot, .pop.card .inbox-row:not([data-unread="true"]) .inbox-dot { background: transparent; box-shadow: inset 0 0 0 1.5px var(--tone); }
+.console-rail[data-mode="summary"] .meta-kind, .pop.card .meta-kind { display: none; }
 .console-rail[data-mode="summary"] .inbox-meta, .pop.card .inbox-meta { grid-area: meta; padding: 0; flex-wrap: wrap; white-space: normal; color: var(--fg-3); }
 .console-rail[data-mode="summary"] .inbox-col, .pop.card .inbox-col { grid-area: col; gap: var(--space-sm); }
 .console-rail[data-mode="summary"] .inbox-main strong, .pop.card .inbox-main strong { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; font-size: var(--font-size-label-readable); line-height: var(--line-height-compact); }

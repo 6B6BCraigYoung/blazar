@@ -25,7 +25,7 @@ pub(crate) const KINDS: &[(&str, &str)] = &[
     ("run_done", "运行完成"),
     ("run_failed", "运行失败"),
     ("approval", "等你批准"),
-    ("question", "待回答"),
+    ("question", "在问你"),
     ("denied", "被拦下"),
     ("bot_reply", "bot 回复"),
     ("autopilot_paused", "自动化已暂停"),
@@ -930,12 +930,19 @@ fn row_view(ctx: Ctx, i: usize, it: Item, pending: Option<Value>) -> impl IntoVi
     let asking = it.asking().then(|| ask_panel(ctx, &it));
     let place = it.place.clone();
     let meta = move |label: &str, created: &str| {
-        if place.is_empty() {
-            format!("{label} · {}", fmt::ago(created))
-        } else {
-            format!("{place} · {label} · {}", fmt::ago(created))
+        let place = (!place.is_empty()).then(|| format!("{place} · "));
+        view! {
+            {place}
+            <span class="meta-kind">{format!("{label} · ")}</span>
+            {fmt::ago(created)}
         }
     };
+    let title = it
+        .title
+        .strip_prefix(&format!("{}：", it.label))
+        .filter(|t| !t.is_empty())
+        .unwrap_or(&it.title)
+        .to_owned();
     let item_id = it.id.clone();
     let panel = pending.map(|a| {
         let aid = a["id"].as_str().unwrap_or("").to_owned();
@@ -1004,7 +1011,7 @@ fn row_view(ctx: Ctx, i: usize, it: Item, pending: Option<Value>) -> impl IntoVi
                         }
                     }
                 >
-                    <strong>{it.title.clone()}</strong>
+                    <strong>{title}</strong>
                     {(!it.body.is_empty() && !body_in_panel)
                         .then(|| view! { <span class="inbox-body">{it.body.clone()}</span> })}
                 </a>
