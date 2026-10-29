@@ -67,6 +67,8 @@ mod term;
 mod ui_driver;
 #[cfg(any(target_arch = "wasm32", test))]
 mod undo_ledger;
+#[cfg(target_arch = "wasm32")]
+mod version_check;
 #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 mod vocab;
 #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]

@@ -229,6 +229,7 @@ pub fn build_router(st: Arc<AppState>) -> Router {
             get(office::get_prefs).put(office::put_prefs),
         )
         .route("/api/about", get(office::about))
+        .route("/api/update", get(office::update::update))
         .route("/api/export", get(crate::transfer::export_handler))
         .route(
             "/api/import",

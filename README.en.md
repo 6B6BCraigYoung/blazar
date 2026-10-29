@@ -24,6 +24,8 @@ Current macOS builds are neither Developer ID signed nor notarized. After verify
 xattr -dr com.apple.quarantine /Applications/Blazar.app
 ```
 
+Blazar asks GitHub for a newer release every 12 hours and mentions it once in the corner and under Settings → Data & About; set `BLAZAR_NO_UPDATE_CHECK=1` to turn this off. When the desktop app is connected to a remote hub of a different version, it says so once.
+
 Linux builds target x86_64 `.deb` / `.AppImage`; Windows x86_64 `.msi` builds are experimental. Check Releases for the assets actually available.
 To run an agent, the machine running the task needs Claude Code, Codex, or another supported CLI. Blazar does not bundle these CLIs. When a remote machine is missing Claude Code or Codex, Blazar installs the official, checksum-verified release (matching your local version) into that machine's `~/.blazar`, the way Cursor installs its remote server; if the remote has no internet access, your local machine downloads it and copies it over. Other CLIs must be installed and signed in manually.
 

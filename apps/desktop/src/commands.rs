@@ -20,6 +20,7 @@ pub fn hub_mode(hub: State<'_, Arc<Hub>>) -> Value {
     let saved = saved_mode();
     let Some(r) = hub.remote() else {
         return json!({
+            "app": env!("CARGO_PKG_VERSION"),
             "mode": "embedded",
             "phase": "connected",
             "connected": true,
@@ -36,6 +37,7 @@ pub fn hub_mode(hub: State<'_, Arc<Hub>>) -> Value {
         Phase::Failed(e) => ("failed", e),
     };
     json!({
+        "app": env!("CARGO_PKG_VERSION"),
         "mode": "remote",
         "ssh": ssh,
         "port": port,

@@ -24,6 +24,8 @@ macOS：从 [Releases](../../releases) 下载适合 Apple Silicon 或 Intel 的 
 xattr -dr com.apple.quarantine /Applications/Blazar.app
 ```
 
+Blazar 每 12 小时向 GitHub 查一次有没有新版本，有就在右下角提示一次，「设置 → 数据与关于」里也能看到；设置环境变量 `BLAZAR_NO_UPDATE_CHECK=1` 可以关掉。桌面端连远程 hub 时，两边版本不一样会提示一次。
+
 Linux 的构建目标为 x86_64 `.deb` / `.AppImage`；Windows x86_64 `.msi` 为实验性构建，下载以 Releases 实际附件为准。
 要运行智能体，执行任务的机器上需要有 Claude Code、Codex 等 CLI。Blazar 自己不打包这些 CLI；远端机器缺 Claude Code 或 Codex 时，会像 Cursor 一样把官方发布的版本（校验过的，版本和本机一致）装进那台机器的 `~/.blazar`，远端连不上外网就由本机下载后传过去。其他 CLI 需要自己安装并登录。
 

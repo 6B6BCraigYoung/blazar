@@ -53,6 +53,7 @@ pub fn App() -> impl IntoView {
     popups::provide();
     undo::provide();
     term_dialog::provide();
+    crate::version_check::install();
     let side = move || {
         if app.side_collapsed.get() {
             "off"

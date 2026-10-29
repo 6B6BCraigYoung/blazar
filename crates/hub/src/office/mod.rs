@@ -1,5 +1,6 @@
 pub mod connect;
 pub mod obsidian;
+pub mod update;
 
 use std::process::Stdio;
 use std::sync::OnceLock;

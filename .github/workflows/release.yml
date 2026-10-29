@@ -10,6 +10,8 @@ permissions:
 jobs:
   build:
     name: ${{ matrix.name }}
+    env:
+      BLAZAR_RELEASE_REPO: ${{ github.repository }}
     strategy:
       fail-fast: false
       matrix:

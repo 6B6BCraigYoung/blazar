@@ -14,6 +14,25 @@ use super::{apply_ui_preferences, text};
 #[component]
 pub(super) fn AboutSettings() -> impl IntoView {
     let data = LocalResource::new(|| api::get::<Value>("/api/about"));
+    let update = LocalResource::new(|| api::get::<Value>("/api/update"));
+    let update_line = move || {
+        let u = update.get()?.ok()?;
+        if !u["checks"].as_bool().unwrap_or(false) {
+            return None;
+        }
+        Some(if u["newer"].as_bool().unwrap_or(false) {
+            let latest = text(&u, "latest");
+            let url = text(&u, "url");
+            view! {
+                <a class="btn" href=url target="_blank" rel="noopener noreferrer">
+                    {format!("下载 {latest} ↗")}
+                </a>
+            }
+            .into_any()
+        } else {
+            view! { <span class="muted">"已是最新"</span> }.into_any()
+        })
+    };
     let resetting = RwSignal::new(false);
     view! {
         {move || match data.get() {
@@ -56,8 +75,8 @@ pub(super) fn AboutSettings() -> impl IntoView {
                         title="Blazar"
                         note="文档在仓库 README.md。Blazar 代码使用 MIT 许可证。"
                     >
-                        <PrefRow label="版本">
-                            <code>{version}</code>
+                        <PrefRow label="版本" detail=version>
+                            {update_line}
                         </PrefRow>
                         <PrefAdvanced title="连接与本地数据">
                             {
