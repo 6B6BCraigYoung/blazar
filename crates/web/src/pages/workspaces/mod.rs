@@ -31,6 +31,7 @@ use super::work_shared::{
 pub use inspector::{
     Inspector, InspectorHost, remove_workspace, rename_workspace, retry_workspace,
 };
+pub use start::HomePage;
 use start::Start;
 
 pub fn diff_badge(w: &blazar_core_types::api::WorkspaceView) -> AnyView {

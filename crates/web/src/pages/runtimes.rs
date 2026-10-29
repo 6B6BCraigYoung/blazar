@@ -280,6 +280,16 @@ async fn patch(a: &Account, body: Value) -> Result<Value, api::ApiError> {
     api::send::<Value>("PUT", &format!("/api/accounts/{}", api::enc(&a.id)), &body).await
 }
 
+/// 用给远端装 CLI 的同一套流程把 Claude Code 或 Codex 装到本机的 ~/.blazar。
+pub async fn install_here(id: &str) -> Result<Value, api::ApiError> {
+    api::send::<Value>(
+        "POST",
+        &format!("/api/runtimes/{}/install", api::enc(id)),
+        &json!({}),
+    )
+    .await
+}
+
 pub fn login(a: &Account) {
     let id = a.id.clone();
     let cmd = if a.provider == "claude" {
@@ -287,16 +297,17 @@ pub fn login(a: &Account) {
     } else {
         "codex login"
     };
+    let product = crate::vocab::term(&a.provider);
     term_dialog::open(TermLogin {
-        title: format!("登录 {}", a.label),
-        hint: format!(
-            "正在运行 {cmd}{}。浏览器没自动打开的话，复制终端里的链接去登录。",
-            if a.config_dir.is_some() {
-                "（独立配置目录）"
-            } else {
-                "（默认账号）"
-            }
-        ),
+        title: match &a.config_dir {
+            Some(_) => format!("登录 {product}（{}）", a.label),
+            None => format!("登录 {product}"),
+        },
+        hint: "在浏览器里完成登录。".into(),
+        detail: Some(format!(
+            "浏览器没自动打开的话，复制下面终端里的链接去登录。\n运行的命令：{cmd}\n配置目录：{}",
+            a.config_dir.as_deref().unwrap_or("默认")
+        )),
         path: format!("/api/accounts/{}/login/ws", api::enc(&a.id)),
         verify_node: None,
         after: Callback::new(move |_| {
@@ -337,6 +348,7 @@ pub fn node_login(node: String, after: Callback<bool>) {
         hint: format!(
             "在 {shown} 上运行 codex login --device-auth（没装 Codex 会先装进 ~/.blazar）。在本地浏览器打开下面的链接、输入验证码即可，凭据只保存在 {shown} 上。"
         ),
+        detail: None,
         path: format!("/api/nodes/{}/login/codex/ws", api::enc(&node)),
         verify_node: Some(node.clone()),
         after,

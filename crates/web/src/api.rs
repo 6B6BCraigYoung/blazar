@@ -58,6 +58,15 @@ impl ApiError {
     pub fn not_found(&self) -> bool {
         self.status == Some(404)
     }
+
+    /// 首次路径上显示的一句话和折起来的原文，见 [`crate::vocab::explain`]。
+    #[must_use]
+    pub fn explained(&self) -> (String, Option<String>) {
+        match &self.detail {
+            Some(d) => (self.message.clone(), Some(d.clone())),
+            None => crate::vocab::explain(&self.message, self.status),
+        }
+    }
 }
 
 impl std::fmt::Display for ApiError {
@@ -80,15 +89,18 @@ async fn read<T: DeserializeOwned>(
         if resp.status() == 401 {
             reset_session();
         }
-        let msg = resp
-            .json::<serde_json::Value>()
-            .await
-            .ok()
+        let body = resp.json::<serde_json::Value>().await.ok();
+        let msg = body
+            .as_ref()
             .and_then(|v| v["error"].as_str().map(str::to_owned))
             .unwrap_or_else(|| format!("HTTP {}", resp.status()));
+        let given = body
+            .as_ref()
+            .and_then(|v| v["detail"].as_str().map(str::to_owned))
+            .filter(|d| !d.trim().is_empty());
         let message = crate::vocab::error(&msg, Some(resp.status()));
         return Err(ApiError {
-            detail: (message != msg && !msg.starts_with("HTTP ")).then_some(msg),
+            detail: given.or_else(|| (message != msg && !msg.starts_with("HTTP ")).then_some(msg)),
             message,
             status: Some(resp.status()),
         });

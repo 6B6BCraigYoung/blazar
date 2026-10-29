@@ -7,14 +7,15 @@ use serde_json::{Value, json};
 use crate::api;
 use crate::app_state::use_app;
 use crate::components::icon;
-use crate::components::status::InlineError;
+use crate::components::status::{InlineError, LoadingState};
 use crate::components::toast::toast;
-use crate::pages::runtimes::{active_account, login, runtime_status};
+use crate::pages::runtimes::{active_account, install_here, login, runtime_status};
 
 #[derive(Clone, PartialEq)]
 enum LineAction {
     Link(&'static str, String),
     Login(api::Account),
+    Install(String),
 }
 
 #[derive(Clone, PartialEq)]
@@ -30,7 +31,7 @@ fn runtime_line(r: &api::Runtime, accounts: Option<&api::Accounts>) -> RuntimeLi
         return RuntimeLine {
             ready: false,
             text: format!("{} 未安装", r.label),
-            action: Some(LineAction::Link("怎么装", href)),
+            action: Some(LineAction::Install(r.id.clone())),
         };
     }
     let account = accounts.and_then(|a| active_account(a, &r.id));
@@ -93,6 +94,41 @@ fn dropped_path(dt: &web_sys::DataTransfer) -> Option<String> {
         .then(|| candidate.trim_end_matches('/').to_owned())
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Home {
+    Wait,
+    Start,
+    Console,
+}
+
+/// `/`：一个工作区都没有时直接显示「开始」，建好第一个之后才是中控台。
+/// 等工作区列表回来之前什么都不画，免得中控台先闪一下再换成开始清单。
+#[component]
+pub fn HomePage() -> impl IntoView {
+    let app = use_app();
+    let location = leptos_router::hooks::use_location();
+    let home = Memo::new(move |_| {
+        if location.pathname.with(|p| p != "/") {
+            return Home::Console;
+        }
+        match app.state.with(Option::is_some) {
+            false if app.state_error.with(Option::is_none) => Home::Wait,
+            true if app.top_workspaces().is_empty() => Home::Start,
+            _ => Home::Console,
+        }
+    });
+    move || match home.get() {
+        Home::Wait => view! { <LoadingState text="正在加载…" /> }.into_any(),
+        Home::Start => view! {
+            <div class="page home-page home-start">
+                <Start />
+            </div>
+        }
+        .into_any(),
+        Home::Console => view! { <crate::pages::ConsolePage /> }.into_any(),
+    }
+}
+
 #[component]
 pub fn Start() -> impl IntoView {
     let app = use_app();
@@ -100,17 +136,42 @@ pub fn Start() -> impl IntoView {
     let runtimes = LocalResource::new(|| api::get::<api::Runtimes>("/api/runtimes"));
     let accounts = LocalResource::new(|| api::get::<api::Accounts>("/api/accounts"));
     let busy = RwSignal::new(None::<String>);
+    let failed = RwSignal::new(None::<(String, Option<String>)>);
+    let installing = RwSignal::new(None::<String>);
+    let install_failed = RwSignal::new(None::<(String, Option<String>)>);
     let url = RwSignal::new(String::new());
     let over = RwSignal::new(false);
     let open = move |id: String| {
         app.load_state();
         go.with_value(|n| n(&format!("/w/{id}"), Default::default()));
     };
+    let install = move |id: String| {
+        if installing.get_untracked().is_some() {
+            return;
+        }
+        installing.set(Some(id.clone()));
+        install_failed.set(None);
+        spawn_local(async move {
+            let r = install_here(&id).await;
+            let _ = installing.try_set(None);
+            match r {
+                Ok(_) => {
+                    toast(format!("{} 装好了", crate::vocab::term(&id)));
+                    runtimes.refetch();
+                    accounts.refetch();
+                }
+                Err(e) => {
+                    let _ = install_failed.try_set(Some(e.explained()));
+                }
+            }
+        });
+    };
     let add_folder = move |path: String| {
         if busy.get_untracked().is_some() {
             return;
         }
         busy.set(Some(format!("正在添加 {path}…")));
+        failed.set(None);
         spawn_local(async move {
             let r = api::send::<Value>(
                 "POST",
@@ -125,7 +186,9 @@ pub fn Start() -> impl IntoView {
                         open(id.to_owned());
                     }
                 }
-                Err(e) => toast(format!("创建失败：{e}")),
+                Err(e) => {
+                    let _ = failed.try_set(Some(e.explained()));
+                }
             }
         });
     };
@@ -139,6 +202,7 @@ pub fn Start() -> impl IntoView {
             return;
         }
         busy.set(Some("正在克隆，大仓库要等一会儿…".into()));
+        failed.set(None);
         spawn_local(async move {
             let r = api::send::<Value>("POST", "/api/workspaces/clone", &json!({ "url": u })).await;
             let _ = busy.try_set(None);
@@ -151,7 +215,9 @@ pub fn Start() -> impl IntoView {
                         open(id.to_owned());
                     }
                 }
-                Err(e) => toast(e.to_string()),
+                Err(e) => {
+                    let _ = failed.try_set(Some(e.explained()));
+                }
             }
         });
     };
@@ -179,19 +245,23 @@ pub fn Start() -> impl IntoView {
             false,
             view! { <p class="start-note">"正在检测 Claude Code 和 Codex…"</p> }.into_any(),
         ),
-        (Some(Err(e)), _) => (
-            false,
-            view! {
-                <InlineError
-                    message=format!("检测失败：{e}")
-                    retry=Callback::new(move |_| {
-                        runtimes.refetch();
-                        accounts.refetch();
-                    })
-                />
-            }
-            .into_any(),
-        ),
+        (Some(Err(e)), _) => {
+            let (message, detail) = e.explained();
+            (
+                false,
+                view! {
+                    <InlineError
+                        message=format!("检测失败：{message}")
+                        detail
+                        retry=Callback::new(move |_| {
+                            runtimes.refetch();
+                            accounts.refetch();
+                        })
+                    />
+                }
+                .into_any(),
+            )
+        }
         (Some(Ok(r)), Some(accounts)) => {
             let accounts = accounts.ok();
             let lines: Vec<RuntimeLine> = r
@@ -246,12 +316,44 @@ pub fn Start() -> impl IntoView {
                                                     }
                                                         .into_any()
                                                 }
+                                                LineAction::Install(id) => {
+                                                    view! {
+                                                        <button
+                                                            type="button"
+                                                            class="btn small"
+                                                            disabled=move || { installing.get().is_some() }
+                                                            on:click=move |_| install(id.clone())
+                                                        >
+                                                            "安装"
+                                                        </button>
+                                                    }
+                                                        .into_any()
+                                                }
                                             })}
                                     </li>
                                 }
                             })
                             .collect_view()}
                     </ul>
+                    {move || {
+                        installing
+                            .get()
+                            .map(|id| {
+                                view! {
+                                    <p class="start-note" role="status">
+                                        {format!(
+                                            "正在下载安装 {}，要几分钟…",
+                                            crate::vocab::term(&id),
+                                        )}
+                                    </p>
+                                }
+                            })
+                    }}
+                    {move || {
+                        install_failed
+                            .get()
+                            .map(|(message, detail)| view! { <InlineError message detail /> })
+                    }}
                 }
                 .into_any(),
             )
@@ -260,7 +362,7 @@ pub fn Start() -> impl IntoView {
     view! {
         <section class="start" aria-label="开始">
             <h1 class="start-title">"开始"</h1>
-            <p class="start-lead">"三步，智能体就能在你的代码上干活。"</p>
+            <p class="start-lead">"两步，智能体就能在你的代码上干活。"</p>
             <ol class="start-steps">
                 {move || {
                     let (done, body) = runtime_step();
@@ -279,24 +381,12 @@ pub fn Start() -> impl IntoView {
                                 }}
                             </span>
                             <div class="start-body">
-                                <b>"Claude Code 或 Codex"</b>
+                                <b>"装好 Claude Code 或 Codex"</b>
                                 {body}
                             </div>
                         </li>
                     }
-                }} <li class="start-step" data-done="true">
-                    <span
-                        class="start-mark"
-                        aria-hidden="true"
-                        inner_html=icon::svg(icon::TICK)
-                    ></span>
-                    <div class="start-body">
-                        <b>"机器"</b>
-                        <p class="start-note">
-                            "本机已经可以用了。其他机器以后在「机器与组网」里添加。"
-                        </p>
-                    </div>
-                </li>
+                }}
                 <li
                     class="start-step"
                     data-done="false"
@@ -314,10 +404,10 @@ pub fn Start() -> impl IntoView {
                     on:drop=on_drop
                 >
                     <span class="start-mark" aria-hidden="true">
-                        "3"
+                        "2"
                     </span>
                     <div class="start-body">
-                        <b>"第一个工作区"</b>
+                        <b>"选项目文件夹"</b>
                         <div class="start-actions">
                             <button
                                 type="button"
@@ -366,9 +456,19 @@ pub fn Start() -> impl IntoView {
                                     }
                                 })
                         }}
+                        {move || {
+                            failed
+                                .get()
+                                .map(|(message, detail)| view! { <InlineError message detail /> })
+                        }}
                     </div>
                 </li>
             </ol>
+            <p class="start-skip">
+                <a class="linkbtn" href="/chats/new">
+                    "先去中控台看看"
+                </a>
+            </p>
         </section>
     }
 }

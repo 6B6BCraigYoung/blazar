@@ -233,13 +233,18 @@ fn result_view(r: Res, key: String, opened: Opened) -> impl IntoView {
                                 </button>
                             }
                         })
+                }} // The listed workspaces repeat what the answer says, so their links wait
+                // until the result is opened.
+                {move || {
+                    (show.get() && !wss.is_empty())
+                        .then(|| {
+                            view! {
+                                <div class="cc-wss">
+                                    {wss.clone().into_iter().map(ws_chip).collect_view()}
+                                </div>
+                            }
+                        })
                 }}
-                {(!wss.is_empty())
-                    .then(|| {
-                        view! {
-                            <div class="cc-wss">{wss.into_iter().map(ws_chip).collect_view()}</div>
-                        }
-                    })}
             </div>
         </div>
     }
@@ -2072,6 +2077,7 @@ fn Empty(chat: Chat) -> impl IntoView {
                         }
                             .into_any()
                     }
+                    None if chat.no_agent.get() => ().into_any(),
                     None => {
                         let rt = chat.runtime();
                         let name = match rt.as_str() {
@@ -2080,6 +2086,7 @@ fn Empty(chat: Chat) -> impl IntoView {
                             other => other,
                         }
                             .to_owned();
+                        // 一个智能体都没装时不挂 Claude Code 的招牌，说明和安装按钮在输入框的位置。
                         view! {
                             <div class="cc-hero">
                                 <span

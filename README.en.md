@@ -18,7 +18,10 @@ Blazar brings editing, conversations, change review, and PR creation for local a
 ## Install
 
 macOS: download the Apple Silicon or Intel `.dmg` from [Releases](../../releases), open it, drag Blazar into Applications, and launch it.
-Current macOS builds are neither Developer ID signed nor notarized. After verifying the download source, if macOS blocks the first launch, run:
+Current macOS builds are neither Developer ID signed nor notarized, so macOS stops the first launch and says the developer cannot be verified, or that the app is "damaged". After making sure the download came from this repository's Releases:
+
+1. Open Blazar once, and after macOS blocks it, go to System Settings → Privacy & Security and click Open Anyway near the bottom.
+2. If there is no Open Anyway button (there isn't one when macOS says "damaged"), run this once in Terminal:
 
 ```sh
 xattr -dr com.apple.quarantine /Applications/Blazar.app

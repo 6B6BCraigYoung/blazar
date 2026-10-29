@@ -12,6 +12,8 @@ use super::modal::Modal;
 pub struct TermLogin {
     pub title: String,
     pub hint: String,
+    /// 实际运行的命令、配置目录这类细节，折在「详情」里。
+    pub detail: Option<String>,
     pub path: String,
     pub verify_node: Option<String>,
     pub after: Callback<bool>,
@@ -110,6 +112,17 @@ fn Dialog(t: TermLogin, on_close: Callback<()>) -> impl IntoView {
         >
             <h3>{t.title.clone()}</h3>
             <div class="muted small">{t.hint.clone()}</div>
+            {t
+                .detail
+                .clone()
+                .map(|d| {
+                    view! {
+                        <details class="ui-detail">
+                            <summary>"详情"</summary>
+                            <pre>{d}</pre>
+                        </details>
+                    }
+                })}
             <div class="login-term" data-ui-guard="" node_ref=host></div>
             <div class="dlg-foot">
                 <span class="muted small grow">{move || state.get()}</span>

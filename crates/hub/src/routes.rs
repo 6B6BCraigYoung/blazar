@@ -31,6 +31,7 @@ pub fn build_router(st: Arc<AppState>) -> Router {
         .route("/api/agents", get(api::list_agents))
         .route("/api/runtimes", get(api::runtimes))
         .route("/api/runtimes/{id}/models", get(api::runtime_models))
+        .route("/api/runtimes/{id}/install", post(remote_cli::install_here))
         .route("/api/runtimes/claude/catalog", get(catalog::claude_catalog))
         .route(
             "/api/agent-profiles",

@@ -21,17 +21,17 @@ use super::{NEW, title_of};
 pub fn ConsolePage() -> impl IntoView {
     let app = use_app();
     let location = use_location();
-    let failed = RwSignal::new(None::<String>);
+    let failed = RwSignal::new(None::<(String, Option<String>)>);
     leptos::task::spawn_local(async move {
         match api::send::<api::Assistant>("POST", "/api/assistant", &json!({})).await {
             Ok(a) if a.id.is_some() => {
                 let _ = app.chats.try_set(a);
             }
             Ok(_) => {
-                let _ = failed.try_set(Some("打不开对话，请稍后再试".to_owned()));
+                let _ = failed.try_set(Some(("打不开对话，请稍后再试".to_owned(), None)));
             }
             Err(e) => {
-                let _ = failed.try_set(Some(e.to_string()));
+                let _ = failed.try_set(Some(e.explained()));
             }
         }
     });
@@ -62,7 +62,7 @@ pub fn ConsolePage() -> impl IntoView {
             }
             None => {
                 match failed.get() {
-                    Some(e) => view! { <InlineError message=e /> }.into_any(),
+                    Some((message, detail)) => view! { <InlineError message detail /> }.into_any(),
                     None => view! { <LoadingState text="正在加载对话…" /> }.into_any(),
                 }
             }
@@ -92,6 +92,7 @@ fn Room(id: String, path: String, thread: Signal<Option<String>>) -> impl IntoVi
     let git = crate::pages::workspace::git_panel::Git::new(&id);
     let noop = Callback::new(|()| {});
     let chat = Chat::new(&id, &path, "local", files, diff, git, noop, noop);
+    provide_context(crate::pages::inbox::OpenThread(chat.view.into()));
     let draft = RwSignal::new(None::<String>);
     let mention = RwSignal::new(None::<String>);
     let tree_files = Signal::derive(Vec::new);

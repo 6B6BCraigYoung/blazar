@@ -18,7 +18,10 @@ Blazar 在一个窗口里提供本地与 SSH 工作区的编辑、对话、改�
 ## 安装
 
 macOS：从 [Releases](../../releases) 下载适合 Apple Silicon 或 Intel 的 `.dmg`，打开后把 Blazar 拖入“应用程序”，再启动应用。
-当前 macOS 构建未使用 Apple Developer ID 签名，也未公证；确认下载来源后，若首次启动被系统拦截，可运行：
+当前 macOS 构建没有用 Apple Developer ID 签名，也没有公证，所以第一次打开时 macOS 会拦下来，提示“无法验证开发者”或“已损坏”。确认是从本仓库的 Releases 下载的之后：
+
+1. 先双击打开一次 Blazar，被拦下后打开「系统设置 → 隐私与安全性」，在页面下方点「仍要打开」。
+2. 如果那里没有「仍要打开」（提示“已损坏”时就没有），在终端里运行一次：
 
 ```sh
 xattr -dr com.apple.quarantine /Applications/Blazar.app

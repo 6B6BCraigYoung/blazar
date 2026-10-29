@@ -89,7 +89,7 @@ pub fn App() -> impl IntoView {
                 <Sidebar />
                 <Main>
                     <Routes fallback=NotFound>
-                        <ParentRoute path=path!("") view=ConsolePage>
+                        <ParentRoute path=path!("") view=HomePage>
                             <Route path=path!("/") view=|| () />
                             <Route path=path!("/chats/:thread") view=|| () />
                         </ParentRoute>

@@ -19,7 +19,7 @@ pub type Shared = Arc<AppState>;
 pub struct ApiError(anyhow::Error);
 
 #[derive(Debug)]
-struct InvalidRequest(String);
+struct InvalidRequest(String, Option<String>);
 
 impl std::fmt::Display for InvalidRequest {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -42,7 +42,19 @@ impl std::error::Error for NotFound {}
 
 impl ApiError {
     pub(crate) fn bad_request(message: impl Into<String>) -> Self {
-        Self(anyhow::Error::new(InvalidRequest(message.into())))
+        Self(anyhow::Error::new(InvalidRequest(message.into(), None)))
+    }
+
+    /// 给用户看一句话，原文放进 `detail`，界面折在「详情」里。
+    pub(crate) fn bad_request_with_detail(
+        message: impl Into<String>,
+        detail: impl Into<String>,
+    ) -> Self {
+        let detail = detail.into();
+        Self(anyhow::Error::new(InvalidRequest(
+            message.into(),
+            Some(detail).filter(|d| !d.trim().is_empty()),
+        )))
     }
 
     #[must_use]
@@ -82,11 +94,15 @@ impl IntoResponse for ApiError {
                 Some(blazar_vfs::VfsError::PathEscape(_))
             )
         {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({ "error": self.0.to_string() })),
-            )
-                .into_response();
+            let mut body = serde_json::json!({ "error": self.0.to_string() });
+            if let Some(detail) = self
+                .0
+                .downcast_ref::<InvalidRequest>()
+                .and_then(|bad| bad.1.clone())
+            {
+                body["detail"] = detail.into();
+            }
+            return (StatusCode::BAD_REQUEST, Json(body)).into_response();
         }
         tracing::error!("API 错误: {:#}", self.0);
         (

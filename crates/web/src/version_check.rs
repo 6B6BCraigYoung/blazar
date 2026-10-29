@@ -35,7 +35,7 @@ async fn mismatch() {
     }
     toast::offer(
         format!(
-            "这台电脑上的 Blazar 是 {app}，连着的 hub 是 {hub}。版本不一样时有的功能用不了，两边升到同一个版本最稳。"
+            "这台电脑上的 Blazar 是 {app}，连着的后台服务是 {hub}。版本不一样时有的功能用不了，两边升到同一个版本最稳。"
         ),
         "知道了",
         LATER_MS,

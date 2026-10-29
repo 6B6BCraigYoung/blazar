@@ -232,6 +232,35 @@ pub fn error(raw: &str, status: Option<u16>) -> String {
     }
 }
 
+fn has_cjk(text: &str) -> bool {
+    text.chars()
+        .any(|c| ('\u{4e00}'..='\u{9fff}').contains(&c) || ('\u{3000}'..='\u{303f}').contains(&c))
+}
+
+/// 一句给人看的话，加上可以折进「详情」的原文。认得出的照 [`error`] 翻译；
+/// 后台自己写的中文提示照原样；认不出的英文原文（或者“中文前缀：英文原文”的后半截）
+/// 不直接给人看，只说“出了点问题”。
+#[must_use]
+pub fn explain(raw: &str, status: Option<u16>) -> (String, Option<String>) {
+    let raw = raw.trim();
+    let detail = || Some(raw.to_owned()).filter(|r| !r.is_empty() && !r.starts_with("HTTP "));
+    let why = error(raw, status);
+    if why != raw {
+        return (why, detail());
+    }
+    if !has_cjk(raw) {
+        return ("出了点问题".into(), detail());
+    }
+    if let Some((head, tail)) = raw.split_once('：')
+        && has_cjk(head)
+        && !has_cjk(tail)
+        && !tail.trim().is_empty()
+    {
+        return (head.trim().to_owned(), Some(tail.trim().to_owned()));
+    }
+    (raw.to_owned(), None)
+}
+
 pub fn http_code(raw: &str) -> Option<u16> {
     raw.split(|c: char| !c.is_ascii_digit())
         .filter_map(|t| t.parse::<u16>().ok())
@@ -382,6 +411,44 @@ mod tests {
         assert_eq!(error("server_error", None), "服务出错了，稍后再试");
         assert_eq!(error("billing_error", None), "额度不足，请检查账号");
         assert_eq!(term("exclusive"), "独占");
+    }
+
+    #[test]
+    fn unknown_errors_fold_their_original_text() {
+        assert_eq!(
+            explain("database is locked", Some(500)),
+            (
+                "出了点问题".to_owned(),
+                Some("database is locked".to_owned())
+            )
+        );
+        assert_eq!(explain("", None), ("出了点问题".to_owned(), None));
+        assert_eq!(
+            explain("HTTP 418", Some(418)),
+            ("出了点问题".to_owned(), None)
+        );
+        assert_eq!(
+            explain("这不像一个 Git 地址", Some(400)),
+            ("这不像一个 Git 地址".to_owned(), None)
+        );
+        assert_eq!(
+            explain("创建失败：No such file or directory (os error 2)", None),
+            (
+                "创建失败".to_owned(),
+                Some("No such file or directory (os error 2)".to_owned())
+            )
+        );
+        assert_eq!(
+            explain(
+                "文件夹已存在：/Users/me/Developer/x。要用它的话，请直接选择这个文件夹",
+                Some(400)
+            )
+            .1,
+            None
+        );
+        let (text, detail) = explain("connection refused", None);
+        assert_eq!(text, "连不上服务，请检查网络");
+        assert_eq!(detail.as_deref(), Some("connection refused"));
     }
 
     #[test]

@@ -26,7 +26,7 @@ mod status;
 use pickers::{FilesPop, agent_pop, mcp_pop, mode_pop, model_pop, plus_pop, slash_pop, style_pop};
 use presentation::{eff_label, icon, model_name, svg};
 use queue::{FailedEditor, QueueBand, QueueEditor};
-use status::{RateBanner, Tray};
+use status::{NoAgent, RateBanner, Tray};
 
 #[wasm_bindgen(module = "/js/files.js")]
 extern "C" {
@@ -1000,9 +1000,12 @@ pub fn Composer(
                         view! { <FailedCard chat key text failure dismissed /> }
                     })
             }}
+            {move || chat.no_agent.get().then(|| view! { <NoAgent chat /> })}
             <div
                 class="cc-box"
-                hidden=move || deciding.get() || failed.with(Option::is_some)
+                hidden=move || {
+                    deciding.get() || failed.with(Option::is_some) || chat.no_agent.get()
+                }
                 data-off=move || unreachable.get().to_string()
                 data-bash=move || chat.prompt.with(|p| p.trim_start().starts_with('!')).to_string()
                 on:dragover=move |e: ev::DragEvent| {
@@ -1253,7 +1256,27 @@ pub fn Composer(
                         <button
                             class="cb-btn cb-trigger cb-agent"
                             aria-label="Agent and runtime"
-                            title="Switch agent, runtime or account, keeping the conversation"
+                            title=move || {
+                                let rt = chat.runtime();
+                                let account = (ACC_RUNTIMES.contains(&rt.as_str())
+                                    && chat.agent.get().starts_with("r:"))
+                                    .then(|| match chat.current_account(&rt) {
+                                        Some(id) => chat.account(&id).map(|a| a.label),
+                                        None => Some("Auto-balance".to_owned()),
+                                    })
+                                    .flatten();
+                                match account {
+                                    Some(a) => {
+                                        format!(
+                                            "Account: {a}. Switch agent, runtime or account, keeping the conversation",
+                                        )
+                                    }
+                                    None => {
+                                        "Switch agent, runtime or account, keeping the conversation"
+                                            .to_owned()
+                                    }
+                                }
+                            }
                             on:click=move |_| {
                                 pop.update(|p| {
                                     *p = if *p == Some(Pop::Agent) {
@@ -1268,26 +1291,7 @@ pub fn Composer(
                                 class="rt-ic"
                                 inner_html=move || crate::rt_logo::glyph(&chat.runtime())
                             ></span>
-                            <span class="cb-tx">
-                                {move || chat.agent_label()}
-                                {move || {
-                                    let rt = chat.runtime();
-                                    (ACC_RUNTIMES.contains(&rt.as_str())
-                                        && chat.agent.get().starts_with("r:"))
-                                        .then(|| {
-                                            let label = match chat.current_account(&rt) {
-                                                Some(id) => chat.account(&id).map(|a| a.label)?,
-                                                None => "Auto-balance".to_owned(),
-                                            };
-                                            Some(
-                                                view! {
-                                                    <span class="muted">{format!(" · {label}")}</span>
-                                                },
-                                            )
-                                        })
-                                        .flatten()
-                                }}
-                            </span>
+                            <span class="cb-tx">{move || chat.agent_label()}</span>
                             <span class="chev" inner_html=icon("chev")></span>
                         </button>
                         {move || {

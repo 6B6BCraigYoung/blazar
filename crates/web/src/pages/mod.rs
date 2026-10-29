@@ -26,7 +26,7 @@ pub use skills::SkillsPage;
 pub use tasks::TasksPage;
 pub use usage::UsagePage;
 pub use workspace::WorkspacePage;
-pub use workspaces::{InspectorHost, ProjectPage, WorkspacesPage};
+pub use workspaces::{HomePage, InspectorHost, ProjectPage, WorkspacesPage};
 
 #[component]
 pub fn NotFound() -> impl IntoView {

@@ -229,11 +229,54 @@ if [ "$(uname)" = Darwin ]; then root="$HOME/Developer"; else root="$HOME/Projec
 mkdir -p "$root"
 dest="$root/{name}"
 if [ -e "$dest" ]; then echo "EXISTS $dest"; exit 3; fi
+export GIT_TERMINAL_PROMPT=0
 git -c protocol.ext.allow=never -c protocol.fd.allow=never -c protocol.file.allow=never clone --quiet -- {url} "$dest"
 cd "$dest" && pwd -P"#,
         url = blazar_transport::shell_quote(url),
         name = blazar_transport::shell_quote(name),
     )
+}
+
+/// git 的报错原文只进详情；界面上只说发生了什么、下一步做什么。
+fn clone_failure(stderr: &str) -> &'static str {
+    let lower = stderr.to_ascii_lowercase();
+    let has = |needles: &[&str]| needles.iter().any(|n| lower.contains(n));
+    if has(&["git: command not found", "git: not found"]) {
+        return "这台机器上没有 git，先装好 git 再试";
+    }
+    if has(&[
+        "could not read username",
+        "could not read password",
+        "authentication failed",
+        "terminal prompts disabled",
+        "permission denied (publickey",
+        "invalid username or password",
+        "access denied",
+        "returned error: 403",
+    ]) {
+        "这是私有仓库，先在终端里登录 git（能在终端里 git clone 成功就行），再回来克隆"
+    } else if has(&[
+        "repository not found",
+        "not found",
+        "does not appear to be a git repository",
+    ]) {
+        "找不到这个仓库：检查地址有没有写错；如果是私有仓库，先在终端里登录 git"
+    } else if has(&[
+        "could not resolve host",
+        "failed to connect",
+        "connection timed out",
+        "connection refused",
+        "network is unreachable",
+        "operation timed out",
+    ]) {
+        "连不上仓库所在的服务器，检查网络后再试"
+    } else if has(&["host key verification failed"]) {
+        "第一次连这台 git 服务器，先在终端里 git clone 一次、确认主机指纹，再回来克隆"
+    } else if has(&["no space left on device"]) {
+        "磁盘满了，清出空间后再试"
+    } else {
+        "克隆没有成功"
+    }
 }
 
 pub async fn clone_workspace(
@@ -267,15 +310,10 @@ pub async fn clone_workspace(
                 "文件夹已存在：{existing}。要用它的话，请直接选择这个文件夹"
             )));
         }
-        let why = out.stderr.lines().last().unwrap_or("").trim();
-        return Err(ApiError::bad_request(format!(
-            "克隆失败{}",
-            if why.is_empty() {
-                String::new()
-            } else {
-                format!("：{why}")
-            }
-        )));
+        return Err(ApiError::bad_request_with_detail(
+            clone_failure(&out.stderr),
+            out.stderr.trim(),
+        ));
     }
     let path = out
         .stdout
@@ -1200,6 +1238,21 @@ mod tests {
             assert_eq!(clone_folder_name(ok).ok().as_deref(), Some(ok));
         }
         assert_eq!(repo_name("https://host/team/..").as_deref(), None);
+    }
+
+    #[test]
+    fn clone_failures_say_what_to_do_next() {
+        let private = "Cloning into '/Users/me/Developer/x'...\nfatal: could not read Username for 'https://github.com': terminal prompts disabled";
+        assert!(clone_failure(private).starts_with("这是私有仓库"));
+        assert!(clone_failure("git@github.com: Permission denied (publickey).\nfatal: Could not read from remote repository.").starts_with("这是私有仓库"));
+        assert!(clone_failure("remote: Repository not found.\nfatal: repository 'https://github.com/a/b.git/' not found").starts_with("找不到这个仓库"));
+        assert!(
+            clone_failure("fatal: unable to access 'https://x/': Could not resolve host: x")
+                .starts_with("连不上")
+        );
+        assert!(clone_failure("bash: git: command not found").contains("没有 git"));
+        assert_eq!(clone_failure("fatal: something else"), "克隆没有成功");
+        assert_eq!(clone_failure(""), "克隆没有成功");
     }
 
     #[test]

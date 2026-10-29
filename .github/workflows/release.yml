@@ -74,7 +74,7 @@ jobs:
           releaseBody: |
             Desktop app for macOS (Apple Silicon and Intel), Linux and Windows, plus the `blazar` CLI, `blazar-hub` and `blazar-mcp` binaries.
 
-            The macOS builds are not notarized. A copy downloaded with a browser is quarantined and macOS reports it as "damaged"; drag Blazar.app to Applications, eject the disk image, then run `xattr -dr com.apple.quarantine /Applications/Blazar.app` once. Downloads made with `curl` are not quarantined.
+            The macOS builds are not notarized, so macOS stops the first launch and says the developer cannot be verified, or that the app is "damaged". Drag Blazar.app to Applications and open it once, then go to System Settings → Privacy & Security and click Open Anyway. If there is no Open Anyway button (there isn't one when macOS says "damaged"), run `xattr -dr com.apple.quarantine /Applications/Blazar.app` once in Terminal. Downloads made with `curl` are not quarantined.
           releaseDraft: true
           prerelease: false
           args: --target ${{ matrix.target }}
@@ -110,8 +110,9 @@ jobs:
           parts = re.findall(r'^## ' + re.escape(tag) + r'\b.*?\n(.*?)(?=^## |^---|\Z)', text, re.M | re.S)
           if len(parts) != 2:
               raise SystemExit(f'CHANGELOG.md needs a Chinese and an English section for {tag}')
-          install = ('The macOS builds are not notarized. A copy downloaded with a browser is quarantined and macOS reports it as "damaged"; '
-                     'drag Blazar.app to Applications, eject the disk image, then run `xattr -dr com.apple.quarantine /Applications/Blazar.app` once.')
+          install = ('The macOS builds are not notarized, so macOS stops the first launch and says the developer cannot be verified, or that the app is "damaged". '
+                     'Drag Blazar.app to Applications and open it once, then go to System Settings → Privacy & Security and click Open Anyway. '
+                     'If there is no Open Anyway button (there isn\'t one when macOS says "damaged"), run `xattr -dr com.apple.quarantine /Applications/Blazar.app` once in Terminal.')
           print(parts[1].strip() + '\n\n' + install + '\n\n---\n\n## 中文\n\n' + parts[0].strip())
           PY
       - name: Attach notes and publish the draft

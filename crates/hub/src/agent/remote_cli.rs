@@ -357,6 +357,13 @@ async fn install_claude(st: &Shared, node: &str, want: (u64, u64, u64)) -> Resul
             "已把 Claude Code {v} 装到 {node} 的 ~/.blazar（官方发布，sha256 校验通过）"
         ));
     }
+    // 本机没有“由别处下载再传过来”的退路，后面的 scp 兜底只对远端有意义。
+    if node == "local" {
+        return Err(format!(
+            "Claude Code {v} 下载失败：{}",
+            remote_log.lines().last().unwrap_or("").trim()
+        ));
+    }
 
     let target = ssh_target(st, node);
     let dst = format!(".blazar/agents/claude/{v}/claude.part");
@@ -502,10 +509,16 @@ async fn install_codex(st: &Shared, node: &str, want: (u64, u64, u64)) -> Result
         exports(st, node).await,
         codex_install_script(&v, &triple, sri, &remote_fetch)
     );
-    let _ = run(st, node, &script, 900).await;
+    let remote_log = run(st, node, &script, 900).await.unwrap_or_else(|e| e);
     if remote_version(st, node, "codex").await == Some(want) {
         return Ok(format!(
             "已把 Codex {v} 装到 {node} 的 ~/.blazar（npm 官方仓库，sha512 校验通过）"
+        ));
+    }
+    if node == "local" {
+        return Err(format!(
+            "Codex {v} 下载失败：{}",
+            remote_log.lines().last().unwrap_or("").trim()
         ));
     }
     let local = cache_dir(st)
@@ -611,6 +624,48 @@ pub async fn versions(State(st): State<Shared>, Path(node): Path<String>) -> Res
         );
     }
     Json(serde_json::Value::Object(out)).into_response()
+}
+
+static LOCAL_INSTALL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// 开始清单和空对话里的「安装」：用给远端装 CLI 的同一套流程装到本机的 ~/.blazar，
+/// 只走官方发布（Claude Code 校验 sha256，Codex 校验 npm 的 sha512），不动系统里已有的东西。
+pub async fn install_here(State(st): State<Shared>, Path(runtime): Path<String>) -> Response {
+    let fail = |s: StatusCode, m: String, detail: Option<String>| {
+        (s, Json(json!({ "error": m, "detail": detail }))).into_response()
+    };
+    if !installable(&runtime) {
+        return fail(
+            StatusCode::BAD_REQUEST,
+            format!("不支持安装 {runtime}"),
+            None,
+        );
+    }
+    let Ok(_guard) = LOCAL_INSTALL.try_lock() else {
+        return fail(StatusCode::CONFLICT, "正在安装，稍等一会儿".into(), None);
+    };
+    let label = if runtime == "claude" {
+        "Claude Code"
+    } else {
+        "Codex"
+    };
+    if let Some(v) = local_version(&runtime).await {
+        return Json(json!({ "ok": true, "version": fmt_version(v), "message": format!("{label} 已经装好了") }))
+            .into_response();
+    }
+    match install(&st, "local", &runtime).await {
+        Ok((version, message)) => {
+            Json(json!({ "ok": true, "version": version, "message": message })).into_response()
+        }
+        Err(e) => {
+            tracing::warn!(target: "blazar::remote_cli", "本机安装 {runtime} 失败：{e}");
+            fail(
+                StatusCode::BAD_GATEWAY,
+                format!("没能装好 {label}，检查网络后再试"),
+                Some(e),
+            )
+        }
+    }
 }
 
 pub async fn update(

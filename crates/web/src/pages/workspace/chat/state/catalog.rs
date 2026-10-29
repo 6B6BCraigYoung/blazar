@@ -204,6 +204,8 @@ impl Chat {
                     .map(|x| x.id.clone())
                     .collect();
                 let _ = self.installed.try_set(Some(ok));
+                let none = !self.remote() && !r.runtimes.iter().any(|x| x.installed);
+                let _ = self.no_agent.try_set(none);
             }
             self.fix_agent();
         });

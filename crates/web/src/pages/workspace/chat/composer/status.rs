@@ -184,3 +184,83 @@ pub(super) fn RateBanner(chat: Chat) -> impl IntoView {
         })
     }
 }
+
+/// 本机一个智能体都没装时替换输入框：一句说明加「Install」，装好后重新读一遍可用的智能体。
+#[component]
+pub(super) fn NoAgent(chat: Chat) -> impl IntoView {
+    let installing = RwSignal::new(None::<&'static str>);
+    let failed = RwSignal::new(None::<(&'static str, Option<String>)>);
+    let install = move |id: &'static str| {
+        if installing.get_untracked().is_some() {
+            return;
+        }
+        installing.set(Some(id));
+        failed.set(None);
+        chat.spawn(async move {
+            let r = crate::pages::runtimes::install_here(id).await;
+            let _ = installing.try_set(None);
+            match r {
+                Ok(_) => chat.load_catalogs(),
+                Err(e) => {
+                    let _ = failed.try_set(Some((id, e.detail.or(Some(e.message)))));
+                }
+            }
+        });
+    };
+    let name = |id: &str| {
+        if id == "codex" {
+            "Codex"
+        } else {
+            "Claude Code"
+        }
+    };
+    view! {
+        <div class="cc-noagent" role="status">
+            <div class="cf-head">
+                {move || match (installing.get(), failed.get()) {
+                    (Some(id), _) => {
+                        format!("Installing {}… this can take a few minutes.", name(id))
+                    }
+                    (None, Some((id, _))) => {
+                        format!("Couldn't install {}. Check the network and try again.", name(id))
+                    }
+                    (None, None) => {
+                        "Claude Code and Codex aren't installed on this machine yet.".to_owned()
+                    }
+                }}
+            </div>
+            {move || {
+                failed
+                    .get()
+                    .and_then(|(_, d)| d)
+                    .map(|d| {
+                        view! {
+                            <details class="ui-detail">
+                                <summary>"Error details"</summary>
+                                <pre>{d}</pre>
+                            </details>
+                        }
+                    })
+            }}
+            <div class="cf-acts">
+                <button
+                    type="button"
+                    class="linkbtn"
+                    disabled=move || installing.get().is_some()
+                    on:click=move |_| install("codex")
+                >
+                    "Install Codex instead"
+                </button>
+                <span class="grow"></span>
+                <button
+                    type="button"
+                    class="btn primary"
+                    disabled=move || installing.get().is_some()
+                    on:click=move |_| install("claude")
+                >
+                    "Install Claude Code"
+                </button>
+            </div>
+        </div>
+    }
+}
