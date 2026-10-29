@@ -13,7 +13,7 @@
 .work-layout { display: flex; gap: var(--space-section); align-items: flex-start; min-width: 0; }
 .work-main { flex: 1; min-width: 0; }
 .work-board { display: flex; gap: var(--space-lg); overflow-x: auto; padding-bottom: var(--space-card); min-height: 280px; }
-.work-column { flex: 1 0 225px; min-width: 225px; border-radius: 14px; background: var(--bg-lane); padding: var(--space-control); }
+.work-column { flex: 1 0 225px; min-width: 225px; border-radius: var(--r-lg); background: var(--bg-lane); padding: var(--space-control); }
 .work-board .work-task { box-shadow: var(--shadow-lane-card); }
 .work-column > header { display: flex; align-items: center; gap: var(--space-md); padding: var(--space-2xs) var(--space-2xs) var(--space-lg); font-size: var(--font-size-label); }
 .work-task { width: 100%; display: flex; flex-direction: column; gap: var(--space-toolbar); padding: var(--inset-task-card); margin-bottom: var(--space-toolbar); text-align: left; cursor: pointer; color: inherit; font: inherit; }

@@ -92,7 +92,7 @@
 .pops-more a { color: var(--accent); text-decoration: none; }
 @keyframes popin { from { opacity: 0; transform: translateY(-6px); } }
 
-.side .nav .n[data-pill="true"] { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; display: inline-grid; place-items: center; background: var(--status-attention); color: #fff; font-size: var(--font-size-caption); font-weight: var(--font-weight-semibold); line-height: 1; }
+.side .nav .n[data-pill="true"] { min-width: 18px; height: 18px; padding: 0 5px; border-radius: var(--radius-pill); display: inline-grid; place-items: center; background: var(--status-attention); color: #fff; font-size: var(--font-size-caption); font-weight: var(--font-weight-semibold); line-height: 1; }
 
 @media (max-width: 1100px) {
   .console-rail { flex-basis: 320px; width: 320px; }
