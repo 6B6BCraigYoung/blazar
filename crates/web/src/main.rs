@@ -20,6 +20,9 @@ mod desktop;
 mod diff;
 #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 mod download_model;
+#[cfg(any(target_arch = "wasm32", test))]
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+mod drafts;
 #[cfg(target_arch = "wasm32")]
 mod failure;
 #[cfg(target_arch = "wasm32")]
@@ -35,6 +38,9 @@ mod git_preferences;
 mod home_rows;
 #[cfg(target_arch = "wasm32")]
 mod images_js;
+#[cfg(any(target_arch = "wasm32", test))]
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+mod link_state;
 #[cfg(any(target_arch = "wasm32", test))]
 mod loopback;
 #[cfg(any(target_arch = "wasm32", test))]

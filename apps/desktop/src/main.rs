@@ -16,6 +16,7 @@ mod commands;
 mod download;
 mod forward;
 mod hub_mode;
+mod link;
 mod menu;
 mod profile;
 mod remote;
@@ -372,13 +373,35 @@ fn point_window(app: &tauri::AppHandle, url: &str) {
     }
 }
 
+fn tell_page(app: &tauri::AppHandle, up: bool, machine: &str) {
+    let Some(win) = app.get_webview_window("main") else {
+        return;
+    };
+    let on_hub_page = win.url().is_ok_and(|u| {
+        matches!(u.scheme(), "http" | "https") && u.host_str() != Some("tauri.localhost")
+    });
+    if !on_hub_page {
+        return;
+    }
+    if let Err(e) = win.eval(link::script(up, machine)) {
+        tracing::warn!("没能告诉页面连接状态：{e}");
+    }
+}
+
 async fn watch_remote(r: Arc<RemoteHub>, app: tauri::AppHandle) {
+    let machine = link::machine_name(&r.target);
+    let mut ever_connected = false;
     loop {
         r.set_phase(Phase::Connecting);
         if r.wait_reachable().await {
             tracing::info!("远程 hub 已连上：{}", r.base);
             r.set_phase(Phase::Connected);
+            if ever_connected {
+                tell_page(&app, true, &machine);
+            }
+            // 同一个地址时不会换页面：页面原地保持，自己重新订阅、重新拉取。
             point_window(&app, &r.base);
+            ever_connected = true;
             if let Some(forwards) = &r.forwards {
                 forwards.kick();
             }
@@ -398,10 +421,15 @@ async fn watch_remote(r: Arc<RemoteHub>, app: tauri::AppHandle) {
         let error = r.failure();
         tracing::warn!("连不上 {} 上的 hub：{error}", r.target.label());
         r.set_phase(Phase::Failed(error));
-        point_window(&app, bundled_url().as_str());
+        let next = link::after_loss(ever_connected);
+        if next.show_bundled {
+            point_window(&app, bundled_url().as_str());
+        } else {
+            tell_page(&app, false, &machine);
+        }
         tokio::select! {
             () = r.retry.notified() => {}
-            () = tokio::time::sleep(std::time::Duration::from_secs(30)) => {}
+            () = tokio::time::sleep(std::time::Duration::from_secs(next.retry_secs)) => {}
         }
         r.kick();
     }

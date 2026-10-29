@@ -735,8 +735,7 @@ pub fn Composer(
 
     let review_n = move || chat.diff.comments.with(Vec::len);
     let app = crate::app_state::use_app();
-    let node = chat.node.get_value();
-    let unreachable = Memo::new(move |_| app.node_unreachable(&node));
+    let unreachable = Memo::new(move |_| chat.link().offline());
     let lay = use_context::<super::super::layout::LayoutState>();
     let maxed = move || lay.is_some_and(|l| l.lay.get().max);
     let deciding = Memo::new(move |_| {
@@ -1031,7 +1030,6 @@ pub fn Composer(
                 hidden=move || {
                     deciding.get() || failed.with(Option::is_some) || chat.no_agent.get()
                 }
-                data-off=move || unreachable.get().to_string()
                 data-bash=move || chat.prompt.with(|p| p.trim_start().starts_with('!')).to_string()
                 on:dragover=move |e: ev::DragEvent| {
                     if e
@@ -1099,7 +1097,6 @@ pub fn Composer(
                     node_ref=ta
                     rows="1"
                     class="prompt"
-                    disabled=move || unreachable.get()
                     aria-label="Message"
                     title=move || {
                         let key = crate::shortcuts::hint("focus");
@@ -1107,12 +1104,12 @@ pub fn Composer(
                     }
                     placeholder=move || {
                         if unreachable.get() {
-                            "Reconnect the machine to send"
+                            format!("Will send when {} is back", chat.machine())
                         } else if running.get() {
                             if matches!(chat.runtime().as_str(), "claude" | "codex") {
-                                "Message the agent while it works…"
+                                "Message the agent while it works…".to_owned()
                             } else {
-                                "Queue another message…"
+                                "Queue another message…".to_owned()
                             }
                         } else {
                             match chat.runtime().as_str() {
@@ -1120,6 +1117,7 @@ pub fn Composer(
                                 "codex" => "Ask Codex to…",
                                 _ => "Describe a task…",
                             }
+                                .to_owned()
                         }
                     }
                     prop:value=move || chat.prompt.get()
@@ -1395,7 +1393,6 @@ pub fn Composer(
                                     "Send (Enter)"
                                 }
                             }
-                            disabled=move || unreachable.get() && !stop_mode()
                             on:click=move |_| if stop_mode() { chat.stop() } else { chat.send() }
                         >
                             <span

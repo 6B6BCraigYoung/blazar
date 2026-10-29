@@ -322,6 +322,10 @@ pub fn step_text(step: Option<&WorkspaceStep>, state: &str, root: &str) -> StepT
             _ => "重试中".to_owned(),
         }),
         "error" => StepText::plain(format!("失败：{}", vocab::cause(&step.text))),
+        crate::link_state::HUB_RECONNECTING_STEP => StepText::plain(format!(
+            "正在重新连接 {}…",
+            blazar_core_types::api::machine_label(&step.text)
+        )),
         _ => StepText::plain(step.text.clone()),
     }
 }

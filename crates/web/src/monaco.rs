@@ -21,6 +21,8 @@ extern "C" {
     pub fn value(this: &Editor, path: &str) -> String;
     #[wasm_bindgen(method)]
     pub fn replace(this: &Editor, path: &str, text: &str);
+    #[wasm_bindgen(method, js_name = restoreDraft)]
+    pub fn restore_draft(this: &Editor, path: &str, text: &str) -> bool;
     #[wasm_bindgen(method, js_name = markSaved)]
     pub fn mark_saved(this: &Editor, path: &str);
     #[wasm_bindgen(method)]

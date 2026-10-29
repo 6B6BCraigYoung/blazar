@@ -16,6 +16,7 @@ use crate::realtime;
 #[component]
 fn Main(children: Children) -> impl IntoView {
     let main = NodeRef::<leptos::html::Main>::new();
+    let bus = realtime::use_bus();
     let path = leptos_router::hooks::use_location().pathname;
     Effect::new(move |_| {
         path.track();
@@ -35,6 +36,11 @@ fn Main(children: Children) -> impl IntoView {
                 }
             }
         >
+            <Show when=move || bus.banner.get()>
+                <div class="link-banner" role="status">
+                    <span>{move || realtime::banner_line(bus)}</span>
+                </div>
+            </Show>
             {children()}
         </main>
     }

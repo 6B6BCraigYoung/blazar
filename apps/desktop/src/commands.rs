@@ -42,6 +42,7 @@ pub fn hub_mode(hub: State<'_, Arc<Hub>>) -> Value {
         "ssh": ssh,
         "port": port,
         "label": r.target.label(),
+        "machine": crate::link::machine_name(&r.target),
         "phase": phase,
         "connected": phase == "connected",
         "error": error,

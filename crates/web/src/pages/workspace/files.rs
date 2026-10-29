@@ -6,7 +6,9 @@ use leptos::task::spawn_local;
 
 use crate::api;
 use crate::components::dialog::{self, Choice};
+use crate::drafts::{self, Draft};
 use crate::monaco::{self, Mounted};
+use crate::storage;
 
 mod version;
 
@@ -29,7 +31,14 @@ pub struct Files {
     meta: StoredValue<HashMap<String, Meta>>,
     editor: StoredValue<Option<Rc<Mounted>>, LocalStorage>,
     pending: StoredValue<HashMap<String, (String, bool, u32)>>,
+    /// 打开时发现本地有没存盘的草稿：等用户选「恢复未保存的改动」或「丢弃」。
+    pub draft_offer: RwSignal<Option<String>>,
+    drafts_written: StoredValue<HashMap<String, String>>,
+    draft_timer: StoredValue<Option<gloo_timers::callback::Interval>, LocalStorage>,
 }
+
+/// 多久把没存盘的编辑往本地存一次。
+const DRAFT_EVERY_MS: u32 = 2_000;
 
 fn binary_note(path: &str, r: &api::FileContent) -> Option<String> {
     let mb = r.size as f64 / 1_048_576.0;
@@ -59,7 +68,91 @@ impl Files {
             meta: StoredValue::new(HashMap::new()),
             editor: StoredValue::new_local(None),
             pending: StoredValue::new(HashMap::new()),
+            draft_offer: RwSignal::new(None),
+            drafts_written: StoredValue::new(HashMap::new()),
+            draft_timer: StoredValue::new_local(None),
         }
+    }
+
+    fn draft_key(self, path: &str) -> String {
+        drafts::key(&self.ws(), path)
+    }
+
+    /// 没存盘的文件各存一份草稿，页面重新载入、连接断开都不丢。
+    fn write_drafts(self) {
+        let Some(dirty) = self.dirty.try_get_untracked() else {
+            return;
+        };
+        if self.ws.try_get_value().is_none() || dirty.is_empty() {
+            return;
+        }
+        let offered = self.draft_offer.get_untracked();
+        for path in dirty {
+            if offered.as_deref() == Some(path.as_str()) || self.readonly(&path) {
+                continue;
+            }
+            let text = self.value(&path);
+            let last = self.drafts_written.with_value(|w| w.get(&path).cloned());
+            if !drafts::worth_keeping(&text) || !drafts::changed(last.as_deref(), &text) {
+                continue;
+            }
+            storage::save(
+                &self.draft_key(&path),
+                &Draft {
+                    text: text.clone(),
+                    at: String::from(js_sys::Date::new_0().to_iso_string()),
+                },
+            );
+            self.drafts_written.update_value(|w| {
+                w.insert(path, text);
+            });
+        }
+    }
+
+    fn drop_draft(self, path: &str) {
+        storage::remove(&self.draft_key(path));
+        self.drafts_written.update_value(|w| {
+            w.remove(path);
+        });
+        if self
+            .draft_offer
+            .with_untracked(|o| o.as_deref() == Some(path))
+        {
+            self.draft_offer.set(None);
+        }
+    }
+
+    /// 打开文件后：本地草稿和磁盘上不一样就提示恢复；一样就是过期的，删掉。
+    fn check_draft(self, path: &str, on_disk: &str) {
+        let draft: Option<Draft> = storage::load(&self.draft_key(path));
+        if drafts::offer(draft.as_ref(), on_disk) {
+            self.draft_offer.set(Some(path.to_owned()));
+        } else if draft.is_some() {
+            storage::remove(&self.draft_key(path));
+        }
+    }
+
+    pub fn draft_time(self, path: &str) -> String {
+        storage::load::<Draft>(&self.draft_key(path))
+            .map(|d| d.at)
+            .filter(|at| !at.is_empty())
+            .map(|at| crate::fmt::ago(&at))
+            .unwrap_or_default()
+    }
+
+    pub fn restore_draft(self, path: String) {
+        let Some(draft) = storage::load::<Draft>(&self.draft_key(&path)) else {
+            self.draft_offer.set(None);
+            return;
+        };
+        if self.with_editor(|e| e.restore_draft(&path, &draft.text)) == Some(true) {
+            self.draft_offer.set(None);
+            self.rev.update(|n| *n = n.wrapping_add(1));
+        }
+    }
+
+    pub fn discard_draft(self, path: String) {
+        self.drop_draft(&path);
     }
 
     pub fn ws(self) -> String {
@@ -90,6 +183,13 @@ impl Files {
         spawn_local(async move {
             let on_save = move |p: String| self.save(p, false);
             let on_dirty = move |p: String, d: bool| {
+                let offered = self
+                    .draft_offer
+                    .try_with_untracked(|o| o.as_deref() == Some(p.as_str()))
+                    .unwrap_or(true);
+                if !d && !offered {
+                    self.drop_draft(&p);
+                }
                 if self.dirty.try_with_untracked(|s| s.contains(&p) != d) == Some(true) {
                     self.dirty.update(|s| {
                         if d {
@@ -112,6 +212,10 @@ impl Files {
                     if self.editor.try_set_value(Some(Rc::new(m))).is_some() {
                         return;
                     }
+                    let timer = gloo_timers::callback::Interval::new(DRAFT_EVERY_MS, move || {
+                        self.write_drafts();
+                    });
+                    let _ = self.draft_timer.try_set_value(Some(timer));
                     if let Some(cur) = self.current.try_get_untracked().flatten()
                         && let Some((text, ro, line)) =
                             self.pending.try_update_value(|p| p.remove(&cur)).flatten()
@@ -128,6 +232,8 @@ impl Files {
     }
 
     pub fn dispose(self) {
+        self.write_drafts();
+        let _ = self.draft_timer.try_update_value(Option::take);
         if let Some(Some(m)) = self.editor.try_update_value(Option::take) {
             m.editor.dispose();
         }
@@ -177,6 +283,9 @@ impl Files {
                     }
                     if !self.open_tabs.with_untracked(|t| t.contains(&path)) {
                         return;
+                    }
+                    if !ro {
+                        self.check_draft(&path, &text);
                     }
                     let shown = self
                         .current
@@ -232,6 +341,7 @@ impl Files {
             self.dirty.update(|d| {
                 d.remove(&path);
             });
+            self.drop_draft(&path);
             if self
                 .current
                 .with_untracked(|c| c.as_deref() == Some(path.as_str()))

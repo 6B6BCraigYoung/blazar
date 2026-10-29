@@ -380,7 +380,31 @@ impl Chat {
         self.busy.update(|n| *n += 1);
         let context = self.send_context(body["resume_session"].as_str().map(str::to_owned));
         let ws = context.workspace.clone();
+        let offline = untrack(move || self.link()).offline();
         self.spawn(async move {
+            if offline {
+                // 机器连不上：直接进排队，机器回来时再发（见 flush_when_back）。
+                let q = api::send::<Vec<Queued>>(
+                    "PUT",
+                    &format!("/api/workspaces/{ws}/queue"),
+                    &context.queue_request(&body),
+                )
+                .await;
+                let _ = self.busy.try_update(|n| *n = n.saturating_sub(1));
+                self.drop_pending(pid);
+                self.deliveries.update(|d| d.finish(pid, q.is_ok()));
+                match q {
+                    Ok(q) => {
+                        self.queue.set(q);
+                        toast(format!("Will send when {} is back", self.machine()));
+                    }
+                    Err(e) => toast(format!(
+                        "Couldn't queue, message kept: {}",
+                        crate::vocab_en::error(&e.message, e.status)
+                    )),
+                }
+                return;
+            }
             let r =
                 api::send::<Value>("POST", &format!("/api/workspaces/{ws}/prompt"), &body).await;
             let _ = self.busy.try_update(|n| *n = n.saturating_sub(1));
@@ -420,7 +444,10 @@ impl Chat {
                             self.queue.set(q);
                             toast("Queued. Sends after this turn.");
                         }
-                        Err(e) => toast(format!("Couldn't queue, message kept: {e}")),
+                        Err(e) => toast(format!(
+                            "Couldn't queue, message kept: {}",
+                            crate::vocab_en::error(&e.message, e.status)
+                        )),
                     }
                 }
                 Ok(r) => {
@@ -452,11 +479,47 @@ impl Chat {
                 Err(e) => {
                     self.drop_pending(pid);
                     self.deliveries.update(|d| d.finish(pid, false));
-                    toast(format!("Send failed, message kept: {e}"));
+                    toast(format!(
+                        "Send failed, message kept: {}",
+                        crate::vocab_en::error(&e.message, e.status)
+                    ));
                 }
             }
             gloo_timers::future::TimeoutFuture::new(60_000).await;
             self.drop_pending(pid);
+        });
+    }
+
+    /// 机器回来了：hub 只在一轮结束时才发下一条排队消息，机器离线期间写的消息
+    /// 没有“一轮结束”可等，所以这里发出第一条；它跑完后 hub 会接着发其余的。
+    pub(super) fn flush_when_back(self) {
+        if untrack(move || self.running.get()) {
+            return;
+        }
+        let ws = self.ws_id();
+        self.spawn(async move {
+            let Ok(q) = api::get::<Vec<Queued>>(&format!("/api/workspaces/{ws}/queue")).await
+            else {
+                return;
+            };
+            let _ = self.queue.try_set(q.clone());
+            let Some(first) = q.into_iter().find(|m| m.held.is_none()) else {
+                return;
+            };
+            let context = self.send_context(first.thread_id.clone());
+            let sent = api::send::<Value>(
+                "POST",
+                &format!("/api/workspaces/{ws}/queue/{}/send", first.id),
+                &json!({}),
+            )
+            .await;
+            if let Ok(r) = sent {
+                self.note_sent_in(
+                    &context,
+                    r["session_id"].as_str().map(str::to_owned),
+                    r["thread_id"].as_str().map(str::to_owned),
+                );
+            }
         });
     }
 

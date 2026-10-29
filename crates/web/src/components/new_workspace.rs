@@ -115,22 +115,25 @@ fn Dialog() -> impl IntoView {
         .new_ws_node
         .get_untracked()
         .unwrap_or_else(|| "local".to_owned());
-    let nodes: Vec<String> = {
-        let mut v = vec!["local".to_owned()];
-        v.extend(app.state.with_untracked(|s| {
+    // 在线的在前，离线的标灰字「离线」放到最后。
+    let nodes: Vec<(String, bool)> = {
+        let mut v = vec![("local".to_owned(), false)];
+        let mut rest = app.state.with_untracked(|s| {
             s.as_ref()
                 .map(|s| {
                     s.nodes
                         .iter()
                         .filter(|n| n.is_usable())
-                        .map(|n| n.name.clone())
-                        .filter(|n| n != "local")
+                        .filter(|n| n.name != "local")
+                        .map(|n| (n.name.clone(), n.status != "online"))
                         .collect::<Vec<_>>()
                 })
                 .unwrap_or_default()
-        }));
-        if !v.contains(&preset) {
-            v.push(preset.clone());
+        });
+        rest.sort_by_key(|(_, off)| *off);
+        v.extend(rest);
+        if !v.iter().any(|(n, _)| *n == preset) {
+            v.push((preset.clone(), false));
         }
         v
     };
@@ -152,9 +155,9 @@ fn Dialog() -> impl IntoView {
     let path = RwSignal::new(String::new());
     let touched = RwSignal::new(false);
     let typed = RwSignal::new(String::new());
-    let listing = RwSignal::new(None::<Result<Listing, String>>);
+    let listing = RwSignal::new(None::<Result<Listing, (String, Option<String>)>>);
     let iso = RwSignal::new(false);
-    let branches = RwSignal::new(None::<Result<Vec<Branch>, String>>);
+    let branches = RwSignal::new(None::<Result<Vec<Branch>, (String, Option<String>)>>);
     let pick = RwSignal::new(String::new());
     let bq = RwSignal::new(String::new());
     let name = RwSignal::new(String::new());
@@ -206,7 +209,7 @@ fn Dialog() -> impl IntoView {
                 api::enc(&p)
             ))
             .await
-            .map_err(|e| e.to_string());
+            .map_err(|e| e.explained());
             if bseq.try_get_value() != Some(mine) {
                 return;
             }
@@ -235,7 +238,7 @@ fn Dialog() -> impl IntoView {
                 api::enc(&p)
             ))
             .await
-            .map_err(|e| e.to_string());
+            .map_err(|e| e.explained());
             if seq.try_get_value() != Some(mine) {
                 return;
             }
@@ -531,11 +534,20 @@ fn Dialog() -> impl IntoView {
             >
                 {nodes
                     .into_iter()
-                    .map(|n| {
+                    .map(|(n, off)| {
                         let selected = n.clone();
+                        let label = if off {
+                            format!("{} · 离线", crate::fmt::machine(&n))
+                        } else {
+                            crate::fmt::machine(&n)
+                        };
                         view! {
-                            <option value=n.clone() selected=move || node.get() == selected>
-                                {crate::fmt::machine(&n)}
+                            <option
+                                value=n.clone()
+                                class:off=off
+                                selected=move || node.get() == selected
+                            >
+                                {label}
                             </option>
                         }
                     })
@@ -608,10 +620,11 @@ fn Dialog() -> impl IntoView {
                                             view! { <span class="muted small">"读取中…"</span> }
                                                 .into_any()
                                         }
-                                        Some(Err(e)) => {
+                                        Some(Err((e, detail))) => {
                                             view! {
                                                 <InlineError
                                                     message=e
+                                                    detail=detail
                                                     retry=Callback::new(move |_| browse())
                                                 />
                                             }
@@ -753,10 +766,11 @@ fn Dialog() -> impl IntoView {
                     }}
                     {move || match listing.get() {
                         None => view! { <LoadingState text="读取中…" /> }.into_any(),
-                        Some(Err(e)) => {
+                        Some(Err((e, detail))) => {
                             view! {
                                 <InlineError
                                     message=e
+                                    detail=detail
                                     class="empty"
                                     retry=Callback::new(move |_| browse())
                                 />
@@ -969,10 +983,11 @@ fn Dialog() -> impl IntoView {
                                     None => {
                                         view! { <LoadingState text="读取分支…" /> }.into_any()
                                     }
-                                    Some(Err(e)) => {
+                                    Some(Err((e, detail))) => {
                                         view! {
                                             <InlineError
                                                 message=e
+                                                detail=detail
                                                 class="empty"
                                                 retry=Callback::new(move |_| load_branches())
                                             />

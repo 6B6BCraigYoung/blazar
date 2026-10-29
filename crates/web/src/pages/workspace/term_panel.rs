@@ -133,6 +133,7 @@ pub fn TermTabs(ws: String, terms: Terms) -> impl IntoView {
 pub fn TermPane(ws: String, terms: Terms, active: Signal<bool>) -> impl IntoView {
     let host = NodeRef::<html::Div>::new();
     let live = StoredValue::new_local(None::<Rc<term::Open>>);
+    let node_of = ws.clone();
     let wanted = Memo::new(move |was: Option<&bool>| was.copied().unwrap_or(false) || active.get());
     Effect::new(move |_| {
         let tab = terms.cur.get();
@@ -167,6 +168,23 @@ pub fn TermPane(ws: String, terms: Terms, active: Signal<bool>) -> impl IntoView
         });
         open.term.focus();
         live.set_value(Some(Rc::new(open)));
+    });
+    // 远端的终端会话一直在：和 hub 的连接回来、或者机器重新上线时，断了的终端自己接回去。
+    let bus = crate::realtime::use_bus();
+    let app = crate::app_state::use_app();
+    Effect::new(move |prev: Option<(u32, bool)>| {
+        let reconnects = bus.reconnects.get();
+        let offline = app
+            .workspace(&node_of)
+            .is_some_and(|w| app.node_unreachable(&w.node));
+        if let Some((was_reconnects, was_offline)) = prev {
+            let back = reconnects != was_reconnects
+                || crate::link_state::came_back(Some(was_offline), offline);
+            if back && terms.state.get_untracked() == "closed" {
+                terms.reconnect.update(|n| *n = n.wrapping_add(1));
+            }
+        }
+        (reconnects, offline)
     });
     Effect::new(move |_| {
         if active.get() {

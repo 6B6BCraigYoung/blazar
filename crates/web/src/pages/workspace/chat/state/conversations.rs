@@ -14,7 +14,7 @@ use crate::storage;
 use super::approval_delivery::ApprovalDeliveries;
 use super::history::{RowKey, merge_history};
 use super::send_context::clear_view_pending;
-use super::{Chat, Queued, SubLoad, Thread};
+use super::{Chat, Deliveries, Queued, SubLoad, Thread, unsent_key};
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct SavedTabs {
@@ -505,6 +505,22 @@ impl Chat {
     pub fn wire(self, bus: Bus) {
         let id = bus.subscribe(move |ev| self.on_event(ev));
         on_cleanup(move || bus.unsubscribe(id));
+        Effect::new(move |was: Option<bool>| {
+            let offline = self.link().offline();
+            if crate::link_state::came_back(was, offline) {
+                self.flush_when_back();
+            }
+            offline
+        });
+        Effect::new(move |_| {
+            let list = self.deliveries.with(Deliveries::persistable);
+            let key = unsent_key(&self.ws_id());
+            if list.is_empty() {
+                storage::remove(&key);
+            } else {
+                storage::save(&key, &list);
+            }
+        });
         Effect::new(move |prev: Option<()>| {
             bus.reconnects.track();
             if prev.is_some() {

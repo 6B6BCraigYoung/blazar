@@ -52,6 +52,10 @@ pub fn duration(secs: f64) -> String {
 
 #[must_use]
 pub fn error(raw: &str, status: Option<u16>) -> String {
+    // 网页自己写的中文说法（请求根本没到 hub）：对话里说英文。
+    if raw.starts_with("连不上 Blazar") || raw.starts_with("连不上服务") {
+        return "Can't reach Blazar right now. Check the connection".into();
+    }
     match error_kind(raw, status) {
         Some(ErrorKind::Machine) => {
             "Machine unreachable. Check that it is on and on the network".into()
@@ -176,5 +180,17 @@ mod tests {
         assert_eq!(cause(""), "Request failed");
         assert_eq!(next_step(FailureCause::Quota), "Switch account…");
         assert_eq!(retry_round(3, 0), "attempt 3");
+    }
+
+    #[test]
+    fn sends_that_never_reached_the_hub_read_in_english() {
+        assert_eq!(
+            error("连不上 Blazar 后台服务，请确认它在运行", None),
+            "Can't reach Blazar right now. Check the connection"
+        );
+        assert_eq!(
+            error("Failed to fetch", None),
+            "Can't reach the service. Check the network"
+        );
     }
 }

@@ -9,6 +9,7 @@ use crate::api::{self, WorkspaceDetail};
 use crate::app_state::use_app;
 use crate::components::menu::menu_keydown;
 use crate::components::status::{InlineError, Tone};
+use crate::link_state::NodeLink;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Jump {
@@ -74,9 +75,14 @@ fn WsStatus(id: String, failed: Signal<bool>) -> impl IntoView {
     let app = use_app();
     let shown = Memo::new(move |_| {
         let w = app.workspace(&id);
-        let offline = w.as_ref().is_some_and(|w| app.node_unreachable(&w.node));
-        if failed.get() || offline {
+        if failed.get() {
             return ("连不上".to_owned(), Tone::Failed, Some(Jump::Error));
+        }
+        // 机器掉线但活还在那边跑：橙点“重连中”，不是红色“连不上”，也没有报错可跳。
+        match app.workspace_link(&id) {
+            NodeLink::Reconnecting => return ("重连中".to_owned(), Tone::Attention, None),
+            NodeLink::Unreachable => return ("连不上".to_owned(), Tone::Failed, None),
+            NodeLink::Reachable => {}
         }
         let (label, tone) = w
             .as_ref()
@@ -273,17 +279,10 @@ pub fn WsHead(
             .map(|w| crate::fmt::ws_title(&w.name, &w.node))
             .unwrap_or_default()
     };
-    let sub = move || {
-        let w = app.workspace(&wid.get_value());
-        let machine = w
-            .as_ref()
+    let machine = move || {
+        app.workspace(&wid.get_value())
             .filter(|w| w.node != "local")
-            .map(|w| crate::fmt::machine(&w.node));
-        [machine, branch()]
-            .into_iter()
-            .flatten()
-            .collect::<Vec<_>>()
-            .join(" · ")
+            .map(|w| (crate::fmt::machine(&w.node), app.node_slow(&w.node)))
     };
     let path = move || {
         app.workspace(&wid.get_value())
@@ -344,8 +343,33 @@ pub fn WsHead(
                 {title}
             </h1>
             {move || {
-                let s = sub();
-                (!s.is_empty()).then(|| view! { <span class="ws-sub">{s}</span> })
+                let m = machine();
+                let b = branch();
+                let both = m.is_some() && b.is_some();
+                (m.is_some() || b.is_some())
+                    .then(|| {
+                        view! {
+                            <span class="ws-sub">
+                                {m
+                                    .map(|(name, slow)| {
+                                        view! {
+                                            {name}
+                                            {slow
+                                                .then(|| {
+                                                    view! {
+                                                        <span
+                                                            class="ws-slow"
+                                                            title="到这台机器的延迟超过 300 毫秒"
+                                                        >
+                                                            "较慢"
+                                                        </span>
+                                                    }
+                                                })}
+                                        }
+                                    })} {both.then_some(" · ")} {b}
+                            </span>
+                        }
+                    })
             }}
             {move || {
                 chat.get().map(|c| view! { <super::chat::ThreadPicker chat=c open=thread_menu /> })

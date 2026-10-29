@@ -79,6 +79,7 @@ pub fn EdBar(files: Files, preview: RwSignal<bool>) -> impl IntoView {
                     let last = crumbs.len().saturating_sub(1);
                     let p_dirty = p.clone();
                     let p_save = p.clone();
+                    let p_offer = p.clone();
                     let is_md = Files::is_md(&p);
                     let ro = files.readonly(&p);
                     view! {
@@ -162,6 +163,39 @@ pub fn EdBar(files: Files, preview: RwSignal<bool>) -> impl IntoView {
                                     }
                                 })}
                         </div>
+                        {move || {
+                            (files.draft_offer.get().as_deref() == Some(p_offer.as_str()))
+                                .then(|| {
+                                    let when = files.draft_time(&p_offer);
+                                    let restore = p_offer.clone();
+                                    let discard = p_offer.clone();
+                                    view! {
+                                        <div class="ed-draft" role="status">
+                                            <span class="grow">
+                                                {if when.is_empty() {
+                                                    "上次没保存的改动还在".to_owned()
+                                                } else {
+                                                    format!("上次没保存的改动还在（{when}）")
+                                                }}
+                                            </span>
+                                            <button
+                                                type="button"
+                                                class="btn small primary"
+                                                on:click=move |_| files.restore_draft(restore.clone())
+                                            >
+                                                "恢复未保存的改动"
+                                            </button>
+                                            <button
+                                                type="button"
+                                                class="btn small ghost"
+                                                on:click=move |_| files.discard_draft(discard.clone())
+                                            >
+                                                "丢弃"
+                                            </button>
+                                        </div>
+                                    }
+                                })
+                        }}
                     }
                 })
         }}

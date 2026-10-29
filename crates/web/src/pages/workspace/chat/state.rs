@@ -13,7 +13,7 @@ use super::super::git_panel::Git;
 
 #[path = "delivery.rs"]
 mod delivery;
-pub use delivery::{Deliveries, edit_request};
+pub use delivery::{Deliveries, edit_request, unsent_key};
 
 #[path = "send_context.rs"]
 mod send_context;
@@ -98,6 +98,7 @@ pub struct Chat {
     pub models: RwSignal<HashMap<String, Vec<ModelInfo>>>,
     pub catalog: RwSignal<Option<Catalog>>,
     pub snippets: RwSignal<Vec<Snippet>>,
+    app: Option<crate::app_state::AppData>,
 }
 
 pub fn thread_live(status: Option<&str>) -> bool {
@@ -159,7 +160,11 @@ impl Chat {
             denials: RwSignal::new(ApprovalDeliveries::default()),
             owner: StoredValue::new(Owner::current().unwrap_or_default()),
             pending: RwSignal::new(Vec::new()),
-            deliveries: RwSignal::new(Deliveries::default()),
+            deliveries: RwSignal::new({
+                let mut d = Deliveries::default();
+                d.restore(storage::load(&unsent_key(ws)).unwrap_or_default());
+                d
+            }),
             editing_queue: RwSignal::new(None),
             orphans: StoredValue::new(HashMap::new()),
             local_errors: RwSignal::new(Vec::new()),
@@ -191,7 +196,30 @@ impl Chat {
             models: RwSignal::new(HashMap::new()),
             catalog: RwSignal::new(None),
             snippets: RwSignal::new(Vec::new()),
+            app: use_context::<crate::app_state::AppData>(),
         }
+    }
+
+    /// 机器连着、在重连（活还在那边跑）还是连不上。会跟踪信号。
+    pub fn link(self) -> crate::link_state::NodeLink {
+        let Some(app) = self.app else {
+            return crate::link_state::NodeLink::Reachable;
+        };
+        let node = self.node.try_get_value().unwrap_or_default();
+        let ws = self.ws_id();
+        let w = app.workspace(&ws);
+        let running = self.running.get()
+            || w.as_ref()
+                .is_some_and(|w| crate::link_state::running_activity(&w.activity));
+        let hub_says = w.as_ref().is_some_and(|w| {
+            crate::link_state::hub_says_reconnecting(w.step.as_ref().map(|s| s.kind.as_str()))
+        });
+        app.node_link(&node, running, hub_says)
+    }
+
+    /// 对话里用的机器名（英文）。
+    pub fn machine(self) -> String {
+        crate::vocab_en::machine(&self.node.try_get_value().unwrap_or_default())
     }
 
     pub fn ws_id(self) -> String {

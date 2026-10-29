@@ -47,7 +47,44 @@ impl Deliveries {
         *failed = request;
         true
     }
+
+    /// 页面重新载入后，把本地存着的发送失败的消息放回「Failed to send」那一栏。
+    pub fn restore(&mut self, requests: Vec<Value>) {
+        for request in requests {
+            if request["text"].as_str().is_none() {
+                continue;
+            }
+            let id = self.next;
+            self.next = self.next.wrapping_add(1);
+            self.failed.insert(id, request);
+        }
+    }
+
+    /// 写进本地存储的那份：图片太大时只留文字（存储总共只有几 MB）。
+    pub fn persistable(&self) -> Vec<Value> {
+        let all: Vec<Value> = self.failed.values().cloned().collect();
+        let size: usize = all.iter().map(|r| r.to_string().len()).sum();
+        if size <= PERSIST_LIMIT {
+            return all;
+        }
+        all.into_iter()
+            .map(|mut r| {
+                if r["images"].as_array().is_some_and(|a| !a.is_empty()) {
+                    r["images"] = json!([]);
+                }
+                r
+            })
+            .filter(|r| r.to_string().len() <= PERSIST_LIMIT)
+            .collect()
+    }
 }
+
+/// 发送失败的消息在本地存储里的键，每个工作区一份。
+pub fn unsent_key(ws: &str) -> String {
+    format!("blazar.unsent.{ws}")
+}
+
+const PERSIST_LIMIT: usize = 512 * 1024;
 
 pub fn edit_request(request: &Value, text: String) -> Value {
     let mut request = request.clone();
@@ -116,6 +153,42 @@ mod tests {
         assert_eq!(input["thinking"], false);
         assert_eq!(input["text"], "first");
         assert!(input.get("model").is_none());
+    }
+
+    #[test]
+    fn failed_messages_survive_a_reload_through_storage() {
+        let mut before = Deliveries::default();
+        let id = before.begin(request());
+        before.finish(id, false);
+        let ok = before.begin(edit_request(&request(), "sent".into()));
+        before.finish(ok, true);
+        let stored = serde_json::to_string(&before.persistable()).unwrap();
+
+        let mut after = Deliveries::default();
+        after.restore(serde_json::from_str(&stored).unwrap());
+        after.restore(vec![json!({"no":"text"})]);
+        let failed = after.failed();
+        assert_eq!(failed.len(), 1);
+        assert_eq!(failed[0].1, request());
+        let fresh = after.begin(request());
+        assert_ne!(
+            fresh, failed[0].0,
+            "restored ids never collide with new sends"
+        );
+        assert_eq!(unsent_key("w1"), "blazar.unsent.w1");
+    }
+
+    #[test]
+    fn huge_attachments_are_dropped_before_storing() {
+        let mut deliveries = Deliveries::default();
+        let mut big = request();
+        big["images"] = json!([{"media_type":"image/png", "data": "A".repeat(PERSIST_LIMIT)}]);
+        let id = deliveries.begin(big);
+        deliveries.finish(id, false);
+        let kept = deliveries.persistable();
+        assert_eq!(kept.len(), 1);
+        assert_eq!(kept[0]["text"], "first");
+        assert_eq!(kept[0]["images"], json!([]));
     }
 
     #[test]

@@ -211,6 +211,16 @@ export class Editor {
     this.markSaved(path);
   }
 
+  // 放回本地存着的草稿：保留“已保存”的基准，所以它显示为没保存；撤销能回到磁盘上的版本。
+  restoreDraft(path, text) {
+    const e = this.models.get(path);
+    if (!e) return false;
+    if (e.model.getValue() !== text) {
+      e.model.pushEditOperations([], [{ range: e.model.getFullModelRange(), text }], () => null);
+    }
+    return true;
+  }
+
   markSaved(path) {
     const e = this.models.get(path);
     if (!e) return;

@@ -235,3 +235,4 @@ details[open] > summary::before { transform: rotate(90deg); }
 .keys-sheet .ks-row span { flex: 1; min-width: 0; }
 .keys-sheet .ks-row kbd { padding: 0 var(--space-xs); border-radius: var(--radius-keycap); background: var(--keycap-bg); color: var(--keycap-fg); font: var(--font-size-label) var(--font-sans); line-height: 20px; white-space: nowrap; }
 @media (max-width: 720px) { .keys-sheet .ks-groups { grid-template-columns: minmax(0, 1fr); } }
+.field select option.off { color: var(--fg-3); }

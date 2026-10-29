@@ -107,6 +107,7 @@ button { font: inherit; color: inherit; }
 .ws-threads .hist-row b { font-weight: var(--font-weight-medium); font-size: var(--font-size-label-readable); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ws-head .ws-name { margin: 0 0 0 var(--space-2xs); font-size: var(--font-size-card-title); font-weight: var(--font-weight-semibold); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1 auto; }
 .ws-head .ws-sub { font-size: var(--font-size-label); color: var(--fg-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1 auto; }
+.ws-head .ws-slow { margin-left: var(--space-xs); color: var(--fg-4); }
 .ws-head .ws-up { flex: 0 1 auto; }
 .ws-head .ui-error { flex: 0 1 auto; min-width: 0; }
 .ws-head .grow { flex: 1; }
@@ -230,6 +231,7 @@ body.drag-y, body.drag-y * { cursor: row-resize !important; user-select: none; }
 .etab[data-dirty="true"] .x:hover { font-size: var(--font-size-label); }
 .etab[data-dirty="true"] .x:hover::before { content: none; }
 .edbar { display: flex; align-items: center; gap: var(--space-control); height: 32px; flex: 0 0 auto; padding: 0 var(--space-card); font-size: var(--font-size-label); color: var(--fg-3); border-bottom: 1px solid var(--line); }
+.ed-draft { display: flex; align-items: center; gap: var(--space-md); flex: 0 0 auto; padding: var(--space-md) var(--space-card); font-size: var(--font-size-label); color: var(--fg-2); border-bottom: 1px solid var(--line); }
 .edbar .crumbs { display: flex; gap: var(--space-sm); overflow: hidden; white-space: nowrap; }
 .edbar .crumbs i { font-style: normal; color: var(--decoration-muted); }
 .edbar .crumbs .cur { color: var(--fg-2); }
@@ -783,3 +785,5 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 @keyframes sidetip { from { opacity: 0; transform: translate(-4px, -50%); } }
 /* A CLI that is installed but signed out is the step's open to-do: the step mark turns orange. */
 .start-step:has(.start-lines li[data-attn="true"]) .start-mark { background: var(--status-attention); color: var(--on-accent); }
+.link-banner { position: sticky; top: 0; z-index: 30; height: 0; display: flex; justify-content: center; pointer-events: none; }
+.link-banner > span { height: fit-content; margin-top: var(--space-md); padding: var(--space-xs) var(--space-lg); border-radius: var(--radius-pill); background: var(--bg-raised); box-shadow: var(--shadow-toast); font-size: var(--font-size-label); color: var(--fg-2); white-space: nowrap; }

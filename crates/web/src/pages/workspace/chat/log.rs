@@ -1900,16 +1900,15 @@ pub fn Log(chat: Chat, tick: RwSignal<u32>, log_h: RwSignal<f64>) -> impl IntoVi
                     .all(|p| chat.decided.with(|d| d.contains(&p.id)))
             })
     };
-    let app = crate::app_state::use_app();
-    let node = chat.node.get_value();
-    let unreachable = Memo::new(move |_| app.node_unreachable(&node));
-    let empty = move || {
-        !unreachable.get()
-            && !chat.loading.get()
+    let link = Memo::new(move |_| chat.link());
+    let nothing = move || {
+        !chat.loading.get()
             && chat.rows.with(Vec::is_empty)
             && chat.local_errors.with(Vec::is_empty)
             && chat.pending.with(Vec::is_empty)
     };
+    let blank_offline = move || link.get() == crate::link_state::NodeLink::Unreachable && nothing();
+    let empty = move || !link.get().offline() && nothing();
     let click = move |e: leptos::ev::MouseEvent| {
         let Some(t) = e
             .target()
@@ -1971,16 +1970,19 @@ pub fn Log(chat: Chat, tick: RwSignal<u32>, log_h: RwSignal<f64>) -> impl IntoVi
                 }
             }
         >
-            <Show when=move || unreachable.get()>
+            <Show when=blank_offline>
                 <super::offline::Offline chat />
             </Show>
-            <Show when=move || chat.loading.get() && !unreachable.get()>
+            <Show when=move || link.get().offline() && !blank_offline()>
+                <super::offline::OfflineLine chat link />
+            </Show>
+            <Show when=move || chat.loading.get()>
                 <LoadingState text="Loading conversation…" class="cc-load" />
             </Show>
             <Show when=empty>
                 <Empty chat />
             </Show>
-            <div class="cc-flow" hidden=move || unreachable.get()>
+            <div class="cc-flow">
                 <Show when=move || { earlier() > 0 }>
                     <button type="button" class="cc-more cc-earlier" on:click=show_earlier>
                         {move || format!("Show {} earlier", earlier().min(WINDOW))}
