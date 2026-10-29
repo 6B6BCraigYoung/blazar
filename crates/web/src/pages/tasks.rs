@@ -1,4 +1,5 @@
 use super::work_shared::*;
+use crate::components::menu::menu_keydown;
 use crate::components::page_head::PageHead;
 use crate::components::{
     dialog::{self, Choice},
@@ -15,6 +16,7 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_router::hooks::use_query_map;
 use serde_json::{Value, json};
+use wasm_bindgen::JsCast;
 const STATUSES: &[(&str, &str)] = &[
     ("backlog", "待规划"),
     ("todo", "待办"),
@@ -30,12 +32,268 @@ const PRIORITIES: &[(&str, &str)] = &[
     ("low", "低"),
     ("none", "无"),
 ];
-fn priority(v: &Value) -> String {
+/// Linear 式的优先级小图标：一到三根竖条，紧急是一块带「!」的实心方块。
+/// 只有紧急带状态色，其余跟着灰字走；文字留给 title 和 aria-label。
+fn priority_svg(key: &str) -> String {
+    if key == "urgent" {
+        return concat!(
+            r#"<svg viewBox="0 0 16 16" aria-hidden="true">"#,
+            r#"<rect x="1.5" y="1.5" width="13" height="13" rx="3"/>"#,
+            r#"<rect class="mark" x="7.25" y="4" width="1.5" height="5.5" rx=".75"/>"#,
+            r#"<rect class="mark" x="7.1" y="10.9" width="1.8" height="1.8" rx=".9"/></svg>"#,
+        )
+        .into();
+    }
+    let level = match key {
+        "high" => 3,
+        "medium" => 2,
+        "low" => 1,
+        _ => 0,
+    };
+    let bars = [(2.0, 9.0), (6.5, 6.0), (11.0, 3.0)]
+        .iter()
+        .enumerate()
+        .map(|(i, (x, y))| {
+            format!(
+                r#"<rect{} x="{x}" y="{y}" width="3" height="{}" rx="1"/>"#,
+                if i < level { "" } else { r#" class="off""# },
+                14.0 - y,
+            )
+        })
+        .collect::<String>();
+    format!(r#"<svg viewBox="0 0 16 16" aria-hidden="true">{bars}</svg>"#)
+}
+fn priority_name(key: &str) -> &'static str {
     PRIORITIES
         .iter()
-        .find(|(k, _)| *k != "none" && *k == s(v, "priority"))
-        .map(|(_, t)| t.to_string())
-        .unwrap_or_default()
+        .find(|(k, _)| *k == key)
+        .map_or("", |(_, t)| t)
+}
+/// 卡片上的优先级标记；没设优先级就不占位。
+fn priority_mark(v: &Value) -> Option<AnyView> {
+    let key = s(v, "priority");
+    let name = priority_name(&key);
+    (key != "none" && !name.is_empty()).then(|| {
+        let label = format!("优先级：{name}");
+        view! {
+            <span
+                class="prio"
+                data-prio=key.clone()
+                role="img"
+                aria-label=label.clone()
+                title=label
+                inner_html=priority_svg(&key)
+            ></span>
+        }
+        .into_any()
+    })
+}
+/// 详情页一行灰字里的优先级，比如「高优先级」；没设就留空。
+fn priority_text(v: &Value) -> String {
+    let key = s(v, "priority");
+    if key == "none" || priority_name(&key).is_empty() {
+        String::new()
+    } else {
+        priority_filter_label(&key)
+    }
+}
+fn priority_filter_label(key: &str) -> String {
+    match key {
+        "" => "全部优先级".into(),
+        "urgent" => "紧急".into(),
+        k => format!("{}优先级", priority_name(k)),
+    }
+}
+/// 筛选行上的一个纯文字下拉：按钮加菜单，焦点离开就收起。
+#[component]
+fn FilterMenu(
+    #[prop(into)] label: Signal<String>,
+    aria: &'static str,
+    #[prop(optional, into)] active: Signal<bool>,
+    open: RwSignal<bool>,
+    children: ChildrenFn,
+) -> impl IntoView {
+    let root = NodeRef::<leptos::html::Div>::new();
+    let button = NodeRef::<leptos::html::Button>::new();
+    let close = Callback::new(move |()| {
+        open.set(false);
+        if let Some(b) = button.get_untracked() {
+            let _ = b.focus();
+        }
+    });
+    view! {
+        <span
+            class="more"
+            on:focusout=move |e| {
+                let inside = e
+                    .related_target()
+                    .and_then(|t| t.dyn_into::<web_sys::Node>().ok())
+                    .zip(e.current_target().and_then(|t| t.dyn_into::<web_sys::Node>().ok()))
+                    .is_some_and(|(t, me)| me.contains(Some(&t)));
+                if !inside {
+                    open.set(false);
+                }
+            }
+        >
+            <button
+                type="button"
+                class="dv-btn tasks-filter"
+                class:on=move || active.get()
+                node_ref=button
+                aria-label=move || format!("{aria}：{}", label.get())
+                aria-haspopup="menu"
+                aria-expanded=move || open.get().to_string()
+                on:click=move |_| open.update(|o| *o = !*o)
+            >
+                <span class="lbl">{move || label.get()}</span>
+                <span class="chev" aria-hidden="true" inner_html=CHEV_DOWN></span>
+            </button>
+            <Show when=move || open.get()>
+                <div
+                    class="menu dv-menu tasks-filter-menu"
+                    node_ref=root
+                    role="menu"
+                    aria-label=aria
+                    on:keydown=move |event| {
+                        if let Some(r) = root.get_untracked() {
+                            menu_keydown(&event, r.unchecked_ref(), close);
+                        }
+                    }
+                >
+                    {children()}
+                </div>
+            </Show>
+        </span>
+    }
+}
+const CHEV_DOWN: &str = r#"<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6.5 8 10.5l4-4"/></svg>"#;
+/// 菜单里的一个单选项：点了就设值并收起菜单。
+fn radio_item(
+    value: RwSignal<String>,
+    open: RwSignal<bool>,
+    key: String,
+    text: String,
+    glyph: Option<String>,
+) -> impl IntoView {
+    let checked = key.clone();
+    let tone = key.clone();
+    view! {
+        <button
+            type="button"
+            role="menuitemradio"
+            aria-checked=move || (value.get() == checked).to_string()
+            on:click=move |_| {
+                value.set(key.clone());
+                open.set(false);
+            }
+        >
+            {glyph
+                .map(|g| {
+                    view! {
+                        <span class="prio" data-prio=tone aria-hidden="true" inner_html=g></span>
+                    }
+                })}
+            <span>{text}</span>
+        </button>
+    }
+}
+/// 「看板 ▾ · 全部优先级 ▾ · 全部工作区 ▾」：一行纯文字筛选，
+/// 「显示待规划与已取消」放进视图菜单当开关。
+#[component]
+fn TaskFilters(
+    mode: RwSignal<String>,
+    prio: RwSignal<String>,
+    ws: RwSignal<String>,
+    hidden: RwSignal<bool>,
+) -> impl IntoView {
+    let app = crate::app_state::use_app();
+    let (view_open, prio_open, ws_open) = (
+        RwSignal::new(false),
+        RwSignal::new(false),
+        RwSignal::new(false),
+    );
+    let view_label = Signal::derive(move || {
+        if mode.get() == "list" {
+            "列表"
+        } else {
+            "看板"
+        }
+        .to_owned()
+    });
+    let ws_label = Signal::derive(move || {
+        let id = ws.get();
+        if id.is_empty() {
+            return "全部工作区".to_owned();
+        }
+        app.in_tree_order()
+            .into_iter()
+            .find(|(_, w)| w.id == id)
+            .map_or_else(
+                || "已不在的工作区".to_owned(),
+                |(_, w)| crate::fmt::ws_label(&w.name, &w.node),
+            )
+    });
+    let sep = || {
+        view! {
+            <span class="tasks-filter-sep" aria-hidden="true">
+                "·"
+            </span>
+        }
+    };
+    view! {
+        <FilterMenu label=view_label aria="视图" open=view_open>
+            {radio_item(mode, view_open, "board".into(), "看板".into(), None)}
+            {radio_item(mode, view_open, "list".into(), "列表".into(), None)}
+            <div class="menu-sep"></div>
+            <button
+                type="button"
+                role="menuitemcheckbox"
+                aria-checked=move || hidden.get().to_string()
+                on:click=move |_| hidden.update(|h| *h = !*h)
+            >
+                <span>"显示待规划与已取消"</span>
+            </button>
+        </FilterMenu>
+        {sep()}
+        <FilterMenu
+            label=Signal::derive(move || priority_filter_label(&prio.get()))
+            aria="优先级"
+            active=Signal::derive(move || !prio.get().is_empty())
+            open=prio_open
+        >
+            {radio_item(
+                prio,
+                prio_open,
+                String::new(),
+                "全部优先级".into(),
+                Some(String::new()),
+            )}
+            {PRIORITIES
+                .iter()
+                .map(|(k, t)| {
+                    radio_item(prio, prio_open, (*k).into(), (*t).into(), Some(priority_svg(k)))
+                })
+                .collect_view()}
+        </FilterMenu>
+        {sep()}
+        <FilterMenu
+            label=ws_label
+            aria="工作区"
+            active=Signal::derive(move || !ws.get().is_empty())
+            open=ws_open
+        >
+            {radio_item(ws, ws_open, String::new(), "全部工作区".into(), None)}
+            {move || {
+                app.in_tree_order()
+                    .into_iter()
+                    .map(|(depth, w)| {
+                        let label = crate::app_state::indented_label(depth, &w);
+                        radio_item(ws, ws_open, w.id, label, None)
+                    })
+                    .collect_view()
+            }}
+        </FilterMenu>
+    }
 }
 #[derive(Clone, Default, PartialEq, Eq)]
 struct CommentDraft {
@@ -270,7 +528,9 @@ pub fn TasksPage() -> impl IntoView {
                 </button>
             </PageHead>
             <Show when=move || has_any() || narrowed()>
-                <div class="work-filters">
+                <div class="work-filters tasks-filters">
+                    <TaskFilters mode prio ws hidden />
+                    <span class="grow"></span>
                     <input
                         class="filter"
                         aria-label="搜索任务"
@@ -278,28 +538,6 @@ pub fn TasksPage() -> impl IntoView {
                         prop:value=move || q.get()
                         on:input=move |e| q.set(event_target_value(&e))
                     />
-                    {filter_select("视图", mode, &[("board", "看板"), ("list", "列表")])}
-                    {filter_select(
-                        "优先级",
-                        prio,
-                        &[
-                            ("", "全部"),
-                            ("urgent", "紧急"),
-                            ("high", "高"),
-                            ("medium", "中"),
-                            ("low", "低"),
-                            ("none", "无"),
-                        ],
-                    )}
-                    <WorkspaceFilter value=ws />
-                    <label class="chk">
-                        <input
-                            type="checkbox"
-                            prop:checked=move || hidden.get()
-                            on:change=move |e| hidden.set(event_target_checked(&e))
-                        />
-                        "包含待规划与已取消"
-                    </label>
                 </div>
             </Show>
             <div class="work-layout">
@@ -462,8 +700,7 @@ pub fn TasksPage() -> impl IntoView {
                                                                             >
                                                                                 <strong>{s(&t, "title")}</strong>
                                                                                 <span class="work-task-key">
-                                                                                    <span>{s(&t, "key")}</span>
-                                                                                    <span>{priority(&t)}</span>
+                                                                                    {priority_mark(&t)} <span class="key">{s(&t, "key")}</span>
                                                                                     {(t["running"] == true).then(|| badge("running"))}
                                                                                 </span>
                                                                                 <small class="muted">
@@ -916,7 +1153,7 @@ fn TaskDetail(id: String, ui: TaskUi) -> impl IntoView {
                                         ></div>
                                         <p class="muted small">
                                             {meta(
-                                                &[crate::fmt::ws_label_of(&t), who(&t), priority(&t)],
+                                                &[crate::fmt::ws_label_of(&t), who(&t), priority_text(&t)],
                                             )}
                                         </p>
                                         <div class="row-actions">

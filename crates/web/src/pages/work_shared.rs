@@ -373,39 +373,6 @@ pub fn filter_select(
     .into_any()
 }
 #[component]
-pub fn WorkspaceFilter(value: RwSignal<String>) -> impl IntoView {
-    let app = use_app();
-    view! {
-        <select
-            class="filter"
-            aria-label="工作区"
-            prop:value=move || value.get()
-            on:change=move |e| value.set(event_target_value(&e))
-        >
-            <option value="" selected=move || value.get().is_empty()>
-                "工作区：全部"
-            </option>
-            {move || {
-                app.in_tree_order()
-                    .into_iter()
-                    .map(|(depth, w)| {
-                        let selected = w.id.clone();
-                        let label = format!(
-                            "工作区：{}",
-                            crate::app_state::indented_label(depth, &w),
-                        );
-                        view! {
-                            <option value=w.id selected=move || value.get() == selected>
-                                {label}
-                            </option>
-                        }
-                    })
-                    .collect_view()
-            }}
-        </select>
-    }
-}
-#[component]
 pub fn WorkspaceField(
     value: RwSignal<String>,
     #[prop(default = false)] locked: bool,

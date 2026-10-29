@@ -13,9 +13,9 @@
 .work-layout { display: flex; gap: var(--space-section); align-items: flex-start; min-width: 0; }
 .work-main { flex: 1; min-width: 0; }
 .work-board { display: flex; gap: var(--space-lg); overflow-x: auto; padding-bottom: var(--space-card); min-height: 280px; }
-.work-column { flex: 1 0 225px; min-width: 225px; border-radius: var(--r-lg); background: var(--bg-lane); padding: var(--space-control); }
+.work-column { flex: 1 0 224px; min-width: 224px; }
 .work-board .work-task { box-shadow: var(--shadow-lane-card); }
-.work-column > header { display: flex; align-items: center; gap: var(--space-md); padding: var(--space-2xs) var(--space-2xs) var(--space-lg); font-size: var(--font-size-label); }
+.work-column > header { display: flex; align-items: center; gap: var(--space-md); height: 28px; padding: 0 0 0 var(--space-xs); margin-bottom: var(--space-xs); font-size: var(--font-size-label); }
 .work-task { width: 100%; display: flex; flex-direction: column; gap: var(--space-toolbar); padding: var(--inset-task-card); margin-bottom: var(--space-toolbar); text-align: left; cursor: pointer; color: inherit; font: inherit; }
 .work-task strong { line-height: var(--line-height-compact); overflow-wrap: anywhere; font-size: var(--font-size-body); }
 .work-task-key { display: flex; flex-wrap: wrap; gap: var(--space-icon); font: var(--font-size-caption) var(--font-mono); color: var(--fg-3); }
@@ -78,15 +78,33 @@
 .work-page .bad, .work-dialog .bad { color: var(--err-fg); }
 .work-page .warn-tx, .work-dialog .warn-tx { color: var(--fg-3); }
 
-.tasks-page .work-task { gap: var(--space-sm); }
+.tasks-page .work-task { gap: var(--space-md); }
 .tasks-page .work-task-key { font-family: var(--font-sans); align-items: center; gap: var(--space-md); }
-.tasks-page .work-task-key > span:first-child { font-family: var(--font-mono); }
+.tasks-page .work-task-key > .key { font-family: var(--font-mono); }
 .work-task-key > span:empty { display: none; }
 .tasks-page .work-list .work-task { grid-template-columns: minmax(160px, 1fr) auto minmax(100px, 180px); }
 .tasks-page .tasks-empty { padding: var(--space-section) 0; }
-.tasks-page .tasks-column-empty { padding: var(--space-xl) var(--space-sm); font-size: var(--font-size-label); color: var(--fg-3); }
+.tasks-page .tasks-column-empty { padding: var(--space-xl) var(--space-xs); font-size: var(--font-size-label); color: var(--fg-3); }
 .tasks-page .tasks-inline-empty { padding: var(--space-sm) 0; color: var(--fg-3); font-size: var(--font-size-label); }
 .tasks-dialog .tasks-fields { border: 0; padding: 0; margin: 0; min-width: 0; }
+.tasks-page .work-board { gap: var(--space-xl); }
+.tasks-page .work-column > header strong { font-weight: var(--font-weight-medium); color: var(--fg-2); }
+.tasks-page .work-column > header .muted { font-variant-numeric: tabular-nums; }
+.tasks-page .work-board .work-task { transition: box-shadow var(--duration-control); }
+.tasks-page .work-board .work-task:hover { box-shadow: var(--shadow-card-hover); }
+.tasks-filters { gap: var(--space-xs); margin: 0 0 calc(var(--space-lg) - var(--space-section)) calc(-1 * var(--space-md)); }
+.tasks-filters > input.filter { width: clamp(160px, 20%, 240px); }
+.tasks-filters .tasks-filter { height: 28px; }
+.tasks-filters .tasks-filter.on { color: var(--fg); font-weight: var(--font-weight-medium); }
+.tasks-filter-sep { color: var(--fg-4); font-size: var(--font-size-label); }
+.menu.tasks-filter-menu { left: 0; right: auto; min-width: 180px; }
+.menu.tasks-filter-menu button { display: flex; align-items: center; gap: var(--space-md); }
+.prio { display: inline-grid; place-items: center; width: 12px; height: 12px; flex: 0 0 auto; color: var(--fg-3); }
+.prio svg { width: 12px; height: 12px; }
+.prio rect { fill: currentColor; }
+.prio rect.off { opacity: .3; }
+.prio[data-prio="urgent"] { color: var(--status-attention); }
+.prio[data-prio="urgent"] rect.mark { fill: var(--on-accent); }
 
 .autopilots-page .work-ap-row { gap: var(--space-sm); }
 .autopilots-page .autopilot-schedule { color: var(--fg); font-size: var(--font-size-label); }
