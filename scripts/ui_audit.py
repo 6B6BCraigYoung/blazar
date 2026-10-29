@@ -1727,6 +1727,32 @@ def index(out):
     (out / "index.md").write_text("\n".join(head + lines + tail) + "\n")
 
 
+METRIC_ROUTES = [
+    ("console", "/"), ("chats", "/chats"), ("workspaces", "/workspaces"), ("tasks", "/tasks"), ("bots", "/bots"),
+    ("agents", "/agents"), ("runtimes", "/runtimes"), ("nodes", "/nodes"), ("usage", "/usage"), ("apps", "/apps"),
+    ("settings", "/settings?s=appearance"), ("settings-notify", "/settings?s=notify"),
+    ("chat-done", f"/chats/{CHATS['status']}"), ("chat-approval", f"/chats/{CHATS['handoff']}"),
+    ("ws-atlas-api", f"/w/{WS['atlas-api']}"), ("ws-quasar-ml", f"/w/{WS['quasar-ml']}"),
+]
+METRIC_KEYS = ("fontSize", "fontWeight", "color", "background", "radius", "shadow", "border")
+
+
+def metrics(out):
+    res = {}
+    ui({"action": "init"})
+    ready()
+    print("页面\t" + "\t".join(METRIC_KEYS))
+    for t in ("dark", "light"):
+        theme(t)
+        for slug, route in METRIC_ROUTES:
+            ui({"action": "navigate", "path": route, "settle_ms": 900})
+            m = ui({"action": "metrics", "top": 8})
+            res[f"{slug}-{t}"] = m
+            print(f"{slug}-{t}\t" + "\t".join(str(m[k]["distinct"]) for k in METRIC_KEYS))
+    theme("system")
+    Path(out).write_text(json.dumps(res, ensure_ascii=False, indent=1))
+
+
 def main():
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
     if cmd == "seed":
@@ -1737,10 +1763,12 @@ def main():
         shots(sys.argv[2], sys.argv[3], rehearse=len(sys.argv) == 5)
     elif cmd == "index" and len(sys.argv) == 3:
         index(Path(sys.argv[2]))
+    elif cmd == "metrics" and len(sys.argv) == 3:
+        metrics(sys.argv[2])
     elif cmd == "stress" and len(sys.argv) <= 3:
         stress(int(sys.argv[2]) if len(sys.argv) == 3 else 30)
     else:
-        sys.exit("用法：ui_audit.py seed | clean | shots <目录> empty|data [--rehearse] | index <目录> | stress [轮数]")
+        sys.exit("用法：ui_audit.py seed | clean | shots <目录> empty|data [--rehearse] | index <目录> | metrics <文件> | stress [轮数]")
 
 
 if __name__ == "__main__":

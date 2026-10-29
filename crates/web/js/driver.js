@@ -266,6 +266,39 @@ function colours(command) {
   return { url: location.pathname + location.search, text: list(text), dots: list(dots) };
 }
 
+function metrics(command) {
+  const skip = command.skip || '.monaco-editor, .xterm, svg, script, style';
+  const tally = () => new Map();
+  const out = { fontSize: tally(), fontWeight: tally(), color: tally(), background: tally(), radius: tally(), shadow: tally(), border: tally() };
+  const bump = (map, key, el) => {
+    if (!key) return;
+    let entry = map.get(key);
+    if (!entry) map.set(key, (entry = { value: key, count: 0, sample: signature(el) }));
+    entry.count++;
+  };
+  const vw = innerWidth, vh = innerHeight;
+  for (const el of document.querySelectorAll('body *')) {
+    if (el.closest(skip) || !shown(el)) continue;
+    const r = el.getBoundingClientRect();
+    if (r.bottom < 0 || r.top > vh || r.right < 0 || r.left > vw) continue;
+    const s = getComputedStyle(el);
+    if ([...el.childNodes].some(n => n.nodeType === Node.TEXT_NODE && n.textContent.trim())) {
+      bump(out.fontSize, s.fontSize, el);
+      bump(out.fontWeight, s.fontWeight, el);
+      bump(out.color, s.color, el);
+    }
+    if (s.backgroundColor !== 'rgba(0, 0, 0, 0)') bump(out.background, s.backgroundColor, el);
+    if (parseFloat(s.borderTopLeftRadius) > 0 && !isDot(r.width, r.height, parseFloat(s.borderTopLeftRadius))) bump(out.radius, s.borderTopLeftRadius, el);
+    if (s.boxShadow !== 'none') bump(out.shadow, s.boxShadow, el);
+    const bw = ['Top', 'Right', 'Bottom', 'Left'].filter(side => parseFloat(s[`border${side}Width`]) > 0 && s[`border${side}Style`] !== 'none');
+    if (bw.length) bump(out.border, `${bw.length === 4 ? 'all' : bw.join('+').toLowerCase()} ${s[`border${bw[0]}Width`]} ${s[`border${bw[0]}Color`]}`, el);
+  }
+  const list = map => [...map.values()].sort((a, b) => b.count - a.count);
+  const res = { url: location.pathname + location.search };
+  for (const [k, v] of Object.entries(out)) res[k] = { distinct: v.size, top: list(v).slice(0, command.top ?? 12) };
+  return res;
+}
+
 function watchFrames() {
   const rec = { gaps: [], mutations: 0, lastMutation: performance.now(), stopped: false };
   const observer = new MutationObserver(list => {
@@ -309,6 +342,8 @@ async function run(command) {
       return snapshot();
     case 'colors':
       return colours(command);
+    case 'metrics':
+      return metrics(command);
     case 'click': {
       const el = guard(find(command));
       const box = el.getBoundingClientRect();
