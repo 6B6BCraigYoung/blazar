@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 mod browse;
 mod diff;
+mod download;
 mod files;
 mod search;
 #[cfg(test)]
@@ -13,6 +14,7 @@ mod tests;
 mod tree;
 
 pub use blazar_core_types::api::DiffStat;
+pub use download::Download;
 pub use tree::parse_stat;
 
 #[derive(Debug, thiserror::Error)]

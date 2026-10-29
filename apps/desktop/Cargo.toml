@@ -30,6 +30,12 @@ blazar-transport.workspace = true
 reqwest = { version = "0.13", features = ["json"] }
 url = "2"
 
+[target.'cfg(any(target_os = "macos", windows))'.dependencies]
+rfd = { version = "0.17", default-features = false }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+rfd = { version = "0.17", default-features = false, features = ["gtk3"] }
+
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = "0.6.2"
 objc2 = "0.6.4"

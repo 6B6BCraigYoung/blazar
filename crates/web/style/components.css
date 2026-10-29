@@ -201,3 +201,18 @@ details[open] > summary::before { transform: rotate(90deg); }
 .lgroup-body tr:last-child td { border-bottom: 0; }
 .lgroup-body > .pref-status { margin: 0; padding: var(--space-lg) var(--space-xl); white-space: normal; }
 .lgroup-body > .ui-state.pref-empty, .pref-rows > .ui-state.pref-empty { padding: var(--space-2xl) var(--space-xl); }
+.downloads { position: fixed; right: 16px; bottom: 16px; z-index: var(--layer-toast); display: flex; flex-direction: column; gap: var(--space-sm); width: min(340px, calc(100vw - 32px)); pointer-events: none; }
+.dl-item { pointer-events: auto; padding: var(--space-md) var(--space-lg); border-radius: var(--r-md); background: var(--material-menu); -webkit-backdrop-filter: var(--blur-material); backdrop-filter: var(--blur-material); box-shadow: var(--shadow-composer-popover); color: var(--fg); font-size: var(--font-size-label); }
+.dl-head { display: flex; align-items: center; gap: var(--space-sm); min-height: 24px; }
+.dl-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: var(--font-weight-medium); }
+.dl-x { all: unset; flex: none; display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; color: var(--fg-3); font-size: 15px; line-height: 1; cursor: pointer; }
+.dl-x:hover { background: var(--bg-hover); color: var(--fg); }
+.dl-x:focus-visible { outline: var(--focus-ring); }
+.dl-bar { position: relative; height: 4px; margin-top: var(--space-sm); border-radius: 2px; background: var(--bg-hover); overflow: hidden; }
+.dl-bar > span { display: block; width: 0; height: 100%; border-radius: inherit; background: var(--accent); transition: width .15s linear; }
+.dl-bar.indeterminate > span { width: 30%; animation: dl-slide 1.2s ease-in-out infinite; }
+@keyframes dl-slide { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
+@media (prefers-reduced-motion: reduce) { .dl-bar.indeterminate > span { width: 100%; opacity: .45; animation: none; } }
+.dl-meta { margin-top: var(--space-xs); color: var(--fg-3); font-size: var(--font-size-caption-readable); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.dl-meta.err { color: var(--err-fg); }
+.dl-acts { display: flex; gap: var(--space-sm); margin-top: var(--space-sm); }

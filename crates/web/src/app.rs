@@ -50,6 +50,7 @@ pub fn App() -> impl IntoView {
     dialog::provide();
     crate::files_js::install_leave_confirm();
     toast::provide();
+    crate::components::downloads::provide();
     popups::provide();
     undo::provide();
     term_dialog::provide();
@@ -123,6 +124,7 @@ pub fn App() -> impl IntoView {
             <AlertsDialog />
             <TermDialogHost />
             <DialogHost />
+            <crate::components::downloads::DownloadHost />
             <ToastHost />
             <PopHost />
             <UndoHost />

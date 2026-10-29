@@ -1,4 +1,5 @@
 pub mod dialog;
+pub mod downloads;
 pub mod empty;
 pub mod group;
 pub mod icon;

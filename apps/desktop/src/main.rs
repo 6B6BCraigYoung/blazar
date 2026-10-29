@@ -12,6 +12,7 @@ use crate::remote::{Phase, RemoteHub};
 
 mod backend;
 mod commands;
+mod download;
 mod forward;
 mod hub_mode;
 mod menu;
@@ -121,6 +122,9 @@ fn run() -> Result<()> {
             commands::retry_hub,
             commands::forward_port,
             commands::reveal_path,
+            download::save_download,
+            download::cancel_download,
+            download::reveal_download,
             snapshot::snapshot_webview,
         ])
         .setup(move |app| {
@@ -222,7 +226,8 @@ fn run() -> Result<()> {
                 .remote(format!("{}/*", hub.url()))
                 .local(false)
                 .window("main")
-                .permission("hub-mode");
+                .permission("hub-mode")
+                .permission("downloads");
             let page = if hub.remote().is_some() {
                 page.permission("remote-forward")
             } else {
@@ -234,6 +239,7 @@ fn run() -> Result<()> {
                 page
             })?;
             app.manage(hub.clone());
+            app.manage(Arc::new(download::Downloads::default()));
             menu::install(app.handle(), hub, rt_handle.clone(), !dev)?;
             Ok(())
         })
@@ -455,7 +461,7 @@ fn open_in_browser(url: &tauri::Url) {
     }
 }
 
-fn reveal_download(path: &Path) {
+pub(crate) fn reveal_download(path: &Path) {
     #[cfg(target_os = "macos")]
     let spawned = std::process::Command::new("open")
         .arg("-R")

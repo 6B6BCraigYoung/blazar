@@ -262,7 +262,9 @@ fn TreeMenu(
                     .unwrap_or_default()
             };
             let terminal = pick(Box::new(move || acts.terminal.run(dir.clone())));
-            let download = pick(Box::new(move || crate::files_js::download_url(&url, &file)));
+            let download = pick(Box::new(move || {
+                crate::components::downloads::start(url.clone(), file.clone());
+            }));
             let (ws_r, m_r) = (ws.clone(), m.clone());
             let rename = pick(Box::new(move || rename_entry(ws_r.clone(), m_r.clone())));
             let (ws_d, m_d) = (ws.clone(), m.clone());

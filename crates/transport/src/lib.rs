@@ -317,13 +317,15 @@ pub struct ByteStream {
 
     pub killer: ProcessKiller,
 
-    guard: tokio::task::JoinHandle<()>,
+    exit: Option<tokio::sync::oneshot::Receiver<i32>>,
 }
 
 impl Drop for ByteStream {
+    /// 不 abort 守护任务：让它收到信号后用 kill_tree 把整棵进程树杀干净再退出。
+    /// 直接 abort 只会经 kill_on_drop 杀掉最外层进程，管道里的 tar 之类
+    /// 要等下次写 stdout 碰到 SIGPIPE 才退出，卡在别处的就会一直留着。
     fn drop(&mut self) {
         self.killer.kill();
-        self.guard.abort();
     }
 }
 
@@ -334,6 +336,11 @@ impl ByteStream {
             .lock()
             .map(|t| t.join(" | "))
             .unwrap_or_default()
+    }
+
+    /// stdout 读完后等进程退出，拿到退出码；被杀或回收失败时为 None。
+    pub async fn exit_code(&mut self) -> Option<i32> {
+        self.exit.take()?.await.ok()
     }
 }
 
@@ -687,10 +694,11 @@ fn pipe_bytes(mut child: tokio::process::Child) -> Result<ByteStream> {
     let mut stdout = child.stdout.take().ok_or(TransportError::Encoding)?;
     let stderr_tail = watch_stderr(child.stderr.take());
     let (tx, rx) = tokio::sync::mpsc::channel::<Vec<u8>>(64);
+    let (exit_tx, exit_rx) = tokio::sync::oneshot::channel::<i32>();
     let killer = ProcessKiller(std::sync::Arc::new(tokio::sync::Notify::new()));
     let kill_signal = killer.0.clone();
 
-    let guard = tokio::spawn(async move {
+    tokio::spawn(async move {
         let mut buf = vec![0u8; 64 * 1024];
         let killed = loop {
             tokio::select! {
@@ -719,19 +727,23 @@ fn pipe_bytes(mut child: tokio::process::Child) -> Result<ByteStream> {
                 }
                 let _ = child.kill().await;
             }
-            r = child.wait() => {
-                if let Err(err) = r {
+            r = child.wait() => match r {
+                Ok(status) => {
+                    let _ = exit_tx.send(status.code().unwrap_or(-1));
+                }
+                Err(err) => {
                     tracing::warn!(target: "blazar::transport", "回收子进程失败: {err}");
                 }
             }
         }
+        drop(tx);
     });
 
     Ok(ByteStream {
         stdout: tokio_stream::wrappers::ReceiverStream::new(rx).boxed(),
         stderr_tail,
         killer,
-        guard,
+        exit: Some(exit_rx),
     })
 }
 

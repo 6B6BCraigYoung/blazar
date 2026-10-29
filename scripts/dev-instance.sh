@@ -55,6 +55,7 @@ start() {
     ${BLAZAR_DEV_HOME:+--env "HOME=$BLAZAR_DEV_HOME"} \
     ${RUST_LOG:+--env "RUST_LOG=$RUST_LOG"} \
     ${BLAZAR_WINDOW_SIZE:+--env "BLAZAR_WINDOW_SIZE=$BLAZAR_WINDOW_SIZE"} \
+    ${BLAZAR_DEV_DOWNLOAD_DIR:+--env "BLAZAR_DEV_DOWNLOAD_DIR=$BLAZAR_DEV_DOWNLOAD_DIR"} \
     --args -ApplePersistenceIgnoreState YES
   for _ in $(seq 1 120); do
     local p u

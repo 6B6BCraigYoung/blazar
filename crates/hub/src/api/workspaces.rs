@@ -653,29 +653,96 @@ pub async fn workspace_download(
     Path(id): Path<String>,
     Query(q): Query<DownloadQuery>,
 ) -> Response {
-    use base64::Engine;
-    let (node, root) = match locate(&st, &id).await {
+    serve_download(&st, &id, &q, DOWNLOAD_MAX).await
+}
+
+async fn serve_download(st: &AppState, id: &str, q: &DownloadQuery, max: u64) -> Response {
+    let (node, root) = match locate(st, id).await {
         Ok(v) => v,
         Err(e) => return ApiError(e).into_response(),
     };
-    let vfs = vfs_for(&st, &node, &root);
-    let read = if q.dir {
-        vfs.archive_base64(&q.path, DOWNLOAD_MAX).await
+    let download = match vfs_for(st, &node, &root)
+        .open_download(&q.path, q.dir, max)
+        .await
+    {
+        Ok(d) => d,
+        Err(e) => return download_refused(&e).into_response(),
+    };
+    let name = download_name(&q.path, &root, q.dir);
+    let ctype = if q.dir {
+        "application/gzip"
     } else {
-        vfs.read_base64(&q.path, DOWNLOAD_MAX).await
+        "application/octet-stream"
     };
-    let b64 = match read {
-        Ok(b) => b,
-        Err(blazar_vfs::VfsError::PathEscape(_)) => {
-            return (StatusCode::BAD_REQUEST, "路径越界").into_response();
+    let mut response = Response::builder()
+        .header(axum::http::header::CONTENT_TYPE, ctype)
+        .header(axum::http::header::CONTENT_DISPOSITION, attachment(&name))
+        .header(axum::http::header::X_CONTENT_TYPE_OPTIONS, "nosniff")
+        .header(axum::http::header::CACHE_CONTROL, "no-store");
+    if let Some(size) = download.size {
+        response = response.header(axum::http::header::CONTENT_LENGTH, size);
+    }
+    response
+        .body(axum::body::Body::from_stream(download_body(download, max)))
+        .unwrap_or_else(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response())
+}
+
+fn download_refused(e: &blazar_vfs::VfsError) -> (StatusCode, String) {
+    use blazar_transport::TransportError;
+    use blazar_vfs::VfsError;
+    match e {
+        VfsError::PathEscape(_) => (StatusCode::BAD_REQUEST, "路径越界".into()),
+        VfsError::Transport(TransportError::Command { code: 4, stderr }) => {
+            (StatusCode::NOT_FOUND, stderr.clone())
         }
-        Err(e) => return (StatusCode::NOT_FOUND, e.to_string()).into_response(),
-    };
-    let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(b64.as_bytes()) else {
-        return (StatusCode::BAD_GATEWAY, "文件没读完整").into_response();
-    };
-    let base = q
-        .path
+        VfsError::Transport(TransportError::Command { code: 8, stderr }) => {
+            (StatusCode::PAYLOAD_TOO_LARGE, stderr.clone())
+        }
+        VfsError::Transport(TransportError::Command { code: 3, .. }) => {
+            (StatusCode::NOT_FOUND, "工作区目录不存在或无权限访问".into())
+        }
+        e => (StatusCode::BAD_GATEWAY, e.to_string()),
+    }
+}
+
+/// 把节点进程的 stdout 原样转发给客户端。传输不完整时以错误结束响应体，
+/// hyper 会直接断开连接，客户端拿到的是“下载失败”而不是一个被截断却看似完整的文件。
+/// 客户端断开时响应体被丢弃，节点上的进程随之被杀掉。
+fn download_body(
+    download: blazar_vfs::Download,
+    max: u64,
+) -> impl futures::Stream<Item = std::io::Result<axum::body::Bytes>> + Send {
+    use futures::StreamExt;
+    let fail = |why: String| std::io::Error::other(why);
+    futures::stream::unfold(Some((download, 0u64)), move |state| async move {
+        let (mut d, sent) = state?;
+        let Some(chunk) = d.stream.stdout.next().await else {
+            return match d.finished(sent).await {
+                Ok(()) => None,
+                Err(why) => {
+                    tracing::warn!("下载没有传完：{why}");
+                    Some((Err(fail(why)), None))
+                }
+            };
+        };
+        let len = chunk.len() as u64;
+        let limit = d.size.unwrap_or(max);
+        if sent + len > limit {
+            return Some((
+                Err(fail(if d.size.is_some() {
+                    "文件在下载途中变大了".to_owned()
+                } else {
+                    format!("打包后超过 {} MB", max >> 20)
+                })),
+                None,
+            ));
+        }
+        Some((Ok(axum::body::Bytes::from(chunk)), Some((d, sent + len))))
+    })
+}
+
+fn download_name(path: &str, root: &str, folder: bool) -> String {
+    let base = path
         .trim_end_matches('/')
         .rsplit('/')
         .next()
@@ -695,29 +762,11 @@ pub async fn workspace_download(
     } else {
         base
     };
-    let name = if q.dir {
+    if folder {
         format!("{base}.tar.gz")
     } else {
         base
-    };
-    let ctype = if q.dir {
-        "application/gzip"
-    } else {
-        "application/octet-stream"
-    };
-    (
-        [
-            (axum::http::header::CONTENT_TYPE, ctype.to_owned()),
-            (axum::http::header::CONTENT_DISPOSITION, attachment(&name)),
-            (
-                axum::http::header::X_CONTENT_TYPE_OPTIONS,
-                "nosniff".to_owned(),
-            ),
-            (axum::http::header::CACHE_CONTROL, "no-store".to_owned()),
-        ],
-        bytes,
-    )
-        .into_response()
+    }
 }
 
 fn attachment(name: &str) -> String {
@@ -1145,3 +1194,7 @@ mod tests {
         assert_eq!(folder_name("/"), "/");
     }
 }
+
+#[cfg(test)]
+#[path = "download_tests.rs"]
+mod download_tests;

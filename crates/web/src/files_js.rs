@@ -14,6 +14,25 @@ extern "C" {
     pub fn download_text(name: &str, text: &str, mime: &str);
     #[wasm_bindgen(js_name = downloadUrl)]
     pub fn download_url(url: &str, name: &str);
+    #[wasm_bindgen(js_name = canPickSaveFile)]
+    pub fn can_pick_save_file() -> bool;
+    #[wasm_bindgen(js_name = desktopSaveDownload, catch)]
+    pub fn desktop_save_download(
+        url: &str,
+        name: &str,
+        on_event: &js_sys::Function,
+    ) -> Result<js_sys::Promise, JsValue>;
+    #[wasm_bindgen(js_name = pickSaveFile)]
+    pub fn pick_save_file(name: &str) -> js_sys::Promise;
+    #[wasm_bindgen(js_name = savedName)]
+    pub fn saved_name(handle: &JsValue) -> String;
+    #[wasm_bindgen(js_name = saveToFile)]
+    pub fn save_to_file(
+        handle: &JsValue,
+        url: &str,
+        signal: &web_sys::AbortSignal,
+        on_progress: &js_sys::Function,
+    ) -> js_sys::Promise;
     #[wasm_bindgen(js_name = readText)]
     fn read_text_js(file: &web_sys::File) -> js_sys::Promise;
 }

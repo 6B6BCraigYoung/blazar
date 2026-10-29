@@ -19,6 +19,79 @@ export function downloadUrl(url, name) {
   document.body.appendChild(a); a.click(); a.remove();
 }
 
+export function canPickSaveFile() {
+  return typeof window.showSaveFilePicker === 'function';
+}
+
+// 桌面端：原生「存储为」面板 + 桌面进程流式写盘，进度经 Channel 推回来。
+// 用户取消时 resolve(null)。
+export function desktopSaveDownload(url, name, onEvent) {
+  const core = window.__TAURI__.core;
+  const channel = new core.Channel();
+  channel.onmessage = onEvent;
+  return core.invoke('save_download', { url, suggestedName: name, onEvent: channel });
+}
+
+export async function pickSaveFile(name) {
+  try {
+    return await window.showSaveFilePicker({ suggestedName: name, startIn: 'downloads', id: 'blazar-download' });
+  } catch (e) {
+    if (e && e.name === 'AbortError') return null;
+    throw e;
+  }
+}
+
+export function savedName(handle) {
+  return handle.name;
+}
+
+function cut(e, total) {
+  const why = e && e.message ? e.message : String(e);
+  return new Error(total === null ? `连接断了，或节点上打包失败：${why}` : `连接断了：${why}`);
+}
+
+// 浏览器：fetch 流式读，边读边写进 showSaveFilePicker 选中的文件。
+// createWritable 写的是临时副本，abort 后原文件不受影响。
+export async function saveToFile(handle, url, signal, onProgress) {
+  const res = await fetch(url, { signal, credentials: 'same-origin', cache: 'no-store' });
+  if (!res.ok) {
+    const body = (await res.text()).trim();
+    if (res.status === 413) throw new Error(`文件太大：${body}`);
+    throw new Error(body || `hub 返回 HTTP ${res.status}`);
+  }
+  const header = res.headers.get('content-length');
+  const total = header === null ? null : Number(header);
+  const out = await handle.createWritable();
+  let received = 0;
+  let last = 0;
+  onProgress(0, total);
+  try {
+    const reader = res.body.getReader();
+    for (;;) {
+      let step;
+      try {
+        step = await reader.read();
+      } catch (e) {
+        throw signal.aborted ? e : cut(e, total);
+      }
+      if (step.done) break;
+      await out.write(step.value);
+      received += step.value.byteLength;
+      const now = performance.now();
+      if (now - last >= 150) {
+        last = now;
+        onProgress(received, total);
+      }
+    }
+    if (total !== null && received !== total) throw new Error(`连接断了：只收到 ${received} / ${total} 字节`);
+    await out.close();
+    return received;
+  } catch (e) {
+    await out.abort().catch(() => {});
+    throw e;
+  }
+}
+
 export function readText(file) {
   return file.text();
 }
