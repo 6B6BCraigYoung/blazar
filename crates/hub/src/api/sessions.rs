@@ -586,6 +586,11 @@ async fn prompt_inner(
         {
             Ok(Some(m)) => {
                 spec.mcp_servers.push(m);
+                spec.allowed_tools.extend(
+                    crate::fleet::READ_ONLY_TOOLS
+                        .iter()
+                        .map(|t| format!("mcp__{}__{t}", blazar_mcp::fleet::SERVER_NAME)),
+                );
                 can_ask = true;
             }
             Ok(None) => {}

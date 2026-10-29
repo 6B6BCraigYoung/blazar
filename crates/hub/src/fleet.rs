@@ -32,6 +32,35 @@ const WORKER_WRITE_TOOLS: &[&str] = &[
     "job_spawn",
     "job_register",
 ];
+/// 只读的调度工具不必让用户逐条批准。
+pub const READ_ONLY_TOOLS: &[&str] = &[
+    "fleet_status",
+    "list_bots",
+    "bot_status",
+    "list_workspaces",
+    "list_nodes",
+    "list_tasks",
+    "get_task",
+    "list_inbox",
+    "list_jobs",
+    "job_log",
+    "list_autopilots",
+    "list_files",
+    "read_file",
+    "get_diff",
+    "get_history",
+    "get_usage",
+    "get_analytics",
+    "search_code",
+    "facts_get",
+    "facts_list",
+    "claims",
+    "memory_list",
+    "memory_read",
+    "discover_agents",
+    "wait_workspace",
+    "wait_reply",
+];
 const WORKER_OWN_JOB_TOOLS: &[&str] = &["job_log", "job_kill"];
 const WORKER_DENIED_TOOLS: &[&str] = &[
     "spawn_bot",
@@ -652,7 +681,12 @@ async fn call(st: &Shared, grant: Option<&Grant>, params: Option<&Value>) -> Res
         allowed(st, c, name, &args).await?;
     }
     let tool = blazar_mcp::tools::find(name).ok_or_else(|| format!("Unknown tool: {name}"))?;
-    let (method, path, body) = (tool.build)(&args).map_err(|error| error.to_string())?;
+    let (method, mut path, mut body) = (tool.build)(&args).map_err(|error| error.to_string())?;
+    if let Some(g) = grant
+        && caller.is_none()
+    {
+        inherit(st, g.session, name, &args, &mut path, &mut body).await;
+    }
     let mut extra = Vec::new();
     if let Some(c) = &caller {
         let (k, v) = crate::bots::api::caller_header(c);
@@ -669,6 +703,82 @@ async fn call(st: &Shared, grant: Option<&Grant>, params: Option<&Value>) -> Res
         "content": [{ "type": "text", "text": text }],
         "isError": !ok,
     }))
+}
+
+struct Origin {
+    workspace: String,
+    node: String,
+    path: String,
+    assistant: bool,
+    mode: Option<String>,
+}
+
+async fn origin(st: &Shared, session: SessionId) -> Option<Origin> {
+    let row = sqlx::query(
+        "SELECT w.id, w.path, w.kind, n.name AS node FROM sessions s
+         JOIN workspaces w ON w.id = s.workspace_id JOIN nodes n ON n.id = w.node_id
+         WHERE s.id = ?1",
+    )
+    .bind(session.to_string())
+    .fetch_optional(st.db.pool())
+    .await
+    .ok()??;
+    let payloads: Vec<String> =
+        sqlx::query_scalar("SELECT payload FROM events WHERE session_id = ?1 ORDER BY seq LIMIT 8")
+            .bind(session.to_string())
+            .fetch_all(st.db.pool())
+            .await
+            .unwrap_or_default();
+    let mode = payloads.iter().find_map(|p| {
+        match serde_json::from_str::<blazar_core_types::EntryKind>(p).ok()? {
+            blazar_core_types::EntryKind::SessionStarted {
+                permission_mode, ..
+            } => permission_mode,
+            _ => None,
+        }
+    });
+    Some(Origin {
+        workspace: row.try_get("id").ok()?,
+        node: row.try_get("node").ok()?,
+        path: row.try_get("path").ok()?,
+        assistant: row.try_get::<String, _>("kind").ok()? == "assistant",
+        mode,
+    })
+}
+
+/// 会话派出去的活默认跟着派活的会话走：权限模式照搬，新工作区挂在它名下。
+async fn inherit(
+    st: &Shared,
+    session: SessionId,
+    name: &str,
+    args: &Value,
+    path: &mut String,
+    body: &mut Option<Value>,
+) {
+    if !matches!(name, "send_prompt" | "create_workspace") {
+        return;
+    }
+    let Some(o) = origin(st, session).await else {
+        return;
+    };
+    match (name, body.as_mut()) {
+        ("send_prompt", Some(b)) if b.get("permission_mode").is_none_or(Value::is_null) => {
+            if let Some(mode) = o.mode {
+                b["permission_mode"] = json!(mode);
+            }
+        }
+        ("create_workspace", Some(b)) => {
+            let standalone = args["standalone"].as_bool().unwrap_or(false);
+            let node = b["node"].as_str().unwrap_or_default();
+            let dir = b["path"].as_str().unwrap_or_default().trim_end_matches('/');
+            let same = node == o.node && dir == o.path.trim_end_matches('/');
+            if !standalone && !o.assistant && !same {
+                *path = format!("/api/workspaces/{}/children", o.workspace);
+                *body = Some(json!({ "node": node, "path": dir, "name": b["name"] }));
+            }
+        }
+        _ => {}
+    }
 }
 
 async fn internal_request(

@@ -80,7 +80,7 @@ pub const TOOLS: &[Tool] = &[
     },
     Tool {
         name: "create_workspace",
-        description: "在某台机器的某个目录上建一个工作区。",
+        description: "在某台机器的某个目录上建一个工作区。从会话里调用时，默认建成这个会话所在工作区的子工作区。",
         schema: || {
             obj(
                 json!({
@@ -88,6 +88,7 @@ pub const TOOLS: &[Tool] = &[
                     "path": s("string", "该机器上的绝对路径"),
                     "name": s("string", "显示名，留空取目录名"),
                     "project": s("string", "项目名；同名项目下的多个工作区即多机副本"),
+                    "standalone": { "type": "boolean", "description": "建成独立工作区，不挂在调用方名下" },
                 }),
                 &["node", "path"],
             )
@@ -199,7 +200,7 @@ pub const TOOLS: &[Tool] = &[
                     "text": s("string", "给 agent 的指令"),
                     "agent": s("string", "claude / codex 等；默认 claude"),
                     "resume": { "type": "boolean", "description": "是否续接上一轮上下文" },
-                    "permission_mode": s("string", "acceptEdits / default / bypassPermissions / plan"),
+                    "permission_mode": s("string", "auto / acceptEdits / default / bypassPermissions / plan；不填就沿用派活的会话自己的模式"),
                     "wait_secs": { "type": "integer",
                         "description": "等 agent 真的开始干活的秒数，最多 50。送达不等于开工 —— 建议填 15，否则 agent 起不来时你会以为成功了" },
                     "interject": { "type": "boolean",
