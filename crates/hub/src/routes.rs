@@ -148,6 +148,7 @@ pub fn build_router(st: Arc<AppState>) -> Router {
         .route("/api/workspaces/{id}/tree", get(api::workspace_tree))
         .route("/api/workspaces/{id}/ls", get(api::workspace_ls))
         .route("/api/workspaces/{id}/raw", get(api::workspace_raw))
+        .route("/api/images/{name}", get(crate::images::serve))
         .route(
             "/api/workspaces/{id}/download",
             get(api::workspace_download),

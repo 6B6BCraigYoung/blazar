@@ -16,7 +16,7 @@ pub enum Group {
 
 fn read_only(s: &Step) -> Option<&Tool> {
     match s {
-        Step::Tool(t) if READ_ONLY.contains(&t.name.as_str()) => Some(t),
+        Step::Tool(t) if READ_ONLY.contains(&t.name.as_str()) && t.images.is_empty() => Some(t),
         _ => None,
     }
 }
@@ -147,6 +147,7 @@ mod tests {
             sub_calls: 0,
             sub_last: String::new(),
             sub_elided: false,
+            images: Vec::new(),
         }))
     }
 

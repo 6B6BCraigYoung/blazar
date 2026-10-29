@@ -386,3 +386,20 @@
 .cp-cmd .cp-l .hint { font: var(--font-size-caption-readable) var(--font-mono); color: var(--fg-4); }
 .cp-cmd .cp-d { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-3); font-size: var(--font-size-label); }
 .cp-cmd[data-sel="true"] .cp-l, .cp-cmd[data-sel="true"] .cp-d { color: inherit; }
+
+/* 对话里的图片：居中、按比例缩到栏宽以内（不放大小图）、悬停出现复制按钮 */
+.cc-img { position: relative; display: flex; flex-direction: column; align-items: center; width: fit-content; max-width: 100%; margin: var(--space-md) auto; content-visibility: auto; contain-intrinsic-size: auto 240px; }
+.cc-img > img { display: block; max-width: 100%; max-height: 70vh; width: auto; height: auto; object-fit: contain; border-radius: var(--r-sm); box-shadow: 0 0 0 1px var(--line); cursor: zoom-in; background: var(--bg-code); }
+.cc-imgbar { position: absolute; top: var(--space-sm); right: var(--space-sm); display: flex; gap: var(--space-xs); opacity: 0; transition: opacity .12s; pointer-events: none; }
+.cc-img:hover .cc-imgbar, .cc-img:focus-within .cc-imgbar { opacity: 1; pointer-events: auto; }
+.cc-img :is(.cc-imgbar, .cc-imgalt) button { all: unset; cursor: pointer; font-size: 12px; line-height: 1; padding: 5px 8px; border-radius: var(--r-sm); background: var(--bg-raised); color: var(--fg); box-shadow: var(--shadow-control); white-space: nowrap; }
+.cc-img :is(.cc-imgbar, .cc-imgalt) button:hover { filter: brightness(1.15); }
+.cc-imgalt { display: none; }
+.cc-img:is([data-state="failed"], [data-state="big"]) { content-visibility: visible; contain-intrinsic-size: none; margin-left: 0; margin-right: 0; width: auto; align-items: flex-start; }
+.cc-img:is([data-state="failed"], [data-state="big"]) .cc-imgbar { display: none; }
+.cc-img:is([data-state="failed"], [data-state="big"]) .cc-imgalt { display: inline-flex; align-items: center; gap: var(--space-xs); flex-wrap: wrap; font-size: 12.5px; color: var(--fg-3); padding: var(--space-xs) var(--space-sm); border: 1px dashed var(--line); border-radius: var(--r-sm); }
+.cc-imgalt b { font-weight: var(--font-weight-medium, 500); color: var(--fg-2, var(--fg)); overflow-wrap: anywhere; }
+.cc-imgs { display: flex; flex-direction: column; margin-top: var(--space-xs); }
+.cc-imgview { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; background: rgba(0,0,0,.78); cursor: zoom-out; outline: none; animation: cc-imgview-in .12s ease-out; }
+.cc-imgview img { max-width: 94vw; max-height: 94vh; object-fit: contain; border-radius: var(--r-sm); box-shadow: var(--shadow-dialog); }
+@keyframes cc-imgview-in { from { opacity: 0; } }

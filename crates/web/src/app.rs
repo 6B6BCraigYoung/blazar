@@ -51,6 +51,7 @@ pub fn App() -> impl IntoView {
     crate::files_js::install_leave_confirm();
     toast::provide();
     crate::components::downloads::provide();
+    crate::images_js::install();
     popups::provide();
     undo::provide();
     term_dialog::provide();

@@ -387,6 +387,12 @@
       "description": "Permission identifier",
       "oneOf": [
         {
+          "description": "Put an image from the conversation on the clipboard.",
+          "type": "string",
+          "const": "clipboard-image",
+          "markdownDescription": "Put an image from the conversation on the clipboard."
+        },
+        {
           "description": "Save a workspace file through the native save panel and report its progress.",
           "type": "string",
           "const": "downloads",

@@ -191,6 +191,7 @@ fn parse_user(v: &Value) -> Vec<EntryKind> {
                 .unwrap_or(false),
             content: flatten_result_content(block.get("content")),
             structured: structured.clone(),
+            images: result_images(block.get("content")),
         });
     }
     out
@@ -383,6 +384,25 @@ fn flatten_result_content(v: Option<&Value>) -> String {
     }
 }
 
+/// tool_result 里的 image 块：Read 读图片、截图工具和 MCP 返回的图片都长这样。
+fn result_images(v: Option<&Value>) -> Vec<blazar_core_types::ResultImage> {
+    let Some(Value::Array(blocks)) = v else {
+        return Vec::new();
+    };
+    blocks
+        .iter()
+        .filter(|b| b.get("type").and_then(Value::as_str) == Some("image"))
+        .filter_map(|b| {
+            let src = b.get("source")?;
+            Some(blazar_core_types::ResultImage {
+                media_type: string_field(src, "media_type")?,
+                data: string_field(src, "data")?,
+                ..Default::default()
+            })
+        })
+        .collect()
+}
+
 fn string_field(v: &Value, key: &str) -> Option<String> {
     v.get(key).and_then(Value::as_str).map(str::to_owned)
 }
@@ -480,6 +500,20 @@ mod tests {
                 .any(|e| matches!(e, EntryKind::TokenUsage(_))),
             "assistant 行不能再发 TokenUsage"
         );
+    }
+
+    #[test]
+    fn tool_result_images_are_kept() {
+        let line = r#"{"type":"user","session_id":"s","message":{"role":"user",
+            "content":[{"type":"tool_result","tool_use_id":"toolu_02","content":[
+                {"type":"image","source":{"type":"base64","media_type":"image/png","data":"iVBORw0KGgo="}}]}]}}"#;
+        let parsed = parse_line(line).unwrap();
+        let [EntryKind::ToolResult { images, .. }] = parsed.entries.as_slice() else {
+            panic!("期望 ToolResult");
+        };
+        assert_eq!(images.len(), 1);
+        assert_eq!(images[0].media_type, "image/png");
+        assert_eq!(images[0].data, "iVBORw0KGgo=");
     }
 
     #[test]

@@ -13,6 +13,7 @@ pub mod auth;
 pub mod bots;
 pub mod fleet;
 pub mod git;
+mod images;
 pub mod mesh;
 pub mod office;
 mod routes;
@@ -81,6 +82,7 @@ pub async fn build_state_with_services(
     cfg: &HubConfig,
     services: services::Services,
 ) -> Result<Arc<AppState>> {
+    images::install(&cfg.db_path);
     let db = open_db(&cfg.db_path).await?;
     reconcile_after_restart(&db).await?;
     ensure_local_node(&db).await?;

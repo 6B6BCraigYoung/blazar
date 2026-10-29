@@ -12,7 +12,7 @@ use super::tools::{
     raw_output, result_of, s, shell_display, shell_result, short, todos_of, tool_name, tool_title,
     write_preview,
 };
-use super::{DeniedCall, Extra, Item, Pending, Res, Row, St, Todo, Tool, Transcript};
+use super::{DeniedCall, Extra, Item, Pending, Res, Row, St, Todo, Tool, ToolImage, Transcript};
 
 fn est_tokens(s: &str) -> u64 {
     let (wide, narrow) = s.chars().fold((0u64, 0u64), |(w, n), c| {
@@ -83,6 +83,7 @@ pub(super) struct BTool {
     pub(super) tool: Tool,
     pub(super) sub: Vec<BStep>,
     start: i64,
+    file: String,
 }
 
 pub(super) enum BBody {
@@ -565,11 +566,16 @@ impl<'a> Builder<'a> {
                 self.fold(&key).push(BStep::Tool(t));
             }
             EntryKind::ToolResult {
-                id, ok, content, ..
+                id,
+                ok,
+                content,
+                images,
+                ..
             } => {
                 self.note_refusal(&id.0, *ok, content);
                 if let Some(t) = self.tool_index(&id.0) {
                     self.finish_tool(t, *ok, content, r.ts);
+                    self.attach_images(t, images);
                 } else if !self.bail
                     && let Some(res) = result_of("", *ok, content)
                 {
@@ -722,11 +728,13 @@ impl<'a> Builder<'a> {
             sub_calls: 0,
             sub_last: String::new(),
             sub_elided: false,
+            images: Vec::new(),
         };
         self.tools.push(BTool {
             tool: t,
             sub: Vec::new(),
             start: ts,
+            file: s(&input, "file_path").to_owned(),
         });
         self.running += 1;
         let i = self.tools.len() - 1;
@@ -759,6 +767,44 @@ impl<'a> Builder<'a> {
         }
     }
 
+    fn attach_images(&mut self, t: usize, images: &[blazar_core_types::ResultImage]) {
+        let b = &mut self.tools[t];
+        let max = blazar_core_types::sanitize::MAX_IMAGE_BYTES;
+        b.tool.images = images
+            .iter()
+            .enumerate()
+            .filter_map(|(i, img)| {
+                let big = img.blob.is_none() && img.size > max;
+                let src = img
+                    .blob
+                    .as_ref()
+                    .map(|n| format!("/api/images/{n}"))
+                    .or(big.then(String::new))?;
+                let ext = img.media_type.rsplit('/').next().unwrap_or("png");
+                let name = b
+                    .file
+                    .rsplit('/')
+                    .next()
+                    .filter(|n| !n.is_empty())
+                    .map_or_else(|| format!("image-{}.{ext}", i + 1), str::to_owned);
+                Some(ToolImage {
+                    src,
+                    name,
+                    path: b.file.clone(),
+                    big,
+                })
+            })
+            .collect();
+        if !b.tool.images.is_empty()
+            && b.tool.name == "Read"
+            && let Some(r) = b.tool.result.as_mut()
+            && r.cls == "sum"
+        {
+            "Read image".clone_into(&mut r.shown);
+            "Read image".clone_into(&mut r.full);
+        }
+    }
+
     fn sub_row(&mut self, parent: usize, r: &Row) {
         if r.elided {
             self.tools[parent].tool.sub_elided = true;
@@ -785,11 +831,16 @@ impl<'a> Builder<'a> {
                 }
             }
             EntryKind::ToolResult {
-                id, ok, content, ..
+                id,
+                ok,
+                content,
+                images,
+                ..
             } => {
                 self.note_refusal(&id.0, *ok, content);
                 if let Some(t) = self.tool_index(&id.0) {
                     self.finish_tool(t, *ok, content, r.ts);
+                    self.attach_images(t, images);
                 }
             }
             EntryKind::AssistantMessage { text } if !text.trim().is_empty() => {

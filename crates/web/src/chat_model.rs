@@ -165,6 +165,17 @@ pub struct Tool {
     pub sub_calls: usize,
     pub sub_last: String,
     pub sub_elided: bool,
+
+    pub images: Vec<ToolImage>,
+}
+
+/// 工具结果里的一张图片。`src` 指向 hub 存下的副本；`path` 是工具读的文件（Read 时才有）。
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ToolImage {
+    pub src: String,
+    pub name: String,
+    pub path: String,
+    pub big: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -22,3 +22,8 @@ commands.allow = ["reveal_path"]
 identifier = "downloads"
 description = "Save a workspace file through the native save panel and report its progress."
 commands.allow = ["save_download", "cancel_download", "reveal_download"]
+
+[[permission]]
+identifier = "clipboard-image"
+description = "Put an image from the conversation on the clipboard."
+commands.allow = ["copy_image"]

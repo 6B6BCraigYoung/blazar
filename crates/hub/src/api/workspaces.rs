@@ -597,12 +597,32 @@ pub(crate) fn image_type(path: &str) -> Option<&'static str> {
     })
 }
 
+const RAW_MAX: u64 = blazar_core_types::sanitize::MAX_IMAGE_BYTES;
+
+/// 绝对路径在工作区里就换成相对路径；在工作区外（比如 /tmp 下的截图）就以它所在
+/// 的目录为根去读，仍然只认图片扩展名。
+fn raw_target(root: &str, path: &str) -> (String, String) {
+    let Some(abs) = path.strip_prefix('/') else {
+        return (root.to_owned(), path.to_owned());
+    };
+    let root_dir = root.trim_end_matches('/');
+    if let Some(rel) = path
+        .strip_prefix(root_dir)
+        .and_then(|r| r.strip_prefix('/'))
+    {
+        return (root.to_owned(), rel.to_owned());
+    }
+    match abs.rsplit_once('/') {
+        Some((dir, name)) => (format!("/{dir}"), name.to_owned()),
+        None => ("/".to_owned(), abs.to_owned()),
+    }
+}
+
 pub async fn workspace_raw(
     State(st): State<Shared>,
     Path(id): Path<String>,
     Query(q): Query<FileQuery>,
 ) -> Response {
-    use base64::Engine;
     let Some(ctype) = image_type(&q.path) else {
         return (StatusCode::UNSUPPORTED_MEDIA_TYPE, "只提供图片").into_response();
     };
@@ -610,32 +630,30 @@ pub async fn workspace_raw(
         Ok(v) => v,
         Err(e) => return ApiError(e).into_response(),
     };
-    let b64 = match vfs_for(&st, &node, &root)
-        .read_base64(&q.path, 8 * 1024 * 1024)
+    let (root, rel) = raw_target(&root, &q.path);
+    let download = match vfs_for(&st, &node, &root)
+        .open_download(&rel, false, RAW_MAX)
         .await
     {
-        Ok(b) => b,
-        Err(blazar_vfs::VfsError::PathEscape(_)) => {
-            return (StatusCode::BAD_REQUEST, "路径越界").into_response();
-        }
-        Err(e) => return (StatusCode::NOT_FOUND, e.to_string()).into_response(),
+        Ok(d) => d,
+        Err(e) => return download_refused(&e).into_response(),
     };
-    let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(b64.as_bytes()) else {
-        return (StatusCode::BAD_GATEWAY, "图片没读完整").into_response();
-    };
-    (
-        [
-            (axum::http::header::CONTENT_TYPE, ctype),
-            (
-                axum::http::header::CONTENT_SECURITY_POLICY,
-                "default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox",
-            ),
-            (axum::http::header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
-            (axum::http::header::CACHE_CONTROL, "private, max-age=30"),
-        ],
-        bytes,
-    )
-        .into_response()
+    let mut response = Response::builder()
+        .header(axum::http::header::CONTENT_TYPE, ctype)
+        .header(
+            axum::http::header::CONTENT_SECURITY_POLICY,
+            "default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox",
+        )
+        .header(axum::http::header::X_CONTENT_TYPE_OPTIONS, "nosniff")
+        .header(axum::http::header::CACHE_CONTROL, "private, max-age=30");
+    if let Some(size) = download.size {
+        response = response.header(axum::http::header::CONTENT_LENGTH, size);
+    }
+    response
+        .body(axum::body::Body::from_stream(download_body(
+            download, RAW_MAX,
+        )))
+        .unwrap_or_else(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response())
 }
 
 const DOWNLOAD_MAX: u64 = 128 * 1024 * 1024;
@@ -661,14 +679,20 @@ async fn serve_download(st: &AppState, id: &str, q: &DownloadQuery, max: u64) ->
         Ok(v) => v,
         Err(e) => return ApiError(e).into_response(),
     };
+    // 对话里的大图可能在工作区外，只对图片放开绝对路径。
+    let (root, rel) = if !q.dir && q.path.starts_with('/') && image_type(&q.path).is_some() {
+        raw_target(&root, &q.path)
+    } else {
+        (root, q.path.clone())
+    };
     let download = match vfs_for(st, &node, &root)
-        .open_download(&q.path, q.dir, max)
+        .open_download(&rel, q.dir, max)
         .await
     {
         Ok(d) => d,
         Err(e) => return download_refused(&e).into_response(),
     };
-    let name = download_name(&q.path, &root, q.dir);
+    let name = download_name(&rel, &root, q.dir);
     let ctype = if q.dir {
         "application/gzip"
     } else {

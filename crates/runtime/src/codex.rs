@@ -103,6 +103,7 @@ fn parse_item(item: &Value, phase: Phase) -> Vec<EntryKind> {
                 content: text_of(item, &["aggregated_output", "output", "stdout"])
                     .unwrap_or_default(),
                 structured: Some(item.clone()),
+                images: Vec::new(),
             }]
         }
 
@@ -143,6 +144,7 @@ fn parse_item(item: &Value, phase: Phase) -> Vec<EntryKind> {
                 ok: !failed,
                 content: text,
                 structured: None,
+                images: Vec::new(),
             }]
         }
 

@@ -8,8 +8,8 @@ use wasm_bindgen::JsCast;
 use wasm_bindgen::closure::Closure;
 
 use crate::chat_model::{
-    Body, DeniedCall, Extra, Fold, Group, Item, Res, St, Step, Tool, fmt_tokens, group_sig,
-    group_steps,
+    Body, DeniedCall, Extra, Fold, Group, Item, Res, St, Step, Tool, ToolImage, fmt_tokens,
+    group_sig, group_steps,
 };
 use crate::components::dialog::{self, Choice};
 use crate::components::toast::toast;
@@ -148,6 +148,7 @@ pub fn Md(text: String, ws: String) -> impl IntoView {
     Effect::new(move |_| {
         let Some(root) = el.get() else { return };
         wrap_code(&root);
+        crate::images_js::settle_images(&root);
         let Ok(list) = root.query_selector_all("pre code[class^=\"language-\"]:not([data-hl])")
         else {
             return;
@@ -182,6 +183,23 @@ pub fn Md(text: String, ws: String) -> impl IntoView {
             on:click=move |e| copy_code(&e)
         ></div>
     }
+}
+
+fn images_view(images: &[ToolImage], ws: &str) -> Option<impl IntoView + use<>> {
+    if images.is_empty() {
+        return None;
+    }
+    let html: String = images
+        .iter()
+        .map(|i| md::figure(&i.src, &i.path, &i.name, "", ws, i.big))
+        .collect();
+    let el = NodeRef::<html::Div>::new();
+    Effect::new(move |_| {
+        if let Some(root) = el.get() {
+            crate::images_js::settle_images(&root);
+        }
+    });
+    Some(view! { <div class="cc-imgs" node_ref=el inner_html=html></div> })
 }
 
 fn result_view(r: Res, key: String, opened: Opened) -> impl IntoView {
@@ -599,6 +617,7 @@ fn tool_view(t: Tool, chat: Chat, opened: Opened, ws: String) -> AnyView {
                 <div class="cc-res">
                     {t.result.map(|r| result_view(r, format!("res:{}", t.id), opened))}
                 </div>
+                {images_view(&t.images, &ws)}
                 {t
                     .raw
                     .clone()

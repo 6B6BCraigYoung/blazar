@@ -133,11 +133,16 @@ pub fn sanitize(kind: &mut EntryKind) {
         EntryKind::ToolResult {
             content,
             structured,
+            images,
             ..
         } => {
             clean(content);
             if let Some(v) = structured {
+                drop_base64(v);
                 sanitize_json(v);
+            }
+            for i in images.iter_mut() {
+                stash_image(i);
             }
         }
         EntryKind::Approval { request, .. } => sanitize_json(request),
@@ -179,6 +184,50 @@ pub fn sanitize(kind: &mut EntryKind) {
         | EntryKind::TokenUsage(_)
         | EntryKind::RateLimit(_)
         | EntryKind::Progress { .. } => {}
+    }
+}
+
+/// 把图片的 base64 存起来，返回 blob 名（不存就返回 None）。由 hub 启动时注册；
+/// 没注册的进程里图片字节直接丢掉，只留类型和大小。
+pub type ImageSink = fn(media_type: &str, base64: &str) -> Option<String>;
+
+static IMAGE_SINK: std::sync::OnceLock<ImageSink> = std::sync::OnceLock::new();
+
+pub fn set_image_sink(sink: ImageSink) {
+    let _ = IMAGE_SINK.set(sink);
+}
+
+pub const MAX_IMAGE_BYTES: u64 = 20 * 1024 * 1024;
+
+fn stash_image(i: &mut crate::ResultImage) {
+    if i.data.is_empty() {
+        return;
+    }
+    let data = std::mem::take(&mut i.data);
+    if i.size == 0 {
+        i.size = (data.len() as u64) / 4 * 3;
+    }
+    if i.blob.is_none() && i.size <= MAX_IMAGE_BYTES {
+        i.blob = IMAGE_SINK.get().and_then(|sink| sink(&i.media_type, &data));
+    }
+}
+
+/// Claude 的 tool_use_result 里会带整张图的 base64（Read 图片时），截成 16 KB 也没用，
+/// 图片已经单独存在 images 里，这里直接去掉。
+fn drop_base64(v: &mut serde_json::Value) {
+    match v {
+        serde_json::Value::Object(map) => {
+            let media = map.contains_key("media_type") || map.contains_key("mimeType");
+            map.retain(|k, val| {
+                let blob = k == "base64" || (media && k == "data");
+                !(blob && val.as_str().is_some_and(|s| s.len() > 256))
+            });
+            for val in map.values_mut() {
+                drop_base64(val);
+            }
+        }
+        serde_json::Value::Array(items) => items.iter_mut().for_each(drop_base64),
+        _ => {}
     }
 }
 
@@ -286,6 +335,7 @@ mod tests {
             ok: true,
             content: big,
             structured: None,
+            images: Vec::new(),
         };
         sanitize(&mut k);
         let EntryKind::ToolResult { content, .. } = &k else {

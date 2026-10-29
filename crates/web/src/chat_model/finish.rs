@@ -33,6 +33,7 @@ fn sig_step(st: &Step, h: &mut impl Hasher) {
                 t.sub_calls,
                 t.sub_elided,
                 &t.arg,
+                &t.images,
             )
                 .hash(h);
             for x in &t.sub {

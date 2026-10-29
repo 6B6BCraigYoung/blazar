@@ -93,6 +93,7 @@ pub(super) async fn install_agent(
         ok,
         content,
         structured: None,
+        images: Vec::new(),
     })
     .await?;
     result.map(|_| ()).map_err(|e| ApiError(anyhow::anyhow!(e)))

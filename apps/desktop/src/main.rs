@@ -11,6 +11,7 @@ use crate::backend::Hub;
 use crate::remote::{Phase, RemoteHub};
 
 mod backend;
+mod clipboard;
 mod commands;
 mod download;
 mod forward;
@@ -126,6 +127,7 @@ fn run() -> Result<()> {
             download::cancel_download,
             download::reveal_download,
             snapshot::snapshot_webview,
+            clipboard::copy_image,
         ])
         .setup(move |app| {
             let hub = setup_hub;
@@ -227,7 +229,8 @@ fn run() -> Result<()> {
                 .local(false)
                 .window("main")
                 .permission("hub-mode")
-                .permission("downloads");
+                .permission("downloads")
+                .permission("clipboard-image");
             let page = if hub.remote().is_some() {
                 page.permission("remote-forward")
             } else {

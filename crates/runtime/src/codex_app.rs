@@ -347,6 +347,26 @@ fn mcp_text(item: &Value) -> String {
         .unwrap_or_default()
 }
 
+fn mcp_images(item: &Value) -> Vec<blazar_core_types::ResultImage> {
+    item.get("result")
+        .and_then(|r| r.get("content"))
+        .and_then(Value::as_array)
+        .map(|parts| {
+            parts
+                .iter()
+                .filter(|p| p.get("type").and_then(Value::as_str) == Some("image"))
+                .filter_map(|p| {
+                    Some(blazar_core_types::ResultImage {
+                        media_type: p.get("mimeType").and_then(Value::as_str)?.to_owned(),
+                        data: p.get("data").and_then(Value::as_str)?.to_owned(),
+                        ..Default::default()
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 fn item_completed(item: &Value) -> Vec<EntryKind> {
     let status = s(item, "status").unwrap_or_default();
     match item.get("type").and_then(Value::as_str).unwrap_or_default() {
@@ -401,6 +421,7 @@ fn item_completed(item: &Value) -> Vec<EntryKind> {
                 }
             }),
             structured: None,
+            images: Vec::new(),
         }],
         "fileChange" => vec![EntryKind::ToolResult {
             id: tool_id(item),
@@ -416,18 +437,21 @@ fn item_completed(item: &Value) -> Vec<EntryKind> {
                 })
                 .unwrap_or_default(),
             structured: None,
+            images: Vec::new(),
         }],
         "mcpToolCall" | "dynamicToolCall" => vec![EntryKind::ToolResult {
             id: tool_id(item),
             ok: status == "completed",
             content: mcp_text(item),
             structured: None,
+            images: mcp_images(item),
         }],
         "webSearch" => vec![EntryKind::ToolResult {
             id: tool_id(item),
             ok: true,
             content: String::new(),
             structured: None,
+            images: Vec::new(),
         }],
         "contextCompaction" => vec![EntryKind::Notice {
             message: "Context compacted".to_owned(),

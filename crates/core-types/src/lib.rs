@@ -145,6 +145,20 @@ impl McpServerStatus {
     }
 }
 
+/// 工具结果里带的一张图片。解析时 `data` 是 base64 原文；入库前 sanitize 把它交给
+/// hub 落盘、换成 `blob`（内容哈希），所以存下来的事件里只有引用，没有字节。
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResultImage {
+    pub media_type: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub data: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blob: Option<String>,
+    /// 原图字节数；超过上限没有落盘时也记下来，界面据此显示“太大”。
+    #[serde(default)]
+    pub size: u64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum EntryKind {
@@ -188,6 +202,9 @@ pub enum EntryKind {
 
         #[serde(default, skip_serializing_if = "Option::is_none")]
         structured: Option<serde_json::Value>,
+
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        images: Vec<ResultImage>,
     },
 
     Approval {
