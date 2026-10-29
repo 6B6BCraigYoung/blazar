@@ -135,6 +135,11 @@ pub enum Extra {
     Files(Vec<String>),
     Plan(String),
     Fleet(String),
+    /// `send_prompt`：派给哪个工作区，以及派过去的原文。
+    Dispatch {
+        ws: String,
+        text: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

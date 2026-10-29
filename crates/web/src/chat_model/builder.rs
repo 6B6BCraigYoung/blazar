@@ -709,7 +709,14 @@ impl<'a> Builder<'a> {
         } else if name == "ExitPlanMode" && !s(&input, "plan").is_empty() {
             Extra::Plan(s(&input, "plan").to_owned())
         } else if let Some(ws) = fleet_target(&name, &input) {
-            Extra::Fleet(ws)
+            if name == "send_prompt" {
+                Extra::Dispatch {
+                    ws,
+                    text: s(&input, "text").trim().to_owned(),
+                }
+            } else {
+                Extra::Fleet(ws)
+            }
         } else {
             Extra::None
         };

@@ -414,7 +414,7 @@ fn extra_view(e: &Extra, fresh: Option<usize>, opened: Opened, key: &str, ws: &s
             )
             .into_any()
         }
-        Extra::Fleet(_) => ().into_any(),
+        Extra::Fleet(_) | Extra::Dispatch { .. } => ().into_any(),
     }
 }
 
@@ -516,6 +516,9 @@ fn sub_summary(t: &Tool) -> String {
 }
 
 fn tool_view(t: Tool, chat: Chat, opened: Opened, ws: String) -> AnyView {
+    if let Extra::Dispatch { ws: to, text } = &t.extra {
+        return dispatch_view(&t, to.clone(), text.clone(), opened);
+    }
     let sub = (!t.sub.is_empty() || t.sub_calls > 0).then(|| {
         let summary = sub_summary(&t);
         let steps = t.sub.clone();
@@ -630,6 +633,48 @@ fn tool_view(t: Tool, chat: Chat, opened: Opened, ws: String) -> AnyView {
                 {t
                     .raw
                     .clone()
+                    .map(|raw| {
+                        details(
+                            opened,
+                            format!("raw:{}", t.id),
+                            "ui-detail cc-raw",
+                            view! { "Details" }.into_any(),
+                            move || view! { <pre>{raw}</pre> }.into_any(),
+                        )
+                    })}
+            </div>
+        </div>
+    }
+    .into_any()
+}
+
+/// Work handed to another workspace reads as a small card: who it went to, then the
+/// prompt itself in body type, instead of one squeezed tool line.
+fn dispatch_view(t: &Tool, to: String, text: String, opened: Opened) -> AnyView {
+    let lead = match t.state {
+        St::Run => "Sending to",
+        St::Ok => "Sent to",
+        St::Err => "Not sent to",
+    };
+    // "Dispatched" just repeats the header; only a refusal or error is worth a line.
+    let result = t.result.clone().filter(|r| r.shown != "Dispatched");
+    let raw = t.raw.clone();
+    let id = t.id.clone();
+    view! {
+        <div class="cc-row cc-tool cc-dispatch" data-st=t.state.as_str() data-name=t.name.clone()>
+            <span class="cc-dot"></span>
+            <div class="cc-main">
+                <div class="cc-dcard">
+                    <div class="cc-dhead">
+                        <span>{lead}</span>
+                        {ws_chip(to)}
+                    </div>
+                    <div class="cc-dtext">{text}</div>
+                </div>
+                <div class="cc-res">
+                    {result.map(|r| result_view(r, format!("res:{id}"), opened))}
+                </div>
+                {raw
                     .map(|raw| {
                         details(
                             opened,

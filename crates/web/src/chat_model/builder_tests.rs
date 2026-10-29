@@ -136,7 +136,11 @@ fn fleet_calls_name_the_child_and_summarise_the_result() {
         ),
         ("Prompt", "", "run the third pass")
     );
-    assert_eq!(tools[0].extra, Extra::Fleet("w1".into()));
+    assert!(
+        matches!(&tools[0].extra, Extra::Dispatch { ws, text } if ws == "w1" && text.starts_with("run the third pass")),
+        "{:?}",
+        tools[0].extra
+    );
     assert_eq!(
         tools[0].result.as_ref().map(|r| r.shown.as_str()),
         Some("Dispatched")
