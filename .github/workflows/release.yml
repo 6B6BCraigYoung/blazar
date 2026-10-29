@@ -89,3 +89,34 @@ jobs:
             --input "$name" > /dev/null
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Release notes from the changelog
+        shell: bash
+        run: |
+          python3 - "$GITHUB_REF_NAME" > notes.md <<'PY'
+          import re, sys
+          tag = sys.argv[1]
+          text = open('CHANGELOG.md', encoding='utf-8').read()
+          parts = re.findall(r'^## ' + re.escape(tag) + r'\b.*?\n(.*?)(?=^## |^---|\Z)', text, re.M | re.S)
+          if len(parts) != 2:
+              raise SystemExit(f'CHANGELOG.md needs a Chinese and an English section for {tag}')
+          install = ('The macOS builds are not notarized. A copy downloaded with a browser is quarantined and macOS reports it as "damaged"; '
+                     'drag Blazar.app to Applications, eject the disk image, then run `xattr -dr com.apple.quarantine /Applications/Blazar.app` once.')
+          print(parts[1].strip() + '\n\n' + install + '\n\n---\n\n## 中文\n\n' + parts[0].strip())
+          PY
+      - name: Attach notes and publish the draft
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          id=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=50" --jq ".[] | select(.draft and .tag_name == \"$GITHUB_REF_NAME\") | .id" | head -1)
+          test -n "$id"
+          gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$id" -F draft=false -F make_latest=true -f body="$(cat notes.md)" > /dev/null
