@@ -1213,7 +1213,7 @@ def calm(*after):
                  for step in (RESTORE, EDITOR_TAB, CLOSE_FILE, CLOSE_FILES, CLOSE_INSPECTOR, CLOSE_TERM))
 
 ROUTES = [
-    ("console", "/", "中控台：侧栏第一项「中控台」带橙色角标；页头「中控台 · 对话切换器 ⌄ · 新对话 ⌘T」，「全部对话…」在切换器菜单最下面；"
+    ("console", "/", "中控台：侧栏第一项「中控台」带橙色角标；页头「中控台 · 对话切换器 ⌄ · 新对话 ⌘N」，「全部对话…」在切换器菜单最下面；"
      "标题下一行小统计「N 在跑 · N 等你 · N 失败」；中间是最近一个助手对话；右栏 372px 常驻「需要你处理」卡片，下面是「动态」和「查看全部」"),
     ("home", "/workspaces", "工作区首页：需要你处理 / 运行中 / 最近 三组两行短卡，「最近」超过两行时折叠并在标题右侧给出「显示全部（N）」"),
     ("chats", "/chats", "全部对话：页头「中控台 / 全部对话」；每行是状态点、标题、最后一句的灰字摘要、时间，页头右侧「新对话」；没有对话时是统一的空状态"),
@@ -1235,7 +1235,7 @@ ROUTES = [
 
 SETTINGS = [
     ("appearance", "外观"), ("chat", "对话与运行"), ("notify", "提醒"), ("shortcuts", "快捷键"), ("rules", "自动批准"),
-    ("snippets", "片段"), ("hooks", "自动执行脚本"), ("git", "Git 与 PR"), ("platforms", "技能来源"), ("about", "数据与关于"),
+    ("snippets", "片段"), ("hooks", "自动执行脚本"), ("about", "数据与关于"),
 ]
 
 TABS = [
@@ -1265,9 +1265,9 @@ def settings_parts(round_name):
     items = [
         ("settings-shortcut-recording", "/settings?s=shortcuts", "快捷键：点一下「任务」的键帽进入录入状态",
          ({"action": "click", "selector": "button[aria-label=\"更改「任务」快捷键\"]"},), False),
-        ("settings-shortcut-conflict", "/settings?s=shortcuts", "快捷键：录入时按下已被「全部消息」占用的 ⌥I，行内给出冲突提示",
+        ("settings-shortcut-conflict", "/settings?s=shortcuts", "快捷键：录入时按下已被「新对话」占用的 ⌘N，行内给出冲突提示",
          ({"action": "click", "selector": "button[aria-label=\"更改「任务」快捷键\"]"},
-          {"action": "key", "key": "i", "code": "KeyI", "alt": True, "selector": "button[aria-label=\"更改「任务」快捷键\"]"},
+          {"action": "key", "key": "n", "code": "KeyN", "meta": True, "selector": "button[aria-label=\"更改「任务」快捷键\"]"},
           {"action": "wait", "ms": 300}), False),
         ("settings-advanced-sheet", "/settings?s=chat", "「高级…」打开的说明面板（sheet）",
          ({"action": "click", "text": "高级…"}, sheet), False),
@@ -1301,6 +1301,11 @@ def palette_parts(with_workspace):
          (*PALETTE_OPEN, {"action": "type", "selector": PALETTE_INPUT, "value": "设"}, {"action": "wait", "ms": 200}), False),
         ("palette-empty", "/", "命令面板输入没人匹配的「zzqv」：面板高度不变，结果区中间一行灰字「没有匹配的结果」",
          (*PALETTE_OPEN, {"action": "type", "selector": PALETTE_INPUT, "value": "zzqv"}, {"action": "wait", "ms": 200}), False),
+        ("palette-theme", "/", "命令面板输入「主题」：命令组里是「主题：浅色 / 深色 / 跟随系统」",
+         (*PALETTE_OPEN, {"action": "type", "selector": PALETTE_INPUT, "value": "主题"}, {"action": "wait", "ms": 200}), False),
+        ("keys-sheet", "/", "⌘/ 打开的键盘快捷键速查表：全局 / 对话 / 中控台与批准 / 更改四组，含 ↑↓ / j k、1 / 2 / 3 这些页内按键，底部「更改快捷键…」",
+         ({"action": "key", "key": "/", "code": "Slash", "meta": True, "selector": "body"},
+          {"action": "wait", "selector": ".keys-sheet", "timeout_ms": 4000}, {"action": "wait", "ms": 200}), False),
     ]
     if with_workspace:
         items.append(("palette-actions", "/", "命令面板选中一个工作区后按 ⌘K 换成它的二级动作",
@@ -1423,7 +1428,7 @@ def chat_parts():
           says(".chat-room .cc-deny[data-state=\"hard\"] .cd-head", "这条命令属于安全边界，批准也不放行", "硬拦截标题"),
           shown(".chat-room .cc-deny[data-state=\"hard\"] .cc-copy", 1, "复制键"),
           shown(".chat-room .cc-user", 2, "用户消息")), False),
-        ("chat-picker", f"/chats/{CHATS['status']}", "页头对话切换器的下拉：新对话 ⌘T、重命名对话…，下面是全部对话",
+        ("chat-picker", f"/chats/{CHATS['status']}", "页头对话切换器的下拉：新对话 ⌘N、重命名对话…，下面是全部对话",
          ({"action": "wait", "selector": ".chat-pick .ws-thread-btn", "timeout_ms": 8000},
           {"action": "click", "selector": ".chat-pick .ws-thread-btn", "settle_ms": 300},
           {"action": "wait", "selector": ".ws-threads", "timeout_ms": 4000}, dict(ESC, after=True)), False),
@@ -1464,6 +1469,9 @@ def plan(round_name):
     items.append(("nodes-advanced", "/nodes", "机器页表格下方「设置…」或「高级…」打开的机器发现面板",
                   ({"action": "wait", "selector": ".machines-foot .linkbtn", "timeout_ms": 8000},
                    {"action": "click", "selector": ".machines-foot .linkbtn"},
+                   {"action": "wait", "selector": "[data-modal-root]", "timeout_ms": 4000}), False))
+    items.append(("bots-advanced", "/bots", "bot 页页头「高级…」打开的面板：最多同时运行几个 bot、什么时候提醒",
+                  ({"action": "click", "selector": ".bots-page .page-head button[aria-haspopup=\"dialog\"]"},
                    {"action": "wait", "selector": "[data-modal-root]", "timeout_ms": 4000}), False))
     mesh_more = ".nodes-page .pref-group .pref-more-btn"
     items.append(("nodes-mesh-advanced", "/nodes", "团队组网「本机组网」一组的「高级…」打开的组网详情面板",
@@ -1619,7 +1627,7 @@ def workspace_parts():
         ("file-open", w, "从文件树打开 src/atlas/routes/users.py，文件树留在编辑器左边",
          (wait, *reset, dict(OPEN_FILES), {"action": "wait", "ms": 400},
           {"action": "click", "selector": "button.tn[title=\"src/atlas/routes/users.py\"]"}, {"action": "wait", "ms": 900}, *after), False),
-        ("diff", w, "「更改」：工具栏只有「这次的改动 ⌄」加改动摘要、意见数（有才显示）、「显示 ⌄」、⋯ 和一个按状态切换的主按钮（提交… / 推送 / 创建 PR…）；下面一行灰字写分支、要合到哪里、推没推；每块改动以灰色细线「第 N 行」开头，旁边「展开上方 N 行」",
+        ("diff", w, "「更改」：工具栏只有「这次的改动 ⌄」加改动摘要、意见数（有才显示）、「显示 ⌄」、分支名 ⌄（要合到哪里、推没推都在它的菜单里，在 main 上不出现「合到 main」）、⋯ 和一个按状态切换的主按钮（提交… / 推送 / 创建 PR…）；只有一行头部，没有「编辑器 / 预览」标签；改动行是很淡的红绿底，改了的词再深一档；每块改动以灰色细线「第 N 行」开头，旁边「展开上方 N 行」",
          (wait, *reset, dict(CHANGES), {"action": "wait", "ms": 900}, *after), False),
         ("diff-show-menu", w, "「更改」工具栏的「显示 ⌄」菜单：统一 / 并排、忽略空白、自动换行、改动文件列表、全部折叠，带勾选和快捷键",
          (wait, *reset, dict(CHANGES), {"action": "wait", "ms": 900}, {"action": "click", "selector": ".diffbar .dv-btn", "settle_ms": 300},
