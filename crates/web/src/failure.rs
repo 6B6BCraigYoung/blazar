@@ -64,11 +64,26 @@ impl Failure {
         )
     }
 
-    pub const fn primary_en(&self) -> &'static str {
-        crate::vocab_en::next_step(self.cause)
+    /// The machine this run lost has come back: the card stops asking the user to reconnect
+    /// it and offers to continue instead (the hub keeps the card when auto-resume is off).
+    pub fn node_back(&self) -> bool {
+        self.cause == FailureCause::Node
+            && leptos::prelude::use_context::<AppData>()
+                .is_some_and(|app| app.node_online(&self.node))
+    }
+
+    pub fn primary_en(&self) -> &'static str {
+        if self.node_back() {
+            crate::vocab_en::next_step(FailureCause::Network)
+        } else {
+            crate::vocab_en::next_step(self.cause)
+        }
     }
 
     pub fn line(&self) -> String {
+        if self.node_back() {
+            return format!("{} 回来了，可以继续", fmt::machine(&self.node));
+        }
         format!("{}，{}", self.headline(), self.cause.advice())
     }
 
@@ -82,7 +97,11 @@ impl Failure {
     }
 
     pub fn primary(&self) -> &'static str {
-        vocab::next_step(self.cause)
+        if self.node_back() {
+            vocab::next_step(FailureCause::Network)
+        } else {
+            vocab::next_step(self.cause)
+        }
     }
 
     pub fn node_href(&self) -> Option<String> {
@@ -90,8 +109,12 @@ impl Failure {
     }
 
     /// The dot colour, see [`vocab::failure_tone`].
-    pub const fn tone(&self) -> vocab::Tone {
-        vocab::failure_tone(self.cause)
+    pub fn tone(&self) -> vocab::Tone {
+        if self.node_back() {
+            vocab::failure_tone(FailureCause::Network)
+        } else {
+            vocab::failure_tone(self.cause)
+        }
     }
 }
 
@@ -295,6 +318,9 @@ pub fn switch_account(
 pub fn act(app: AppData, f: &Failure, retry: impl FnOnce()) {
     match f.cause {
         FailureCause::Network | FailureCause::Busy => {
+            continue_thread(app, f.workspace.clone(), f.thread.clone());
+        }
+        FailureCause::Node if f.node_back() => {
             continue_thread(app, f.workspace.clone(), f.thread.clone());
         }
         FailureCause::Node => probe_node(app, f.node.clone(), false),

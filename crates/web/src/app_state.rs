@@ -274,6 +274,51 @@ impl AppData {
             })
     }
 
+    /// Whether a machine is known to be online right now.
+    pub fn node_online(self, node: &str) -> bool {
+        self.node_view(node).is_some_and(|n| n.status == "online")
+    }
+
+    fn node_view(self, node: &str) -> Option<blazar_core_types::api::NodeView> {
+        self.state.with(|s| {
+            s.as_ref()
+                .and_then(|s| s.nodes.iter().find(|n| n.name == node).cloned())
+        })
+    }
+
+    /// 机器对这个工作区来说是连着、在重连（活还在那边跑）还是连不上。
+    /// `hub_reconnecting`：hub 说这个会话的机器在重连（见 [`crate::link_state::hub_says_reconnecting`]）；
+    /// hub 没说时按“在跑而机器离线”自己推断。
+    pub fn node_link(
+        self,
+        node: &str,
+        running: bool,
+        hub_reconnecting: bool,
+    ) -> crate::link_state::NodeLink {
+        let status = self.node_view(node).map(|n| n.status);
+        crate::link_state::node_link(node, status.as_deref(), running, hub_reconnecting)
+    }
+
+    pub fn workspace_link(self, id: &str) -> crate::link_state::NodeLink {
+        match self.workspace(id) {
+            Some(w) => self.node_link(
+                &w.node,
+                crate::link_state::running_activity(&w.activity),
+                crate::link_state::hub_says_reconnecting(w.step.as_ref().map(|s| s.kind.as_str())),
+            ),
+            None => crate::link_state::NodeLink::Reachable,
+        }
+    }
+
+    /// 知道这台机器的延迟、而且超过 300ms：页头加灰字“较慢”。
+    pub fn node_slow(self, node: &str) -> bool {
+        node != "local"
+            && self
+                .node_view(node)
+                .filter(|n| n.status == "online")
+                .is_some_and(|n| crate::link_state::slow(n.latency_ms))
+    }
+
     pub fn nodes(self) -> Vec<blazar_core_types::api::NodeView> {
         self.state
             .with(|s| s.as_ref().map(|s| s.nodes.clone()).unwrap_or_default())
