@@ -1492,7 +1492,7 @@ def plan(round_name):
                   (new_ws, {"action": "wait", "ms": 600}, *browse_to(DEMO / "atlas-api", DEMO / "atlas-api" / "src"),
                    {"action": "context_menu", "selector": brow(DEMO / "atlas-api" / "src")}), False))
     first_row = ".home-card[data-index=\"0\"]"
-    items.append(("home-selected", "/workspaces", "首页用 → 选中第一张卡：2px 蓝色描边，尺寸不变；审批卡第二行右侧换成「1 允许 3 拒绝」键帽",
+    items.append(("home-selected", "/workspaces", "首页用 → 选中第一张卡：选中底色，没有描边，尺寸不变；审批卡第二行右侧换成「1 允许 3 拒绝」键帽",
                   ({"action": "wait", "selector": first_row, "timeout_ms": 8000},
                    {"action": "key", "key": "ArrowRight", "code": "ArrowRight", "selector": ".home-page"}), False))
     items.append(("home-row-menu", "/workspaces", "首页卡片的右键菜单（允许 / 总是允许 / 拒绝、打开 ↩、简介 ⌘I、改名、移除 ⌘⌫）",
