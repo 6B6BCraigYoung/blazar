@@ -42,21 +42,20 @@
 .usage-readout { flex: 0 0 auto; min-width: 14em; height: 20px; text-align: right; color: var(--fg-2); font-size: var(--font-size-label-readable); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .usage-chart { position: relative; height: 144px; display: flex; align-items: stretch; border-bottom: 1px solid var(--line); margin: var(--space-xl) 0 var(--space-md); border-radius: var(--r-sm); outline: none; }
 .usage-chart:focus-visible { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 50%, transparent); }
-.usage-gap { flex: 0 0 auto; display: grid; place-items: center; margin-right: var(--space-md); padding: 0 var(--space-md); border-radius: var(--r-sm); background: var(--control-track); color: var(--fg-4); font-size: var(--font-size-caption); white-space: nowrap; }
 .usage-days { position: relative; flex: 1; min-width: 0; display: flex; align-items: stretch; }
 .usage-day { flex: 1; min-width: 0; position: relative; }
 .usage-stack { display: flex; flex-direction: column-reverse; height: 100%; box-sizing: border-box; padding: var(--space-xs) var(--space-hairline) 0; }
-.usage-stack i { display: block; flex-shrink: 0; background: var(--chart-bar); }
+.usage-stack { align-items: center; }
+.usage-stack i { display: block; flex-shrink: 0; width: 100%; max-width: 32px; background: var(--chart-bar); }
 .usage-day[data-sel="true"] .usage-stack .run { background: var(--chart-bar-selected); }
 .usage-stack .bad { height: var(--space-xs); border-radius: var(--radius-mark) var(--radius-mark) 0 0; background: var(--chart-bar-failed); }
+.usage-idle { flex: 0 0 var(--space-sm); position: relative; }
+.usage-idle::after { content: ""; position: absolute; left: 50%; bottom: 0; width: 1px; height: var(--space-lg); background: var(--border-strong); }
+.usage-idle[data-sel="true"]::after { background: var(--chart-bar-selected); }
 .usage-legend { display: inline-flex; gap: var(--space-lg); }
 .usage-legend > span { display: inline-flex; align-items: center; gap: var(--space-xs); }
 .usage-legend i { display: block; width: 8px; height: 8px; border-radius: var(--radius-mark); background: var(--chart-bar); }
 .usage-legend i.bad { height: 4px; background: var(--chart-bar-failed); }
-.usage-legend i.cost { width: 12px; height: 0; border-top: 1.5px solid var(--chart-line); border-radius: 0; background: none; }
-.usage-line { position: absolute; inset: 0; pointer-events: none; }
-.usage-line svg { display: block; width: 100%; height: 100%; overflow: visible; }
-.usage-line polyline { fill: none; stroke: var(--chart-line); stroke-width: 1.5px; stroke-linejoin: round; stroke-linecap: round; }
 .usage-heat { display: grid; grid-template-columns: 35px repeat(24,minmax(6px,1fr)); gap: var(--space-xs); align-items: center; }
 .usage-heat i { aspect-ratio: 1; min-height: 8px; max-height: 22px; background: var(--chart-heat); border-radius: var(--radius-mark); }
 .app-qr { display: block; width: 132px; height: 132px; background: var(--qr-canvas); }

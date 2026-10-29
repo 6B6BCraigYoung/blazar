@@ -79,7 +79,6 @@ struct Entry {
     name: String,
     path: String,
     is_repo: bool,
-    children: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Deserialize)]
@@ -657,7 +656,6 @@ fn Dialog() -> impl IntoView {
                         "↑"
                     </button>
                     <input
-                        class="mono"
                         aria-label="目录路径"
                         placeholder="~"
                         prop:value=move || typed.get()
@@ -819,15 +817,12 @@ fn Dialog() -> impl IntoView {
                                                 aria-hidden="true"
                                                 inner_html=icon::svg(icon::FOLDER)
                                             ></span>
-                                            <span class="nm">
-                                                {e.name.clone()}
-                                                {e
-                                                    .is_repo
-                                                    .then(|| view! { <span class="tag">"Git"</span> })}
-                                            </span>
+                                            <span class="nm">{e.name.clone()}</span>
                                             {e
-                                                .children
-                                                .map(|c| view! { <span class="muted small">{c}</span> })}
+                                                .is_repo
+                                                .then(|| {
+                                                    view! { <span class="kind">"Git 仓库"</span> }
+                                                })}
                                         </button>
                                     }
                                 })
@@ -1026,7 +1021,7 @@ fn Dialog() -> impl IntoView {
                                                             }
                                                         }
                                                     >
-                                                        <span class="nm mono">
+                                                        <span class="nm">
                                                             {b.name.clone()}
                                                             {b
                                                                 .remote_only

@@ -129,15 +129,15 @@
 .new-ws-more > summary { width: fit-content; color: var(--fg-2); font-size: var(--font-size-label); }
 .new-ws-more > summary:hover { color: var(--fg); }
 .browse-bar input { flex: 1; }
-.dlg .browse-bar input { font: var(--font-size-label) var(--font-mono); }
 .browser { height: 240px; overflow: auto; overscroll-behavior: contain; border: var(--field-border); border-radius: var(--r-md); background: var(--bg-canvas); }
 .browser.short { height: auto; max-height: 190px; }
-.brow { display: flex; align-items: center; gap: var(--space-md); min-height: 30px; padding: 0 var(--space-control); cursor: pointer; font: var(--font-size-label-readable) var(--font-mono); color: var(--fg-2); }
+.brow { display: flex; align-items: center; gap: var(--space-md); min-height: 30px; padding: 0 var(--space-control); cursor: pointer; font: var(--font-size-label-readable) var(--font-sans); color: var(--fg-2); }
 .brow:hover { background: var(--bg-hover); }
 .brow .mk { width: 14px; height: 14px; flex: 0 0 auto; display: inline-grid; place-items: center; color: var(--fg-4); }
 .brow .mk svg { width: 14px; height: 14px; }
-.brow .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; align-items: center; gap: var(--space-sm); color: var(--fg); }
-.brow .tag { flex: 0 0 auto; padding: 0 var(--space-sm); border-radius: var(--radius-pill); background: var(--control-track); color: var(--fg-3); font: var(--font-size-caption) var(--font-sans); line-height: 16px; }
+.brow .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg); }
+.brow .kind { flex: 0 0 auto; color: var(--fg-3); font-size: var(--font-size-label); }
+.brow.br .nm { display: flex; align-items: center; gap: var(--space-sm); }
 .brow.br { flex-direction: column; align-items: stretch; gap: var(--space-hairline); padding: var(--space-icon) var(--space-control); font-family: var(--font-sans); }
 .brow[data-sel="true"] { background: var(--option-selected-bg); }
 .brow.br[data-dis="true"] { opacity: var(--disabled-opacity); }

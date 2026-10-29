@@ -31,7 +31,6 @@
   --chart-bar: #7c7c82;
   --chart-bar-selected: var(--accent);
   --chart-bar-failed: #ff453a;
-  --chart-line: #c7c7cc;
   --chart-heat: #98989f;
 
   --fg: #f2f2f7;
@@ -311,7 +310,6 @@
   --chart-bar: #86868b;
   --chart-bar-selected: var(--accent);
   --chart-bar-failed: #ff3b30;
-  --chart-line: #3a3a3c;
   --chart-heat: #6e6e73;
   --fg: #1d1d1f;
   --fg-2: #3a3a3c;
@@ -417,7 +415,6 @@
     --chart-bar: #86868b;
     --chart-bar-selected: var(--accent);
     --chart-bar-failed: #ff3b30;
-    --chart-line: #3a3a3c;
     --chart-heat: #6e6e73;
     --fg: #1d1d1f;
     --fg-2: #3a3a3c;

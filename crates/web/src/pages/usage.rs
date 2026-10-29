@@ -9,6 +9,9 @@ use crate::components::status::{EmptyState, InlineError, LoadingState};
 use crate::pages::runtimes::accounts;
 use crate::{api, storage, vocab};
 
+mod slots;
+use slots::{Slot, slots};
+
 fn n(v: &Value, k: &str) -> f64 {
     v[k].as_f64().unwrap_or_default()
 }
@@ -365,7 +368,7 @@ fn Analytics(data: Value, days: u32, widen: Callback<()>) -> impl IntoView {
     }
     let daily = list(&data, "daily");
     let now = js_sys::Date::new_0();
-    let mut series = (0..days)
+    let series = (0..days)
         .rev()
         .map(|i| {
             let d = js_sys::Date::new(&wasm_bindgen::JsValue::from_f64(
@@ -385,25 +388,36 @@ fn Analytics(data: Value, days: u32, widen: Callback<()>) -> impl IntoView {
         })
         .collect::<Vec<_>>();
     let max_runs = series.iter().map(|d| n(d, "runs")).fold(1.0_f64, f64::max);
-    let max_cost = series
-        .iter()
-        .map(|d| n(d, "cost"))
-        .fold(0.0001_f64, f64::max);
-    let first = series.first().map(|d| s(d, "day")).unwrap_or_default();
-    let last = series.last().map(|d| s(d, "day")).unwrap_or_default();
-    let daily_table = series.clone();
-    let lead = series.iter().take_while(|d| n(d, "runs") == 0.0).count();
-    let gap = (lead >= 7 && lead < series.len()).then(|| {
-        format!(
+    let slots = slots(&series.iter().map(|d| n(d, "runs")).collect::<Vec<_>>());
+    let label = |slot: Slot| match slot {
+        Slot::Day(i) => {
+            let d = &series[i];
+            let failed = n(d, "failed");
+            let failed = if failed > 0.0 {
+                format!(" · {failed:.0} 次失败")
+            } else {
+                String::new()
+            };
+            format!(
+                "{} · {:.0} 次{failed} · ${:.2}",
+                s(d, "day"),
+                n(d, "runs"),
+                n(d, "cost")
+            )
+        }
+        Slot::Idle(a, b) => format!(
             "{} 至 {} 无运行",
-            short_day(&s(&series[0], "day")),
-            short_day(&s(&series[lead - 1], "day"))
-        )
-    });
-    if gap.is_some() {
-        series.drain(..lead);
-    }
-    let count = series.len();
+            short_day(&s(&series[a], "day")),
+            short_day(&s(&series[b], "day"))
+        ),
+    };
+    let labels = slots.iter().map(|slot| label(*slot)).collect::<Vec<_>>();
+    let first = match slots.first() {
+        Some(Slot::Day(i) | Slot::Idle(i, _)) => s(&series[*i], "day"),
+        None => String::new(),
+    };
+    let last = series.last().map(|d| s(d, "day")).unwrap_or_default();
+    let count = slots.len();
     let hover = RwSignal::new(None::<usize>);
     let keyed = RwSignal::new(None::<usize>);
     let shown = move || {
@@ -413,48 +427,26 @@ fn Analytics(data: Value, days: u32, widen: Callback<()>) -> impl IntoView {
             .unwrap_or(count.saturating_sub(1))
             .min(count.saturating_sub(1))
     };
-    let by_day = StoredValue::new(series.clone());
-    let readout = move || {
-        by_day.with_value(|all| {
-            all.get(shown())
-                .map(|d| {
-                    let failed = n(d, "failed");
-                    let failed = if failed > 0.0 {
-                        format!(" · {failed:.0} 次失败")
-                    } else {
-                        String::new()
-                    };
-                    format!(
-                        "{} · {:.0} 次{failed} · ${:.2}",
-                        s(d, "day"),
-                        n(d, "runs"),
-                        n(d, "cost")
-                    )
-                })
-                .unwrap_or_default()
-        })
-    };
+    let by_slot = StoredValue::new(labels.clone());
+    let readout = move || by_slot.with_value(|all| all.get(shown()).cloned().unwrap_or_default());
     let step = move |delta: i64| {
         let end = count.saturating_sub(1) as i64;
         let next = (shown() as i64 + delta).clamp(0, end) as usize;
         keyed.set(Some(next));
         hover.set(None);
     };
-    let points = series
-        .iter()
-        .enumerate()
-        .map(|(i, d)| {
-            format!(
-                "{},{:.2}",
-                i as f64 + 0.5,
-                100.0 - n(d, "cost") / max_cost * 100.0
-            )
+    let bars = slots
+        .into_iter()
+        .zip(labels)
+        .map(|(slot, title)| match slot {
+            Slot::Day(i) => (
+                Some((n(&series[i], "runs"), n(&series[i], "failed"))),
+                title,
+            ),
+            Slot::Idle(..) => (None, title),
         })
-        .collect::<Vec<_>>()
-        .join(" ");
-    let line_svg = format!(
-        r#"<svg viewBox="0 0 {count} 100" preserveAspectRatio="none" aria-hidden="true"><polyline points="{points}" vector-effect="non-scaling-stroke"/></svg>"#
-    );
+        .collect::<Vec<_>>();
+    let daily_table = series;
     let mut heat = [[0.0_f64; 24]; 7];
     for h in list(&data, "heat") {
         if let (Some(w), Some(hour), Some(count)) = (h[0].as_u64(), h[1].as_u64(), h[2].as_f64())
@@ -510,31 +502,47 @@ fn Analytics(data: Value, days: u32, widen: Callback<()>) -> impl IntoView {
                     step(delta);
                 }
             >
-                {gap.map(|g| view! { <div class="usage-gap">{g}</div> })}
                 <div class="usage-days">
-                    {series
+                    {bars
                         .into_iter()
                         .enumerate()
-                        .map(|(i, d)| {
-                            let runs = n(&d, "runs");
-                            let failed = n(&d, "failed");
-                            view! {
-                                <div
-                                    class="usage-day"
-                                    data-sel=move || (shown() == i).to_string()
-                                    on:pointerenter=move |_| hover.set(Some(i))
-                                >
-                                    <div class="usage-stack">
-                                        <i
-                                            class="run"
-                                            style:height=format!("{}%", runs / max_runs * 100.0)
-                                        ></i>
-                                        {(failed > 0.0).then(|| view! { <i class="bad"></i> })}
-                                    </div>
-                                </div>
+                        .map(|(i, (day, title))| {
+                            let sel = move || (shown() == i).to_string();
+                            let enter = move |_: leptos::ev::PointerEvent| hover.set(Some(i));
+                            match day {
+                                Some((runs, failed)) => {
+                                    view! {
+                                        <div
+                                            class="usage-day"
+                                            title=title
+                                            data-sel=sel
+                                            on:pointerenter=enter
+                                        >
+                                            <div class="usage-stack">
+                                                <i
+                                                    class="run"
+                                                    style:height=format!("{}%", runs / max_runs * 100.0)
+                                                ></i>
+                                                {(failed > 0.0).then(|| view! { <i class="bad"></i> })}
+                                            </div>
+                                        </div>
+                                    }
+                                        .into_any()
+                                }
+                                None => {
+                                    view! {
+                                        <div
+                                            class="usage-idle"
+                                            title=title
+                                            data-sel=sel
+                                            on:pointerenter=enter
+                                        ></div>
+                                    }
+                                        .into_any()
+                                }
                             }
                         })
-                        .collect_view()} <div class="usage-line" inner_html=line_svg></div>
+                        .collect_view()}
                 </div>
             </div>
             <div class="settings-actions muted usage-axis">
@@ -548,10 +556,6 @@ fn Analytics(data: Value, days: u32, widen: Callback<()>) -> impl IntoView {
                     <span>
                         <i class="bad"></i>
                         "失败"
-                    </span>
-                    <span>
-                        <i class="cost"></i>
-                        "费用"
                     </span>
                 </span>
                 <span class="grow"></span>
