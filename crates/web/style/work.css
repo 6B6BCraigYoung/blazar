@@ -109,7 +109,6 @@
 .bot-approval-cmd { display: flex; align-items: baseline; gap: var(--space-md); min-width: 0; }
 .bot-approval-tool { flex: 0 0 auto; color: var(--fg-3); font-size: var(--font-size-label); }
 .bot-approval-cmd code { min-width: 0; overflow-wrap: anywhere; font: var(--font-size-label-readable) var(--font-mono); color: var(--fg); }
-.bot-approval .row-actions .btn kbd { margin-left: var(--space-xs); font: var(--font-size-caption) var(--font-sans); color: var(--fg-3); }
 .bot-mail-body { white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--font-size-body); }
 .bot-steps, .bot-claims { list-style: none; margin: var(--space-md) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-sm); font-size: var(--font-size-label); }
 .bot-steps li { overflow-wrap: anywhere; color: var(--fg-2); }
@@ -169,7 +168,10 @@
 .inbox-meta { flex: 0 0 auto; display: inline-flex; align-items: center; gap: var(--space-md); padding-top: 3px; font-size: var(--font-size-caption); color: var(--fg-4); white-space: nowrap; }
 .inbox-act { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-sm); margin-top: var(--space-2xs); }
 .inbox-act .btn { display: inline-flex; align-items: center; gap: var(--space-xs); }
-.inbox-act .btn kbd { font: var(--font-size-caption) var(--font-sans); color: var(--fg-3); }
+/* Shortcut keys read as counts when they sit next to a label, so they stay hidden
+   until the card is pointed at or reached by keyboard, then show as a faint keycap. */
+.inbox-act .btn kbd, .bot-approval .row-actions .btn kbd { margin-left: var(--space-2xs); padding: 0 var(--space-xs); border: 1px solid var(--border); border-radius: var(--radius-keycap); font: var(--font-size-keycap) var(--font-sans); line-height: 14px; color: var(--fg-4); visibility: hidden; }
+.inbox-row:is(:hover, :focus-within) .inbox-act .btn kbd, .bot-approval:is(:hover, :focus-within) .row-actions .btn kbd { visibility: visible; }
 .inbox-act a.btn { color: var(--fg); }
 .inbox-cmd { flex: 1 1 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--font-size-caption-readable) var(--font-mono); color: var(--fg-2); }
 .inbox-reply { flex: 1 1 200px; min-width: 160px; height: 26px; padding: 0 var(--space-control); border: var(--field-border); border-radius: var(--r-md); background: var(--bg-canvas); color: var(--fg); font: var(--font-size-label-readable) var(--font-sans); outline: none; }

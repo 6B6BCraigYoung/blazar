@@ -145,7 +145,7 @@ pub fn item_of(it: &Value, assistant: Option<&str>) -> Item {
     });
     let handled = it["handled"].as_bool() == Some(true) || !s(it, "resolved_at").is_empty();
     let place = if chats {
-        "对话".to_owned()
+        "中控台".to_owned()
     } else {
         fmt::ws_label_of(it)
     };
