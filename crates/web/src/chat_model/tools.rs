@@ -668,6 +668,15 @@ pub fn result_of(name: &str, ok: bool, content: &str) -> Option<Res> {
                 "sum",
                 4,
             ),
+            _ if text.trim_start().starts_with('[') => res(
+                &count(
+                    text.lines().filter(|l| l.starts_with('[')).count(),
+                    "Read {n} entr{y}",
+                    "No history yet",
+                ),
+                "sum",
+                4,
+            ),
             _ => res(
                 if text.is_empty() {
                     "(No content)"
