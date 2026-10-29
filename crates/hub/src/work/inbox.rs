@@ -144,6 +144,19 @@ pub async fn has_open_ask(st: &Shared, sid: &str) -> bool {
         > 0
 }
 
+/// A reply that only points back at cards still waiting must not become another card.
+async fn thread_has_open_ask(st: &Shared, thread: &str) -> bool {
+    sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM inbox WHERE thread_id = ?1 AND kind = 'question' AND ref_id LIKE 'ask:%'
+           AND archived_at IS NULL AND resolved_at IS NULL",
+    )
+    .bind(thread)
+    .fetch_one(st.db.pool())
+    .await
+    .unwrap_or(0)
+        > 0
+}
+
 pub async fn resolve_asks(st: &Shared, thread: &str) {
     close_asks(st, thread, None).await;
 }
@@ -314,7 +327,11 @@ pub async fn on_run_finished(
         },
     )
     .await;
-    if ok && !brief.asks.is_empty() && !has_open_ask(&st, &sid.to_string()).await {
+    if ok
+        && !brief.asks.is_empty()
+        && !has_open_ask(&st, &sid.to_string()).await
+        && !thread_has_open_ask(&st, &thread).await
+    {
         let n = brief.asks.len();
         for (i, ask) in brief.asks.iter().enumerate() {
             let title = if n > 1 {
