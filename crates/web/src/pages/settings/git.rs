@@ -2,7 +2,7 @@ use leptos::prelude::*;
 use serde_json::{Value, json};
 
 use crate::api;
-use crate::components::prefs::{PrefGroup, PrefRow, Switch};
+use crate::components::prefs::{PrefAdvanced, PrefGroup, PrefRow, Switch};
 use crate::components::status::{InlineError, LoadingState};
 
 use super::{flag, save, text};
@@ -39,39 +39,7 @@ fn GitForm(initial: Value) -> impl IntoView {
         });
     };
     view! {
-        <PrefGroup>
-            <PrefRow
-                label="分支前缀"
-                detail="新建隔离工作区时，分支名以它开头。"
-                for_id="settings-branch-prefix"
-            >
-                <div class="pref-stack">
-                    <input
-                        id="settings-branch-prefix"
-                        class="settings-input"
-                        autocomplete="off"
-                        spellcheck="false"
-                        disabled=move || busy.get()
-                        prop:value=move || prefix.get()
-                        on:change=move |e| {
-                            let next = event_target_value(&e).trim().to_owned();
-                            let old = prefix.get_untracked();
-                            if next == old {
-                                event_target::<web_sys::HtmlInputElement>(&e).set_value(&next);
-                                return;
-                            }
-                            prefix.set(next.clone());
-                            put(
-                                json!({"git":{"branch_prefix":next}}),
-                                Box::new(move || prefix.set(old)),
-                            );
-                        }
-                    />
-                    <span class="pref-hint">
-                        {move || format!("示例：{}fix-login", prefix.get())}
-                    </span>
-                </div>
-            </PrefRow>
+        <PrefGroup title="Git 与 PR">
             <PrefRow label="默认创建草稿 PR" for_id="settings-pr-draft">
                 <Switch
                     id="settings-pr-draft"
@@ -94,6 +62,40 @@ fn GitForm(initial: Value) -> impl IntoView {
                     }
                 />
             </PrefRow>
+            <PrefAdvanced title="Git 与 PR">
+                <PrefRow
+                    label="分支前缀"
+                    detail="新建工作区时如果开独立分支，分支名以它开头。"
+                    for_id="settings-branch-prefix"
+                >
+                    <div class="pref-stack">
+                        <input
+                            id="settings-branch-prefix"
+                            class="settings-input"
+                            autocomplete="off"
+                            spellcheck="false"
+                            disabled=move || busy.get()
+                            prop:value=move || prefix.get()
+                            on:change=move |e| {
+                                let next = event_target_value(&e).trim().to_owned();
+                                let old = prefix.get_untracked();
+                                if next == old {
+                                    event_target::<web_sys::HtmlInputElement>(&e).set_value(&next);
+                                    return;
+                                }
+                                prefix.set(next.clone());
+                                put(
+                                    json!({"git":{"branch_prefix":next}}),
+                                    Box::new(move || prefix.set(old)),
+                                );
+                            }
+                        />
+                        <span class="pref-hint">
+                            {move || format!("示例：{}fix-login", prefix.get())}
+                        </span>
+                    </div>
+                </PrefRow>
+            </PrefAdvanced>
         </PrefGroup>
     }
 }

@@ -1432,7 +1432,19 @@ fn SkillMarket(preview: RwSignal<Option<(Value, bool)>>, refresh: RwSignal<u32>)
                         .then(|| {
                             view! {
                                 <button class="btn" on:click=move |_| key_open.update(|v| *v = !*v)>
-                                    "设置 API key"
+                                    {move || {
+                                        let keyed = providers
+                                            .get()
+                                            .and_then(Result::ok)
+                                            .is_some_and(|l| {
+                                                l.iter()
+                                                    .any(|p| {
+                                                        text(p, "id") == "skillsmp"
+                                                            && p["has_key"].as_bool() == Some(true)
+                                                    })
+                                            });
+                                        if keyed { "更换 API key" } else { "设置 API key" }
+                                    }}
                                 </button>
                             }
                         })

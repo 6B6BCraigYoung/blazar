@@ -1,5 +1,6 @@
 use leptos::ev;
 use leptos::prelude::*;
+use leptos_router::NavigateOptions;
 use leptos_router::hooks::{use_navigate, use_query_map};
 use serde_json::{Value, json};
 use wasm_bindgen::JsCast;
@@ -15,10 +16,7 @@ mod appearance;
 mod chat;
 mod git;
 mod hooks;
-mod hub;
 mod notify;
-mod platforms;
-mod quota;
 mod resume;
 mod rules;
 mod shortcuts;
@@ -26,14 +24,11 @@ mod snippets;
 
 use about::AboutSettings;
 use appearance::AppearanceSettings;
-use chat::{ChatSettings, FleetSettings};
+use chat::ChatSettings;
 use git::GitSettings;
 use hooks::HookSettings;
-use hub::HubSettings;
 pub(super) use notify::NOTIFY_KINDS;
 use notify::NotifySettings;
-use platforms::PlatformSettings;
-use quota::QuotaSettings;
 use resume::AutoResumeSettings;
 use rules::RuleSettings;
 use shortcuts::ShortcutSettings;
@@ -47,10 +42,23 @@ pub(crate) const SECTIONS: &[(&str, &str, &str)] = &[
     ("rules", "自动批准", icon::CHECK),
     ("snippets", "片段", icon::LINES),
     ("hooks", "自动执行脚本", icon::TERMINAL),
-    ("git", "Git 与 PR", icon::BRANCH),
-    ("platforms", "技能来源", icon::WAND),
     ("about", "数据与关于", icon::INFO),
 ];
+
+/// 旧的 `/settings?s=…` 链接：挪走的分区跳到新位置，并进来的分区跳到所在分区。
+fn moved(section: &str) -> Option<&'static str> {
+    Some(match section {
+        "quota" => "/runtimes/claude",
+        "git" => "/settings?s=chat",
+        "platforms" => "/skills?tab=market",
+        "lark" => "/apps/lark",
+        "fleet" | "hub" => "/nodes",
+        "bots" | "alerts" => "/bots",
+        _ => return None,
+    })
+}
+
+pub(super) const FONT_DEFAULT: f64 = 13.0;
 
 pub(super) fn text(v: &Value, key: &str) -> String {
     v[key].as_str().unwrap_or_default().into()
@@ -73,7 +81,7 @@ pub fn apply_ui_preferences() {
 }
 
 fn ui_prefs() -> Value {
-    let mut defaults = json!({"v":2,"theme":"system","fontSize":12.5,"minimap":false,"wordWrap":true,"sendKey":"enter"});
+    let mut defaults = json!({"v":2,"theme":"system","fontSize":FONT_DEFAULT,"minimap":false,"wordWrap":true,"sendKey":"enter"});
     if let Some(Value::Object(mut saved)) = storage::load::<Value>("blazar.ui") {
         if saved.get("v").and_then(Value::as_u64) != Some(2) {
             saved.remove("minimap");
@@ -82,7 +90,26 @@ fn ui_prefs() -> Value {
         }
         defaults.as_object_mut().unwrap().extend(saved);
     }
+    let size = defaults["fontSize"]
+        .as_f64()
+        .unwrap_or(FONT_DEFAULT)
+        .round()
+        .clamp(11.0, 18.0);
+    defaults["fontSize"] = json!(size);
     defaults
+}
+
+/// 编辑器的自动换行不再是设置项，在编辑器工具栏切换，记住上次的选择。
+pub fn word_wrap() -> bool {
+    ui_prefs()["wordWrap"].as_bool().unwrap_or(true)
+}
+
+pub fn set_word_wrap(on: bool) -> bool {
+    let mut p = ui_prefs();
+    p["wordWrap"] = json!(on);
+    storage::save("blazar.ui", &p);
+    apply_ui_preferences();
+    on
 }
 
 fn set_ui(key: &str, value: Value) {
@@ -113,10 +140,21 @@ pub fn SettingsPage() -> impl IntoView {
     let section = move || {
         query.with(|q| match q.get("s").as_deref() {
             None => "appearance".into(),
-            Some("quota") => "chat".into(),
             Some(s) => s.to_owned(),
         })
     };
+    let go = use_navigate();
+    Effect::new(move |_| {
+        if let Some(to) = moved(&section()) {
+            go(
+                to,
+                NavigateOptions {
+                    replace: true,
+                    ..Default::default()
+                },
+            );
+        }
+    });
     let title = Signal::derive(move || {
         let current = section();
         SECTIONS
@@ -159,12 +197,11 @@ pub fn SettingsPage() -> impl IntoView {
             <PageHead title />
             <div class="settings-body">
                 {move || match section().as_str() {
-                    "chat" => {
+                    "chat" | "git" => {
                         view! {
                             <ChatSettings />
                             <AutoResumeSettings />
-                            <QuotaSettings />
-                            <FleetSettings />
+                            <GitSettings />
                         }
                             .into_any()
                     }
@@ -173,24 +210,14 @@ pub fn SettingsPage() -> impl IntoView {
                     "rules" => view! { <RuleSettings /> }.into_any(),
                     "snippets" => view! { <SnippetSettings /> }.into_any(),
                     "hooks" => view! { <HookSettings /> }.into_any(),
-                    "git" => view! { <GitSettings /> }.into_any(),
-                    "platforms" => view! { <PlatformSettings /> }.into_any(),
                     "about" => {
                         view! {
-                            <HubSettings />
                             <super::transfer::TransferSettings />
                             <AboutSettings />
                         }
                             .into_any()
                     }
-                    "lark" => {
-                        view! {
-                            <a class="btn" href="/apps/lark">
-                                "打开飞书 / Lark 设置"
-                            </a>
-                        }
-                            .into_any()
-                    }
+                    s if moved(s).is_some() => ().into_any(),
                     _ => view! { <AppearanceSettings /> }.into_any(),
                 }}
             </div>

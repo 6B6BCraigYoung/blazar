@@ -17,6 +17,7 @@ pub(crate) mod accounts;
 mod detail;
 mod global_sync;
 mod overview;
+mod quota_line;
 
 use account_form::AccountForm;
 use accounts::AccountRow;

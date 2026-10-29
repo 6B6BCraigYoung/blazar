@@ -18,6 +18,9 @@ use leptos::task::spawn_local;
 use leptos_router::hooks::{use_navigate, use_params_map};
 use serde_json::{Value, json};
 
+mod advanced;
+use advanced::BotAdvanced;
+
 pub fn bots_revision() -> RwSignal<u32> {
     let rev = RwSignal::new(0u32);
     let bus = use_bus();
@@ -101,6 +104,7 @@ pub fn BotsPage() -> impl IntoView {
     let rev = bots_revision();
     let app = use_app();
     let creating = RwSignal::new(false);
+    let advanced = RwSignal::new(false);
     let archived = RwSignal::new(false);
     let busy = RwSignal::new(false);
     let data = LocalResource::new(move || {
@@ -221,6 +225,15 @@ pub fn BotsPage() -> impl IntoView {
                         {move || if archived.get() { "返回在用的" } else { "查看已归档" }}
                     </button>
                 </Show>
+                <button
+                    type="button"
+                    class="btn"
+                    aria-haspopup="dialog"
+                    title="同时运行几个 bot、什么时候提醒"
+                    on:click=move |_| advanced.set(true)
+                >
+                    "高级…"
+                </button>
                 <button type="button" class="btn primary" on:click=move |_| creating.set(true)>
                     "新建 bot"
                 </button>
@@ -450,6 +463,9 @@ pub fn BotsPage() -> impl IntoView {
                         }
                     })
             }}
+            <Show when=move || advanced.get()>
+                <BotAdvanced on_close=Callback::new(move |()| advanced.set(false)) />
+            </Show>
             <Show when=move || creating.get()>
                 <NewBotForm on_close=Callback::new(move |_| {
                     creating.set(false);

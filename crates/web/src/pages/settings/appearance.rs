@@ -1,9 +1,9 @@
 use leptos::prelude::*;
 use serde_json::{Value, json};
 
-use crate::components::prefs::{PrefGroup, PrefRow, Switch};
+use crate::components::prefs::{PrefGroup, PrefRow};
 
-use super::{flag, set_ui, text, ui_prefs};
+use super::{FONT_DEFAULT, set_ui, text, ui_prefs};
 
 #[component]
 pub(super) fn AppearanceSettings() -> impl IntoView {
@@ -12,8 +12,9 @@ pub(super) fn AppearanceSettings() -> impl IntoView {
         set_ui(k, v.clone());
         p.update(|p| p[k] = v);
     };
+    let size = move || p.get()["fontSize"].as_f64().unwrap_or(FONT_DEFAULT);
     view! {
-        <PrefGroup note="仅对这台设备生效。">
+        <PrefGroup title="显示" aside="仅对这台设备生效">
             <PrefRow label="主题" for_id="settings-theme">
                 <select
                     id="settings-theme"
@@ -32,37 +33,21 @@ pub(super) fn AppearanceSettings() -> impl IntoView {
                     </option>
                 </select>
             </PrefRow>
-        </PrefGroup>
-        <PrefGroup title="编辑器">
-            <PrefRow label="字号" for_id="settings-font">
+            <PrefRow label="代码字号" for_id="settings-font">
                 <input
                     id="settings-font"
                     type="range"
                     min="11"
                     max="18"
-                    step="0.5"
-                    prop:value=move || p.get()["fontSize"].as_f64().unwrap_or(12.5)
+                    step="1"
+                    prop:value=size
                     on:input=move |e| {
-                        if let Ok(n) = event_target_value(&e).parse::<f64>() {
+                        if let Ok(n) = event_target_value(&e).parse::<u32>() {
                             change("fontSize", json!(n));
                         }
                     }
                 />
-                <span class="pref-value">{move || p.get()["fontSize"].to_string()}</span>
-            </PrefRow>
-            <PrefRow label="小地图" for_id="settings-minimap">
-                <Switch
-                    id="settings-minimap"
-                    checked=Signal::derive(move || flag(&p.get(), "minimap"))
-                    on_change=move |v: bool| change("minimap", json!(v))
-                />
-            </PrefRow>
-            <PrefRow label="自动换行" for_id="settings-wrap">
-                <Switch
-                    id="settings-wrap"
-                    checked=Signal::derive(move || flag(&p.get(), "wordWrap"))
-                    on_change=move |v: bool| change("wordWrap", json!(v))
-                />
+                <span class="pref-value">{move || format!("{} px", size())}</span>
             </PrefRow>
         </PrefGroup>
     }

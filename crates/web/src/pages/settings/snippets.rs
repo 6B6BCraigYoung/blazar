@@ -54,7 +54,7 @@ pub(super) fn SnippetSettings() -> impl IntoView {
         );
     });
     view! {
-        <PrefGroup note="把验收清单、代码规范等常用内容存下来，在对话里输入 @ 选择片段。">
+        <PrefGroup title="常用内容" aside="在对话里输入 @ 选择">
             <PrefList
                 label="片段"
                 selected
@@ -92,7 +92,7 @@ pub(super) fn SnippetSettings() -> impl IntoView {
                             .collect();
                         if items.is_empty() {
                             return view! {
-                                <PrefEmpty text="还没有片段。按「+」添加常用内容，在对话中输入 @ 即可引用。" />
+                                <PrefEmpty text="还没有片段。按「+」把验收清单、代码规范这类常用内容存下来。" />
                             }
                                 .into_any();
                         }

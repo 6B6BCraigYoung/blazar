@@ -57,7 +57,7 @@ pub(super) fn HookSettings() -> impl IntoView {
         );
     });
     view! {
-        <PrefGroup note="在对话开始、结束或出错时执行脚本。">
+        <PrefGroup title="脚本" aside="对话开始、结束或出错时自动执行">
             <PrefList
                 label="自动执行脚本"
                 selected
@@ -119,10 +119,10 @@ pub(super) fn HookSettings() -> impl IntoView {
             <PrefAdvanced title="执行说明与变量">
                 <p>"一轮开始前的脚本可在失败时阻止执行。"</p>
                 <p>
-                    "脚本能读到这些变量：" <code>"BLAZAR_EVENT"</code> "、"
-                    <code>"BLAZAR_WORKSPACE"</code> "、" <code>"BLAZAR_NODE"</code> "、"
-                    <code>"BLAZAR_CWD"</code> "、" <code>"BLAZAR_SESSION"</code> "、"
-                    <code>"BLAZAR_TOOL"</code> "。"
+                    "脚本能从环境变量读到这次是什么事件、哪个工作区、哪台机器、工作目录、哪个对话和用到的工具："
+                    <code>"BLAZAR_EVENT"</code> "、" <code>"BLAZAR_WORKSPACE"</code> "、"
+                    <code>"BLAZAR_NODE"</code> "、" <code>"BLAZAR_CWD"</code> "、"
+                    <code>"BLAZAR_SESSION"</code> "（对话）、" <code>"BLAZAR_TOOL"</code> "。"
                 </p>
             </PrefAdvanced>
         </PrefGroup>

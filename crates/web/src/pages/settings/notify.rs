@@ -6,7 +6,7 @@ use crate::components::status::{InlineError, LoadingState};
 use crate::components::toast::{flash, toast};
 use crate::{alerts, api, app_state::use_app};
 
-use super::{flag, rows, save, text};
+use super::{rows, save};
 
 pub(crate) const NOTIFY_KINDS: &[(&str, &str)] = &[
     ("run_done", "运行完成"),
@@ -17,7 +17,7 @@ pub(crate) const NOTIFY_KINDS: &[(&str, &str)] = &[
     ("autopilot_paused", "自动化已暂停"),
     ("rate_limit", "额度告警"),
     ("job", "后台任务"),
-    ("alert", "提醒规则"),
+    ("alert", "异常：机器离线、bot 没动静等"),
 ];
 
 #[component]
@@ -36,7 +36,7 @@ pub(super) fn NotifySettings() -> impl IntoView {
         flash("已保存");
     };
     view! {
-        <PrefGroup title="本机提醒">
+        <PrefGroup title="这台设备" aside="仅对这台设备生效">
             <PrefRow
                 label="系统通知"
                 detail=if supported { "" } else { "当前环境不支持系统通知。" }
@@ -76,7 +76,7 @@ pub(super) fn NotifySettings() -> impl IntoView {
                     }
                 />
             </PrefRow>
-            <Show when=move || sound_on.get()>
+            <PrefAdvanced title="提示音" button="声音…">
                 <PrefRow label="音色" for_id="settings-tone">
                     <select
                         id="settings-tone"
@@ -127,7 +127,7 @@ pub(super) fn NotifySettings() -> impl IntoView {
                         "待处理提示"
                     </button>
                 </PrefRow>
-            </Show>
+            </PrefAdvanced>
         </PrefGroup>
         {move || match server.get() {
             None => view! { <LoadingState text="正在加载提醒设置…" /> }.into_any(),
@@ -142,14 +142,6 @@ pub(super) fn NotifySettings() -> impl IntoView {
             }
             Some(Ok(p)) => view! { <InboxSettings initial=p /> }.into_any(),
         }}
-        <AlertRuleSettings />
-        <PrefGroup title="飞书">
-            <PrefRow label="转发到飞书" detail="把提醒同时发到飞书机器人。">
-                <a class="btn" href="/apps/lark">
-                    "配置…"
-                </a>
-            </PrefRow>
-        </PrefGroup>
     }
 }
 
@@ -216,120 +208,10 @@ fn InboxSettings(initial: Value) -> impl IntoView {
                         }
                     })
                     .collect_view()}
-            </PrefAdvanced>
-        </PrefGroup>
-    }
-}
-
-#[component]
-fn AlertRuleSettings() -> impl IntoView {
-    let data = LocalResource::new(|| api::get::<Value>("/api/alert-rules"));
-    view! {
-        <PrefGroup title="提醒规则">
-            {move || match data.get() {
-                None => view! { <LoadingState text="正在加载提醒规则…" /> }.into_any(),
-                Some(Err(e)) => {
-                    view! {
-                        <InlineError
-                            message=format!("无法加载提醒规则：{e}")
-                            retry=Callback::new(move |_| data.refetch())
-                        />
-                    }
-                        .into_any()
-                }
-                Some(Ok(v)) => {
-                    rows(&v["rules"])
-                        .into_iter()
-                        .map(|r| view! { <AlertRuleRow rule=r /> })
-                        .collect_view()
-                        .into_any()
-                }
-            }} <PrefAdvanced title="提醒规则">
-                <p>
-                    "hub 每 30 秒检查一次，事情发生时也会立刻检查。同一件事持续期间只提醒一次，消失后在中控台里标为已解决。"
+                <p class="muted">
+                    "机器离线、bot 没动静这类异常等多久才提醒，在 bot 页右上角的「高级…」里调；要同时发到飞书，在「接入的软件 → 飞书」里设置。"
                 </p>
             </PrefAdvanced>
         </PrefGroup>
-    }
-}
-
-#[component]
-fn AlertRuleRow(rule: Value) -> impl IntoView {
-    let key = text(&rule, "key");
-    let unit = text(&rule, "unit");
-    let label = text(&rule, "label");
-    let (min, max) = (
-        rule["min"].as_i64().unwrap_or(0),
-        rule["max"].as_i64().unwrap_or(0),
-    );
-    let on = RwSignal::new(flag(&rule, "enabled"));
-    let threshold = RwSignal::new(rule["threshold"].as_i64());
-    let busy = RwSignal::new(false);
-    let put = move |key: String, body: Value, undo: Box<dyn FnOnce() + 'static>| {
-        busy.set(true);
-        leptos::task::spawn_local(async move {
-            if !save("PUT", "/api/settings", json!({ "rules": { key: body } })).await {
-                undo();
-            }
-            busy.set(false);
-        });
-    };
-    let switch_key = key.clone();
-    let number_key = key.clone();
-    let number_label = label.clone();
-    view! {
-        <PrefRow label=label.clone() detail=text(&rule, "about") for_id=format!("alert-rule-{key}")>
-            {threshold
-                .get_untracked()
-                .map(|_| {
-                    let key = number_key.clone();
-                    view! {
-                        <input
-                            id=format!("alert-rule-{key}-threshold")
-                            class="settings-input"
-                            type="number"
-                            min=min
-                            max=max
-                            aria-label=format!("「{number_label}」的阈值（{unit}）")
-                            disabled=move || busy.get() || !on.get()
-                            prop:value=move || {
-                                threshold.get().map(|n| n.to_string()).unwrap_or_default()
-                            }
-                            on:change=move |e| {
-                                let old = threshold.get_untracked();
-                                match event_target_value(&e).trim().parse::<i64>() {
-                                    Ok(n) if (min..=max).contains(&n) => {
-                                        if old == Some(n) {
-                                            return;
-                                        }
-                                        threshold.set(Some(n));
-                                        put(
-                                            key.clone(),
-                                            json!({ "threshold": n }),
-                                            Box::new(move || threshold.set(old)),
-                                        );
-                                    }
-                                    _ => {
-                                        event_target::<web_sys::HtmlInputElement>(&e)
-                                            .set_value(&old.map(|n| n.to_string()).unwrap_or_default());
-                                        toast(format!("阈值要在 {min} 到 {max} 之间"));
-                                    }
-                                }
-                            }
-                        />
-                        <span class="pref-unit">{unit.clone()}</span>
-                    }
-                })}
-            <Switch
-                id=format!("alert-rule-{switch_key}")
-                label=format!("启用「{label}」")
-                checked=on
-                disabled=busy
-                on_change=move |v: bool| {
-                    on.set(v);
-                    put(switch_key.clone(), json!({ "enabled": v }), Box::new(move || on.set(!v)));
-                }
-            />
-        </PrefRow>
     }
 }

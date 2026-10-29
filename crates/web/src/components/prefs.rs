@@ -9,6 +9,7 @@ use super::modal::Modal;
 pub fn PrefGroup(
     #[prop(optional, into)] title: Option<String>,
     #[prop(optional, into)] note: Option<String>,
+    #[prop(optional, into)] aside: Option<String>,
     #[prop(default = false)] guard: bool,
     #[prop(optional, into)] trailing: Option<ViewFn>,
     children: Children,
@@ -20,6 +21,7 @@ pub fn PrefGroup(
                     view! {
                         <h3 class="pref-heading">
                             <span>{t}</span>
+                            {aside.map(|a| view! { <span class="pref-aside">{a}</span> })}
                             {trailing.map(|v| v.run())}
                         </h3>
                     }

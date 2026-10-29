@@ -68,6 +68,7 @@ pub fn Tabs(files: Files) -> impl IntoView {
 
 #[component]
 pub fn EdBar(files: Files, preview: RwSignal<bool>) -> impl IntoView {
+    let wrap = RwSignal::new(crate::pages::word_wrap());
     view! {
         {move || {
             files
@@ -114,6 +115,19 @@ pub fn EdBar(files: Files, preview: RwSignal<bool>) -> impl IntoView {
                                     view! { <span class="muted">"已保存"</span> }.into_any()
                                 }
                             }}
+                            <span class="seg">
+                                <button
+                                    type="button"
+                                    title="自动换行"
+                                    aria-pressed=move || wrap.get().to_string()
+                                    data-on=move || wrap.get().to_string()
+                                    on:click=move |_| {
+                                        wrap.set(crate::pages::set_word_wrap(!wrap.get_untracked()))
+                                    }
+                                >
+                                    "换行"
+                                </button>
+                            </span>
                             {is_md
                                 .then(|| {
                                     view! {

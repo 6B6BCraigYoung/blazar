@@ -1,51 +1,118 @@
 use leptos::prelude::*;
 use serde_json::{Value, json};
 
+use crate::api;
 use crate::components::dialog::{Choice, ask};
-use crate::components::prefs::{PrefAdvanced, PrefGroup, PrefRow};
+use crate::components::prefs::{PrefAdvanced, PrefGroup, PrefRow, Switch};
 use crate::components::status::{InlineError, LoadingState};
+use crate::components::toast::{flash, toast};
 use crate::desktop;
 
-use super::{flag, text};
+fn text(v: &Value, key: &str) -> String {
+    v[key].as_str().unwrap_or_default().into()
+}
 
+async fn save(body: Value) -> bool {
+    match api::send::<Value>("PUT", "/api/settings", &body).await {
+        Ok(_) => {
+            flash("已保存");
+            true
+        }
+        Err(e) => {
+            toast(format!("没保存上：{e}"));
+            false
+        }
+    }
+}
+
+/// 允许智能体跨机器建工作区、派活（原先在设置 → 对话与运行）。
 #[component]
-pub(super) fn HubSettings() -> impl IntoView {
+pub(super) fn CrossMachine() -> impl IntoView {
+    let data = LocalResource::new(|| api::get::<Value>("/api/settings"));
+    let busy = RwSignal::new(false);
+    view! {
+        <PrefGroup title="跨机器协作">
+            {move || match data.get() {
+                None => view! { <LoadingState text="正在加载…" /> }.into_any(),
+                Some(Err(e)) => {
+                    view! {
+                        <InlineError
+                            message=format!("无法加载设置：{e}")
+                            retry=Callback::new(move |_| data.refetch())
+                        />
+                    }
+                        .into_any()
+                }
+                Some(Ok(p)) => {
+                    let on = RwSignal::new(p["fleet"]["enabled"].as_bool().unwrap_or(false));
+                    view! {
+                        <PrefRow
+                            label="允许智能体跨机器建工作区、派活"
+                            detail="下一轮对话开始时生效。"
+                            for_id="nodes-fleet"
+                        >
+                            <Switch
+                                id="nodes-fleet"
+                                checked=on
+                                disabled=busy
+                                on_change=move |v: bool| {
+                                    on.set(v);
+                                    busy.set(true);
+                                    leptos::task::spawn_local(async move {
+                                        if !save(json!({"fleet": {"enabled": v}})).await {
+                                            on.set(!v);
+                                        }
+                                        busy.set(false);
+                                    });
+                                }
+                            />
+                        </PrefRow>
+                    }
+                        .into_any()
+                }
+            }} <PrefAdvanced title="跨机器协作">
+                <p>
+                    "打开后，Blazar 启动的每个对话都能跨机器协作，不管它跑在哪台机器上：列出机器、建工作区、给任意机器上的智能体发指令、等它跑完、读它的记录和改动、在工作区之间拷文件。"
+                </p>
+                <p>
+                    "别的机器上的对话经这台电脑转发，自己拿不到其他机器的登录密钥；每个对话的权限单独发放，对话结束就收回。"
+                </p>
+            </PrefAdvanced>
+        </PrefGroup>
+    }
+}
+
+/// 桌面版连这台电脑上的 Blazar 服务，还是另一台常开的机器（原先在设置 → 数据与关于）。
+#[component]
+pub(super) fn RunsOn() -> impl IntoView {
     if !desktop::available() {
         return ().into_any();
     }
     let data = LocalResource::new(|| async { desktop::invoke("hub_mode", &json!({})).await });
     view! {
-        <PrefGroup
-            title="这台电脑连哪个 hub"
-            note="本机：这台电脑自己运行 hub。远程机器：连到一台常开的机器，合上这台电脑后 bot 和对话继续跑。"
-        >
+        <PrefGroup title="Blazar 在哪台机器上运行">
             {move || match data.get() {
-                None => view! { <LoadingState text="正在读取 hub 设置…" /> }.into_any(),
+                None => view! { <LoadingState text="正在读取…" /> }.into_any(),
                 Some(Err(e)) => {
                     view! {
                         <InlineError
-                            message=format!("读不了 hub 设置：{e}")
+                            message=format!("读不到运行位置：{e}")
                             retry=Callback::new(move |_| data.refetch())
                         />
                     }
                         .into_any()
                 }
                 Some(Ok(v)) if text(&v, "mode") == "remote" => {
-                    view! { <RemoteHubNotice state=v /> }.into_any()
+                    view! { <RemoteNotice state=v /> }.into_any()
                 }
-                Some(Ok(v)) => view! { <HubModeForm state=v /> }.into_any(),
+                Some(Ok(v)) => view! { <ModeForm state=v /> }.into_any(),
             }}
-            <PrefAdvanced title="远程 hub">
-                <p>
-                    "远程机器上的 hub 用仓库里的 scripts/hub-service.sh 装成常驻服务，默认监听 7777 端口。这台电脑经 SSH 连过去，所以 SSH 主机别名要能免密登录。"
-                </p>
-            </PrefAdvanced>
         </PrefGroup>
     }
     .into_any()
 }
 
-async fn switch_hub(args: Value, title: &str, body: String) -> Result<(), String> {
+async fn switch_to(args: Value, title: &str, body: String) -> Result<(), String> {
     if ask(
         title,
         &body,
@@ -60,23 +127,23 @@ async fn switch_hub(args: Value, title: &str, body: String) -> Result<(), String
 }
 
 #[component]
-fn RemoteHubNotice(state: Value) -> impl IntoView {
+fn RemoteNotice(state: Value) -> impl IntoView {
     let label = text(&state, "label");
     let busy = RwSignal::new(false);
     let status = RwSignal::new((String::new(), false));
-    let connected = flag(&state, "connected");
+    let connected = state["connected"].as_bool().unwrap_or(false);
     view! {
         <PrefRow
-            label="连接到"
+            label="运行在"
             detail=format!(
-                "{label} 上的 hub。工作区、对话和账号都在那台机器上。",
+                "{label}。工作区、对话和账号都在那台机器上，合上这台电脑也照常跑。",
             )
         >
             <span>{if connected { "已连上" } else { "没连上" }}</span>
         </PrefRow>
         <PrefRow
-            label="切回本机 hub"
-            detail="Blazar 会重启，改用这台电脑上的 hub。远程 hub 照常运行。"
+            label="切回这台电脑"
+            detail="Blazar 会重启，改用这台电脑。那台机器上的 Blazar 照常运行。"
         >
             <button
                 type="button"
@@ -88,10 +155,10 @@ fn RemoteHubNotice(state: Value) -> impl IntoView {
                     }
                     busy.set(true);
                     leptos::task::spawn_local(async move {
-                        let result = switch_hub(
+                        let result = switch_to(
                                 json!({"mode": "embedded"}),
-                                "切回本机 hub",
-                                "Blazar 会重启，改用这台电脑上的 hub。远程 hub 照常运行。"
+                                "切回这台电脑",
+                                "Blazar 会重启，改用这台电脑。那台机器上的 Blazar 照常运行。"
                                     .into(),
                             )
                             .await;
@@ -102,7 +169,7 @@ fn RemoteHubNotice(state: Value) -> impl IntoView {
                     });
                 }
             >
-                "切回本机 hub…"
+                "切回这台电脑…"
             </button>
         </PrefRow>
         <Show when=move || !status.get().0.is_empty()>
@@ -114,7 +181,7 @@ fn RemoteHubNotice(state: Value) -> impl IntoView {
 }
 
 #[component]
-fn HubModeForm(state: Value) -> impl IntoView {
+fn ModeForm(state: Value) -> impl IntoView {
     let saved = &state["saved"];
     let remote = RwSignal::new(false);
     let ssh = RwSignal::new(text(saved, "ssh"));
@@ -124,11 +191,11 @@ fn HubModeForm(state: Value) -> impl IntoView {
             .map_or_else(|| "7777".to_owned(), |p| p.to_string()),
     );
     let busy = RwSignal::new(false);
-    let status = RwSignal::new(("正在用这台电脑上的 hub。".to_owned(), false));
+    let status = RwSignal::new(("现在运行在这台电脑上。".to_owned(), false));
     let target = move || -> Result<(String, u16), String> {
         let host = ssh.get_untracked().trim().to_owned();
         if host.is_empty() {
-            return Err("先填 SSH 主机别名".into());
+            return Err("先填那台机器的名字".into());
         }
         let port = port
             .get_untracked()
@@ -136,12 +203,15 @@ fn HubModeForm(state: Value) -> impl IntoView {
             .parse::<u16>()
             .ok()
             .filter(|p| *p > 0)
-            .ok_or_else(|| "端口要在 1 到 65535 之间".to_owned())?;
+            .ok_or_else(|| "「高级…」里的端口要在 1 到 65535 之间".to_owned())?;
         Ok((host, port))
     };
     view! {
-        <PrefRow label="连接到">
-            <div class="seg" role="group" aria-label="连接到">
+        <PrefRow
+            label="运行在"
+            detail="放到一台常开的机器上，合上这台电脑后 bot 和对话继续跑。"
+        >
+            <div class="seg" role="group" aria-label="运行在">
                 <button
                     type="button"
                     data-on=move || (!remote.get()).to_string()
@@ -149,7 +219,7 @@ fn HubModeForm(state: Value) -> impl IntoView {
                     disabled=move || busy.get()
                     on:click=move |_| remote.set(false)
                 >
-                    "本机"
+                    "这台电脑"
                 </button>
                 <button
                     type="button"
@@ -158,16 +228,20 @@ fn HubModeForm(state: Value) -> impl IntoView {
                     disabled=move || busy.get()
                     on:click=move |_| remote.set(true)
                 >
-                    "远程机器"
+                    "另一台机器"
                 </button>
             </div>
         </PrefRow>
         <Show when=move || remote.get()>
-            <PrefRow label="SSH 主机别名" for_id="hub-ssh">
+            <PrefRow
+                label="机器"
+                detail="填 ~/.ssh/config 里的名字，要能免密登录。"
+                for_id="hub-ssh"
+            >
                 <input
                     id="hub-ssh"
                     class="settings-input"
-                    placeholder="hub-host"
+                    placeholder="如 office-mac"
                     autocomplete="off"
                     spellcheck="false"
                     prop:value=move || ssh.get()
@@ -175,19 +249,7 @@ fn HubModeForm(state: Value) -> impl IntoView {
                     on:input=move |e| ssh.set(event_target_value(&e))
                 />
             </PrefRow>
-            <PrefRow label="端口" for_id="hub-port">
-                <input
-                    id="hub-port"
-                    class="settings-input"
-                    type="number"
-                    min="1"
-                    max="65535"
-                    prop:value=move || port.get()
-                    disabled=move || busy.get()
-                    on:input=move |e| port.set(event_target_value(&e))
-                />
-            </PrefRow>
-            <PrefRow label="远程 hub" detail="切换后 Blazar 会重启并连到那台机器。">
+            <PrefRow label="切换" detail="切换后 Blazar 会重启并连到那台机器。">
                 <button
                     type="button"
                     class="btn"
@@ -241,11 +303,11 @@ fn HubModeForm(state: Value) -> impl IntoView {
                         };
                         busy.set(true);
                         leptos::task::spawn_local(async move {
-                            let result = switch_hub(
+                            let result = switch_to(
                                     json!({"mode": "remote", "ssh": host, "port": port}),
-                                    "切换到远程 hub",
+                                    "改到另一台机器上运行",
                                     format!(
-                                        "Blazar 会重启并连到 {host} 上的 hub。这台电脑上的 hub 会停下，它的数据保留，随时可以切回来。",
+                                        "Blazar 会重启并连到 {host}。这台电脑上的数据保留，随时可以切回来。",
                                     ),
                                 )
                                 .await;
@@ -265,5 +327,26 @@ fn HubModeForm(state: Value) -> impl IntoView {
                 {move || status.get().0}
             </p>
         </Show>
+        <PrefAdvanced title="在另一台机器上运行">
+            <p>
+                "那台机器上要先用仓库里的 scripts/hub-service.sh 装好常驻的 Blazar 服务。这台电脑经 SSH 连过去，所以要能免密登录。"
+            </p>
+            <PrefRow
+                label="端口"
+                detail="那台机器上 Blazar 服务用的端口，默认 7777，一般不用改。"
+                for_id="hub-port"
+            >
+                <input
+                    id="hub-port"
+                    class="settings-input"
+                    type="number"
+                    min="1"
+                    max="65535"
+                    prop:value=move || port.get()
+                    disabled=move || busy.get()
+                    on:input=move |e| port.set(event_target_value(&e))
+                />
+            </PrefRow>
+        </PrefAdvanced>
     }
 }

@@ -19,6 +19,7 @@ use wasm_bindgen::closure::Closure;
 
 mod advanced;
 mod detail;
+mod hub_mode;
 mod hubs;
 mod invites;
 mod mesh;
@@ -28,6 +29,7 @@ mod table;
 
 use advanced::AdvancedSheet;
 pub use detail::NodeDetailPage;
+use hub_mode::{CrossMachine, RunsOn};
 use invites::{Invites, Issuer};
 use mesh::{ConfigEditor, ConfigPreview, JoinDialog, MeshLocal};
 use roles::ConfirmSheet;
@@ -451,6 +453,11 @@ pub fn NodesPage() -> impl IntoView {
             <MeshLocal m invite_in toml_in />
             <Issuer m />
             <Invites m />
+            <div class="nodes-section-heading">
+                <h2>"多机协作"</h2>
+            </div>
+            <CrossMachine />
+            <RunsOn />
             {move || {
                 ssh_pick.get().then(|| view! { <SshPicker on_close=move || ssh_pick.set(false) /> })
             }}

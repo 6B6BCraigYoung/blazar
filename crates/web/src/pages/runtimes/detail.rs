@@ -280,6 +280,8 @@ pub(super) fn RuntimeDetail(id: String) -> impl IntoView {
                                         head=false
                                     />
                                 </div>
+                                {(id_s.get_value() == "claude")
+                                    .then(|| view! { <super::quota_line::QuotaLine /> })}
                                 <PrefAdvanced title="账号与凭据">
                                     <p>
                                         "浏览器登录的账号由官方 CLI 自己保管凭据，Blazar 不读取；长期 token 存在账号目录里只有你能读的文件中，启动时才交给 CLI。设置、技能和对话历史在各账号之间共享，换账号后上下文不变。"

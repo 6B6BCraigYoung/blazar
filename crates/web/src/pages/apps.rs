@@ -807,7 +807,7 @@ fn ConnectApp(
                                 label="PR 默认设置"
                                 detail="草稿 PR、分支前缀和 AI 起草。"
                             >
-                                <a class="btn" href="/settings?s=git">
+                                <a class="btn" href="/settings?s=chat">
                                     "打开设置"
                                 </a>
                             </PrefRow>

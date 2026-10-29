@@ -117,11 +117,13 @@ export function langOf(path) {
 }
 
 function preferences() {
-  const defaults = { fontSize: 12.5, minimap: false, wordWrap: true };
+  const defaults = { fontSize: 13, minimap: false, wordWrap: true };
   try {
     const saved = JSON.parse(localStorage.getItem('blazar.ui') || '{}') || {};
     if (saved.v !== 2) { delete saved.minimap; delete saved.wordWrap; }
-    return { ...defaults, ...saved };
+    const prefs = { ...defaults, ...saved };
+    prefs.fontSize = Math.min(18, Math.max(11, Math.round(Number(prefs.fontSize) || defaults.fontSize)));
+    return prefs;
   } catch (_) { return defaults; }
 }
 function editorTheme() {

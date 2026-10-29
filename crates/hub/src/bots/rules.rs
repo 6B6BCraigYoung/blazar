@@ -31,8 +31,8 @@ pub struct Spec {
 pub const SPECS: &[Spec] = &[
     Spec {
         key: "fact_stale",
-        label: "事实失联",
-        about: "事实超过平时更新间隔的 5 倍没更新：进收件箱，并写信给负责它的 bot。",
+        label: "bot 记的状态太久没更新",
+        about: "bot 登记的状态超过平时更新间隔的 5 倍没更新：提醒你，并通知负责它的 bot。",
         unit: "",
         default: None,
         min: 0,
@@ -40,8 +40,8 @@ pub const SPECS: &[Spec] = &[
     },
     Spec {
         key: "claim_expired",
-        label: "认领过期",
-        about: "认领过期时写信给认领人，过期超过这么久自动释放。",
+        label: "认领的资源到期",
+        about: "bot 认领的 GPU、目录等资源到期时通知它；过期超过这么久自动放开。",
         unit: "小时",
         default: Some(24),
         min: 1,
@@ -49,8 +49,8 @@ pub const SPECS: &[Spec] = &[
     },
     Spec {
         key: "bot_stuck",
-        label: "bot 卡住",
-        about: "bot 在跑却这么久没有动静：进收件箱；到两倍时再写信给总控 bot。",
+        label: "bot 很久没动静",
+        about: "bot 在跑却这么久没有动静：提醒你；到两倍时再通知总控 bot。",
         unit: "分钟",
         default: Some(20),
         min: 1,
@@ -58,8 +58,8 @@ pub const SPECS: &[Spec] = &[
     },
     Spec {
         key: "approval_waiting",
-        label: "审批等待",
-        about: "审批等了这么久还没人处理：进收件箱提醒一次。",
+        label: "批准等了很久",
+        about: "有操作等你批准这么久还没处理：再提醒一次。",
         unit: "分钟",
         default: Some(15),
         min: 1,
@@ -67,8 +67,8 @@ pub const SPECS: &[Spec] = &[
     },
     Spec {
         key: "job_orphan",
-        label: "后台任务落单",
-        about: "后台任务等待的机器、文件或任务不见了时提醒，并通知发起它的 bot。",
+        label: "后台任务等的东西不在了",
+        about: "后台任务等待的机器、文件或任务不在了：提醒你，并通知发起它的 bot。",
         unit: "",
         default: None,
         min: 0,
@@ -77,7 +77,7 @@ pub const SPECS: &[Spec] = &[
     Spec {
         key: "node_offline",
         label: "机器离线",
-        about: "机器离线这么久：进收件箱并写信给总控 bot，列出上面还在跑的任务和相关的 bot。机器每 2 分钟探测一次，不受这个开关影响。",
+        about: "机器离线这么久：提醒你并通知总控 bot，列出上面还在跑的任务和相关的 bot。",
         unit: "分钟",
         default: Some(10),
         min: 1,
@@ -86,11 +86,11 @@ pub const SPECS: &[Spec] = &[
     Spec {
         key: "quota_high",
         label: "额度快用完",
-        about: "账号某个额度窗口的用量超过这个比例：每个窗口提醒一次。",
-        unit: "%",
-        default: Some(90),
-        min: 50,
-        max: 100,
+        about: "账号某个额度窗口的用量超过「运行时 → Claude Code」里设的额度线（自动分摊也按它停止派新对话）：每个窗口提醒一次。",
+        unit: "",
+        default: None,
+        min: 0,
+        max: 0,
     },
 ];
 
@@ -652,7 +652,7 @@ fn window_label(name: &str) -> String {
     }
 }
 
-async fn quota_high(st: &Shared, pct: i64) -> Vec<Cond> {
+async fn quota_high(st: &Shared, line: f64) -> Vec<Cond> {
     let now = Utc::now();
     sqlx::query(
         "SELECT r.account_id, r.window_name, r.utilization, r.resets_at, a.display_name
@@ -666,7 +666,7 @@ async fn quota_high(st: &Shared, pct: i64) -> Vec<Cond> {
     .filter_map(|r| {
         let used: f64 = r.try_get("utilization").unwrap_or(0.0);
         let resets = opt(r, "resets_at").as_deref().and_then(parse_time);
-        let over = used * 100.0 >= i32::try_from(pct).map_or(f64::MAX, f64::from);
+        let over = used >= line;
         if !over || resets.is_some_and(|t| t <= now) {
             return None;
         }
@@ -725,7 +725,9 @@ pub async fn run_once(st: &Shared) {
                 "approval_waiting" => approval_waiting(st, c.threshold).await,
                 "job_orphan" => job_orphan(st).await,
                 "node_offline" => node_offline(st, c.threshold).await,
-                "quota_high" => quota_high(st, c.threshold).await,
+                "quota_high" => {
+                    quota_high(st, crate::agent::accounts::selection::threshold(st).await).await
+                }
                 _ => continue,
             },
         };

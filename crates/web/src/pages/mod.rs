@@ -21,7 +21,7 @@ use leptos::prelude::*;
 pub use nodes::{MeshHost, NodeDetailPage, NodesPage, provide_mesh};
 pub use runtimes::{RuntimeDetailPage, RuntimesPage};
 pub(crate) use settings::SECTIONS;
-pub use settings::{SettingsPage, apply_ui_preferences};
+pub use settings::{SettingsPage, apply_ui_preferences, set_word_wrap, word_wrap};
 pub use skills::SkillsPage;
 pub use tasks::TasksPage;
 pub use usage::UsagePage;

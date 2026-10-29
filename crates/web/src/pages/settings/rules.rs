@@ -41,7 +41,8 @@ pub(super) fn RuleSettings() -> impl IntoView {
     });
     view! {
         <PrefGroup
-            note="匹配的操作无需逐次批准，仍会记录在对话中。"
+            title="规则"
+            aside="匹配的操作不用逐次批准，仍记在对话里"
             guard=true
         >
             <PrefList
@@ -140,7 +141,7 @@ pub(super) fn RuleSettings() -> impl IntoView {
             <PrefAdvanced title="规则怎样匹配">
                 <p>"默认没有规则；含 shell 控制符的命令不会自动批准。"</p>
                 <p>
-                    "工具名可以写 Read、Edit、Bash，或 mcp__x__* 这样带通配的 MCP 工具名；路径或命令前缀留空时匹配该工具的全部调用。"
+                    "工具名可以写 Read、Edit、Bash，也可以写接入的 MCP 工具名，末尾加 * 匹配同一服务的全部工具；路径或命令前缀留空时匹配这个工具的全部调用。"
                 </p>
             </PrefAdvanced>
         </PrefGroup>
@@ -224,7 +225,7 @@ fn RuleSheet(on_close: Callback<()>, on_saved: Callback<()>) -> impl IntoView {
                 "工具名称"
                 <input
                     data-modal-initial-focus=""
-                    placeholder="Read / Edit / Bash / mcp__x__*"
+                    placeholder="Read / Edit / Bash"
                     autocomplete="off"
                     spellcheck="false"
                     prop:value=move || tool.get()

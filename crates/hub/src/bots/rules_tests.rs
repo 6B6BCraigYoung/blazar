@@ -127,7 +127,7 @@ async fn settings_have_defaults_validate_and_round_trip() {
     );
     assert_eq!(cfg["approval_waiting"].threshold, 15);
     assert_eq!(cfg["node_offline"].threshold, 10);
-    assert_eq!(cfg["quota_high"].threshold, 90);
+    assert!(cfg["quota_high"].enabled);
     assert_eq!(cfg["claim_expired"].threshold, 24);
     assert!(cfg["job_orphan"].enabled && cfg["fact_stale"].enabled);
 
@@ -741,9 +741,12 @@ async fn quota_high_reminds_once_per_window() {
         .bind(ago(-resets_mins))
         .execute(h.st.db.pool())
     };
-    snap(0.85, 60).await.unwrap();
+    snap(0.80, 60).await.unwrap();
     run_once(&h.st).await;
-    assert!(h.alerts("quota_high").await.is_empty());
+    assert!(
+        h.alerts("quota_high").await.is_empty(),
+        "默认 85% 以下不提醒"
+    );
     snap(0.93, 60).await.unwrap();
     run_once(&h.st).await;
     snap(0.97, 50).await.unwrap();
@@ -770,11 +773,17 @@ async fn quota_high_reminds_once_per_window() {
     run_once(&h.st).await;
     assert_eq!(h.open("quota_high").await, 0);
 
-    h.set(json!({ "quota_high": { "threshold": 96 } })).await;
+    let line = |t: f64| {
+        let st = h.st.clone();
+        async move {
+            crate::office::put_prefs(State(st), Json(json!({ "quota": { "threshold": t } }))).await
+        }
+    };
+    line(0.96).await;
     snap(0.95, 280).await.unwrap();
     run_once(&h.st).await;
     assert_eq!(h.alerts("quota_high").await.len(), 2, "没过 96%");
-    h.set(json!({ "quota_high": { "threshold": 90 } })).await;
+    line(0.90).await;
     run_once(&h.st).await;
     assert_eq!(h.open("quota_high").await, 1);
     h.set(json!({ "quota_high": { "enabled": false } })).await;

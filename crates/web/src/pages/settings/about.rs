@@ -64,21 +64,18 @@ pub(super) fn AboutSettings() -> impl IntoView {
                     .unwrap_or_default();
                 let version = text(&a, "version");
                 let engine = format!(
-                    "{} {} · {}",
+                    "{} {}（{} 许可证）",
                     text(&a["engine"], "name"),
                     text(&a["engine"], "version"),
                     text(&a["engine"], "license"),
                 );
                 let source = text(&a["engine"], "source");
                 view! {
-                    <PrefGroup
-                        title="Blazar"
-                        note="文档在仓库 README.md。Blazar 代码使用 MIT 许可证。"
-                    >
+                    <PrefGroup title="Blazar">
                         <PrefRow label="版本" detail=version>
                             {update_line}
                         </PrefRow>
-                        <PrefAdvanced title="连接与本地数据">
+                        <PrefAdvanced title="本地数据与许可证">
                             {
                                 let url = hub_url.clone();
                                 view! {
@@ -90,7 +87,7 @@ pub(super) fn AboutSettings() -> impl IntoView {
                             {
                                 let db = db.clone();
                                 view! {
-                                    <PrefRow label="本机 SQLite">
+                                    <PrefRow label="本机数据">
                                         <span>{db}</span>
                                     </PrefRow>
                                 }
@@ -106,17 +103,16 @@ pub(super) fn AboutSettings() -> impl IntoView {
                                     }
                                 })
                                 .collect_view()}
+                            <p>
+                                "文档在仓库 README.md。Blazar 代码使用 MIT 许可证。Monaco Editor、xterm.js：MIT；IBM Plex Sans、JetBrains Mono：SIL OFL 1.1。完整声明见 THIRD-PARTY-NOTICES.md。"
+                            </p>
+                            <p>
+                                {format!("机器组网用的是 {}。", engine.clone())}
+                                <a href=source.clone() target="_blank" rel="noopener noreferrer">
+                                    "对应版本源码 ↗"
+                                </a>
+                            </p>
                         </PrefAdvanced>
-                    </PrefGroup>
-                    <PrefGroup
-                        title="第三方许可证"
-                        note="Monaco Editor、xterm.js：MIT；IBM Plex Sans、JetBrains Mono：SIL OFL 1.1。完整声明见 THIRD-PARTY-NOTICES.md。"
-                    >
-                        <PrefRow label="组网引擎" detail=engine>
-                            <a class="btn" href=source target="_blank" rel="noopener noreferrer">
-                                "对应版本源码 ↗"
-                            </a>
-                        </PrefRow>
                     </PrefGroup>
                 }
                     .into_any()
@@ -173,6 +169,7 @@ pub(super) fn AboutSettings() -> impl IntoView {
                                 }
                             }
                             apply_ui_preferences();
+                            crate::shortcuts::changed();
                             toast(
                                 "已恢复默认，刷新页面后布局和快捷键全部生效",
                             );
