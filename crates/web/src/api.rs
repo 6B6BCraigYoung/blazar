@@ -135,7 +135,10 @@ pub async fn get<T: DeserializeOwned>(path: &str) -> Result<T, ApiError> {
     let out = read(
         "GET",
         path,
-        Request::get(path).abort_signal(signal.as_ref()).send().await,
+        Request::get(path)
+            .abort_signal(signal.as_ref())
+            .send()
+            .await,
     )
     .await;
     guard.disarm();

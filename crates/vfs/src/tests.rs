@@ -1061,10 +1061,18 @@ async fn a_huge_diff_is_cut_on_the_node_instead_of_shipped_whole() {
         .await
         .expect("被 head 截断不算出错");
     assert!(full.len() > cap * 10, "测试要真的够大: {}", full.len());
-    assert!(cut.len() <= cap + 2, "远端只回传上限内的字节: {}", cut.len());
+    assert!(
+        cut.len() <= cap + 2,
+        "远端只回传上限内的字节: {}",
+        cut.len()
+    );
     let keep = (0..=cap - 1)
         .rev()
         .find(|&i| full.is_char_boundary(i))
         .unwrap();
-    assert_eq!(cut[..keep], full[..keep], "截断前的内容要和完整 diff 一字不差");
+    assert_eq!(
+        cut[..keep],
+        full[..keep],
+        "截断前的内容要和完整 diff 一字不差"
+    );
 }
