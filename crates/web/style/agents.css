@@ -34,8 +34,8 @@
 .agent-editor { max-width: 950px; width: 100%; }
 .agent-editor fieldset, .agent-modal fieldset { display: flex; flex-direction: column; gap: var(--space-xl); border: 0; padding: 0; margin: 0; min-width: 0; }
 .agent-editor .card>textarea { width: 100%; }
-.agent-starter { padding: var(--space-lg); margin: var(--space-card) 0; background: var(--bg-canvas); border: 1px solid var(--border); border-radius: var(--r-md); }
-.agent-starter label { display: flex; flex-direction: column; gap: var(--space-field); margin-bottom: var(--space-lg); }
+.agent-starter { padding: var(--space-card); margin: var(--space-lg) 0; background: var(--bg-raised); border-radius: var(--r-md); }
+.agent-starter label { display: flex; flex-direction: column; gap: var(--space-md); margin-bottom: var(--space-lg); }
 .agent-save { justify-content: flex-end; margin-top: var(--space-lg); padding: var(--space-lg) 0; }
 .agent-editor>.agent-save { position: sticky; bottom: 0; background: var(--bg-canvas); border-top: 1px solid var(--border); }
 .agent-cap { display: flex; align-items: center; gap: var(--space-lg); padding: var(--space-lg) 0; border-bottom: 1px solid var(--line); cursor: pointer; }
@@ -102,3 +102,14 @@
   .skill-modal .skill-editor > nav { max-height: 12rem; overflow: auto; }
   .skill-modal .agent-form-grid { grid-template-columns: minmax(0, 1fr); }
 }
+
+.agent-sort { all: unset; cursor: pointer; }
+.agent-sort:hover { color: var(--fg); }
+.agent-sort:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--r-sm); }
+.agent-filter-menu { left: 0; right: auto; }
+.agent-menu-label { padding: var(--space-xs) var(--space-control); color: var(--fg-3); font-size: var(--font-size-caption); }
+.agent-scope { align-self: flex-start; font-size: var(--font-size-label); }
+.agent-more > summary { cursor: pointer; color: var(--fg-2); }
+.agent-more > summary .muted { margin-left: var(--space-md); font-size: var(--font-size-label); }
+.card.pad.agent-more > h3 { margin: var(--space-2xl) 0 0; }
+.agent-editor .agent-form-grid { column-gap: var(--space-xl); row-gap: 0; }

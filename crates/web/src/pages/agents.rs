@@ -12,6 +12,7 @@ use crate::components::dialog::{self, Choice};
 use crate::components::empty::{self, Action, Blank};
 use crate::components::group::ListGroup;
 use crate::components::icon;
+use crate::components::menu::menu_keydown;
 use crate::components::modal::Modal;
 use crate::components::page_head::{MenuItem, MoreMenu, PageHead};
 use crate::components::rows::{RowAction, RowKey, RowMenu, Rows, open_row};
@@ -116,15 +117,35 @@ pub(super) fn guard_unsaved(dirty: RwSignal<bool>) {
 pub fn AgentsPage() -> impl IntoView {
     let app = use_app();
     let rev = RwSignal::new(0u32);
+    // No refresh button: runs finishing anywhere move the 近 30 天 / 最近活跃 numbers, so
+    // workspace events refetch the list, folded into one fetch per 3 seconds.
+    {
+        let bus = crate::realtime::use_bus();
+        let pending = StoredValue::new(false);
+        let id = bus.subscribe(move |e| {
+            if !matches!(e, blazar_core_types::api::ServerEvent::WorkspacesChanged)
+                || pending.get_value()
+            {
+                return;
+            }
+            pending.set_value(true);
+            spawn_local(async move {
+                gloo_timers::future::TimeoutFuture::new(3_000).await;
+                pending.try_set_value(false);
+                rev.try_update(|n| *n = n.wrapping_add(1));
+            });
+        });
+        on_cleanup(move || bus.unsubscribe(id));
+        Effect::new(move |seen: Option<()>| {
+            bus.resyncs.track();
+            if seen.is_some() {
+                rev.try_update(|n| *n = n.wrapping_add(1));
+            }
+        });
+    }
     let pref: Value = storage::load("blazar.agents.view").unwrap_or(json!({}));
-    let scope = RwSignal::new(
-        if text(&pref, "scope") == "archived" {
-            "archived"
-        } else {
-            "all"
-        }
-        .to_owned(),
-    );
+    // 「已归档」只是列表底下的一个安静链接，每次进来都先看在用的。
+    let scope = RwSignal::new("all".to_owned());
     let query = RwSignal::new(String::new());
     let rt = RwSignal::new(text(&pref, "runtime"));
     let avail = RwSignal::new(if text(&pref, "avail").is_empty() {
@@ -153,19 +174,22 @@ pub fn AgentsPage() -> impl IntoView {
             .await
         }
     });
-    let has_archived = LocalResource::new(move || {
+    let archived_n = LocalResource::new(move || {
         rev.track();
         async move {
             api::get::<Vec<Value>>("/api/agent-profiles?scope=archived")
                 .await
-                .is_ok_and(|l| !l.is_empty())
+                .map_or(0, |l| l.len())
         }
     });
-    let has_any = move || {
-        scope.get() == "archived"
-            || has_archived.get() == Some(true)
-            || profiles.with(|p| matches!(p, Some(Ok(l)) if !l.is_empty()))
+    // How many rows this scope has before searching; the filter menu only shows from 10 up.
+    let total = move || {
+        profiles.with(|p| match p {
+            Some(Ok(l)) => l.iter().filter(|a| undo::shows(&text(a, "id"))).count(),
+            _ => 0,
+        })
     };
+    let many = move || total() >= MANY;
     let navigate = use_navigate();
     let nav = StoredValue::new(navigate.clone());
     let create = Callback::new(move |()| navigate("/agents/new", Default::default()));
@@ -239,7 +263,7 @@ pub fn AgentsPage() -> impl IntoView {
     Effect::new(move |_| {
         storage::save(
             "blazar.agents.view",
-            &json!({ "scope":scope.get(), "runtime":rt.get(), "avail":avail.get(), "sort":sort.get(), "dir":if asc.get() {"asc"} else {"desc"} }),
+            &json!({ "runtime":rt.get(), "avail":avail.get(), "sort":sort.get(), "dir":if asc.get() {"asc"} else {"desc"} }),
         )
     });
     Effect::new(move |_| {
@@ -310,25 +334,8 @@ pub fn AgentsPage() -> impl IntoView {
                     "新建智能体"
                 </a>
             </PageHead>
-            <Show when=has_any>
+            <Show when=move || { total() > 0 }>
                 <div class="agent-toolbar">
-                    <select
-                        class="filter"
-                        disabled=move || busy.get()
-                        aria-label="范围"
-                        prop:value=move || scope.get()
-                        on:change=move |e| {
-                            scope.set(event_target_value(&e));
-                            selected.set(HashSet::new());
-                        }
-                    >
-                        <option value="all" prop:selected=move || scope.get() == "all">
-                            "范围：在用的"
-                        </option>
-                        <option value="archived" prop:selected=move || scope.get() == "archived">
-                            "范围：已归档"
-                        </option>
-                    </select>
                     <input
                         class="filter"
                         aria-label="搜索智能体"
@@ -336,93 +343,9 @@ pub fn AgentsPage() -> impl IntoView {
                         prop:value=move || query.get()
                         on:input=move |e| query.set(event_target_value(&e))
                     />
-                    <select
-                        class="filter"
-                        aria-label="可用性"
-                        prop:value=move || avail.get()
-                        on:change=move |e| avail.set(event_target_value(&e))
-                    >
-                        {[
-                            ("all", "全部"),
-                            ("online", "可用"),
-                            ("offline", "需登录"),
-                            ("unbound", "待配置"),
-                        ]
-                            .into_iter()
-                            .map(|(v, l)| {
-                                view! {
-                                    <option value=v prop:selected=move || avail.get() == v>
-                                        {format!("状态：{l}")}
-                                    </option>
-                                }
-                            })
-                            .collect_view()}
-                    </select>
-                    <select
-                        class="filter"
-                        aria-label="Claude Code / Codex"
-                        prop:value=move || rt.get()
-                        on:change=move |e| rt.set(event_target_value(&e))
-                    >
-                        <option value="" prop:selected=move || rt.get().is_empty()>
-                            "全部"
-                        </option>
-                        {move || {
-                            runtimes
-                                .get()
-                                .and_then(Result::ok)
-                                .map(|r| {
-                                    r.runtimes
-                                        .into_iter()
-                                        .map(|r| {
-                                            let id = r.id.clone();
-                                            view! {
-                                                <option value=r.id prop:selected=move || rt.get() == id>
-                                                    {r.label}
-                                                </option>
-                                            }
-                                        })
-                                        .collect_view()
-                                })
-                        }}
-                    </select>
-                    <select
-                        class="filter"
-                        aria-label="排序"
-                        prop:value=move || sort.get()
-                        on:change=move |e| sort.set(event_target_value(&e))
-                    >
-                        {[
-                            ("recent", "最近活跃"),
-                            ("name", "名称"),
-                            ("runs", "运行次数"),
-                            ("created", "创建时间"),
-                        ]
-                            .into_iter()
-                            .map(|(v, l)| {
-                                view! {
-                                    <option value=v prop:selected=move || sort.get() == v>
-                                        {format!("排序：{l}")}
-                                    </option>
-                                }
-                            })
-                            .collect_view()}
-                    </select>
-                    <button
-                        class="btn"
-                        aria-label=move || if asc.get() { "升序" } else { "降序" }
-                        on:click=move |_| asc.update(|v| *v = !*v)
-                    >
-                        {move || if asc.get() { "↑ 升序" } else { "↓ 降序" }}
-                    </button>
-                    <span class="grow"></span>
-                    <button
-                        class="btn"
-                        disabled=move || profiles.get().is_none()
-                        on:click=move |_| rev.update(|v| *v += 1)
-                    >
-                        "刷新"
-                    </button>
+                    <Show when=many>
+                        <AgentFilter avail rt sort asc runtimes />
+                    </Show>
                 </div>
             </Show>
             {move || {
@@ -482,8 +405,9 @@ pub fn AgentsPage() -> impl IntoView {
                 Some(Ok(mut profiles)) => {
                     let has_profiles = !profiles.is_empty();
                     let q = query.get().to_lowercase();
-                    let r = rt.get();
-                    let av = avail.get();
+                    let filters_on = total() >= MANY;
+                    let r = if filters_on { rt.get() } else { String::new() };
+                    let av = if filters_on { avail.get() } else { "all".to_owned() };
                     let rts_ready = matches!(runtimes.get(), Some(Ok(_)));
                     let rts = runtimes
                         .get()
@@ -559,11 +483,11 @@ pub fn AgentsPage() -> impl IntoView {
                                     <thead>
                                         <tr>
                                             <th>"选择"</th>
-                                            <th>"智能体"</th>
+                                            {sort_head(sort, asc, "name", "智能体")}
                                             <th>"状态"</th>
                                             <th>"Claude Code / Codex · 模型"</th>
-                                            <th>"近 30 天"</th>
-                                            <th>"最近活跃"</th>
+                                            {sort_head(sort, asc, "runs", "近 30 天")}
+                                            {sort_head(sort, asc, "recent", "最近活跃")}
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -686,6 +610,32 @@ pub fn AgentsPage() -> impl IntoView {
                 }
             }}
             {move || {
+                let n = archived_n.get().unwrap_or(0);
+                let archived_scope = scope.get() == "archived";
+                (archived_scope || n > 0)
+                    .then(|| {
+                        view! {
+                            <button
+                                type="button"
+                                class="linkbtn agent-scope"
+                                on:click=move |_| {
+                                    selected.set(HashSet::new());
+                                    scope
+                                        .set(
+                                            if archived_scope { "all" } else { "archived" }.into(),
+                                        );
+                                }
+                            >
+                                {if archived_scope {
+                                    "← 回到在用的智能体".to_owned()
+                                } else {
+                                    format!("已归档 {n} 个")
+                                }}
+                            </button>
+                        }
+                    })
+            }}
+            {move || {
                 rows.menu
                     .get()
                     .and_then(|at| shown.with(|l| l.get(at.index).cloned()).map(|a| (at, a)))
@@ -701,6 +651,190 @@ pub fn AgentsPage() -> impl IntoView {
                     })
             }}
         </div>
+    }
+}
+
+/// From this many profiles up the list gets the 「筛选」 menu; below it only the search box, and
+/// a status or Claude Code / Codex filter saved from a longer list is ignored so no row hides
+/// for a reason nobody can see.
+const MANY: usize = 10;
+const CHEV_DOWN: &str = r#"<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6.5 8 10.5l4-4"/></svg>"#;
+
+/// Picking the column already sorted flips it; a new column starts A→Z for names, newest or
+/// most first for the rest.
+fn set_sort(sort: RwSignal<String>, asc: RwSignal<bool>, key: &'static str) {
+    if sort.get_untracked() == key {
+        asc.update(|v| *v = !*v);
+    } else {
+        sort.set(key.into());
+        asc.set(key == "name");
+    }
+}
+
+fn sort_head(
+    sort: RwSignal<String>,
+    asc: RwSignal<bool>,
+    key: &'static str,
+    label: &'static str,
+) -> impl IntoView {
+    view! {
+        <th aria-sort=move || match (sort.get() == key, asc.get()) {
+            (false, _) => "none",
+            (true, true) => "ascending",
+            (true, false) => "descending",
+        }>
+            <button type="button" class="agent-sort" on:click=move |_| set_sort(sort, asc, key)>
+                {label}
+                <span aria-hidden="true">
+                    {move || {
+                        if sort.get() != key { "" } else if asc.get() { " ↑" } else { " ↓" }
+                    }}
+                </span>
+            </button>
+        </th>
+    }
+}
+
+/// 「筛选 ▾」：状态、Claude Code / Codex 和排序收在一个纯文字菜单里，只在 10 条以上时出现。
+#[component]
+fn AgentFilter(
+    avail: RwSignal<String>,
+    rt: RwSignal<String>,
+    sort: RwSignal<String>,
+    asc: RwSignal<bool>,
+    runtimes: LocalResource<Result<api::Runtimes, api::ApiError>>,
+) -> impl IntoView {
+    let open = RwSignal::new(false);
+    let root = NodeRef::<leptos::html::Div>::new();
+    let button = NodeRef::<leptos::html::Button>::new();
+    let close = Callback::new(move |()| {
+        open.set(false);
+        if let Some(b) = button.get_untracked() {
+            let _ = b.focus();
+        }
+    });
+    let active = move || usize::from(avail.get() != "all") + usize::from(!rt.get().is_empty());
+    let pick = move |value: RwSignal<String>, key: String, label: String| {
+        let checked = key.clone();
+        view! {
+            <button
+                type="button"
+                role="menuitemradio"
+                aria-checked=move || (value.get() == checked).to_string()
+                on:click=move |_| {
+                    value.set(key.clone());
+                    open.set(false);
+                }
+            >
+                <span>{label}</span>
+            </button>
+        }
+    };
+    view! {
+        <span
+            class="more"
+            on:focusout=move |e| {
+                let inside = e
+                    .related_target()
+                    .and_then(|t| t.dyn_into::<web_sys::Node>().ok())
+                    .zip(e.current_target().and_then(|t| t.dyn_into::<web_sys::Node>().ok()))
+                    .is_some_and(|(t, me)| me.contains(Some(&t)));
+                if !inside {
+                    open.set(false);
+                }
+            }
+        >
+            <button
+                type="button"
+                class="dv-btn"
+                node_ref=button
+                aria-haspopup="menu"
+                aria-expanded=move || open.get().to_string()
+                on:click=move |_| open.update(|o| *o = !*o)
+            >
+                <span class="lbl">
+                    {move || match active() {
+                        0 => "筛选".to_owned(),
+                        k => format!("筛选 · {k}"),
+                    }}
+                </span>
+                <span class="chev" aria-hidden="true" inner_html=CHEV_DOWN></span>
+            </button>
+            <Show when=move || open.get()>
+                <div
+                    class="menu dv-menu agent-filter-menu"
+                    node_ref=root
+                    role="menu"
+                    aria-label="筛选"
+                    on:keydown=move |event| {
+                        if let Some(r) = root.get_untracked() {
+                            menu_keydown(&event, r.unchecked_ref(), close);
+                        }
+                    }
+                >
+                    <div class="agent-menu-label">"状态"</div>
+                    {[
+                        ("all", "全部"),
+                        ("online", "可用"),
+                        ("offline", "需登录"),
+                        ("unbound", "待配置"),
+                    ]
+                        .into_iter()
+                        .map(|(k, l)| pick(avail, k.into(), l.into()))
+                        .collect_view()}
+                    <div class="menu-sep"></div>
+                    <div class="agent-menu-label">"Claude Code / Codex"</div>
+                    {pick(rt, String::new(), "全部".into())}
+                    {move || {
+                        runtimes
+                            .get()
+                            .and_then(Result::ok)
+                            .map(|r| {
+                                r.runtimes
+                                    .into_iter()
+                                    .map(|r| pick(rt, r.id, r.label))
+                                    .collect_view()
+                            })
+                    }}
+                    <div class="menu-sep"></div>
+                    <div class="agent-menu-label">"排序"</div>
+                    {[
+                        ("recent", "最近活跃"),
+                        ("name", "名称"),
+                        ("runs", "运行次数"),
+                        ("created", "创建时间"),
+                    ]
+                        .into_iter()
+                        .map(|(k, l)| {
+                            view! {
+                                <button
+                                    type="button"
+                                    role="menuitemradio"
+                                    aria-checked=move || (sort.get() == k).to_string()
+                                    on:click=move |_| {
+                                        set_sort(sort, asc, k);
+                                        open.set(false);
+                                    }
+                                >
+                                    <span>{l}</span>
+                                    <small>
+                                        {move || {
+                                            if sort.get() != k {
+                                                ""
+                                            } else if asc.get() {
+                                                "↑"
+                                            } else {
+                                                "↓"
+                                            }
+                                        }}
+                                    </small>
+                                </button>
+                            }
+                        })
+                        .collect_view()}
+                </div>
+            </Show>
+        </span>
     }
 }
 
@@ -762,26 +896,27 @@ pub fn AgentCreatePage() -> impl IntoView {
     }
 }
 
+/// Three tabs: 概览 (numbers and every run), 设置 (the same form as 新建), 工具 (skills and MCP
+/// servers). Older links (`view=work`, `view=capabilities&tab=…`) still land on the right one.
+fn tab_of(q: &leptos_router::params::ParamsMap) -> String {
+    match (q.get("view").as_deref(), q.get("tab").as_deref()) {
+        (Some("settings"), _) | (Some("capabilities"), None | Some("instructions")) => "settings",
+        (Some("tools" | "capabilities"), _) => "tools",
+        _ => "overview",
+    }
+    .to_owned()
+}
+
 #[component]
 pub fn AgentProfilePage() -> impl IntoView {
     let params = use_params_map();
     let query = use_query_map();
     let rev = RwSignal::new(0u32);
     let dirty = RwSignal::new(false);
-    let tab = RwSignal::new(query.with_untracked(|q| match q.get("view").as_deref() {
-        Some("settings") => "settings".into(),
-        Some("work") => "work".into(),
-        Some("capabilities") => q.get("tab").unwrap_or("instructions".into()),
-        _ => "overview".into(),
-    }));
+    let tab = RwSignal::new(query.with_untracked(tab_of));
     let navigate = StoredValue::new(use_navigate());
     Effect::new(move |_| {
-        let next = query.with(|q| match q.get("view").as_deref() {
-            Some("settings") => "settings".to_owned(),
-            Some("work") => "work".to_owned(),
-            Some("capabilities") => q.get("tab").unwrap_or("instructions".into()),
-            _ => "overview".to_owned(),
-        });
+        let next = query.with(tab_of);
         if !dirty.get_untracked() && tab.get_untracked() != next {
             tab.set(next);
         }
@@ -849,14 +984,7 @@ pub fn AgentProfilePage() -> impl IntoView {
                             </div>
                         </div>
                         <div class="seg agent-tabs" role="group" aria-label="智能体内容">
-                            {[
-                                ("overview", "概览"),
-                                ("work", "工作记录"),
-                                ("instructions", "指令与开场建议"),
-                                ("skills", "技能"),
-                                ("mcp", "MCP"),
-                                ("settings", "设置"),
-                            ]
+                            {[("overview", "概览"), ("settings", "设置"), ("tools", "工具")]
                                 .into_iter()
                                 .map(|(key, label)| {
                                     view! {
@@ -878,14 +1006,6 @@ pub fn AgentProfilePage() -> impl IntoView {
                                                     {
                                                         dirty.set(false);
                                                         tab.set(key.into());
-                                                        let view = if matches!(
-                                                            key,
-                                                            "instructions" | "skills" | "mcp"
-                                                        ) {
-                                                            format!("capabilities&tab={key}")
-                                                        } else {
-                                                            key.to_owned()
-                                                        };
                                                         let id = params
                                                             .with_untracked(|p| p.get("id"))
                                                             .unwrap_or_default();
@@ -894,7 +1014,7 @@ pub fn AgentProfilePage() -> impl IntoView {
                                                         }
                                                         navigate
                                                             .with_value(|go| go(
-                                                                &format!("/agent/{}?view={view}", api::enc(&id)),
+                                                                &format!("/agent/{}?view={key}", api::enc(&id)),
                                                                 Default::default(),
                                                             ));
                                                     }
@@ -908,34 +1028,25 @@ pub fn AgentProfilePage() -> impl IntoView {
                                 .collect_view()}
                         </div>
                         {move || match tab.get().as_str() {
-                            "overview" => view! { <AgentOverview agent=a.get_value() /> }.into_any(),
-                            "work" => {
-                                view! { <AgentRuns runs=list(&a.get_value(), "runs") /> }.into_any()
-                            }
-                            "skills" => {
-                                view! { <AgentCapabilities agent=a.get_value() kind="skills" /> }
-                                    .into_any()
-                            }
-                            "mcp" => {
-                                view! { <AgentCapabilities agent=a.get_value() kind="mcp" /> }
-                                    .into_any()
-                            }
-                            _ => {
+                            "settings" => {
                                 view! {
                                     <AgentEditor
                                         initial=a.get_value()
                                         create=false
                                         dirty
-                                        section=if tab.get() == "instructions" {
-                                            "instructions"
-                                        } else {
-                                            "settings"
-                                        }
                                         on_saved=Callback::new(move |_| rev.update(|r| *r += 1))
                                     />
                                 }
                                     .into_any()
                             }
+                            "tools" => {
+                                view! {
+                                    <AgentCapabilities agent=a.get_value() kind="skills" />
+                                    <AgentCapabilities agent=a.get_value() kind="mcp" />
+                                }
+                                    .into_any()
+                            }
+                            _ => view! { <AgentOverview agent=a.get_value() /> }.into_any(),
                         }}
                     }
                         .into_any()
@@ -1377,8 +1488,12 @@ fn AgentCapabilities(agent: Value, kind: &'static str) -> impl IntoView {
                     if lib.is_empty() {
                         return view! {
                             <EmptyState
-                                title="还没有可选能力"
-                                detail="先在能力库添加技能或 MCP 服务器。"
+                                title=if kind == "skills" {
+                                    "还没有可选的技能"
+                                } else {
+                                    "还没有可选的 MCP 服务器"
+                                }
+                                detail="先到能力库里添加。"
                             />
                         }
                             .into_any();
@@ -1447,13 +1562,14 @@ fn AgentEditor(
     #[prop(optional)] copied: bool,
     on_saved: Callback<Value>,
     #[prop(optional)] dirty: Option<RwSignal<bool>>,
-    #[prop(default = "all")] section: &'static str,
 ) -> impl IntoView {
     let dirty = dirty.unwrap_or_else(|| RwSignal::new(false));
     let original = RwSignal::new(initial.clone());
     let draft = RwSignal::new(initial);
     let busy = RwSignal::new(false);
     let error = RwSignal::new(String::new());
+    // 「更多选项」 starts closed; it opens by itself when something inside needs fixing.
+    let more = RwSignal::new(false);
     let closed = archived(&draft.get_untracked());
     let navigate = use_navigate();
     let args = RwSignal::new(
@@ -1531,6 +1647,7 @@ fn AgentEditor(
                 Ok(v) => body["env"] = v,
                 Err(e) => {
                     error.set(e);
+                    more.set(true);
                     return;
                 }
             }
@@ -1627,25 +1744,118 @@ fn AgentEditor(
                         }
                     })
             }} <fieldset disabled=move || busy.get() || closed>
-                <div class="card pad" hidden=section == "instructions">
-                    <h3>"身份"</h3>
-                    <AgentField draft key="avatar" label="头像" />
+                <div class="card pad">
                     <AgentField draft key="name" label="名称（1–40 字）" />
+                    <AgentField
+                        draft
+                        key="instructions"
+                        label="指令（最多 8000 字）"
+                        multiline=true
+                    />
+                    <div class="agent-form-grid">
+                        <label class="field">
+                            "Claude Code / Codex"
+                            <select
+                                prop:value=move || text(&draft.get(), "runtime")
+                                on:change=move |e| {
+                                    draft
+                                        .update(|d| {
+                                            d["runtime"] = json!(event_target_value(&e));
+                                            for k in [
+                                                "model",
+                                                "thinking_level",
+                                                "permission_mode",
+                                                "account",
+                                            ] {
+                                                d[k] = Value::Null;
+                                            }
+                                        })
+                                }
+                            >
+                                <option value="" prop:selected=move || runtime.get().is_empty()>
+                                    "选择 Claude Code 或 Codex"
+                                </option>
+                                {move || {
+                                    rts.get()
+                                        .and_then(Result::ok)
+                                        .map(|r| {
+                                            r.runtimes
+                                                .into_iter()
+                                                .map(|r| {
+                                                    let id = r.id.clone();
+                                                    view! {
+                                                        <option
+                                                            value=r.id
+                                                            prop:selected=move || runtime.get() == id
+                                                        >
+                                                            {format!(
+                                                                "{}{}",
+                                                                r.label,
+                                                                if r.installed { "" } else { "（未安装）" },
+                                                            )}
+                                                        </option>
+                                                    }
+                                                })
+                                                .collect_view()
+                                        })
+                                }}
+                            </select>
+                        </label>
+                        <label class="field">
+                            "模型（留空使用默认值）"
+                            <input
+                                list="agent-model-options"
+                                prop:value=move || text(&draft.get(), "model")
+                                on:input=move |e| {
+                                    draft.update(|d| d["model"] = json!(event_target_value(&e)))
+                                }
+                            />
+                            <datalist id="agent-model-options">
+                                {move || {
+                                    models
+                                        .get()
+                                        .and_then(Result::ok)
+                                        .map(|v| {
+                                            list(&v, "models")
+                                                .into_iter()
+                                                .map(|m| {
+                                                    view! {
+                                                        <option value=text(&m, "id")>{text(&m, "label")}</option>
+                                                    }
+                                                })
+                                                .collect_view()
+                                        })
+                                }}
+                            </datalist>
+                        </label>
+                    </div>
+                </div>
+                <details
+                    class="card pad agent-more"
+                    prop:open=move || more.get()
+                    on:toggle=move |e| {
+                        let open = e
+                            .target()
+                            .and_then(|t| t.dyn_into::<web_sys::HtmlDetailsElement>().ok())
+                            .is_some_and(|d| d.open());
+                        more.set(open);
+                    }
+                >
+                    <summary>
+                        "更多选项"
+                        <span class="muted">
+                            "头像、描述、开场建议、账号、思考等级、权限、并发、环境变量、启动参数"
+                        </span>
+                    </summary>
+                    <h3>"介绍"</h3>
+                    <AgentField draft key="avatar" label="头像" />
                     <AgentField
                         draft
                         key="description"
                         label="描述（最多 255 字）"
                         multiline=true
                     />
-                </div>
-                <div class="card pad" hidden=section == "settings">
-                    <h3>"指令与开场建议"</h3>
-                    <AgentField
-                        draft
-                        key="instructions"
-                        label="工作指令（最多 8000 字）"
-                        multiline=true
-                    />
+                    <h3>"开场建议"</h3>
                     {move || {
                         (0..starter_count.get())
                             .map(|i| {
@@ -1717,247 +1927,174 @@ fn AgentEditor(
                     >
                         "添加开场建议（最多 3 条）"
                     </button>
-                </div>
-                <div class="card pad" hidden=section == "instructions">
-                    <h3>"执行配置"</h3>
-                    <label class="field">
-                        "Claude Code / Codex"
-                        <select
-                            prop:value=move || text(&draft.get(), "runtime")
-                            on:change=move |e| {
-                                draft
-                                    .update(|d| {
-                                        d["runtime"] = json!(event_target_value(&e));
-                                        for k in [
-                                            "model",
-                                            "thinking_level",
-                                            "permission_mode",
-                                            "account",
-                                        ] {
-                                            d[k] = Value::Null;
-                                        }
-                                    })
-                            }
-                        >
-                            <option value="" prop:selected=move || runtime.get().is_empty()>
-                                "选择 Claude Code 或 Codex"
-                            </option>
-                            {move || {
-                                rts.get()
-                                    .and_then(Result::ok)
-                                    .map(|r| {
-                                        r.runtimes
-                                            .into_iter()
-                                            .map(|r| {
-                                                let id = r.id.clone();
-                                                view! {
-                                                    <option
-                                                        value=r.id
-                                                        prop:selected=move || runtime.get() == id
-                                                    >
-                                                        {format!(
-                                                            "{}{}",
-                                                            r.label,
-                                                            if r.installed { "" } else { "（未安装）" },
-                                                        )}
-                                                    </option>
-                                                }
-                                            })
-                                            .collect_view()
-                                    })
-                            }}
-                        </select>
-                    </label>
-                    <label class="field">
-                        "账号"
-                        <select
-                            prop:value=move || text(&draft.get(), "account")
-                            on:change=move |e| {
-                                draft
-                                    .update(|d| {
-                                        let v = event_target_value(&e);
-                                        d["account"] = if v.is_empty() {
-                                            Value::Null
-                                        } else {
-                                            json!(v)
-                                        };
-                                    })
-                            }
-                        >
-                            <option
-                                value=""
-                                prop:selected=move || text(&draft.get(), "account").is_empty()
-                            >
-                                "跟着「账号与额度」里选的"
-                            </option>
-                            <option
-                                value="auto"
-                                prop:selected=move || text(&draft.get(), "account") == "auto"
-                            >
-                                "自动选择"
-                            </option>
-                            {move || {
-                                accounts
-                                    .get()
-                                    .and_then(Result::ok)
-                                    .map(|a| {
-                                        a.accounts
-                                            .into_iter()
-                                            .filter(|a| a.provider == runtime.get())
-                                            .map(|a| {
-                                                let id = a.id.clone();
-                                                view! {
-                                                    <option
-                                                        value=a.id
-                                                        prop:selected=move || text(&draft.get(), "account") == id
-                                                    >
-                                                        {format!(
-                                                            "{}{}",
-                                                            a.label,
-                                                            if a.disabled { "（已停用）" } else { "" },
-                                                        )}
-                                                    </option>
-                                                }
-                                            })
-                                            .collect_view()
-                                    })
-                            }}
-                        </select>
-                    </label>
-                    <label class="field">
-                        "模型（留空使用默认值）"
-                        <input
-                            list="agent-model-options"
-                            prop:value=move || text(&draft.get(), "model")
-                            on:input=move |e| {
-                                draft.update(|d| d["model"] = json!(event_target_value(&e)))
-                            }
-                        />
-                        <datalist id="agent-model-options">
-                            {move || {
-                                models
-                                    .get()
-                                    .and_then(Result::ok)
-                                    .map(|v| {
-                                        list(&v, "models")
-                                            .into_iter()
-                                            .map(|m| {
-                                                view! {
-                                                    <option value=text(&m, "id")>{text(&m, "label")}</option>
-                                                }
-                                            })
-                                            .collect_view()
-                                    })
-                            }}
-                        </datalist>
-                    </label>
-                    <label class="field">
-                        "思考等级"
-                        <select
-                            prop:value=move || text(&draft.get(), "thinking_level")
-                            on:change=move |e| {
-                                draft
-                                    .update(|d| d["thinking_level"] = json!(event_target_value(&e)))
-                            }
-                        >
-                            <option
-                                value=""
-                                prop:selected=move || {
-                                    text(&draft.get(), "thinking_level").is_empty()
+                    <h3>"运行"</h3>
+                    <div class="agent-form-grid">
+                        <label class="field">
+                            "账号"
+                            <select
+                                prop:value=move || text(&draft.get(), "account")
+                                on:change=move |e| {
+                                    draft
+                                        .update(|d| {
+                                            let v = event_target_value(&e);
+                                            d["account"] = if v.is_empty() {
+                                                Value::Null
+                                            } else {
+                                                json!(v)
+                                            };
+                                        })
                                 }
                             >
-                                "跟随 CLI 配置"
-                            </option>
-                            {["minimal", "low", "medium", "high", "xhigh", "max", "ultra"]
-                                .into_iter()
-                                .map(|s| {
-                                    view! {
-                                        <option
-                                            value=s
-                                            prop:selected=move || {
-                                                text(&draft.get(), "thinking_level") == s
-                                            }
-                                        >
-                                            {s}
-                                        </option>
-                                    }
-                                })
-                                .collect_view()}
-                        </select>
-                    </label>
-                    <label class="field">
-                        "权限模式"
-                        <select
-                            data-ui-guard=""
-                            prop:value=move || text(&draft.get(), "permission_mode")
-                            on:change=move |e| {
-                                draft
-                                    .update(|d| {
-                                        d["permission_mode"] = json!(event_target_value(&e));
-                                    })
-                            }
-                        >
-                            <option
-                                value=""
-                                prop:selected=move || {
-                                    text(&draft.get(), "permission_mode").is_empty()
+                                <option
+                                    value=""
+                                    prop:selected=move || text(&draft.get(), "account").is_empty()
+                                >
+                                    "跟着「账号与额度」里选的"
+                                </option>
+                                <option
+                                    value="auto"
+                                    prop:selected=move || text(&draft.get(), "account") == "auto"
+                                >
+                                    "自动选择"
+                                </option>
+                                {move || {
+                                    accounts
+                                        .get()
+                                        .and_then(Result::ok)
+                                        .map(|a| {
+                                            a.accounts
+                                                .into_iter()
+                                                .filter(|a| a.provider == runtime.get())
+                                                .map(|a| {
+                                                    let id = a.id.clone();
+                                                    view! {
+                                                        <option
+                                                            value=a.id
+                                                            prop:selected=move || text(&draft.get(), "account") == id
+                                                        >
+                                                            {format!(
+                                                                "{}{}",
+                                                                a.label,
+                                                                if a.disabled { "（已停用）" } else { "" },
+                                                            )}
+                                                        </option>
+                                                    }
+                                                })
+                                                .collect_view()
+                                        })
+                                }}
+                            </select>
+                        </label>
+                        <label class="field">
+                            "思考等级"
+                            <select
+                                prop:value=move || text(&draft.get(), "thinking_level")
+                                on:change=move |e| {
+                                    draft
+                                        .update(|d| {
+                                            d["thinking_level"] = json!(event_target_value(&e));
+                                        })
                                 }
                             >
-                                "按软件自己的设置"
-                            </option>
-                            {move || {
-                                let modes: Vec<&str> = match runtime.get().as_str() {
-                                    "codex" => {
-                                        vec!["read-only", "workspace-write", "danger-full-access"]
+                                <option
+                                    value=""
+                                    prop:selected=move || {
+                                        text(&draft.get(), "thinking_level").is_empty()
                                     }
-                                    "claude" | "grok" => {
-                                        vec![
-                                            "default",
-                                            "acceptEdits",
-                                            "auto",
-                                            "plan",
-                                            "bypassPermissions",
-                                        ]
-                                    }
-                                    _ => vec![],
-                                };
-                                modes
+                                >
+                                    "跟随 CLI 配置"
+                                </option>
+                                {["minimal", "low", "medium", "high", "xhigh", "max", "ultra"]
                                     .into_iter()
-                                    .map(|m| {
+                                    .map(|s| {
                                         view! {
                                             <option
-                                                value=m
+                                                value=s
                                                 prop:selected=move || {
-                                                    text(&draft.get(), "permission_mode") == m
+                                                    text(&draft.get(), "thinking_level") == s
                                                 }
                                             >
-                                                {m}
+                                                {s}
                                             </option>
                                         }
                                     })
-                                    .collect_view()
-                            }}
-                        </select>
-                    </label>
-                    <label class="field">
-                        "最大并发（1–50）"
-                        <input
-                            type="number"
-                            min="1"
-                            max="50"
-                            prop:value=move || n(&draft.get(), "max_concurrent").max(1).to_string()
-                            on:change=move |e| {
-                                draft
-                                    .update(|d| {
-                                        d["max_concurrent"] = json!(
-                                            event_target_value(&e).parse::<u64>().unwrap_or(1).clamp(1,50)
-                                        );
-                                    })
-                            }
-                        />
-                    </label>
-                </div>
-                <div class="card pad" hidden=section == "instructions">
+                                    .collect_view()}
+                            </select>
+                        </label>
+                        <label class="field">
+                            "权限模式"
+                            <select
+                                data-ui-guard=""
+                                prop:value=move || text(&draft.get(), "permission_mode")
+                                on:change=move |e| {
+                                    draft
+                                        .update(|d| {
+                                            d["permission_mode"] = json!(event_target_value(&e));
+                                        })
+                                }
+                            >
+                                <option
+                                    value=""
+                                    prop:selected=move || {
+                                        text(&draft.get(), "permission_mode").is_empty()
+                                    }
+                                >
+                                    "按软件自己的设置"
+                                </option>
+                                {move || {
+                                    let modes: Vec<&str> = match runtime.get().as_str() {
+                                        "codex" => {
+                                            vec!["read-only", "workspace-write", "danger-full-access"]
+                                        }
+                                        "claude" | "grok" => {
+                                            vec![
+                                                "default",
+                                                "acceptEdits",
+                                                "auto",
+                                                "plan",
+                                                "bypassPermissions",
+                                            ]
+                                        }
+                                        _ => vec![],
+                                    };
+                                    modes
+                                        .into_iter()
+                                        .map(|m| {
+                                            view! {
+                                                <option
+                                                    value=m
+                                                    prop:selected=move || {
+                                                        text(&draft.get(), "permission_mode") == m
+                                                    }
+                                                >
+                                                    {m}
+                                                </option>
+                                            }
+                                        })
+                                        .collect_view()
+                                }}
+                            </select>
+                        </label>
+                        <label class="field">
+                            "最大并发（1–50）"
+                            <input
+                                type="number"
+                                min="1"
+                                max="50"
+                                prop:value=move || {
+                                    n(&draft.get(), "max_concurrent").max(1).to_string()
+                                }
+                                on:change=move |e| {
+                                    draft
+                                        .update(|d| {
+                                            d["max_concurrent"] = json!(
+                                                event_target_value(&e).parse::<u64>().unwrap_or(1).clamp(1,50)
+                                            );
+                                        })
+                                }
+                            />
+                        </label>
+                    </div>
                     <h3>"环境变量"</h3>
                     <details>
                         <summary>"查看或编辑环境变量（显示明文）"</summary>
@@ -1970,9 +2107,7 @@ fn AgentEditor(
                             on:input=move |e| env.set(event_target_value(&e))
                         />
                     </details>
-                </div>
-                <details class="card pad agent-runtime-details" hidden=section == "instructions">
-                    <summary>"自定义启动参数"</summary>
+                    <h3>"启动参数"</h3>
                     <p class="muted">"每行是一个完整参数，按顺序传入 CLI。"</p>
                     <textarea
                         class="mono"
