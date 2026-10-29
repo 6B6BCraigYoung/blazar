@@ -1076,6 +1076,7 @@ pub fn Composer(
                     class="prompt"
                     disabled=move || unreachable.get()
                     aria-label="Message"
+                    title="⌘ Esc to focus or unfocus"
                     placeholder=move || {
                         if unreachable.get() {
                             "Reconnect the machine to send"
@@ -1086,7 +1087,11 @@ pub fn Composer(
                                 "Queue another message…"
                             }
                         } else {
-                            "⌘ Esc to focus or unfocus Claude"
+                            match chat.runtime().as_str() {
+                                "claude" => "Ask Claude to…",
+                                "codex" => "Ask Codex to…",
+                                _ => "Describe a task…",
+                            }
                         }
                     }
                     prop:value=move || chat.prompt.get()

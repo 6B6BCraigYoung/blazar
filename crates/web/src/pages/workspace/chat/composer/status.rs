@@ -44,6 +44,9 @@ pub(super) fn Tray(chat: Chat, log_h: RwSignal<f64>) -> impl IntoView {
     });
     let fits = Memo::new(move |_| shown.get().0);
     let open = Memo::new(move |_| shown.get().1);
+    // Before any conversation has run here, the changes were already in the folder; say so
+    // rather than presenting them like the agent's work.
+    let existing = Memo::new(move |_| chat.threads.with(Vec::is_empty));
     move || {
         let (n, added, removed) = changes.get();
         let todos = todos.get();
@@ -100,10 +103,19 @@ pub(super) fn Tray(chat: Chat, log_h: RwSignal<f64>) -> impl IntoView {
                                     on:click=move |_| chat.show_diff.run(())
                                 >
                                     <span class="n">
-                                        {format!("{n} file{}", if n == 1 { "" } else { "s" })}
+                                        {format!(
+                                            "{n} file{}{}",
+                                            if n == 1 { "" } else { "s" },
+                                            if existing.get() { " already changed" } else { "" },
+                                        )}
                                     </span>
-                                    <span class="ok">{format!("+{added}")}</span>
-                                    <span class="bad">{format!("−{removed}")}</span>
+                                    {(!existing.get())
+                                        .then(|| {
+                                            view! {
+                                                <span class="ok">{format!("+{added}")}</span>
+                                                <span class="bad">{format!("−{removed}")}</span>
+                                            }
+                                        })}
                                     <span class="sep">"·"</span>
                                     <span class="go">"Review"</span>
                                 </button>

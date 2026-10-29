@@ -763,3 +763,5 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 .shell[data-side="rail"] .side-status, .shell[data-side="rail"] .side .foot .nav .n { display: none; }
 .side-tip { position: fixed; z-index: var(--layer-toast); transform: translateY(-50%); padding: var(--space-xs) var(--space-md); border-radius: var(--r-sm); background: var(--material-menu); box-shadow: var(--shadow-overlay); color: var(--fg); font-size: var(--font-size-label); white-space: nowrap; pointer-events: none; animation: sidetip var(--duration-control) var(--ease-out); }
 @keyframes sidetip { from { opacity: 0; transform: translate(-4px, -50%); } }
+/* A CLI that is installed but signed out is the step's open to-do: the step mark turns orange. */
+.start-step:has(.start-lines li[data-attn="true"]) .start-mark { background: var(--status-attention); color: var(--on-accent); }

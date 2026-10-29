@@ -14,7 +14,7 @@ use crate::pages::runtimes::{active_account, install_here, login, runtime_status
 #[derive(Clone, PartialEq)]
 enum LineAction {
     Link(&'static str, String),
-    Login(api::Account),
+    Login(api::Account, &'static str),
     Install(String),
 }
 
@@ -23,6 +23,7 @@ struct RuntimeLine {
     ready: bool,
     text: String,
     action: Option<LineAction>,
+    attention: bool,
 }
 
 fn runtime_line(r: &api::Runtime, accounts: Option<&api::Accounts>) -> RuntimeLine {
@@ -32,6 +33,7 @@ fn runtime_line(r: &api::Runtime, accounts: Option<&api::Accounts>) -> RuntimeLi
             ready: false,
             text: format!("{} 未安装", r.label),
             action: Some(LineAction::Install(r.id.clone())),
+            attention: false,
         };
     }
     let account = accounts.and_then(|a| active_account(a, &r.id));
@@ -49,14 +51,19 @@ fn runtime_line(r: &api::Runtime, accounts: Option<&api::Accounts>) -> RuntimeLi
             ready: true,
             text: name,
             action: None,
+            attention: false,
         };
     }
+    // Installed but not signed in (never, or the login lapsed) is the one thing left to do
+    // on this step, so it gets the primary button that opens the login dialog directly.
     let action = match account {
-        Some(a) if status == "未登录" && a.kind != "token" => LineAction::Login(a),
+        Some(a) if status == "未登录" && a.kind != "token" => LineAction::Login(a, "登录…"),
+        Some(a) if a.kind != "token" => LineAction::Login(a, "重新登录"),
         _ => LineAction::Link("设置", href),
     };
     RuntimeLine {
         ready: false,
+        attention: true,
         text: format!("{name} · {status}"),
         action: Some(action),
     }
@@ -270,7 +277,7 @@ pub fn Start() -> impl IntoView {
                 .filter(|x| matches!(x.id.as_str(), "claude" | "codex"))
                 .map(|x| runtime_line(x, accounts.as_ref()))
                 .collect();
-            let ready = lines.iter().any(|l| l.ready);
+            let ready = lines.iter().any(|l| l.ready) && !lines.iter().any(|l| l.attention);
             if lines.is_empty() {
                 return (
                     false,
@@ -291,7 +298,10 @@ pub fn Start() -> impl IntoView {
                             .into_iter()
                             .map(|l| {
                                 view! {
-                                    <li data-ok=l.ready.to_string()>
+                                    <li
+                                        data-ok=l.ready.to_string()
+                                        data-attn=l.attention.to_string()
+                                    >
                                         <span>{l.text}</span>
                                         {l
                                             .action
@@ -304,14 +314,14 @@ pub fn Start() -> impl IntoView {
                                                     }
                                                         .into_any()
                                                 }
-                                                LineAction::Login(a) => {
+                                                LineAction::Login(a, label) => {
                                                     view! {
                                                         <button
                                                             type="button"
-                                                            class="btn small"
+                                                            class="btn small primary"
                                                             on:click=move |_| login(&a)
                                                         >
-                                                            "登录…"
+                                                            {label}
                                                         </button>
                                                     }
                                                         .into_any()
