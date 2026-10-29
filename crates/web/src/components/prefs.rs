@@ -94,6 +94,7 @@ pub fn Sheet(
 pub fn PrefAdvanced(
     #[prop(into)] title: String,
     #[prop(default = false)] wide: bool,
+    #[prop(default = "高级…")] button: &'static str,
     children: ChildrenFn,
 ) -> impl IntoView {
     let open = RwSignal::new(false);
@@ -108,7 +109,7 @@ pub fn PrefAdvanced(
                 aria-expanded=move || open.get().to_string()
                 on:click=move |_| open.set(true)
             >
-                "高级…"
+                {button}
             </button>
         </div>
         <Show when=move || {

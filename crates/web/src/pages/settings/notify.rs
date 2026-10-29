@@ -163,50 +163,60 @@ fn InboxSettings(initial: Value) -> impl IntoView {
     );
     let busy = RwSignal::new(false);
     view! {
-        <PrefGroup
-            title="提醒哪些事项"
-            note="关闭的类型仍记录到中控台，不计未读、不提示或转发。"
-        >
-            {NOTIFY_KINDS
-                .iter()
-                .map(move |&(key, label)| {
-                    view! {
-                        <PrefRow label=label for_id=format!("notify-kind-{key}")>
-                            <Switch
-                                id=format!("notify-kind-{key}")
-                                checked=Signal::derive(move || {
-                                    !muted.get().iter().any(|s| s == key)
-                                })
-                                disabled=busy
-                                on_change=move |enabled: bool| {
-                                    let old = muted.get_untracked();
-                                    let mut next = old.clone();
-                                    next.retain(|x| x != key);
-                                    if !enabled {
-                                        next.push(key.into());
-                                    }
-                                    muted.set(next.clone());
-                                    busy.set(true);
-                                    leptos::task::spawn_local(async move {
-                                        if save(
-                                                "PUT",
-                                                "/api/settings",
-                                                json!({"inbox":{"muted":next}}),
-                                            )
-                                            .await
-                                        {
-                                            muted.set(next);
-                                        } else {
-                                            muted.set(old);
+        <PrefGroup title="提醒哪些事项">
+            {move || {
+                let label = match muted.with(Vec::len) {
+                    0 => "所有事项都提醒".to_owned(),
+                    n => format!("关掉了 {n} 类"),
+                };
+                view! {
+                    <PrefRow
+                        label=label
+                        detail="关掉的类型仍记录到中控台，只是不计未读、不提示也不转发。"
+                    />
+                }
+            }} <PrefAdvanced title="提醒哪些事项" button="选择…">
+                {NOTIFY_KINDS
+                    .iter()
+                    .map(move |&(key, label)| {
+                        view! {
+                            <PrefRow label=label for_id=format!("notify-kind-{key}")>
+                                <Switch
+                                    id=format!("notify-kind-{key}")
+                                    checked=Signal::derive(move || {
+                                        !muted.get().iter().any(|s| s == key)
+                                    })
+                                    disabled=busy
+                                    on_change=move |enabled: bool| {
+                                        let old = muted.get_untracked();
+                                        let mut next = old.clone();
+                                        next.retain(|x| x != key);
+                                        if !enabled {
+                                            next.push(key.into());
                                         }
-                                        busy.set(false);
-                                    });
-                                }
-                            />
-                        </PrefRow>
-                    }
-                })
-                .collect_view()}
+                                        muted.set(next.clone());
+                                        busy.set(true);
+                                        leptos::task::spawn_local(async move {
+                                            if save(
+                                                    "PUT",
+                                                    "/api/settings",
+                                                    json!({"inbox":{"muted":next}}),
+                                                )
+                                                .await
+                                            {
+                                                muted.set(next);
+                                            } else {
+                                                muted.set(old);
+                                            }
+                                            busy.set(false);
+                                        });
+                                    }
+                                />
+                            </PrefRow>
+                        }
+                    })
+                    .collect_view()}
+            </PrefAdvanced>
         </PrefGroup>
     }
 }

@@ -1233,7 +1233,7 @@ ROUTES = [
 ]
 
 SETTINGS = [
-    ("appearance", "外观"), ("chat", "对话与编辑"), ("notify", "提醒"), ("shortcuts", "快捷键"), ("rules", "自动批准"),
+    ("appearance", "外观"), ("chat", "对话与运行"), ("notify", "提醒"), ("shortcuts", "快捷键"), ("rules", "自动批准"),
     ("snippets", "片段"), ("hooks", "自动执行脚本"), ("git", "Git 与 PR"), ("platforms", "技能来源"), ("about", "数据与关于"),
 ]
 

@@ -41,8 +41,7 @@ use snippets::SnippetSettings;
 
 pub(crate) const SECTIONS: &[(&str, &str, &str)] = &[
     ("appearance", "外观", icon::PALETTE),
-    ("chat", "对话与编辑", icon::CHAT),
-    ("quota", "额度分摊", icon::CHART),
+    ("chat", "对话与运行", icon::CHAT),
     ("notify", "提醒", icon::BELL),
     ("shortcuts", "快捷键", icon::KEYBOARD),
     ("rules", "自动批准", icon::CHECK),
@@ -111,7 +110,13 @@ pub(super) async fn save(method: &str, path: &str, body: Value) -> bool {
 pub fn SettingsPage() -> impl IntoView {
     let app = use_app();
     let query = use_query_map();
-    let section = move || query.with(|q| q.get("s").unwrap_or_else(|| "appearance".into()));
+    let section = move || {
+        query.with(|q| match q.get("s").as_deref() {
+            None => "appearance".into(),
+            Some("quota") => "chat".into(),
+            Some(s) => s.to_owned(),
+        })
+    };
     let title = Signal::derive(move || {
         let current = section();
         SECTIONS
@@ -158,11 +163,11 @@ pub fn SettingsPage() -> impl IntoView {
                         view! {
                             <ChatSettings />
                             <AutoResumeSettings />
+                            <QuotaSettings />
                             <FleetSettings />
                         }
                             .into_any()
                     }
-                    "quota" => view! { <QuotaSettings /> }.into_any(),
                     "notify" => view! { <NotifySettings /> }.into_any(),
                     "shortcuts" => view! { <ShortcutSettings /> }.into_any(),
                     "rules" => view! { <RuleSettings /> }.into_any(),
