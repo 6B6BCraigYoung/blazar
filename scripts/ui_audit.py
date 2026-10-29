@@ -1402,9 +1402,9 @@ def chat_parts():
           says(".chat-room-head .status", "已完成", "页头状态"), shown(".chat-room .cc-spin", 0, "进度行"),
           shown('.chat-room .cb-send[data-mode="stop"]', 0, "停止键"), shown(f"{listed} .cc-wss .cc-ws", 3, "工作区小标签"),
           shown(f"{listed} .cc-raw", 1, "「详情」")), False),
-        ("chat-approval", f"/chats/{CHATS['handoff']}", "等你批准的对话页：页头状态橙色「等你批准」，审批卡标题「允许派活给 nebula-web？」，正文是引用的话加目标工作区小标签",
+        ("chat-approval", f"/chats/{CHATS['handoff']}", "等你批准的对话页：页头状态橙色「等你批准」，审批卡标题「Send a prompt to nebula-web?」，正文是引用的话加目标工作区小标签",
          ({"action": "wait", "selector": ".chat-room .cc-appr", "timeout_ms": 8000}, {"action": "wait", "ms": 800},
-          says(".chat-room-head .status", "等你批准", "页头状态"), says(".chat-room .cc-appr .ah", "允许派活给 nebula-web？", "审批卡标题"),
+          says(".chat-room-head .status", "等你批准", "页头状态"), says(".chat-room .cc-appr .ah", "Send a prompt to nebula-web?", "审批卡标题"),
           shown(".chat-room .cc-appr .aquote", 1, "引用的话"), shown(".chat-room .cc-appr .abody .cc-ws", 1, "目标工作区小标签")), False),
         ("chat-failed", f"/chats/{CHATS['gpu']}", "失败的对话页：输入框换成失败卡（断网）",
          ({"action": "wait", "selector": ".chat-room .cc-log", "timeout_ms": 8000}, {"action": "wait", "ms": 800},
@@ -1511,7 +1511,7 @@ def plan(round_name):
                    {"action": "context_menu", "selector": first_row}, {"action": "click", "text": "简介", "partial": True},
                    {"action": "wait", "ms": 600}), False))
     first_msg = ".console-rail .inbox-row[data-index=\"0\"]"
-    items.append(("console-rail", "/", "中控台右栏：「需要你处理」里是等你批准（允许 1 / 拒绝 3）、在问你（选项加回复框）、被拦下（命令加「允许这一次并重试」「不用了」）、没跑成（下一步加「标为已处理」）的卡片，"
+    items.append(("console-rail", "/", "中控台右栏：「需要你处理」里是等你批准（允许 · 总是允许 · 拒绝，快捷键悬停才显示）、在问你（选项加回复框）、被拦下（命令加「允许这一次并重试」「不用了」）、没跑成（下一步加「标为已处理」）的卡片，"
                   "橙色描边；下面「动态」是跑完了等条目，右侧「查看全部」",
                   ({"action": "wait", "selector": ".console-rail .inbox-row[data-kind=\"denied\"]", "timeout_ms": 8000},
                    {"action": "check_ui", "selector": ".console-rail .inbox-row[data-kind=\"denied\"] .inbox-act .btn", "want": 2, "what": "被拦下卡片的按钮数", "after": True},
