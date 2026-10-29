@@ -16,7 +16,7 @@
   --bg-raised: #2a2a2d;
   --bg-hover: rgba(255,255,255,.07);
   --bg-code: #18181a;
-  --bg-selected: rgba(10,132,255,.16);
+  --bg-selected: rgba(130,150,185,.16);
   --chart-bar: #66666c;
   --chart-bar-selected: #a0a0a6;
   --chart-bar-failed: #ff453a;
@@ -272,7 +272,7 @@
   --bg-raised: #f0f0f2;
   --bg-hover: rgba(0,0,0,.05);
   --bg-code: #f6f6f7;
-  --bg-selected: rgba(0,122,255,.12);
+  --bg-selected: rgba(40,80,150,.08);
   --line-side: .5px solid rgba(0,0,0,.08);
   --chart-bar: #8e8e93;
   --chart-bar-selected: #007aff;
@@ -370,7 +370,7 @@
     --bg-raised: #f0f0f2;
     --bg-hover: rgba(0,0,0,.05);
     --bg-code: #f6f6f7;
-    --bg-selected: rgba(0,122,255,.12);
+    --bg-selected: rgba(40,80,150,.08);
     --line-side: .5px solid rgba(0,0,0,.08);
     --chart-bar: #8e8e93;
     --chart-bar-selected: #007aff;

@@ -36,7 +36,13 @@ fn nav(
     exact: bool,
 ) -> impl IntoView {
     view! {
-        <A href=href exact=exact attr:class="nav" attr:title=rail_tip(label)>
+        <A
+            href=href
+            exact=exact
+            attr:class="nav"
+            attr:data-tip=rail_tip(label)
+            attr:aria-label=rail_tip(label)
+        >
             <span class="ic" inner_html=icon::svg(ic)></span>
             <span class="nm">{label}</span>
             <span class="n">{move || count.get()}</span>
@@ -74,7 +80,13 @@ fn section_with_pill(
         })
     };
     view! {
-        <a href=href class="nav" title=rail_tip(label) aria-current=move || on().then_some("page")>
+        <a
+            href=href
+            class="nav"
+            data-tip=rail_tip(label)
+            aria-label=rail_tip(label)
+            aria-current=move || on().then_some("page")
+        >
             <span class="ic" inner_html=icon::svg(ic)></span>
             <span class="nm">{label}</span>
             <span
@@ -112,12 +124,62 @@ pub fn Sidebar() -> impl IntoView {
     });
 
     const LOGO: &str = r##"<svg viewBox="100 100 824 824" aria-hidden="true"><rect x="100" y="100" width="824" height="824" rx="185" fill="#0b0f19"/><g fill="none" stroke-linecap="round" transform="translate(0 24)"><path d="M365 616 A208 208 0 1 1 659 616" stroke="#e5e7f0" stroke-width="46"/><path d="M471 478 L449 690 M553 478 L575 690" stroke="#5ee6f0" stroke-width="54"/></g></svg>"##;
+    let tip = RwSignal::new(None::<(String, f64, f64)>);
+    let timer = StoredValue::new_local(None::<TimeoutHandle>);
+    let hide = move || {
+        if let Some(h) = timer.get_value() {
+            h.clear();
+        }
+        timer.set_value(None);
+        tip.set(None);
+    };
+    let show = move |e: web_sys::Event| {
+        let Some(el) = e
+            .target()
+            .and_then(|t| t.dyn_into::<web_sys::Element>().ok())
+            .and_then(|t| t.closest("[data-tip]").ok().flatten())
+        else {
+            hide();
+            return;
+        };
+        let text = el.get_attribute("data-tip").unwrap_or_default();
+        if tip.with_untracked(|t| t.as_ref().is_some_and(|t| t.0 == text)) {
+            return;
+        }
+        hide();
+        let r = el.get_bounding_client_rect();
+        let at = (text, r.right() + 8.0, r.top() + r.height() / 2.0);
+        timer.set_value(
+            set_timeout_with_handle(
+                move || tip.set(Some(at.clone())),
+                std::time::Duration::from_millis(300),
+            )
+            .ok(),
+        );
+    };
     view! {
         <nav
             class="side"
             aria-label="主导航"
             data-mode=move || if in_settings.get() { "settings" } else { "main" }
+            on:mouseover=move |e| show(e.into())
+            on:mouseleave=move |_| hide()
+            on:click=move |_| hide()
         >
+            {move || {
+                tip.get()
+                    .map(|(text, x, y)| {
+                        view! {
+                            <div
+                                class="side-tip"
+                                role="tooltip"
+                                style=format!("left: {x}px; top: {y}px")
+                            >
+                                {text}
+                            </div>
+                        }
+                    })
+            }}
             <div class="brand">
                 <span class="logo" inner_html=LOGO></span>
                 <span class="nm">"Blazar"</span>
@@ -184,7 +246,8 @@ fn SettingsNav() -> impl IntoView {
                         <a
                             class="nav"
                             href=format!("/settings?s={id}")
-                            title=rail_tip(label)
+                            data-tip=rail_tip(label)
+                            aria-label=rail_tip(label)
                             aria-current=move || (section() == id).then_some("page")
                         >
                             <span class="ic" inner_html=icon::svg(ic)></span>
@@ -227,7 +290,8 @@ fn MainNav(keys: RwSignal<u32>) -> impl IntoView {
             class="nav search"
             aria-haspopup="dialog"
             aria-expanded=move || app.palette.get().to_string()
-            title=rail_tip("搜索")
+            data-tip=rail_tip("搜索")
+            aria-label=rail_tip("搜索")
             on:click=move |_| app.palette.set(true)
         >
             <span class="ic" inner_html=icon::svg(icon::SEARCH)></span>
