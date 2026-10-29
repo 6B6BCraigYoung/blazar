@@ -408,6 +408,22 @@ struct Ctx {
     /// The request (an item's `ref_id`) just decided here; the selection moves on from it to
     /// the next card that still needs you.
     decided: RwSignal<Option<String>>,
+    /// A compact list shows one line per item and the full card only for `open` (an item id).
+    compact: bool,
+    open: RwSignal<Option<String>>,
+    /// Set once `open` was picked by hand (or by moving on after a decision).
+    chosen: RwSignal<bool>,
+}
+
+impl Ctx {
+    fn open_to(self, id: Option<String>) {
+        self.chosen.set(true);
+        self.open.set(id);
+    }
+
+    fn is_open(self, id: &str) -> bool {
+        !self.compact || self.open.with(|o| o.as_deref() == Some(id))
+    }
 }
 
 fn decided(ctx: Ctx, id: String) {
@@ -686,6 +702,12 @@ pub fn InboxCards(
     items: Signal<Vec<Item>>,
     rev: RwSignal<u32>,
     #[prop(default = "通知")] label: &'static str,
+    /// One line per item, the selected one opened into its full card (the console rail).
+    #[prop(optional)]
+    compact: bool,
+    /// With `compact`, open the first item that needs you when the list first fills.
+    #[prop(optional)]
+    open_first: bool,
 ) -> impl IntoView {
     let app = use_app();
     let go = StoredValue::new_local(use_navigate());
@@ -709,7 +731,30 @@ pub fn InboxCards(
         rev,
         appr_rev: RwSignal::new(0),
         decided: RwSignal::new(None),
+        compact,
+        open: RwSignal::new(None),
+        chosen: RwSignal::new(false),
     };
+    if compact && open_first {
+        let thread = use_context::<OpenThread>();
+        // Until you open or close one yourself, the first item that needs you stays open. A
+        // request already shown in the open conversation is answered there, so it's skipped.
+        Effect::new(move |_| {
+            if ctx.chosen.get() {
+                return;
+            }
+            let here = thread.and_then(|t| t.0.get());
+            let first = items.with(|l| {
+                l.iter()
+                    .find(|it| {
+                        it.needs_you()
+                            && !(it.open_request() && here.as_deref() == Some(it.thread.as_str()))
+                    })
+                    .map(|it| it.id.clone())
+            });
+            ctx.open.set(first);
+        });
+    }
     let approvals = LocalResource::new(move || {
         ctx.appr_rev.track();
         app.state.track();
@@ -784,6 +829,10 @@ pub fn InboxCards(
             .unwrap_or((None, false));
         if let Some(i) = at {
             ctx.sel.set(i);
+            // The next card that needs you opens in place of the one just answered.
+            if ctx.compact {
+                ctx.open_to(Some(id));
+            }
             if focus_idle() {
                 request_animation_frame(move || focus_row(i));
             }
@@ -871,11 +920,20 @@ pub fn InboxCards(
             {
                 if let Some(it) = selected() {
                     e.prevent_default();
-                    open(it);
+                    if ctx.is_open(&it.id) {
+                        open(it);
+                    } else {
+                        landing.set(None);
+                        ctx.open_to(Some(it.id));
+                    }
                 }
             }
+            "Escape" if ctx.compact && ctx.open.with_untracked(Option::is_some) => {
+                e.prevent_default();
+                ctx.open_to(None);
+            }
             "1" | "2" | "3" => {
-                let Some(it) = selected() else {
+                let Some(it) = selected().filter(|it| ctx.is_open(&it.id)) else {
                     return;
                 };
                 let Some(a) = pending_of(&it).filter(|a| !is_question(a)) else {
@@ -1139,10 +1197,45 @@ fn row_view(ctx: Ctx, i: usize, it: Item, pending: Option<Value>) -> impl IntoVi
             && !thread.is_empty()
             && open.is_some_and(|o| o.0.with(|t| t.as_deref() == Some(thread.as_str())))
     };
+    let (id_open, id_aria, id_line) = (it.id.clone(), it.id.clone(), it.id.clone());
+    // The one line a compact list shows for an item that isn't open: where it came from,
+    // what it says, when. A click opens it into the full card.
+    let line = ctx.compact.then(|| {
+        let source = if it.place.is_empty() {
+            it.label.clone()
+        } else {
+            it.place.clone()
+        };
+        view! {
+            <button
+                type="button"
+                class="inbox-line"
+                tabindex="-1"
+                on:click=move |e: ev::MouseEvent| {
+                    ctx.sel.set(i);
+                    ctx.open_to(Some(id_line.clone()));
+                    if let Some(row) = e
+                        .current_target()
+                        .and_then(|t| t.dyn_into::<web_sys::Element>().ok())
+                        .and_then(|b| b.parent_element())
+                        .and_then(|r| r.dyn_into::<web_sys::HtmlElement>().ok())
+                    {
+                        let _ = row.focus();
+                    }
+                }
+            >
+                <span class="inbox-src">{source}</span>
+                <span class="inbox-say">{title.clone()}</span>
+                <time>{fmt::ago(&it.created)}</time>
+            </button>
+        }
+    });
     view! {
         <div
             class="inbox-row lrow"
             role="listitem"
+            aria-expanded=move || ctx.compact.then(|| ctx.is_open(&id_aria).to_string())
+            data-open=move || ctx.is_open(&id_open).to_string()
             data-here=move || here().to_string()
             data-index=i.to_string()
             data-kind=it.kind.clone()
@@ -1160,6 +1253,7 @@ fn row_view(ctx: Ctx, i: usize, it: Item, pending: Option<Value>) -> impl IntoVi
             }
         >
             <span class="inbox-dot" data-tone=it.tone().key() aria-hidden="true"></span>
+            {line}
             <div class="inbox-col">
                 <a
                     class="inbox-main"

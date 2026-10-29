@@ -92,7 +92,13 @@ pub fn Rail(all: Signal<bool>, rail_mode: Callback<bool>) -> impl IntoView {
                                     }
                                 }
                             >
-                                <InboxCards items=needs rev label="需要你处理" />
+                                <InboxCards
+                                    items=needs
+                                    rev
+                                    label="需要你处理"
+                                    compact=true
+                                    open_first=true
+                                />
                             </Show>
                         </section>
                         <section class="rail-feed" aria-label="动态">
@@ -118,7 +124,7 @@ pub fn Rail(all: Signal<bool>, rail_mode: Callback<bool>) -> impl IntoView {
                                 when=move || feed.with(|l| !l.is_empty())
                                 fallback=|| view! { <p class="rail-empty">"还没有动态。"</p> }
                             >
-                                <InboxCards items=feed rev label="动态" />
+                                <InboxCards items=feed rev label="动态" compact=true />
                             </Show>
                         </section>
                     }
