@@ -15,7 +15,7 @@ allow = [
 exceptions = [
     { name = "xxhash-rust", version = "=0.8.19", allow = ["BSL-1.0"] },
     { name = "base16", version = "=0.2.1", allow = ["CC0-1.0"] },
-    { name = "webpki-root-certs", version = "=1.0.9", allow = ["CDLA-Permissive-2.0"] },
+    { name = "webpki-root-certs", version = "=1.0.11", allow = ["CDLA-Permissive-2.0"] },
     { name = "target-lexicon", version = "=0.12.16", allow = ["Apache-2.0 WITH LLVM-exception"] },
 ]
 unused-allowed-license = "warn"
