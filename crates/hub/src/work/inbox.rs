@@ -2,6 +2,7 @@ use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
+use blazar_core_types::api::Ask;
 use blazar_core_types::{EntryKind, Outcome, denial};
 use chrono::Utc;
 use serde::Deserialize;
@@ -44,13 +45,21 @@ pub async fn push(st: &Shared, it: Item) {
 }
 
 pub async fn push_id(st: &Shared, it: Item) -> Option<String> {
+    insert(st, it, None).await
+}
+
+pub async fn push_ask(st: &Shared, it: Item, ask: &Ask) -> Option<String> {
+    insert(st, it, serde_json::to_string(ask).ok()).await
+}
+
+async fn insert(st: &Shared, it: Item, ask: Option<String>) -> Option<String> {
     let muted = crate::office::prefs(st).await["inbox"]["muted"]
         .as_array()
         .is_some_and(|m| m.iter().any(|k| k == it.kind));
     let id = uuid::Uuid::now_v7().to_string();
     let r = sqlx::query(
-        "INSERT INTO inbox (id, kind, title, body, workspace_id, thread_id, session_id, ref_id, created_at, read_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, CASE WHEN ?10 THEN ?9 ELSE NULL END)",
+        "INSERT INTO inbox (id, kind, title, body, workspace_id, thread_id, session_id, ref_id, created_at, read_at, ask)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, CASE WHEN ?10 THEN ?9 ELSE NULL END, ?11)",
     )
     .bind(&id)
     .bind(it.kind)
@@ -62,6 +71,7 @@ pub async fn push_id(st: &Shared, it: Item) -> Option<String> {
     .bind(&it.ref_id)
     .bind(Utc::now().to_rfc3339())
     .bind(muted)
+    .bind(ask)
     .execute(st.db.pool())
     .await;
     if let Err(e) = r {
@@ -135,19 +145,32 @@ pub async fn has_open_ask(st: &Shared, sid: &str) -> bool {
 }
 
 pub async fn resolve_asks(st: &Shared, thread: &str) {
+    close_asks(st, thread, None).await;
+}
+
+/// Closes the thread's question cards left by earlier turns; cards posted by `sid` itself stay open.
+pub async fn resolve_asks_before(st: &Shared, thread: &str, sid: &str) {
+    close_asks(st, thread, Some(sid)).await;
+}
+
+async fn close_asks(st: &Shared, thread: &str, keep: Option<&str>) {
     let now = Utc::now().to_rfc3339();
     let r = sqlx::query(
         "UPDATE inbox SET read_at = COALESCE(read_at, ?2), archived_at = ?2, resolved_at = COALESCE(resolved_at, ?2)
-         WHERE thread_id = ?1 AND archived_at IS NULL AND kind = 'question' AND ref_id LIKE 'ask:%'",
+         WHERE thread_id = ?1 AND archived_at IS NULL AND kind = 'question' AND ref_id LIKE 'ask:%'
+           AND (?3 IS NULL OR session_id IS NOT ?3)",
     )
     .bind(thread)
     .bind(&now)
+    .bind(keep)
     .execute(st.db.pool())
     .await;
     let cleared = sqlx::query(
-        "UPDATE sessions SET ask = NULL WHERE COALESCE(thread_id, id) = ?1 AND ask IS NOT NULL",
+        "UPDATE sessions SET ask = NULL WHERE COALESCE(thread_id, id) = ?1 AND ask IS NOT NULL
+           AND (?2 IS NULL OR id IS NOT ?2)",
     )
     .bind(thread)
+    .bind(keep)
     .execute(st.db.pool())
     .await;
     if r.is_ok_and(|r| r.rows_affected() > 0) {
@@ -156,6 +179,35 @@ pub async fn resolve_asks(st: &Shared, thread: &str) {
     if cleared.is_ok_and(|r| r.rows_affected() > 0) {
         st.emit(ServerEvent::WorkspacesChanged);
     }
+}
+
+/// Closes one question card; the session counts as still asking while any of its other cards is open.
+pub async fn resolve_ask(st: &Shared, id: &str) {
+    let now = Utc::now().to_rfc3339();
+    let session: Option<String> = sqlx::query_scalar(
+        "UPDATE inbox SET read_at = COALESCE(read_at, ?2), archived_at = COALESCE(archived_at, ?2),
+                resolved_at = COALESCE(resolved_at, ?2) WHERE id = ?1 RETURNING session_id",
+    )
+    .bind(id)
+    .bind(&now)
+    .fetch_optional(st.db.pool())
+    .await
+    .ok()
+    .flatten()
+    .flatten();
+    if let Some(sid) = session
+        && !has_open_ask(st, &sid).await
+    {
+        let cleared =
+            sqlx::query("UPDATE sessions SET ask = NULL WHERE id = ?1 AND ask IS NOT NULL")
+                .bind(sid)
+                .execute(st.db.pool())
+                .await;
+        if cleared.is_ok_and(|r| r.rows_affected() > 0) {
+            st.emit(ServerEvent::WorkspacesChanged);
+        }
+    }
+    changed(st);
 }
 
 pub async fn resolve_one(State(st): State<Shared>, Path(id): Path<String>) -> Response {
@@ -173,6 +225,11 @@ pub async fn resolve_one(State(st): State<Shared>, Path(id): Path<String>) -> Re
         )
             .into_response();
     };
+    let ref_id: Option<String> = row.try_get("ref_id").ok().flatten();
+    if ref_id.as_deref().is_some_and(|r| r.starts_with("ask:")) {
+        resolve_ask(&st, &id).await;
+        return Json(json!({ "ok": true })).into_response();
+    }
     let _ = sqlx::query(
         "UPDATE inbox SET read_at = COALESCE(read_at, ?2), archived_at = COALESCE(archived_at, ?2),
                 resolved_at = COALESCE(resolved_at, ?2) WHERE id = ?1",
@@ -181,17 +238,6 @@ pub async fn resolve_one(State(st): State<Shared>, Path(id): Path<String>) -> Re
     .bind(&now)
     .execute(st.db.pool())
     .await;
-    let ref_id: Option<String> = row.try_get("ref_id").ok().flatten();
-    let session: Option<String> = row.try_get("session_id").ok().flatten();
-    if ref_id.as_deref().is_some_and(|r| r.starts_with("ask:"))
-        && let Some(sid) = session
-    {
-        let _ = sqlx::query("UPDATE sessions SET ask = NULL WHERE id = ?1")
-            .bind(sid)
-            .execute(st.db.pool())
-            .await;
-        st.emit(ServerEvent::WorkspacesChanged);
-    }
     changed(&st);
     Json(json!({ "ok": true })).into_response()
 }
@@ -268,23 +314,25 @@ pub async fn on_run_finished(
         },
     )
     .await;
-    if ok
-        && let Some(ask) = &brief.ask
-        && !has_open_ask(&st, &sid.to_string()).await
-    {
-        push(
-            &st,
-            Item {
+    if ok && !brief.asks.is_empty() && !has_open_ask(&st, &sid.to_string()).await {
+        let n = brief.asks.len();
+        for (i, ask) in brief.asks.iter().enumerate() {
+            let title = if n > 1 {
+                format!("在问你（{}/{n}）：{}", i + 1, ask.question)
+            } else {
+                format!("在问你：{}", ask.question)
+            };
+            let item = Item {
                 kind: "question",
-                title: format!("在问你：{}", ask.question),
+                title,
                 body: String::new(),
                 workspace_id: workspace_id.clone(),
                 thread_id: Some(thread.clone()),
                 session_id: Some(sid.to_string()),
                 ref_id: Some(format!("ask:{sid}")),
-            },
-        )
-        .await;
+            };
+            push_ask(&st, item, ask).await;
+        }
     }
     if ok {
         push_denials(&st, sid, workspace_id, &thread).await;
@@ -394,7 +442,7 @@ pub async fn list(State(st): State<Shared>, Query(q): Query<ListQuery>) -> Respo
     let resets = crate::failures::RESETS_AT;
     let rows = sqlx::query(&format!(
         "SELECT i.*, w.name AS workspace_name, n.name AS node, s.runtime_kind, s.account_id,
-                s.failure_cause, s.handled_at, s.ask, {resets} AS resets_at
+                s.failure_cause, s.handled_at, COALESCE(i.ask, s.ask) AS card_ask, {resets} AS resets_at
          FROM inbox i LEFT JOIN workspaces w ON w.id = i.workspace_id
          LEFT JOIN nodes n ON n.id = w.node_id
          LEFT JOIN sessions s ON s.id = i.session_id
@@ -427,7 +475,7 @@ pub async fn list(State(st): State<Shared>, Query(q): Query<ListQuery>) -> Respo
                 "node": s("node"), "runtime": s("runtime_kind"), "account": s("account_id"),
                 "cause": s("failure_cause"), "handled": s("handled_at").is_some(),
                 "resets_at": s("resets_at"),
-                "ask": crate::brief::ask_from_row(r, "ask"),
+                "ask": crate::brief::ask_from_row(r, "card_ask"),
             })
         })
         .collect();

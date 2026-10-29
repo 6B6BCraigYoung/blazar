@@ -207,6 +207,8 @@ pub struct Ask {
     pub options: Vec<String>,
 }
 
+pub const DEFAULT_ASK_OPTIONS: [&str; 2] = ["按你的建议做", "先不做"];
+
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct StateSnapshot {
     pub nodes: Vec<NodeView>,

@@ -79,13 +79,13 @@ pub(crate) async fn post(st: &Shared, sid: &str, ask: &Ask, context: &str) -> Ap
     };
     let workspace_id: String = row.try_get("workspace_id")?;
     let thread: String = row.try_get("thread")?;
-    crate::inbox::resolve_asks(st, &thread).await;
-    sqlx::query("UPDATE sessions SET ask = ?2 WHERE id = ?1")
+    crate::inbox::resolve_asks_before(st, &thread, sid).await;
+    sqlx::query("UPDATE sessions SET ask = COALESCE(ask, ?2) WHERE id = ?1")
         .bind(sid)
         .bind(serde_json::to_string(ask).unwrap_or_default())
         .execute(st.db.pool())
         .await?;
-    let id = crate::inbox::push_id(
+    let id = crate::inbox::push_ask(
         st,
         crate::inbox::Item {
             kind: "question",
@@ -96,6 +96,7 @@ pub(crate) async fn post(st: &Shared, sid: &str, ask: &Ask, context: &str) -> Ap
             session_id: Some(sid.to_owned()),
             ref_id: Some(format!("ask:{sid}")),
         },
+        ask,
     )
     .await
     .ok_or_else(|| ApiError(anyhow::anyhow!("卡片没有存进收件箱")))?;
@@ -132,7 +133,11 @@ pub async fn answer_ask(
         return Err(ApiError::bad_request("回复不能是空的"));
     }
     let row = sqlx::query(
-        "SELECT workspace_id, thread_id, kind, ref_id FROM inbox WHERE id = ?1 AND archived_at IS NULL",
+        "SELECT i.workspace_id, i.thread_id, i.kind, i.ref_id, COALESCE(i.ask, s.ask) AS card_ask,
+                (SELECT COUNT(*) FROM inbox o WHERE o.session_id = i.session_id AND o.kind = 'question'
+                   AND o.ref_id = i.ref_id) AS cards
+         FROM inbox i LEFT JOIN sessions s ON s.id = i.session_id
+         WHERE i.id = ?1 AND i.archived_at IS NULL",
     )
     .bind(&id)
     .fetch_optional(st.db.pool())
@@ -152,9 +157,15 @@ pub async fn answer_ask(
     let (Some(workspace_id), Some(thread)) = (workspace_id, thread) else {
         return Err(ApiError::bad_request("这张卡片没有对应的对话"));
     };
+    let cards: i64 = row.try_get("cards").unwrap_or(0);
+    let text = match crate::brief::ask_from_row(&row, "card_ask") {
+        Some(ask) if cards > 1 => format!("关于「{}」：{text}", ask.question),
+        _ => text,
+    };
     let permission_mode = thread_permission_mode(&st, &thread).await;
     let prompt = PromptRequest {
         text,
+        keep_asks: true,
         resume: true,
         resume_session: Some(thread.clone()),
         permission_mode,
@@ -170,8 +181,7 @@ pub async fn answer_ask(
             "reason": out["reason"].as_str().unwrap_or("这个对话正在忙，稍后再回"),
         })));
     }
-    crate::inbox::resolve_asks(&st, &thread).await;
-    crate::inbox::mark_resolved(&st, &id).await;
+    crate::inbox::resolve_ask(&st, &id).await;
     Ok(Json(serde_json::json!({
         "delivered": true,
         "session_id": out["session_id"],
@@ -242,7 +252,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn posting_twice_keeps_one_open_card_and_stores_the_options() {
+    async fn one_turn_can_post_several_cards_and_a_later_turn_closes_them() {
         let (_dir, st) = state().await;
         let sid = SessionId::new().to_string();
         seed_session(&st, &sid).await;
@@ -262,23 +272,56 @@ mod tests {
         let b = ok(post(&st, &sid, &second, "").await);
         assert_ne!(a, b);
         let open: Vec<(String, String, String)> = sqlx::query_as(
-            "SELECT id, title, body FROM inbox WHERE kind = 'question' AND archived_at IS NULL",
+            "SELECT id, title, body FROM inbox WHERE kind = 'question' AND archived_at IS NULL ORDER BY id",
         )
         .fetch_all(st.db.pool())
         .await
         .unwrap();
-        assert_eq!(open.len(), 1);
-        assert_eq!(open[0].0, b);
-        assert_eq!(open[0].1, "待你决定：改主意了，装吗？");
+        assert_eq!(open.len(), 2);
+        assert_eq!(open[1].1, "待你决定：改主意了，装吗？");
+        let card: Option<String> = sqlx::query_scalar("SELECT ask FROM inbox WHERE id = ?1")
+            .bind(&a)
+            .fetch_one(st.db.pool())
+            .await
+            .unwrap();
+        let ask: Ask = serde_json::from_str(&card.unwrap()).unwrap();
+        assert_eq!(ask.options, vec!["先推", "先装"]);
+        assert!(crate::inbox::has_open_ask(&st, &sid).await);
+        assert!(!crate::inbox::has_open_ask(&st, "nope").await);
+
+        crate::inbox::resolve_ask(&st, &a).await;
+        assert!(
+            crate::inbox::has_open_ask(&st, &sid).await,
+            "answering one card keeps the other open"
+        );
         let stored: Option<String> = sqlx::query_scalar("SELECT ask FROM sessions WHERE id = ?1")
             .bind(&sid)
             .fetch_one(st.db.pool())
             .await
             .unwrap();
-        let ask: Ask = serde_json::from_str(&stored.unwrap()).unwrap();
-        assert_eq!(ask.question, "改主意了，装吗？");
-        assert!(crate::inbox::has_open_ask(&st, &sid).await);
-        assert!(!crate::inbox::has_open_ask(&st, "nope").await);
+        assert!(stored.is_some());
+
+        let later = SessionId::new().to_string();
+        sqlx::query(
+            "INSERT INTO sessions (id, workspace_id, thread_id, runtime_kind, status, created_at)
+             VALUES (?1, 'w1', ?2, 'claude', 'done', ?3)",
+        )
+        .bind(&later)
+        .bind(&sid)
+        .bind(Utc::now().to_rfc3339())
+        .execute(st.db.pool())
+        .await
+        .unwrap();
+        ok(post(&st, &later, &first, "").await);
+        assert!(!crate::inbox::has_open_ask(&st, &sid).await);
+        assert!(crate::inbox::has_open_ask(&st, &later).await);
+        crate::inbox::resolve_ask(&st, &b).await;
+        let stored: Option<String> = sqlx::query_scalar("SELECT ask FROM sessions WHERE id = ?1")
+            .bind(&sid)
+            .fetch_one(st.db.pool())
+            .await
+            .unwrap();
+        assert!(stored.is_none());
     }
 
     #[tokio::test]

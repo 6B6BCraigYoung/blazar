@@ -9,7 +9,7 @@ use crate::components::toast::toast;
 use crate::failure::{self, Failure};
 use crate::pages::workspaces::retry_workspace;
 use crate::{api, app_state::use_app, fmt, storage};
-use blazar_core_types::api::Ask;
+use blazar_core_types::api::{Ask, DEFAULT_ASK_OPTIONS};
 use blazar_core_types::failure::FailureCause;
 use leptos::ev;
 use leptos::html;
@@ -257,7 +257,8 @@ fn ask_panel(ctx: Ctx, it: &Item) -> AnyView {
         .ask
         .as_ref()
         .map(|a| a.options.clone())
-        .unwrap_or_default();
+        .filter(|o| !o.is_empty())
+        .unwrap_or_else(|| DEFAULT_ASK_OPTIONS.map(str::to_owned).to_vec());
     let reply = RwSignal::new(String::new());
     let key = format!("ask:{}", it.id);
     let (k1, k2) = (key.clone(), key);

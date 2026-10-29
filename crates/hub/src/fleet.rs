@@ -360,6 +360,23 @@ pub fn briefing(parent: &str, children: &[Child]) -> String {
     out
 }
 
+/// Told to every session that has the blazar-fleet tools and answers to the user directly.
+pub const ASK_RULE: &str = "要用户拍板的事（推不推、装不装、选哪个方案、要不要继续），用 blazar-fleet 的 ask_user 发卡片，\
+不要只在回复末尾用文字发问：文字问句不会带选项，用户在「需要你处理」里不好回答。\
+一件事一张卡；有几件事就分别发几张。每张给 2～6 个一句话的选项，context 里用一两句写清背景和各选项的后果。\
+发完就结束这一轮等回答，回答会以用户的消息出现在这条对话里。普通的汇报不用发卡片。";
+
+pub async fn has_parent(st: &Shared, workspace: &str) -> bool {
+    sqlx::query_scalar::<_, Option<String>>("SELECT parent_id FROM workspaces WHERE id = ?1")
+        .bind(workspace)
+        .fetch_optional(st.db.pool())
+        .await
+        .ok()
+        .flatten()
+        .flatten()
+        .is_some()
+}
+
 pub async fn enabled(st: &Shared) -> bool {
     crate::office::prefs(st).await["fleet"]["enabled"]
         .as_bool()

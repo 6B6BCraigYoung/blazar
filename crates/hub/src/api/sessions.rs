@@ -75,6 +75,9 @@ pub struct PromptRequest {
 
     #[serde(skip)]
     pub bot: Option<String>,
+
+    #[serde(skip)]
+    pub keep_asks: bool,
 }
 
 const MAX_STORED_REQUEST: usize = 2 * 1024 * 1024;
@@ -223,6 +226,7 @@ async fn prompt_inner(
         blazar_transport::validate_env_key(key)
             .map_err(|error| ApiError::bad_request(error.to_string()))?;
     }
+    let keep_asks = req.keep_asks;
     let (node, path) = locate(&st, &id).await?;
     let workspace_id = WorkspaceId(id.parse()?);
     let assistant = super::assistant::is_assistant(&st, &id).await;
@@ -570,6 +574,7 @@ async fn prompt_inner(
             session: Some(session_id.to_string()),
         });
         let children = crate::fleet::children_of(&st, &id).await;
+        let mut can_ask = false;
         match crate::fleet::mcp_spec(
             &st,
             session_id,
@@ -579,7 +584,10 @@ async fn prompt_inner(
         )
         .await
         {
-            Ok(Some(m)) => spec.mcp_servers.push(m),
+            Ok(Some(m)) => {
+                spec.mcp_servers.push(m);
+                can_ask = true;
+            }
             Ok(None) => {}
             Err(error) => tracing::warn!(
                 target: "blazar::fleet",
@@ -599,6 +607,12 @@ async fn prompt_inner(
         } else {
             String::new()
         };
+        if can_ask && !assistant && !crate::fleet::has_parent(&st, &id).await {
+            if !brief.is_empty() {
+                brief.push_str("\n\n");
+            }
+            brief.push_str(crate::fleet::ASK_RULE);
+        }
         let kids = crate::fleet::briefing(&id, &children);
         if !kids.is_empty() {
             if !brief.is_empty() {
@@ -783,7 +797,9 @@ async fn prompt_inner(
         .await
         .map_err(|e| ApiError(anyhow::anyhow!("Failed to start agent on {run_node}: {e}")))?;
         crate::tasks::on_run_started(&st, &thread_id).await;
-        crate::inbox::resolve_asks(&st, &thread_id).await;
+        if !keep_asks {
+            crate::inbox::resolve_asks(&st, &thread_id).await;
+        }
         st.services
             .spawn(crate::titles::maybe_title(st.clone(), session_id, workspace_id));
         crate::run::register(ctx, 0, Some(started_tx)).await;

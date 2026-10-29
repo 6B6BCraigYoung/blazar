@@ -1,4 +1,4 @@
-use blazar_core_types::api::Ask;
+use blazar_core_types::api::{Ask, DEFAULT_ASK_OPTIONS};
 use blazar_core_types::failure::FailureCause;
 use blazar_core_types::{SessionId, WorkspaceId};
 use serde_json::Value;
@@ -15,6 +15,7 @@ const PROMPT_CHARS: usize = 800;
 const REPLY_CHARS: usize = 2000;
 const PARAGRAPH_MAX: usize = 400;
 const MODEL_SECS: u64 = 40;
+const ASKS_MAX: usize = 4;
 
 const ASK_CUES: &[&str] = &[
     "可以吗",
@@ -36,7 +37,7 @@ const ASK_CUES: &[&str] = &[
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Brief {
     pub summary: String,
-    pub ask: Option<Ask>,
+    pub asks: Vec<Ask>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -195,30 +196,73 @@ pub fn local_options(reply: &str) -> Vec<String> {
     }
 }
 
+fn or_default(options: Vec<String>) -> Vec<String> {
+    if options.is_empty() {
+        DEFAULT_ASK_OPTIONS.map(str::to_owned).to_vec()
+    } else {
+        options
+    }
+}
+
+fn numbered_question(line: &str) -> Option<String> {
+    let t = line.trim();
+    let rest = t.trim_start_matches(|c: char| c.is_ascii_digit());
+    if rest.len() == t.len() {
+        return None;
+    }
+    let rest = rest.strip_prefix(|c: char| ".、)）:：".contains(c))?;
+    (rest.contains('？') || rest.contains('?')).then(|| tidy(rest, QUESTION_MAX))
+}
+
+/// One card per numbered question when the reply closes on several; otherwise one card.
+#[must_use]
+pub fn local_asks(reply: &str) -> Vec<Ask> {
+    let questions: Vec<String> = last_paragraph(reply)
+        .lines()
+        .filter_map(numbered_question)
+        .filter(|q| !q.is_empty())
+        .take(ASKS_MAX)
+        .collect();
+    if questions.len() >= 2 {
+        return questions
+            .into_iter()
+            .map(|question| Ask {
+                question,
+                options: or_default(Vec::new()),
+            })
+            .collect();
+    }
+    vec![Ask {
+        question: question_of(reply),
+        options: or_default(local_options(reply)),
+    }]
+}
+
 #[must_use]
 pub fn fallback(status: &str, turn: &Turn) -> Brief {
     match status {
         "interrupted" => Brief {
             summary: "被中断了，没做完".into(),
-            ask: None,
+            asks: Vec::new(),
         },
         "failed" => Brief {
             summary: turn.cause.unwrap_or(FailureCause::Other).one_liner(),
-            ask: None,
+            asks: Vec::new(),
         },
         _ => {
             let summary = tidy(&last_prose(&turn.reply), SUMMARY_MAX);
-            let ask = asks_user(&turn.reply).then(|| Ask {
-                question: question_of(&turn.reply),
-                options: local_options(&turn.reply),
-            });
+            let asks = if asks_user(&turn.reply) {
+                local_asks(&turn.reply)
+            } else {
+                Vec::new()
+            };
             Brief {
                 summary: if summary.is_empty() {
                     "跑完了".into()
                 } else {
                     summary
                 },
-                ask,
+                asks,
             }
         }
     }
@@ -228,8 +272,29 @@ pub fn fallback(status: &str, turn: &Turn) -> Brief {
 pub struct ModelReply {
     pub summary: String,
     pub asking: bool,
-    pub question: String,
-    pub options: Vec<String>,
+    pub questions: Vec<Ask>,
+}
+
+fn model_options(v: &Value) -> Vec<String> {
+    v["options"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(Value::as_str)
+                .map(|o| tidy(o, OPTION_MAX))
+                .filter(|o| !o.is_empty())
+                .take(4)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn model_ask(v: &Value) -> Option<Ask> {
+    let question = tidy(v["question"].as_str().unwrap_or_default(), QUESTION_MAX);
+    (!question.is_empty()).then(|| Ask {
+        question,
+        options: model_options(v),
+    })
 }
 
 #[must_use]
@@ -241,22 +306,14 @@ pub fn parse_model(text: &str) -> Option<ModelReply> {
     }
     let v: Value = serde_json::from_str(&text[start..=end]).ok()?;
     let s = |k: &str| v[k].as_str().unwrap_or_default().to_owned();
-    let options = v["options"]
-        .as_array()
-        .map(|a| {
-            a.iter()
-                .filter_map(Value::as_str)
-                .map(|o| tidy(o, OPTION_MAX))
-                .filter(|o| !o.is_empty())
-                .take(4)
-                .collect()
-        })
-        .unwrap_or_default();
+    let questions = match v["questions"].as_array() {
+        Some(list) => list.iter().filter_map(model_ask).take(ASKS_MAX).collect(),
+        None => model_ask(&v).into_iter().collect(),
+    };
     Some(ModelReply {
         summary: tidy(&s("summary"), SUMMARY_MAX),
         asking: v["asking"].as_bool() == Some(true),
-        question: tidy(&s("question"), QUESTION_MAX),
-        options,
+        questions,
     })
 }
 
@@ -271,22 +328,28 @@ pub fn merge(status: &str, turn: &Turn, model: Option<ModelReply>) -> Brief {
     } else {
         m.summary
     };
-    let ask = match base.ask {
-        Some(local) if status == "done" && m.asking => Some(Ask {
-            question: if m.question.is_empty() {
-                local.question
-            } else {
-                m.question
-            },
-            options: if m.options.is_empty() {
-                local.options
-            } else {
-                m.options
-            },
-        }),
-        _ => None,
+    let asks = if status != "done" || !m.asking || base.asks.is_empty() {
+        Vec::new()
+    } else if m.questions.is_empty() {
+        base.asks
+    } else {
+        let single = m.questions.len() == 1 && base.asks.len() == 1;
+        let local = base.asks.into_iter().next().unwrap_or_default().options;
+        m.questions
+            .into_iter()
+            .map(|a| Ask {
+                question: a.question,
+                options: if !a.options.is_empty() {
+                    a.options
+                } else if single {
+                    local.clone()
+                } else {
+                    or_default(Vec::new())
+                },
+            })
+            .collect()
     };
-    Brief { summary, ask }
+    Brief { summary, asks }
 }
 
 fn model_prompt(status: &str, turn: &Turn) -> String {
@@ -295,7 +358,7 @@ fn model_prompt(status: &str, turn: &Turn) -> String {
         return format!(
             "你在给一个任务看板写卡片。下面是一轮对话的用户指令和它失败的原因。\
              只输出一个 JSON 对象，不要别的内容：\n\
-             {{\"summary\": \"\", \"asking\": false, \"question\": \"\", \"options\": []}}\n\
+             {{\"summary\": \"\", \"asking\": false, \"questions\": []}}\n\
              summary 用中文写一句话（不超过 30 个字），说清楚为什么失败、下一步可以做什么；\
              只写那句话本身，不要加「摘要」之类的前缀，不要路径、提交号、命令和引号。\
              \n\n用户指令：\n{prompt}\n\n失败原因：\n{}",
@@ -305,14 +368,16 @@ fn model_prompt(status: &str, turn: &Turn) -> String {
     format!(
         "你在给一个任务看板写卡片。下面是一轮对话的用户指令和助手的最后回复。\
          只输出一个 JSON 对象，不要别的内容：\n\
-         {{\"summary\": \"\", \"asking\": false, \"question\": \"\", \"options\": []}}\n\
+         {{\"summary\": \"\", \"asking\": false, \"questions\": [{{\"question\": \"\", \"options\": []}}]}}\n\
          - summary：用中文写一句话（不超过 30 个字），说清楚这一轮做成了什么，或者卡在哪里；\
          只写那句话本身，不要加「摘要」「这段对话在做什么」之类的前缀，不要路径、提交号、命令和引号。\n\
          - asking：只看回复的最后一段，助手是不是在等用户回答或拍板（例如结尾是问句，\
          或者出现「可以吗 / 要不要 / 请确认」）。普通的汇报写 false。\n\
-         - question：asking 为 true 时，用一句话（不超过 30 个字）写清楚助手在问什么，否则留空。\n\
-         - options：asking 为 true 且回复里能看出几个明确的选项时，列出 2 到 4 个短选项\
-         （每个不超过 10 个字），否则给空数组。\n\n用户指令：\n{prompt}\n\n助手回复：\n{}",
+         - questions：asking 为 false 时给空数组。为 true 时，助手每问一件要用户定的事就写一项，\
+         最多 4 项（例如「要你定两件事：1. … 2. …」写两项）。\
+         question 用一句话（不超过 30 个字）写清楚这一件在问什么；\
+         options 列出 2 到 4 个短选项（每个不超过 10 个字），选项写在句子里的也要拆出来\
+         （例如「要不要 A，或者 B？」给「A」「B」「都不要」），实在看不出选项时给空数组。\n\n用户指令：\n{prompt}\n\n助手回复：\n{}",
         tail(turn.reply.trim(), REPLY_CHARS)
     )
 }
@@ -387,8 +452,8 @@ async fn ask_model(brain: &Brain, status: &str, turn: &Turn) -> Option<ModelRepl
 
 pub async fn store(st: &Shared, sid: SessionId, ws: WorkspaceId, brief: &Brief) {
     let ask = brief
-        .ask
-        .as_ref()
+        .asks
+        .first()
         .and_then(|a| serde_json::to_string(a).ok());
     let _ = sqlx::query("UPDATE sessions SET summary = ?2, ask = COALESCE(ask, ?3) WHERE id = ?1")
         .bind(sid.to_string())
@@ -519,9 +584,9 @@ mod tests {
         );
         let b = merge("done", &turn, model);
         assert_eq!(b.summary, "给 /users 加了分页，测试通过");
-        let ask = b.ask.unwrap();
-        assert_eq!(ask.question, "正式 hub 要不要一起改");
-        assert_eq!(ask.options, vec!["一起改", "先不动"]);
+        assert_eq!(b.asks.len(), 1);
+        assert_eq!(b.asks[0].question, "正式 hub 要不要一起改");
+        assert_eq!(b.asks[0].options, vec!["一起改", "先不动"]);
         let quiet = Turn {
             reply: "改完了，测试通过。".into(),
             ..Turn::default()
@@ -529,12 +594,55 @@ mod tests {
         let model = ModelReply {
             summary: "Not logged in · Please run /login".into(),
             asking: true,
-            question: "要不要继续".into(),
-            options: vec![],
+            questions: vec![Ask {
+                question: "要不要继续".into(),
+                options: vec![],
+            }],
         };
         let b = merge("done", &quiet, Some(model));
         assert_eq!(b.summary, "改完了，测试通过");
-        assert!(b.ask.is_none());
+        assert!(b.asks.is_empty());
         assert!(parse_model("no json here").is_none());
+    }
+
+    #[test]
+    fn several_numbered_questions_become_one_card_each() {
+        let reply = "方案整理好了。\n\n要你定两件事：\n1. 产什么：只出报告还是连代码一起改？\n2. 谁来执行：mac-mini 还是笔记本？";
+        assert!(asks_user(reply));
+        let asks = local_asks(reply);
+        assert_eq!(asks.len(), 2);
+        assert!(asks[0].question.starts_with("产什么"));
+        assert!(asks[1].question.starts_with("谁来执行"));
+        assert!(asks.iter().all(|a| a.options == DEFAULT_ASK_OPTIONS));
+        let one = local_asks("改完了。\n\n要不要把远端拉下来，或者整理一份上游分析？");
+        assert_eq!(one.len(), 1);
+        assert_eq!(one[0].options, DEFAULT_ASK_OPTIONS);
+    }
+
+    #[test]
+    fn the_model_can_split_a_reply_into_several_cards() {
+        let turn = Turn {
+            reply: "要你定两件事：\n1. 产什么？\n2. 谁来执行？".into(),
+            ..Turn::default()
+        };
+        let model = parse_model(
+            "{\"summary\": \"方案整理好了\", \"asking\": true, \"questions\": [\
+             {\"question\": \"产出什么\", \"options\": [\"只出报告\", \"连代码一起改\"]},\
+             {\"question\": \"谁来执行\", \"options\": []}]}",
+        );
+        let b = merge("done", &turn, model);
+        assert_eq!(b.asks.len(), 2);
+        assert_eq!(b.asks[0].options, vec!["只出报告", "连代码一起改"]);
+        assert_eq!(b.asks[1].question, "谁来执行");
+        assert_eq!(b.asks[1].options, DEFAULT_ASK_OPTIONS);
+        let legacy =
+            parse_model("{\"asking\": true, \"question\": \"推吗\", \"options\": [\"推\"]}")
+                .unwrap();
+        assert_eq!(legacy.questions.len(), 1);
+        let many = format!(
+            "{{\"asking\": true, \"questions\": [{}]}}",
+            ["{\"question\": \"q\"}"; 6].join(",")
+        );
+        assert_eq!(parse_model(&many).unwrap().questions.len(), ASKS_MAX);
     }
 }
