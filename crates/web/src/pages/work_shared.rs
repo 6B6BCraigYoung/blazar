@@ -124,7 +124,7 @@ pub fn approval_key_hint(i: usize) -> String {
     (i + 1).to_string()
 }
 
-pub use crate::components::rows::{in_field, list_keys_apply, overlay_open};
+pub use crate::components::rows::list_keys_apply;
 
 pub fn approval_summary(request: &Value, root: &str) -> (String, String) {
     let tool = crate::chat_model::tool_name(request["tool_name"].as_str().unwrap_or(""));

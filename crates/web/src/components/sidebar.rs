@@ -16,6 +16,46 @@ fn rail_tip(label: &'static str) -> impl Fn() -> Option<&'static str> + Copy {
     move || app.side_rail.get().then_some(label)
 }
 
+/// Bumped whenever a shortcut changes, so tooltips pick up the new combo.
+#[derive(Clone, Copy)]
+struct KeysRev(RwSignal<u32>);
+
+fn shortcut_of(href: &str) -> Option<&'static str> {
+    match href {
+        "/" => Some("console"),
+        "/workspaces" => Some("workspaces"),
+        "/tasks" => Some("tasks"),
+        "/settings" => Some("settings"),
+        _ => None,
+    }
+}
+
+fn with_key(label: &'static str, key: Option<&'static str>, rev: Option<KeysRev>) -> String {
+    if let Some(KeysRev(rev)) = rev {
+        rev.track();
+    }
+    key.map_or_else(|| label.to_owned(), |k| crate::shortcuts::titled(label, k))
+}
+
+/// The tooltip of a sidebar item: the custom one in rail mode (the name plus its shortcut),
+/// the native `title` otherwise, and only when the item has a shortcut to teach.
+fn tips(
+    label: &'static str,
+    key: Option<&'static str>,
+) -> (
+    impl Fn() -> Option<String> + Copy,
+    impl Fn() -> Option<String> + Copy,
+) {
+    let app = use_app();
+    let rev = use_context::<KeysRev>();
+    let rail = move || app.side_rail.get().then(|| with_key(label, key, rev));
+    let title = move || {
+        let text = with_key(label, key, rev);
+        (!app.side_rail.get() && text != label).then_some(text)
+    };
+    (rail, title)
+}
+
 fn badge(count: Signal<String>, urgent: Signal<bool>) -> impl IntoView {
     view! {
         <span
@@ -35,12 +75,14 @@ fn nav(
     urgent: Signal<bool>,
     exact: bool,
 ) -> impl IntoView {
+    let (tip, title) = tips(label, shortcut_of(href));
     view! {
         <A
             href=href
             exact=exact
             attr:class="nav"
-            attr:data-tip=rail_tip(label)
+            attr:data-tip=tip
+            attr:title=title
             attr:aria-label=rail_tip(label)
         >
             <span class="ic" inner_html=icon::svg(ic)></span>
@@ -79,11 +121,13 @@ fn section_with_pill(
                 .any(|x| p == x || (*x != "/" && p.starts_with(&format!("{x}/"))))
         })
     };
+    let (tip, title) = tips(label, shortcut_of(href));
     view! {
         <a
             href=href
             class="nav"
-            data-tip=rail_tip(label)
+            data-tip=tip
+            title=title
             aria-label=rail_tip(label)
             aria-current=move || on().then_some("page")
         >
@@ -113,6 +157,7 @@ pub fn Sidebar() -> impl IntoView {
     let keys = RwSignal::new(0u32);
     let watch_keys = crate::shortcuts::on_change(move || keys.update(|n| *n += 1));
     on_cleanup(move || watch_keys.remove());
+    provide_context(KeysRev(keys));
     let in_settings = Memo::new(move |_| location.pathname.with(|p| p == "/settings"));
     Effect::new(move |_| {
         let path = location.pathname.get();
@@ -290,7 +335,7 @@ fn MainNav(keys: RwSignal<u32>) -> impl IntoView {
             class="nav search"
             aria-haspopup="dialog"
             aria-expanded=move || app.palette.get().to_string()
-            data-tip=rail_tip("搜索")
+            data-tip=tips("搜索", Some("palette")).0
             aria-label=rail_tip("搜索")
             on:click=move |_| app.palette.set(true)
         >

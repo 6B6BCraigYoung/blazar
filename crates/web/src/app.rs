@@ -140,6 +140,7 @@ pub fn App() -> impl IntoView {
             <InspectorHost />
             <MeshHost />
             <Palette />
+            <crate::components::keys_sheet::KeysSheet />
             <AlertsDialog />
             <TermDialogHost />
             <DialogHost />

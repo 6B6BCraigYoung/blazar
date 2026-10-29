@@ -23,7 +23,7 @@ const PAGES: &[(&str, &str, &str, &str, Option<&str>)] = &[
         "/",
         icon::CONSOLE,
         "console zkt zhongkongtai 对话 chats 助手 assistant 聊天 首页",
-        None,
+        Some("console"),
     ),
     (
         "全部消息",
@@ -119,36 +119,181 @@ const PAGES: &[(&str, &str, &str, &str, Option<&str>)] = &[
     ),
 ];
 
-const COMMANDS: &[(&str, &str, &str, &str, Option<&str>)] = &[
-    (
-        "新建工作区",
-        "newws",
-        icon::FOLDER,
-        "new workspace xjgzq xinjian 创建",
-        Some("newws"),
-    ),
-    (
+/// Where a command means something: anywhere, inside a workspace, or where there is a
+/// message box to type into.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Scope {
+    Any,
+    Workspace,
+    Composer,
+}
+
+struct Cmd {
+    title: &'static str,
+    act: &'static str,
+    icon: &'static str,
+    keys: &'static str,
+    key: Option<&'static str>,
+    scope: Scope,
+}
+
+const fn cmd(
+    title: &'static str,
+    act: &'static str,
+    icon: &'static str,
+    keys: &'static str,
+    key: Option<&'static str>,
+    scope: Scope,
+) -> Cmd {
+    Cmd {
+        title,
+        act,
+        icon,
+        keys,
+        key,
+        scope,
+    }
+}
+
+const COMMANDS: &[Cmd] = &[
+    cmd(
         "新对话",
         "newchat",
         icon::CHAT,
         "new chat xdh xinduihua 对话",
         Some("newchat"),
+        Scope::Any,
     ),
-    (
+    cmd(
+        "新建工作区",
+        "newws",
+        icon::FOLDER,
+        "new workspace xjgzq xinjian 创建",
+        Some("newws"),
+        Scope::Any,
+    ),
+    cmd(
+        "聚焦输入框",
+        "focus",
+        icon::PENCIL,
+        "focus composer message input jjsrk shuru 输入框 消息",
+        Some("focus"),
+        Scope::Composer,
+    ),
+    cmd(
+        "上一个对话",
+        "prevchat",
+        icon::CHAT,
+        "previous chat syg shangyige 对话 切换",
+        Some("prevchat"),
+        Scope::Workspace,
+    ),
+    cmd(
+        "下一个对话",
+        "nextchat",
+        icon::CHAT,
+        "next chat xyg xiayige 对话 切换",
+        Some("nextchat"),
+        Scope::Workspace,
+    ),
+    cmd(
         "收起 / 展开侧栏",
         "side",
         icon::WINDOW,
         "sidebar toggle cl zhankai shouqi 侧边栏",
         Some("side"),
+        Scope::Any,
     ),
-    (
+    cmd(
+        "显示 / 隐藏文件",
+        "explorer",
+        icon::FILE,
+        "files explorer tree wj wenjian 文件树",
+        Some("explorer"),
+        Scope::Workspace,
+    ),
+    cmd(
+        "显示 / 隐藏右侧面板",
+        "chat",
+        icon::WINDOW,
+        "inspector right panel yc youce mianban 检查器",
+        Some("chat"),
+        Scope::Workspace,
+    ),
+    cmd(
+        "显示 / 隐藏终端",
+        "panel",
+        icon::TERMINAL,
+        "terminal shell zd zhongduan 命令行",
+        Some("panel"),
+        Scope::Workspace,
+    ),
+    cmd(
+        "打开更改",
+        "diff",
+        icon::BRANCH,
+        "changes diff git gg genggai 差异 提交 review 审阅",
+        Some("diff"),
+        Scope::Workspace,
+    ),
+    cmd(
+        "预览",
+        "preview",
+        icon::EYE,
+        "preview yl yulan 网页 端口",
+        Some("preview"),
+        Scope::Workspace,
+    ),
+    cmd(
+        "键盘快捷键",
+        "help",
+        icon::KEYBOARD,
+        "keyboard shortcuts keys help kjj kuaijiejian 速查表 按键",
+        Some("help"),
+        Scope::Any,
+    ),
+    cmd(
+        "主题：浅色",
+        "theme-light",
+        icon::PALETTE,
+        "theme light zt zhuti qs qianse 外观 白天",
+        None,
+        Scope::Any,
+    ),
+    cmd(
+        "主题：深色",
+        "theme-dark",
+        icon::PALETTE,
+        "theme dark zt zhuti ss shense 外观 夜间 暗色",
+        None,
+        Scope::Any,
+    ),
+    cmd(
+        "主题：跟随系统",
+        "theme-system",
+        icon::PALETTE,
+        "theme system auto zt zhuti gsxt 外观 自动",
+        None,
+        Scope::Any,
+    ),
+    cmd(
         "提醒方式…",
         "alerts",
         icon::BELL,
         "alerts notify tx tixing 通知 提示音",
         None,
+        Scope::Any,
     ),
 ];
+
+fn set_theme(theme: &str) {
+    let mut prefs = storage::load::<Value>("blazar.ui")
+        .filter(Value::is_object)
+        .unwrap_or_else(|| json!({ "v": 2 }));
+    prefs["theme"] = json!(theme);
+    storage::save("blazar.ui", &prefs);
+    crate::pages::apply_ui_preferences();
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Group {
@@ -206,14 +351,14 @@ impl Item {
         }
     }
 
-    fn command(c: &(&str, &'static str, &'static str, &str, Option<&'static str>)) -> Self {
+    fn command(c: &Cmd) -> Self {
         Self {
-            icon: c.2,
-            title: c.0.to_owned(),
+            icon: c.icon,
+            title: c.title.to_owned(),
             sub: String::new(),
-            keys: c.3.to_owned(),
-            key: c.4,
-            act: Act::Cmd(c.1),
+            keys: c.keys.to_owned(),
+            key: c.key,
+            act: Act::Cmd(c.act),
         }
     }
 
@@ -415,12 +560,7 @@ pub fn Palette() -> impl IntoView {
     };
     let new_chat = move || {
         if app.current_ws.get_untracked().is_some() {
-            let init = web_sys::CustomEventInit::new();
-            init.set_detail(&"act:newchat".into());
-            if let Ok(event) = web_sys::CustomEvent::new_with_event_init_dict("blazar-menu", &init)
-            {
-                let _ = window().dispatch_event(&event);
-            }
+            crate::shortcuts::fire("act:newchat");
             return;
         }
         go("/chats/new");
@@ -429,12 +569,16 @@ pub fn Palette() -> impl IntoView {
         match action {
             "palette" => app.palette.update(|p| *p = !*p),
             "side" => app.side_collapsed.update(|p| *p = !*p),
+            "console" => go("/"),
             "workspaces" => go("/workspaces"),
             "newws" => app.new_ws.set(true),
             "inbox" => go("/?inbox=all"),
             "tasks" => go("/tasks"),
             "settings" => go("/settings"),
             "alerts" => app.alerts_open.set(true),
+            "theme-light" => set_theme("light"),
+            "theme-dark" => set_theme("dark"),
+            "theme-system" => set_theme("system"),
             "newchat" if app.current_ws.get_untracked().is_none() => new_chat(),
             _ => return false,
         }
@@ -463,6 +607,7 @@ pub fn Palette() -> impl IntoView {
         menu.remove();
         watch_keys.remove();
     });
+    crate::shortcuts::sync_menu();
     Effect::new(move |_| {
         if app.palette.get() {
             q.set(String::new());
@@ -487,17 +632,27 @@ pub fn Palette() -> impl IntoView {
                     recent_items.push(Item::page(p));
                 }
             }
-            let suggested = vec![
-                Item::command(&COMMANDS[0]),
-                Item::command(&COMMANDS[1]),
-                Item::page(&PAGES[0]),
-                Item::page(&PAGES[PAGES.len() - 1]),
-            ];
+            let suggested = COMMANDS
+                .iter()
+                .filter(|c| matches!(c.act, "newchat" | "newws" | "help"))
+                .map(Item::command)
+                .chain([Item::page(&PAGES[0]), Item::page(&PAGES[PAGES.len() - 1])])
+                .collect();
             return vec![(Group::Recent, recent_items), (Group::Suggested, suggested)]
                 .into_iter()
                 .filter(|(_, items)| !items.is_empty())
                 .collect();
         }
+        let in_ws = app.current_ws.get().is_some();
+        let available = |scope: Scope| match scope {
+            Scope::Any => true,
+            Scope::Workspace => in_ws,
+            Scope::Composer => document()
+                .query_selector("textarea.prompt")
+                .ok()
+                .flatten()
+                .is_some(),
+        };
         let rank = |items: Vec<Item>| -> Vec<Item> {
             let mut scored: Vec<(u32, Item)> = items
                 .into_iter()
@@ -529,7 +684,13 @@ pub fn Palette() -> impl IntoView {
             (Group::Page, rank(PAGES.iter().map(Item::page).collect())),
             (
                 Group::Command,
-                rank(COMMANDS.iter().map(Item::command).collect()),
+                rank(
+                    COMMANDS
+                        .iter()
+                        .filter(|c| available(c.scope))
+                        .map(Item::command)
+                        .collect(),
+                ),
             ),
             (Group::Node, rank(nodes)),
         ]
@@ -631,7 +792,12 @@ pub fn Palette() -> impl IntoView {
             Act::Node(name) => go(&format!("/nodes/{}", api::enc(name))),
             Act::Cmd("newchat") => new_chat(),
             Act::Cmd(action) => {
-                run_cmd(action);
+                if !run_cmd(action) {
+                    // The page that owns it listens for the same event the native menu sends;
+                    // wait a frame so the palette has handed focus back first.
+                    let id = format!("act:{action}");
+                    request_animation_frame(move || crate::shortcuts::fire(&id));
+                }
             }
         }
     };
@@ -669,7 +835,7 @@ pub fn Palette() -> impl IntoView {
         }
     };
     let on_key = move |e: ev::KeyboardEvent| {
-        let meta = e.meta_key() || e.ctrl_key();
+        let meta = crate::shortcuts::mod_key(&e);
         let in_actions = focus.with_untracked(Option::is_some);
         let on_input = e
             .target()

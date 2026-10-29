@@ -3,6 +3,7 @@ pub mod downloads;
 pub mod empty;
 pub mod group;
 pub mod icon;
+pub mod keys_sheet;
 pub mod menu;
 pub mod modal;
 pub mod new_workspace;

@@ -1,5 +1,7 @@
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
+use blazar_core_types::keymap;
 use blazar_hub::accounts::MenuProvider;
 use tauri::image::Image;
 use tauri::menu::{
@@ -18,6 +20,30 @@ const REPO: &str = "https://github.com/6B6BCraigYoung/blazar";
 
 struct AccountMenu(Vec<Submenu<Wry>>);
 
+/// Menu items that carry a shortcut, by keymap action, so a changed binding can be put on
+/// the item it belongs to.
+#[derive(Default)]
+pub struct MenuKeys(Mutex<HashMap<&'static str, MenuItem<Wry>>>);
+
+impl MenuKeys {
+    /// Put the combos the page is using on the menu. Actions the page didn't mention keep
+    /// what they have.
+    pub fn apply(&self, keys: &HashMap<String, String>) {
+        let items = self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        for (action, item) in items.iter() {
+            let Some(combo) = keys.get(*action) else {
+                continue;
+            };
+            if let Err(e) = item.set_accelerator(keymap::accelerator(combo)) {
+                tracing::warn!(action, combo, "菜单快捷键没设上：{e}");
+            }
+        }
+    }
+}
+
 pub fn install(
     app: &AppHandle,
     hub: Arc<Hub>,
@@ -25,6 +51,7 @@ pub fn install(
     with_tray: bool,
 ) -> tauri::Result<()> {
     let account = Submenu::with_id(app, "account", "账号", true)?;
+    app.manage(MenuKeys::default());
     let menu = Menu::with_items(
         app,
         &[
@@ -180,6 +207,24 @@ fn item(
     MenuItem::with_id(app, id, text, true, accel)
 }
 
+/// A menu item for a keymap action, starting out with the action's default shortcut.
+fn bound(
+    app: &AppHandle,
+    action: &'static str,
+    id: &str,
+    text: &str,
+) -> tauri::Result<MenuItem<Wry>> {
+    let accel = keymap::accelerator(keymap::default_of(action));
+    let made = item(app, id, text, accel.as_deref())?;
+    if let Some(keys) = app.try_state::<MenuKeys>() {
+        keys.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(action, made.clone());
+    }
+    Ok(made)
+}
+
 fn app_menu(app: &AppHandle, remote: bool) -> tauri::Result<Submenu<Wry>> {
     let about = AboutMetadata {
         name: Some("Blazar".into()),
@@ -194,7 +239,7 @@ fn app_menu(app: &AppHandle, remote: bool) -> tauri::Result<Submenu<Wry>> {
         &[
             &PredefinedMenuItem::about(app, Some("关于 Blazar"), Some(about))?,
             &PredefinedMenuItem::separator(app)?,
-            &item(app, "go:/settings", "设置…", Some("CmdOrCtrl+,"))?,
+            &bound(app, "settings", "go:/settings", "设置…")?,
             &PredefinedMenuItem::separator(app)?,
             &PredefinedMenuItem::services(app, Some("服务"))?,
             &PredefinedMenuItem::separator(app)?,
@@ -217,8 +262,8 @@ fn file_menu(app: &AppHandle) -> tauri::Result<Submenu<Wry>> {
         "文件",
         true,
         &[
-            &item(app, "new-workspace", "新建工作区…", Some("CmdOrCtrl+N"))?,
-            &item(app, "act:newchat", "新对话", Some("CmdOrCtrl+T"))?,
+            &bound(app, "newchat", "act:newchat", "新对话")?,
+            &bound(app, "newws", "new-workspace", "新建工作区…")?,
             &PredefinedMenuItem::separator(app)?,
             &PredefinedMenuItem::close_window(app, Some("关闭窗口"))?,
         ],
@@ -248,15 +293,15 @@ fn view_menu(app: &AppHandle) -> tauri::Result<Submenu<Wry>> {
         "视图",
         true,
         &[
-            &item(app, "act:palette", "命令面板", Some("CmdOrCtrl+K"))?,
-            &item(app, "act:side", "侧边栏", Some("CmdOrCtrl+Backslash"))?,
+            &bound(app, "palette", "act:palette", "命令面板")?,
+            &bound(app, "side", "act:side", "侧边栏")?,
             &PredefinedMenuItem::separator(app)?,
-            &item(app, "act:explorer", "文件", Some("CmdOrCtrl+B"))?,
-            &item(app, "act:chat", "右侧面板", Some("CmdOrCtrl+Alt+B"))?,
-            &item(app, "act:panel", "终端", Some("CmdOrCtrl+J"))?,
+            &bound(app, "explorer", "act:explorer", "文件")?,
+            &bound(app, "chat", "act:chat", "右侧面板")?,
+            &bound(app, "panel", "act:panel", "终端")?,
             &PredefinedMenuItem::separator(app)?,
-            &item(app, "act:diff", "更改", Some("CmdOrCtrl+Shift+D"))?,
-            &item(app, "act:preview", "预览", Some("CmdOrCtrl+Shift+P"))?,
+            &bound(app, "diff", "act:diff", "更改")?,
+            &bound(app, "preview", "act:preview", "预览")?,
             &PredefinedMenuItem::separator(app)?,
             &PredefinedMenuItem::fullscreen(app, Some("进入全屏幕"))?,
         ],
@@ -269,10 +314,10 @@ fn go_menu(app: &AppHandle) -> tauri::Result<Submenu<Wry>> {
         "前往",
         true,
         &[
-            &item(app, "go:/", "中控台", None)?,
-            &item(app, "go:/workspaces", "工作区", None)?,
+            &bound(app, "console", "go:/", "中控台")?,
+            &bound(app, "workspaces", "go:/workspaces", "工作区")?,
+            &bound(app, "tasks", "go:/tasks", "任务")?,
             &item(app, "go:/bots", "bot", None)?,
-            &item(app, "go:/tasks", "任务", None)?,
             &PredefinedMenuItem::separator(app)?,
             &item(app, "go:/agents", "智能体", None)?,
             &item(app, "go:/apps", "接入的软件", None)?,
@@ -302,7 +347,7 @@ fn help_menu(app: &AppHandle) -> tauri::Result<Submenu<Wry>> {
         "帮助",
         true,
         &[
-            &item(app, "go:/settings?s=shortcuts", "键盘快捷键", None)?,
+            &bound(app, "help", "act:help", "键盘快捷键")?,
             &item(app, "help-repo", "Blazar 项目主页", None)?,
         ],
     )?;

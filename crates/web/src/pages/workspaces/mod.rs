@@ -344,6 +344,23 @@ fn Home() -> impl IntoView {
             let _ = a.focus();
         }
     };
+    // The workspace to select once the list reloads after a decision.
+    let landing = RwSignal::new(None::<String>);
+    Effect::new(move |_| {
+        let Some(id) = landing.get() else {
+            return;
+        };
+        let Some(i) = rows.with(|r| r.iter().position(|row| row.ws.id == id)) else {
+            return;
+        };
+        ctx.sel.set(Some(i));
+        let idle = document().active_element().is_none_or(|a| {
+            a.tag_name() == "BODY" || a.closest(".home-card").ok().flatten().is_some()
+        });
+        if idle {
+            request_animation_frame(move || focus_card(i));
+        }
+    });
     let keys = window_event_listener(ev::keydown, move |e| {
         if !list_keys_apply(&e) {
             return;
@@ -363,6 +380,7 @@ fn Home() -> impl IntoView {
             let per_row = cols.try_get_untracked().unwrap_or(1);
             if let Some(next) = home_rows::grid_move(&groups, per_row, current, dir) {
                 e.prevent_default();
+                landing.set(None);
                 ctx.sel.set(Some(next));
                 focus_card(next);
             }
@@ -378,6 +396,17 @@ fn Home() -> impl IntoView {
                 };
                 e.prevent_default();
                 pick_approval(ctx, &key, &a, row.subject().id.clone());
+                if key == "2" {
+                    // 「总是允许」 asks first; the selection stays put if the user backs out.
+                    return;
+                }
+                let next = rows.try_with_untracked(|r| {
+                    let order: Vec<Group> = r.iter().map(|row| row.group).collect();
+                    current
+                        .and_then(|i| home_rows::next_need(&order, i))
+                        .and_then(|i| r.get(i).map(|row| row.ws.id.clone()))
+                });
+                landing.set(next.flatten());
             }
             "e" | "E" if !meta && !e.alt_key() && !e.shift_key() => {
                 let Some(row) = selected().filter(|r| r.state == "errored") else {

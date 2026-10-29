@@ -125,7 +125,9 @@ pub fn ChatsPage() -> impl IntoView {
                             icon=icon::CHAT
                             title=empty::never("对话")
                             detail="不属于任何项目的事在这里问：看几个工作区的进展、让某台机器接着做、汇总所有机器的占用。"
-                            action=Action::new("新对话", new_chat).keys("Mod+T").primary()
+                            action=Action::new("新对话", new_chat)
+                                .keys(&crate::shortcuts::current("newchat"))
+                                .primary()
                         />
                     }
                         .into_any();

@@ -55,7 +55,7 @@ pub async fn test_remote_hub(ssh: String, port: u16) -> Result<String, String> {
         return Err("只能测试远程 hub".into());
     };
     remote::probe(&ssh, port).await?;
-    Ok(format!("能连上 {ssh} 上的 hub"))
+    Ok(format!("能连上 {ssh} 上的 Blazar"))
 }
 
 #[tauri::command]
@@ -227,4 +227,14 @@ mod tests {
         let gone = vec![outside.path().join("nope").to_string_lossy().into_owned()];
         assert!(inside_workspace(&at("src/a.rs"), &gone).is_err());
     }
+}
+
+/// The page tells the shell which combos are in effect, so the menu shows and answers to
+/// the same keys after the user rebinds one.
+#[tauri::command]
+pub fn set_menu_shortcuts(
+    keys: std::collections::HashMap<String, String>,
+    menu: State<'_, crate::menu::MenuKeys>,
+) {
+    menu.apply(&keys);
 }

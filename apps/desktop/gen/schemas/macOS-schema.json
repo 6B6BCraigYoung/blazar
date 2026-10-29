@@ -411,6 +411,12 @@
           "markdownDescription": "Show a workspace file of the embedded hub in Finder, and pick a project folder through the native panel."
         },
         {
+          "description": "Show the shortcuts the page uses on the native menu.",
+          "type": "string",
+          "const": "menu-keys",
+          "markdownDescription": "Show the shortcuts the page uses on the native menu."
+        },
+        {
           "description": "Forward a preview port the remote hub handed out to this computer.",
           "type": "string",
           "const": "remote-forward",

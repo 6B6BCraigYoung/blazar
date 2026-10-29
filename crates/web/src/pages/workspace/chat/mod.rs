@@ -64,11 +64,14 @@ pub fn ChatPane(
         }
         e.prevent_default();
     });
-    let menu = crate::shortcuts::on_menu(move |id| {
-        if id == "act:newchat" {
+    let menu = crate::shortcuts::on_menu(move |id| match id {
+        "act:newchat" => {
             chat.new_chat();
             chat.show_aux.run(());
         }
+        "act:prevchat" => threads::cycle(chat, -1),
+        "act:nextchat" => threads::cycle(chat, 1),
+        _ => {}
     });
     on_cleanup(move || {
         keys.remove();

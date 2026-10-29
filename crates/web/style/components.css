@@ -222,3 +222,12 @@ details[open] > summary::before { transform: rotate(90deg); }
 .dl-meta { margin-top: var(--space-xs); color: var(--fg-3); font-size: var(--font-size-caption-readable); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .dl-meta.err { color: var(--err-fg); }
 .dl-acts { display: flex; gap: var(--space-sm); margin-top: var(--space-sm); }
+
+/* ⌘/ 键盘快捷键速查表 */
+.dlg.keys-sheet { width: min(760px, calc(100vw - 32px)); max-height: calc(100vh - 96px); display: flex; flex-direction: column; }
+.keys-sheet .ks-groups { flex: 1; min-height: 0; overflow-y: auto; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2xl) var(--space-3xl); align-items: start; }
+.keys-sheet .ks-group h4 { margin: 0 0 var(--space-md); font-size: var(--font-size-label); font-weight: var(--font-weight-semibold); color: var(--fg-3); }
+.keys-sheet .ks-row { display: flex; align-items: center; gap: var(--space-lg); min-height: 28px; font-size: var(--font-size-body); color: var(--fg-2); }
+.keys-sheet .ks-row span { flex: 1; min-width: 0; }
+.keys-sheet .ks-row kbd { padding: 0 var(--space-xs); border-radius: var(--radius-keycap); background: var(--keycap-bg); color: var(--keycap-fg); font: var(--font-size-label) var(--font-sans); line-height: 20px; white-space: nowrap; }
+@media (max-width: 720px) { .keys-sheet .ks-groups { grid-template-columns: minmax(0, 1fr); } }

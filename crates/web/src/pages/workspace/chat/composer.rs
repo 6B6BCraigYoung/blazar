@@ -262,6 +262,31 @@ pub fn Composer(
             let _ = t.focus();
         }
     };
+    let focus_end = move || {
+        if let Some(t) = ta.try_get_untracked().flatten()
+            && !t.disabled()
+        {
+            let _ = t.focus();
+            let len = t.value().encode_utf16().count() as u32;
+            let _ = t.set_selection_range(len, len);
+            return true;
+        }
+        false
+    };
+    let focus_keys = window_event_listener(ev::keydown, move |e| {
+        if crate::shortcuts::action(&e) == Some("focus") && focus_end() {
+            e.prevent_default();
+        }
+    });
+    let focus_menu = crate::shortcuts::on_menu(move |id| {
+        if id == "act:focus" {
+            focus_end();
+        }
+    });
+    on_cleanup(move || {
+        focus_keys.remove();
+        focus_menu.remove();
+    });
 
     let closer = window_event_listener(ev::mousedown, move |e| {
         let inside = e
@@ -1076,7 +1101,10 @@ pub fn Composer(
                     class="prompt"
                     disabled=move || unreachable.get()
                     aria-label="Message"
-                    title="⌘ Esc to focus or unfocus"
+                    title=move || {
+                        let key = crate::shortcuts::hint("focus");
+                        (!key.is_empty()).then(|| format!("{key} to focus"))
+                    }
                     placeholder=move || {
                         if unreachable.get() {
                             "Reconnect the machine to send"

@@ -320,6 +320,15 @@ fn ask_panel(ctx: Ctx, it: &Item) -> AnyView {
     .into_any()
 }
 
+/// The first card list on the page, leaving out the pop-up cards in the corner.
+fn first_list() -> Option<web_sys::Element> {
+    let all = document().query_selector_all(".inbox-list").ok()?;
+    (0..all.length())
+        .filter_map(|i| all.item(i))
+        .filter_map(|n| n.dyn_into::<web_sys::Element>().ok())
+        .find(|el| el.closest(".pop").ok().flatten().is_none())
+}
+
 pub fn mark_inbox(action: &str, ids: Vec<String>, done: impl Fn() + 'static) {
     let action = action.to_owned();
     spawn_local(async move {
@@ -386,12 +395,21 @@ struct Ctx {
     mark: Callback<(String, Vec<String>)>,
     rev: RwSignal<u32>,
     appr_rev: RwSignal<u32>,
+    /// The request (an item's `ref_id`) just decided here; the selection moves on from it to
+    /// the next card that still needs you.
+    decided: RwSignal<Option<String>>,
+}
+
+fn decided(ctx: Ctx, id: String) {
+    let _ = ctx.appr_rev.try_update(|n| *n += 1);
+    let _ = ctx.decided.try_set(Some(id));
+    refresh(ctx.rev);
 }
 
 fn decide(ctx: Ctx, id: String, allow: bool, answers: Option<Value>) {
+    let done = id.clone();
     decide_approval(ctx.gate, id, allow, answers, move || {
-        let _ = ctx.appr_rev.try_update(|n| *n += 1);
-        refresh(ctx.rev);
+        decided(ctx, done.clone());
     });
 }
 
@@ -404,10 +422,12 @@ fn pick_approval(ctx: Ctx, key: &str, a: &Value, workspace: String) {
     let id = a["id"].as_str().unwrap_or("").to_owned();
     match key {
         "1" => decide(ctx, id, true, None),
-        "2" => allow_always(ctx.gate, id, a["request"].clone(), workspace, move || {
-            let _ = ctx.appr_rev.try_update(|n| *n += 1);
-            refresh(ctx.rev);
-        }),
+        "2" => {
+            let done = id.clone();
+            allow_always(ctx.gate, id, a["request"].clone(), workspace, move || {
+                decided(ctx, done.clone());
+            });
+        }
         _ => decide(ctx, id, false, None),
     }
 }
@@ -464,7 +484,7 @@ fn decide_denial(ctx: Ctx, it: &Item, allow: bool) {
             ),
             Err(e) => toast(format!("没能记录：{e}")),
         }
-        refresh(ctx.rev);
+        decided(ctx, tid);
     });
 }
 
@@ -681,6 +701,7 @@ pub fn InboxCards(
         mark,
         rev,
         appr_rev: RwSignal::new(0),
+        decided: RwSignal::new(None),
     };
     let approvals = LocalResource::new(move || {
         ctx.appr_rev.track();
@@ -730,36 +751,123 @@ pub fn InboxCards(
         }
         go.with_value(|n| n(&it.href, Default::default()));
     };
-    let keys = move |e: ev::KeyboardEvent| {
-        if e.default_prevented() || e.is_composing() || overlay_open() {
+    // Where the selection lands after a decision: (the request just decided, the item to
+    // select). It follows that item while the list reloads around it.
+    let landing = RwSignal::new(None::<(String, String)>);
+    let focus_idle = move || {
+        let active = document().active_element();
+        active.as_ref().is_none_or(|a| a.tag_name() == "BODY")
+            || list_el
+                .try_get_untracked()
+                .flatten()
+                .zip(active)
+                .is_some_and(|(list, a)| list.contains(Some(&a)))
+    };
+    let land = move || {
+        let Some((dec, id)) = landing.try_get_untracked().flatten() else {
+            return;
+        };
+        let (at, still_open) = items
+            .try_with_untracked(|l| {
+                (
+                    l.iter().position(|it| it.id == id),
+                    l.iter().any(|it| it.ref_id == dec && it.needs_you()),
+                )
+            })
+            .unwrap_or((None, false));
+        if let Some(i) = at {
+            ctx.sel.set(i);
+            if focus_idle() {
+                request_animation_frame(move || focus_row(i));
+            }
+        }
+        if !still_open {
+            landing.set(None);
+        }
+    };
+    Effect::new(move |_| {
+        let Some(dec) = ctx.decided.get() else {
+            return;
+        };
+        ctx.decided.set(None);
+        let next = items.with_untracked(|l| {
+            let n = l.len();
+            let from = l
+                .iter()
+                .position(|it| it.ref_id == dec)
+                .unwrap_or_else(|| ctx.sel.get_untracked());
+            (1..=n)
+                .map(|d| (from + d) % n)
+                .find(|&i| l[i].needs_you() && l[i].ref_id != dec)
+                .map(|i| l[i].id.clone())
+        });
+        landing.set(next.map(|id| (dec, id)));
+        land();
+    });
+    Effect::new(move |_| {
+        items.track();
+        land();
+    });
+    let keys = window_event_listener(ev::keydown, move |e| {
+        if !list_keys_apply(&e) {
             return;
         }
         let n = items.try_with_untracked(Vec::len).unwrap_or(0);
+        let Some(list) = list_el.try_get_untracked().flatten() else {
+            return;
+        };
         if n == 0 {
             return;
         }
-        let typing = in_field(&e);
-        let meta = e.meta_key() || e.ctrl_key();
+        let target = e
+            .target()
+            .and_then(|t| t.dyn_into::<web_sys::Element>().ok());
+        let inside = target.as_ref().is_some_and(|t| list.contains(Some(t)));
+        // Keys pressed with nothing focused go to the first list on the page (the cards that
+        // need you); a list only answers once the focus is in it otherwise.
+        let first = !inside
+            && target
+                .as_ref()
+                .is_none_or(|t| t.closest(".inbox-list").ok().flatten().is_none())
+            && first_list().is_some_and(|f| f == **list);
+        if !inside && !first {
+            return;
+        }
+        if e.meta_key() || e.ctrl_key() || e.alt_key() {
+            return;
+        }
         let key = e.key();
+        let down = matches!(key.as_str(), "ArrowDown" | "j");
+        if down || matches!(key.as_str(), "ArrowUp" | "k") {
+            e.prevent_default();
+            landing.set(None);
+            let i = ctx.sel.try_get_untracked().unwrap_or(0).min(n - 1);
+            let next = if !inside {
+                i
+            } else if down {
+                (i + 1).min(n - 1)
+            } else {
+                i.saturating_sub(1)
+            };
+            ctx.sel.set(next);
+            focus_row(next);
+            return;
+        }
+        if !inside {
+            return;
+        }
         match key.as_str() {
-            "ArrowDown" | "ArrowUp" if !typing && !meta => {
-                e.prevent_default();
-                let i = ctx.sel.try_get_untracked().unwrap_or(0);
-                let next = if key == "ArrowDown" {
-                    (i + 1).min(n - 1)
-                } else {
-                    i.saturating_sub(1)
-                };
-                ctx.sel.set(next);
-                focus_row(next);
-            }
-            "Enter" if !typing && !meta => {
+            "Enter"
+                if target
+                    .as_ref()
+                    .is_some_and(|t| t.matches(".inbox-row").unwrap_or(false)) =>
+            {
                 if let Some(it) = selected() {
                     e.prevent_default();
                     open(it);
                 }
             }
-            "1" | "2" | "3" if !typing && !meta && !e.alt_key() && !e.shift_key() => {
+            "1" | "2" | "3" => {
                 let Some(it) = selected() else {
                     return;
                 };
@@ -769,7 +877,7 @@ pub fn InboxCards(
                 e.prevent_default();
                 pick_approval(ctx, &key, &a, it.workspace.clone());
             }
-            "e" | "E" if !typing && !meta => {
+            "e" | "E" => {
                 if let Some(it) = selected() {
                     e.prevent_default();
                     mark.run((
@@ -778,7 +886,7 @@ pub fn InboxCards(
                     ));
                 }
             }
-            "u" | "U" if !typing && !meta => {
+            "u" | "U" => {
                 if let Some(it) = selected() {
                     e.prevent_default();
                     mark.run((if it.read { "unread" } else { "read" }.into(), vec![it.id]));
@@ -786,7 +894,8 @@ pub fn InboxCards(
             }
             _ => {}
         }
-    };
+    });
+    on_cleanup(move || keys.remove());
     view! {
         <div
             class="inbox-list"
@@ -794,7 +903,6 @@ pub fn InboxCards(
             aria-label=label
             aria-busy=move || busy.get().to_string()
             node_ref=list_el
-            on:keydown=keys
         >
             {move || {
                 items
@@ -989,15 +1097,13 @@ fn row_view(ctx: Ctx, i: usize, it: Item, pending: Option<Value>) -> impl IntoVi
                         class="btn small"
                         disabled=move || ctx.gate.with(|g| g.busy(&a5))
                         on:click=move |_| {
+                            let done = aid.clone();
                             allow_always(
                                 ctx.gate,
                                 aid.clone(),
                                 req.clone(),
                                 ws.clone(),
-                                move || {
-                                    let _ = ctx.appr_rev.try_update(|n| *n += 1);
-                                    refresh(ctx.rev);
-                                },
+                                move || decided(ctx, done.clone()),
                             )
                         }
                     >

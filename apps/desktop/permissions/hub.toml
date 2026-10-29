@@ -27,3 +27,8 @@ commands.allow = ["save_download", "cancel_download", "reveal_download"]
 identifier = "clipboard-image"
 description = "Put an image from the conversation on the clipboard."
 commands.allow = ["copy_image"]
+
+[[permission]]
+identifier = "menu-keys"
+description = "Show the shortcuts the page uses on the native menu."
+commands.allow = ["set_menu_shortcuts"]

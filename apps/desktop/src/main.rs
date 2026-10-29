@@ -129,6 +129,7 @@ fn run() -> Result<()> {
             download::reveal_download,
             snapshot::snapshot_webview,
             clipboard::copy_image,
+            commands::set_menu_shortcuts,
         ])
         .setup(move |app| {
             let hub = setup_hub;
@@ -231,7 +232,8 @@ fn run() -> Result<()> {
                 .window("main")
                 .permission("hub-mode")
                 .permission("downloads")
-                .permission("clipboard-image");
+                .permission("clipboard-image")
+                .permission("menu-keys");
             let page = if hub.remote().is_some() {
                 page.permission("remote-forward")
             } else {

@@ -157,7 +157,11 @@ impl Rows {
                 return;
             }
             let meta = e.meta_key() || e.ctrl_key();
-            let key = e.key();
+            let key = match e.key().as_str() {
+                "j" => "ArrowDown".to_owned(),
+                "k" => "ArrowUp".to_owned(),
+                k => k.to_owned(),
+            };
             let current = self.sel.try_get_untracked().flatten();
             match key.as_str() {
                 "ArrowDown" | "ArrowUp" if !meta && !e.alt_key() => {

@@ -204,8 +204,8 @@ impl Move {
         match key {
             "ArrowLeft" => Some(Self::Left),
             "ArrowRight" => Some(Self::Right),
-            "ArrowUp" => Some(Self::Up),
-            "ArrowDown" => Some(Self::Down),
+            "ArrowUp" | "k" => Some(Self::Up),
+            "ArrowDown" | "j" => Some(Self::Down),
             _ => None,
         }
     }
@@ -221,6 +221,15 @@ pub fn shown_counts(counts: [usize; 3], cols: usize, all_recent: bool) -> [usize
         cap
     };
     [needs, running, recent]
+}
+
+/// After a card is dealt with, the next one (wrapping around) that still needs you.
+#[must_use]
+pub fn next_need(groups: &[Group], from: usize) -> Option<usize> {
+    let n = groups.len();
+    (1..n)
+        .map(|d| (from + d) % n)
+        .find(|&i| groups[i] == Group::Needs)
 }
 
 #[must_use]
@@ -315,6 +324,23 @@ pub fn step_text(step: Option<&WorkspaceStep>, state: &str, root: &str) -> StepT
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn after_a_decision_the_next_card_that_needs_you_is_picked() {
+        use Group::{Needs, Recent, Running};
+        let groups = [Needs, Needs, Running, Needs, Recent];
+        assert_eq!(next_need(&groups, 0), Some(1));
+        assert_eq!(next_need(&groups, 1), Some(3));
+        assert_eq!(next_need(&groups, 3), Some(0));
+        assert_eq!(next_need(&[Needs, Recent], 0), None);
+        assert_eq!(next_need(&[], 0), None);
+    }
+
+    #[test]
+    fn j_and_k_move_like_the_arrows() {
+        assert!(matches!(Move::from_key("j"), Some(Move::Down)));
+        assert!(matches!(Move::from_key("k"), Some(Move::Up)));
+    }
+
     use super::*;
 
     fn ws(id: &str, activity: &str, at: Option<&str>, parent: Option<&str>) -> WorkspaceView {
