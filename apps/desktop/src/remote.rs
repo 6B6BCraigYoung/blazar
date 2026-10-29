@@ -542,6 +542,9 @@ mod tests {
 
     #[test]
     fn port_left_in_time_wait_still_counts_as_free() {
+        // Other tests grab ephemeral ports too; without the lock one of them can take this
+        // port between the drop and the check.
+        let _ports = TEST_PORTS.blocking_lock();
         let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
         let port = listener.local_addr().unwrap().port();
         let client = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
