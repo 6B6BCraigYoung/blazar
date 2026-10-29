@@ -114,6 +114,22 @@ fn wants_step(activity: &str) -> bool {
     matches!(activity, "running" | "errored" | "awaiting_approval")
 }
 
+/// 跟读暂时连不上机器、agent 还在远端跑：当前一步写成 `reconnecting`，`text` 是机器名。
+pub const RECONNECTING_STEP: &str = "reconnecting";
+
+fn reconnecting_step(st: &AppState, activity: &str, session_id: &str) -> Option<WorkspaceStep> {
+    if !matches!(activity, "running" | "awaiting_approval") {
+        return None;
+    }
+    let sid = session_id.parse().map(blazar_core_types::SessionId).ok()?;
+    let node = st.health.reconnecting(sid)?;
+    Some(WorkspaceStep {
+        kind: RECONNECTING_STEP.to_owned(),
+        text: node,
+        ..WorkspaceStep::default()
+    })
+}
+
 async fn latest_step(st: &AppState, session_id: &str) -> Option<WorkspaceStep> {
     let filter = STEP_KINDS
         .iter()
@@ -238,7 +254,10 @@ pub(crate) async fn snapshot(st: &AppState) -> anyhow::Result<StateSnapshot> {
             continue;
         }
         if let Some(sid) = w.session_id.as_deref() {
-            w.step = latest_step(st, sid).await;
+            w.step = match reconnecting_step(st, &w.activity, sid) {
+                Some(step) => Some(step),
+                None => latest_step(st, sid).await,
+            };
         }
         if w.activity == "errored" {
             w.failure = crate::failures::of_workspace(st, &w.id, online(&w.node)).await;

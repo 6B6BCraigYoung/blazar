@@ -66,6 +66,9 @@ pub struct AppState {
 
     pub ui_driver: crate::ui_driver::UiDriver,
 
+    /// 机器在线探测、跟读断线（重连中）和“机器回来续跑”的去重。
+    pub health: crate::health::HealthState,
+
     pub dev_instance: bool,
 }
 
@@ -111,6 +114,7 @@ impl AppState {
             sims: crate::sims::SimsState::default(),
             bots: crate::bots::BotsState::default(),
             ui_driver: crate::ui_driver::UiDriver::from_env(),
+            health: crate::health::HealthState::default(),
             dev_instance: dev_instance(),
         })
     }

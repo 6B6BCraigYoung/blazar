@@ -17,7 +17,16 @@ pub async fn probe_node(
             .collect()
     };
     let h = st.transport(&name).health_with(&env).await?;
+    Ok(Json(record_probe(&st, &name, &h, &env).await?))
+}
 
+/// 探测成功后落库：能力合并进 `capabilities`，机器改成在线并走“机器回来了”的流程。
+pub(crate) async fn record_probe(
+    st: &Shared,
+    name: &str,
+    h: &blazar_transport::NodeHealth,
+    env: &std::collections::BTreeMap<String, String>,
+) -> ApiResult<serde_json::Value> {
     let egress_ok = |c: &u16| matches!(c, 200..=299 | 401);
     let has_egress = h
         .egress
@@ -46,7 +55,7 @@ pub async fn probe_node(
     });
     let existing: Option<String> =
         sqlx::query_scalar("SELECT capabilities FROM nodes WHERE name = ?1")
-            .bind(&name)
+            .bind(name)
             .fetch_optional(st.db.pool())
             .await?;
     let caps = merge_capabilities(
@@ -60,12 +69,14 @@ pub async fn probe_node(
     sqlx::query("UPDATE nodes SET capabilities = ?1, last_seen_at = ?2 WHERE name = ?3")
         .bind(caps.to_string())
         .bind(&now)
-        .bind(&name)
+        .bind(name)
         .execute(st.db.pool())
         .await?;
 
+    // 探测成功就说明机器连得上：改成在线，并走“机器回来了”的流程。
+    crate::health::mark_online(st, name).await;
     st.emit(ServerEvent::NodesChanged);
-    Ok(Json(caps))
+    Ok(caps)
 }
 
 pub(crate) fn merge_capabilities(

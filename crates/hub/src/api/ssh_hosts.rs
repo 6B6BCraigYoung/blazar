@@ -267,57 +267,21 @@ pub async fn probe_ssh_nodes(st: &Shared) {
     if names.is_empty() {
         return;
     }
+    // 启动和手动刷新时只探一次：不通就直接标离线，之后由 health 的定期探测按两次失败的规则纠正。
     let mut set = tokio::task::JoinSet::new();
     for name in names {
         set.spawn(async move {
-            let t = blazar_transport::SshTransport::new(name.clone()).connect_timeout(8);
-            let ok = tokio::time::timeout(
-                std::time::Duration::from_secs(15),
-                blazar_transport::NodeTransport::exec(&t, blazar_transport::ExecSpec::new("true")),
-            )
-            .await
-            .is_ok_and(|r| r.is_ok_and(|o| o.code == 0));
+            let ok =
+                crate::health::reachable(name.clone(), std::time::Duration::from_secs(15)).await;
             (name, ok)
         });
     }
-    let now = Utc::now().to_rfc3339();
-    let mut changed = false;
     while let Some(Ok((name, ok))) = set.join_next().await {
         if ok {
-            let _ = sqlx::query(
-                "UPDATE nodes SET last_seen_at = ?1 WHERE name = ?2 AND network = 'ssh'",
-            )
-            .bind(&now)
-            .bind(&name)
-            .execute(st.db.pool())
-            .await;
-        }
-        let q = if ok {
-            sqlx::query(
-                "UPDATE nodes SET status = 'online', last_seen_at = ?1
-                 WHERE name = ?2 AND network = 'ssh' AND status != 'online'",
-            )
-            .bind(&now)
-            .bind(&name)
+            crate::health::mark_online(st, &name).await;
         } else {
-            sqlx::query(
-                "UPDATE nodes SET status = 'offline'
-                 WHERE name = ?1 AND network = 'ssh' AND status != 'offline'",
-            )
-            .bind(&name)
-        };
-        if q.execute(st.db.pool())
-            .await
-            .is_ok_and(|r| r.rows_affected() > 0)
-        {
-            changed = true;
-            if ok {
-                crate::failures::node_back(st, &name).await;
-            }
+            crate::health::mark_offline(st, &name).await;
         }
-    }
-    if changed {
-        st.emit(ServerEvent::NodesChanged);
     }
 }
 

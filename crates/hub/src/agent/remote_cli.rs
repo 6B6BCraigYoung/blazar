@@ -37,12 +37,12 @@ fn npm_dist(meta: &serde_json::Value) -> Result<(&str, &str), String> {
 
     let url = meta["dist"]["tarball"]
         .as_str()
-        .ok_or("npm 发布信息里没有下载地址")?;
+        .ok_or("the npm release has no download URL")?;
     let sri = meta["dist"]["integrity"]
         .as_str()
         .and_then(|s| s.strip_prefix("sha512-"))
-        .ok_or("npm 发布信息里没有 sha512")?;
-    let parsed = reqwest::Url::parse(url).map_err(|_| "npm 下载地址无效")?;
+        .ok_or("the npm release has no sha512 checksum")?;
+    let parsed = reqwest::Url::parse(url).map_err(|_| "the npm download URL is invalid")?;
     if parsed.scheme() != "https"
         || parsed.host_str() != Some("registry.npmjs.org")
         || !parsed.username().is_empty()
@@ -50,13 +50,13 @@ fn npm_dist(meta: &serde_json::Value) -> Result<(&str, &str), String> {
         || parsed.port_or_known_default() != Some(443)
         || parsed.fragment().is_some()
     {
-        return Err("npm 下载地址必须来自官方 HTTPS 仓库".into());
+        return Err("the npm download URL must come from the official HTTPS registry".into());
     }
     let digest = base64::engine::general_purpose::STANDARD
         .decode(sri)
-        .map_err(|_| "npm sha512 格式无效")?;
+        .map_err(|_| "the npm sha512 checksum is malformed")?;
     if digest.len() != 64 {
-        return Err("npm sha512 长度无效".into());
+        return Err("the npm sha512 checksum has the wrong length".into());
     }
     Ok((url, sri))
 }
@@ -93,7 +93,7 @@ pub(crate) async fn run(
     match tokio::time::timeout(Duration::from_secs(secs), fut).await {
         Ok(Ok(out)) => Ok(format!("{}{}", out.stdout, out.stderr)),
         Ok(Err(e)) => Err(e.to_string()),
-        Err(_) => Err("超时".into()),
+        Err(_) => Err("timed out".into()),
     }
 }
 
@@ -139,7 +139,7 @@ async fn scp(args: &[&str]) -> Result<(), String> {
         .args(args)
         .output()
         .await
-        .map_err(|e| format!("起不了 scp：{e}"))?;
+        .map_err(|e| format!("couldn't start scp: {e}"))?;
     if out.status.success() {
         Ok(())
     } else {
@@ -202,12 +202,17 @@ fn parse_platform(raw: &str) -> Result<Platform, String> {
     let os = match lines.next() {
         Some("Linux") => "linux",
         Some("Darwin") => "darwin",
-        other => return Err(format!("不支持的系统：{}", other.unwrap_or("未知"))),
+        other => return Err(format!("unsupported OS: {}", other.unwrap_or("unknown"))),
     };
     let arch = match lines.next() {
         Some("x86_64" | "amd64") => "x64",
         Some("aarch64" | "arm64") => "arm64",
-        other => return Err(format!("不支持的 CPU 架构：{}", other.unwrap_or("未知"))),
+        other => {
+            return Err(format!(
+                "unsupported CPU architecture: {}",
+                other.unwrap_or("unknown")
+            ));
+        }
     };
     let musl = os == "linux" && lines.next() == Some("musl");
     Ok(Platform { os, arch, musl })
@@ -233,11 +238,12 @@ async fn claude_latest() -> Result<(u64, u64, u64), String> {
         .send()
         .await
         .and_then(reqwest::Response::error_for_status)
-        .map_err(|e| format!("查不到 Claude Code 最新版本：{e}"))?
+        .map_err(|e| format!("couldn't look up the latest Claude Code version: {e}"))?
         .text()
         .await
         .map_err(|e| e.to_string())?;
-    parse_version(&text).ok_or_else(|| "Claude Code 最新版本号格式不对".to_owned())
+    parse_version(&text)
+        .ok_or_else(|| "the latest Claude Code version number is malformed".to_owned())
 }
 
 async fn claude_checksum(v: &str, platform: &str) -> Result<String, String> {
@@ -247,17 +253,17 @@ async fn claude_checksum(v: &str, platform: &str) -> Result<String, String> {
         .send()
         .await
         .and_then(reqwest::Response::error_for_status)
-        .map_err(|e| format!("拿不到 Claude Code {v} 的发布清单：{e}"))?
+        .map_err(|e| format!("couldn't fetch the Claude Code {v} release manifest: {e}"))?
         .bytes()
         .await
         .ok()
         .and_then(|b| serde_json::from_slice(&b).ok())
-        .ok_or_else(|| format!("Claude Code {v} 的发布清单格式不对"))?;
+        .ok_or_else(|| format!("the Claude Code {v} release manifest is malformed"))?;
     manifest["platforms"][platform]["checksum"]
         .as_str()
         .and_then(sha256_digest)
         .map(str::to_owned)
-        .ok_or_else(|| format!("Claude Code {v} 没有 {platform} 版本"))
+        .ok_or_else(|| format!("Claude Code {v} has no build for {platform}"))
 }
 
 pub(crate) fn cache_dir(st: &Shared) -> std::path::PathBuf {
@@ -293,7 +299,7 @@ pub(crate) async fn cached_download(
         .send()
         .await
         .and_then(reqwest::Response::error_for_status)
-        .map_err(|e| format!("本机下载失败：{e}"))?;
+        .map_err(|e| format!("download on this computer failed: {e}"))?;
     let mut file = tokio::fs::File::create(&part)
         .await
         .map_err(|e| e.to_string())?;
@@ -301,7 +307,7 @@ pub(crate) async fn cached_download(
     while let Some(chunk) = resp
         .chunk()
         .await
-        .map_err(|e| format!("本机下载中断：{e}"))?
+        .map_err(|e| format!("download on this computer was interrupted: {e}"))?
     {
         hash.update(&chunk);
         file.write_all(&chunk).await.map_err(|e| e.to_string())?;
@@ -310,7 +316,7 @@ pub(crate) async fn cached_download(
     drop(file);
     if hex(&hash.finalize()) != sha256 {
         let _ = tokio::fs::remove_file(&part).await;
-        return Err("本机下载的文件校验不通过".into());
+        return Err("the file downloaded on this computer failed the checksum".into());
     }
     tokio::fs::rename(&part, path)
         .await
@@ -328,7 +334,7 @@ F="$R/claude.part"
 mkdir -p "$R" "$HOME/{MANAGED_BIN}"
 {source}
 S=$( (sha256sum "$F" 2>/dev/null || shasum -a 256 "$F") | cut -d' ' -f1)
-[ "$S" = {sum} ] || {{ rm -f "$F"; echo "校验失败" >&2; exit 1; }}
+[ "$S" = {sum} ] || {{ rm -f "$F"; echo "checksum mismatch" >&2; exit 1; }}
 chmod +x "$F" && mv -f "$F" "$R/claude"
 ln -sfn "$R/claude" "$HOME/{MANAGED_BIN}/claude"
 "#,
@@ -354,13 +360,13 @@ async fn install_claude(st: &Shared, node: &str, want: (u64, u64, u64)) -> Resul
     let remote_log = run(st, node, &script, 900).await.unwrap_or_else(|e| e);
     if remote_version(st, node, "claude").await == Some(want) {
         return Ok(format!(
-            "已把 Claude Code {v} 装到 {node} 的 ~/.blazar（官方发布，sha256 校验通过）"
+            "Installed Claude Code {v} on {node} (official release, sha256 verified)"
         ));
     }
     // 本机没有“由别处下载再传过来”的退路，后面的 scp 兜底只对远端有意义。
     if node == "local" {
         return Err(format!(
-            "Claude Code {v} 下载失败：{}",
+            "Couldn't download Claude Code {v}: {}",
             remote_log.lines().last().unwrap_or("").trim()
         ));
     }
@@ -389,7 +395,7 @@ async fn install_claude(st: &Shared, node: &str, want: (u64, u64, u64)) -> Resul
         let _ = run(st, node, &claude_install_script(&v, &sum, ":"), 120).await;
         if remote_version(st, node, "claude").await == Some(want) {
             return Ok(format!(
-                "{node} 下载不了，已由本机下载后传过去，装在 ~/.blazar（sha256 校验通过），现在是 {v}"
+                "{node} couldn't download it, so this computer downloaded Claude Code {v} and copied it over (sha256 verified)"
             ));
         }
     }
@@ -431,16 +437,16 @@ async fn install_claude(st: &Shared, node: &str, want: (u64, u64, u64)) -> Resul
         let _ = run(st, node, &claude_install_script(&v, &sum, ":"), 120).await;
         if remote_version(st, node, "claude").await == Some(want) {
             return Ok(format!(
-                "下载都没成功，已从 {src} 拷贝 {v} 到 ~/.blazar（sha256 校验通过）"
+                "Downloads failed, so Claude Code {v} was copied over from {src} (sha256 verified)"
             ));
         }
     }
     Err(format!(
-        "没能在 {node} 上装好 Claude Code {v}：远端下载失败（{}），本机{}，也没有别的机器装了这个版本可以拷",
+        "Couldn't install Claude Code {v} on {node}: the download there failed ({}), {}, and no other machine has this version to copy from",
         remote_log.lines().last().unwrap_or("").trim(),
         match pushed {
-            Ok(()) => "传过去后校验没通过".to_owned(),
-            Err(e) => format!("兜底也失败（{e}）"),
+            Ok(()) => "the copy from this computer failed verification".to_owned(),
+            Err(e) => format!("copying from this computer failed too ({e})"),
         }
     ))
 }
@@ -452,7 +458,7 @@ umask 022
 T={triple}
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 {source}
-[ "$(openssl dgst -sha512 -binary "$TMP/pkg.tgz" | openssl base64 -A)" = {sri_b64} ] || {{ echo 校验失败; exit 1; }}
+[ "$(openssl dgst -sha512 -binary "$TMP/pkg.tgz" | openssl base64 -A)" = {sri_b64} ] || {{ echo checksum mismatch; exit 1; }}
 tar xzf "$TMP/pkg.tgz" -C "$TMP"
 R=$HOME/.blazar/agents/codex/{v}
 rm -rf "$R"; mkdir -p "$(dirname "$R")" "$HOME/{MANAGED_BIN}"
@@ -470,16 +476,16 @@ async fn codex_latest() -> Result<(u64, u64, u64), String> {
         .send()
         .await
         .and_then(reqwest::Response::error_for_status)
-        .map_err(|e| format!("查不到 Codex 最新版本：{e}"))?
+        .map_err(|e| format!("couldn't look up the latest Codex version: {e}"))?
         .bytes()
         .await
         .ok()
         .and_then(|b| serde_json::from_slice(&b).ok())
-        .ok_or_else(|| "Codex 发布信息格式不对".to_owned())?;
+        .ok_or_else(|| "the Codex release info is malformed".to_owned())?;
     meta["version"]
         .as_str()
         .and_then(parse_version)
-        .ok_or_else(|| "Codex 最新版本号格式不对".to_owned())
+        .ok_or_else(|| "the latest Codex version number is malformed".to_owned())
 }
 
 async fn install_codex(st: &Shared, node: &str, want: (u64, u64, u64)) -> Result<String, String> {
@@ -493,12 +499,12 @@ async fn install_codex(st: &Shared, node: &str, want: (u64, u64, u64)) -> Result
         .send()
         .await
         .and_then(reqwest::Response::error_for_status)
-        .map_err(|e| format!("从 npm 拿不到 Codex {v} 的发布信息：{e}"))?
+        .map_err(|e| format!("couldn't fetch the Codex {v} release info from npm: {e}"))?
         .bytes()
         .await
         .ok()
         .and_then(|b| serde_json::from_slice(&b).ok())
-        .ok_or_else(|| "从 npm 拿不到 Codex 的发布信息".to_owned())?;
+        .ok_or_else(|| "couldn't fetch the Codex release info from npm".to_owned())?;
     let (url, sri) = npm_dist(&meta)?;
     let remote_fetch = format!(
         "curl -fsSL --connect-timeout 15 --max-time 900 --speed-limit 50000 --speed-time 30 --retry 2 -o \"$TMP/pkg.tgz\" -- {u} 2>/dev/null || wget -q -T 30 -t 2 -O \"$TMP/pkg.tgz\" -- {u}",
@@ -512,12 +518,12 @@ async fn install_codex(st: &Shared, node: &str, want: (u64, u64, u64)) -> Result
     let remote_log = run(st, node, &script, 900).await.unwrap_or_else(|e| e);
     if remote_version(st, node, "codex").await == Some(want) {
         return Ok(format!(
-            "已把 Codex {v} 装到 {node} 的 ~/.blazar（npm 官方仓库，sha512 校验通过）"
+            "Installed Codex {v} on {node} (official npm registry, sha512 verified)"
         ));
     }
     if node == "local" {
         return Err(format!(
-            "Codex {v} 下载失败：{}",
+            "Couldn't download Codex {v}: {}",
             remote_log.lines().last().unwrap_or("").trim()
         ));
     }
@@ -538,13 +544,15 @@ async fn install_codex(st: &Shared, node: &str, want: (u64, u64, u64)) -> Result
         .await
         .is_ok_and(|s| s.success());
     if !downloaded {
-        return Err(format!("没能装好 Codex {v}：远端和本机都下载不到安装包"));
+        return Err(format!(
+            "Couldn't install Codex {v}: neither {node} nor this computer could download it"
+        ));
     }
     let _ = tokio::fs::rename(local.with_extension("part"), &local).await;
     let remote_tmp = format!("/tmp/blazar-codex-{v}.tgz");
     scp_up(&local, &ssh_target(st, node), &remote_tmp)
         .await
-        .map_err(|e| format!("没能把安装包传到 {node}：{e}"))?;
+        .map_err(|e| format!("Couldn't copy the Codex package to {node}: {e}"))?;
     let local_src = format!("mv {remote_tmp} \"$TMP/pkg.tgz\"");
     let _ = run(
         st,
@@ -555,10 +563,10 @@ async fn install_codex(st: &Shared, node: &str, want: (u64, u64, u64)) -> Result
     .await;
     if remote_version(st, node, "codex").await == Some(want) {
         Ok(format!(
-            "{node} 下载不了，已由本机下载后传过去（sha512 校验通过），装在 ~/.blazar，现在是 {v}"
+            "{node} couldn't download it, so this computer downloaded Codex {v} and copied it over (sha512 verified)"
         ))
     } else {
-        Err(format!("没能在 {node} 上装好 Codex {v}"))
+        Err(format!("Couldn't install Codex {v} on {node}"))
     }
 }
 
@@ -588,7 +596,7 @@ pub async fn install(st: &Shared, node: &str, runtime: &str) -> Result<(String, 
         Some(v) => v,
         None if runtime == "claude" => claude_latest().await?,
         None if runtime == "codex" => codex_latest().await?,
-        None => return Err(format!("不支持自动安装 {runtime}")),
+        None => return Err(format!("{runtime} can't be installed automatically")),
     };
     let msg = if runtime == "claude" {
         install_claude(st, node, want).await?

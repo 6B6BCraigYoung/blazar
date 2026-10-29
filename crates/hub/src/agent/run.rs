@@ -459,6 +459,36 @@ pub async fn register(
     );
 }
 
+/// 远端跟读这么久没有新输出，就探一下机器还在不在。
+pub const QUIET_CHECK: Duration = Duration::from_secs(12);
+
+/// 跟读时探测机器最多等多久；加上 [`QUIET_CHECK`]，断线约 20 秒内就能发现。
+pub const LINK_TIMEOUT: Duration = Duration::from_secs(8);
+
+async fn probe_link(ctx: &Ctx) -> Result<RunState, String> {
+    match tokio::time::timeout(LINK_TIMEOUT, ctx.live.run.probe()).await {
+        Ok(Ok(state)) => Ok(state),
+        Ok(Err(e)) => Err(e.to_string()),
+        Err(_) => Err(format!("no answer within {} s", LINK_TIMEOUT.as_secs())),
+    }
+}
+
+/// 跟读连不上机器了：会话还在远端跑，记成“重连中”而不是失败。
+pub(crate) fn link_lost(st: &Shared, sid: SessionId, node: &str, why: &str) {
+    if st.health.set_reconnecting(sid, node) {
+        tracing::info!(target: "blazar::run", "{node} 暂时连不上，{sid} 重连中: {why}");
+        st.emit(ServerEvent::WorkspacesChanged);
+    }
+}
+
+/// 跟读重新连上了。
+pub(crate) fn link_back(st: &Shared, sid: SessionId) {
+    if st.health.clear_reconnecting(sid) {
+        tracing::info!(target: "blazar::run", "{sid} 重新连上");
+        st.emit(ServerEvent::WorkspacesChanged);
+    }
+}
+
 pub async fn supervise(
     ctx: Ctx,
     mut offset: u64,
@@ -469,32 +499,57 @@ pub async fn supervise(
         saw_finished: false,
         partial_at: None,
     };
+    let remote = ctx.node != "local";
     let mut backoff = 1u64;
     loop {
         match ctx.live.run.follow(offset).await {
-            Ok(mut stream) => {
-                while let Some(line) = stream.stdout.next().await {
-                    let at = offset;
-                    match process_line(&ctx, &line, at, &mut p).await {
-                        Line::Done => {
-                            offset = at + line.len() as u64 + 1;
-                            backoff = 1;
-                        }
-                        Line::Exit => offset = at + line.len() as u64 + 1,
-                        Line::Partial => break,
+            Ok(mut stream) => loop {
+                let line = if remote {
+                    match tokio::time::timeout(QUIET_CHECK, stream.stdout.next()).await {
+                        Ok(line) => line,
+                        Err(_) => match probe_link(&ctx).await {
+                            Ok(_) => {
+                                link_back(&ctx.st, ctx.sid);
+                                continue;
+                            }
+                            Err(e) => {
+                                link_lost(&ctx.st, ctx.sid, &ctx.node, &e);
+                                break;
+                            }
+                        },
                     }
+                } else {
+                    stream.stdout.next().await
+                };
+                let Some(line) = line else {
+                    break;
+                };
+                link_back(&ctx.st, ctx.sid);
+                let at = offset;
+                match process_line(&ctx, &line, at, &mut p).await {
+                    Line::Done => {
+                        offset = at + line.len() as u64 + 1;
+                        backoff = 1;
+                    }
+                    Line::Exit => offset = at + line.len() as u64 + 1,
+                    Line::Partial => break,
                 }
-            }
+            },
             Err(e) => tracing::warn!(target: "blazar::run", "跟读 {} 失败: {e}", ctx.sid),
         }
 
-        let terminal = match ctx.live.run.probe().await {
-            Ok(RunState::Alive { .. }) => None,
-            Ok(RunState::Exited { code, size }) => Some((Some(code), size)),
-            Ok(RunState::Lost { size }) => Some((None, size)),
-            Ok(RunState::Missing) => Some((None, offset)),
+        let terminal = match probe_link(&ctx).await {
+            Ok(state) => {
+                link_back(&ctx.st, ctx.sid);
+                match state {
+                    RunState::Alive { .. } => None,
+                    RunState::Exited { code, size } => Some((Some(code), size)),
+                    RunState::Lost { size } => Some((None, size)),
+                    RunState::Missing => Some((None, offset)),
+                }
+            }
             Err(e) => {
-                tracing::info!(target: "blazar::run", "{} 暂时连不上: {e}", ctx.node);
+                link_lost(&ctx.st, ctx.sid, &ctx.node, &e);
                 None
             }
         };
@@ -502,11 +557,19 @@ pub async fn supervise(
             && drain_remaining(&ctx, &mut offset, size, &mut p).await
         {
             match finalize(&ctx, code, &mut p).await {
-                Ok(()) => return,
+                Ok(()) => {
+                    link_back(&ctx.st, ctx.sid);
+                    return;
+                }
                 Err(e) => tracing::error!(target: "blazar::run", "收尾落库失败，保留日志重试: {e}"),
             }
         }
-        tokio::time::sleep(Duration::from_secs(backoff)).await;
+        let wait = if ctx.st.health.reconnecting(ctx.sid).is_some() {
+            backoff.min(10)
+        } else {
+            backoff
+        };
+        tokio::time::sleep(Duration::from_secs(wait)).await;
         backoff = (backoff * 2).min(30);
     }
 }

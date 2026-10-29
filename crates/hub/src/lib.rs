@@ -13,6 +13,7 @@ pub mod auth;
 pub mod bots;
 pub mod fleet;
 pub mod git;
+pub mod health;
 mod images;
 pub mod mesh;
 pub mod office;
@@ -123,6 +124,7 @@ pub async fn build_state_with_services(
     services.spawn(fleet::watchdog(st.clone()));
     services.spawn(bots::jobs::watch(st.clone()));
     services.spawn(bots::rules::watch(st.clone()));
+    services.spawn(health::watch(Arc::downgrade(&st)));
     Ok(st)
 }
 

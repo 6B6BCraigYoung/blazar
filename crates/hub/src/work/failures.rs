@@ -118,7 +118,7 @@ pub async fn of_workspace(st: &AppState, ws: &str, node_online: bool) -> Option<
 
 pub async fn handle(st: &AppState, ws: &str, session: Option<&str>) -> ApiResult<Vec<String>> {
     let now = Utc::now().to_rfc3339();
-    let handled: Vec<String> = sqlx::query_scalar(
+    let candidates: Vec<String> = sqlx::query_scalar(
         "SELECT id FROM sessions WHERE workspace_id = ?1 AND status = 'failed' AND handled_at IS NULL
            AND (?2 IS NULL OR id = ?2)",
     )
@@ -126,20 +126,28 @@ pub async fn handle(st: &AppState, ws: &str, session: Option<&str>) -> ApiResult
     .bind(session)
     .fetch_all(st.db.pool())
     .await?;
-    for sid in &handled {
-        sqlx::query("UPDATE sessions SET handled_at = ?2 WHERE id = ?1")
-            .bind(sid)
-            .bind(&now)
-            .execute(st.db.pool())
-            .await?;
+    let mut handled = Vec::with_capacity(candidates.len());
+    for sid in candidates {
+        // 只认自己真正改到的那一行：两处同时处理同一个失败时只有一处算数。
+        let claimed =
+            sqlx::query("UPDATE sessions SET handled_at = ?2 WHERE id = ?1 AND handled_at IS NULL")
+                .bind(&sid)
+                .bind(&now)
+                .execute(st.db.pool())
+                .await?
+                .rows_affected();
+        if claimed == 0 {
+            continue;
+        }
         sqlx::query(
             "UPDATE inbox SET resolved_at = COALESCE(resolved_at, ?2), read_at = COALESCE(read_at, ?2)
              WHERE kind = 'run_failed' AND session_id = ?1",
         )
-        .bind(sid)
+        .bind(&sid)
         .bind(&now)
         .execute(st.db.pool())
         .await?;
+        handled.push(sid);
     }
     let calmed = sqlx::query(
         "UPDATE workspaces SET activity = 'idle' WHERE id = ?1 AND activity = 'errored'",
@@ -155,9 +163,22 @@ pub async fn handle(st: &AppState, ws: &str, session: Option<&str>) -> ApiResult
     Ok(handled)
 }
 
-pub async fn node_back(st: &AppState, node: &str) {
+/// 机器重新连上了：因它中断的活不悄悄清掉，按断网一样处理——
+/// 开着自动续跑就接着做，关着就把卡片改成“机器回来了，可以继续”。
+pub async fn node_back(st: &Shared, node: &str) {
+    node_back_with(st, node, &crate::auto_resume::send_again).await;
+}
+
+pub(crate) async fn node_back_with<S>(st: &Shared, node: &str, send: &S)
+where
+    S: Fn(
+        Shared,
+        String,
+        crate::api::PromptRequest,
+    ) -> futures::future::BoxFuture<'static, Result<Value, String>>,
+{
     let rows = sqlx::query(
-        "SELECT s.id, s.workspace_id, s.failure_cause FROM sessions s
+        "SELECT s.id, s.failure_cause FROM sessions s
          JOIN workspaces w ON w.id = s.workspace_id JOIN nodes n ON n.id = w.node_id
          WHERE n.name = ?1 AND s.status = 'failed' AND s.handled_at IS NULL
            AND s.id = (SELECT x.id FROM sessions x WHERE x.workspace_id = w.id
@@ -169,7 +190,6 @@ pub async fn node_back(st: &AppState, node: &str) {
     .unwrap_or_default();
     for row in rows {
         let sid: String = row.try_get("id").unwrap_or_default();
-        let ws: String = row.try_get("workspace_id").unwrap_or_default();
         let cause = match row
             .try_get::<Option<String>, _>("failure_cause")
             .unwrap_or(None)
@@ -181,11 +201,11 @@ pub async fn node_back(st: &AppState, node: &str) {
         if cause != FailureCause::Node {
             continue;
         }
-        if let Err(e) = handle(st, &ws, Some(&sid)).await {
-            tracing::warn!(target: "blazar::failures", "{node} 上线后清不掉 {sid} 的失败：{}", e.message());
-        } else {
-            tracing::info!(target: "blazar::failures", "{node} 重新上线，{ws} 的失败已清掉");
-        }
+        let Ok(id) = sid.parse().map(blazar_core_types::SessionId) else {
+            continue;
+        };
+        tracing::info!(target: "blazar::failures", "{node} 重新连上，接着处理 {sid}");
+        crate::auto_resume::on_node_back(st, id, node, send).await;
     }
 }
 
@@ -303,7 +323,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_machine_coming_back_clears_only_node_failures() {
+    async fn a_machine_coming_back_resumes_only_node_failures() {
         let (st, ws, sid) = fixture("offline").await;
         fail_with(&st, sid, ws, "agent 异常退出（退出码 255）。stderr: ssh: connect to host gpu-x port 22: No route to host").await;
         record(&st, sid).await;
@@ -313,7 +333,21 @@ mod tests {
             .bind(other.to_string()).execute(st.db.pool()).await.unwrap();
         sqlx::query("INSERT INTO sessions (id, workspace_id, runtime_kind, status, failure_cause, created_at) VALUES (?1, ?2, 'claude', 'failed', 'busy', '1')")
             .bind(busy.to_string()).bind(other.to_string()).execute(st.db.pool()).await.unwrap();
-        node_back(&st, "gpu-x").await;
+        sqlx::query("UPDATE sessions SET request = '{\"text\":\"go\"}' WHERE id = ?1")
+            .bind(sid.to_string())
+            .execute(st.db.pool())
+            .await
+            .unwrap();
+        let resumed = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let seen = resumed.clone();
+        let send = move |_: Shared, ws: String, _: crate::api::PromptRequest| {
+            seen.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            assert!(!ws.is_empty());
+            Box::pin(async { Ok(json!({ "admitted": true })) })
+                as futures::future::BoxFuture<'static, Result<Value, String>>
+        };
+        node_back_with(&st, "gpu-x", &send).await;
+        assert_eq!(resumed.load(std::sync::atomic::Ordering::SeqCst), 1);
         assert_eq!(activity(&st, ws).await, "idle");
         assert_eq!(activity(&st, other).await, "errored");
         assert!(of_workspace(&st, &ws.to_string(), true).await.is_none());
