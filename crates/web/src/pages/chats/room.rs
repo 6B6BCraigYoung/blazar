@@ -186,9 +186,6 @@ fn Room(id: String, path: String, thread: Signal<Option<String>>) -> impl IntoVi
                         })
                 }}
                 <span class="grow"></span>
-                <a class="btn console-all" href="/chats">
-                    "全部对话"
-                </a>
                 <button
                     type="button"
                     class="btn primary console-new"
@@ -357,6 +354,17 @@ fn ChatPicker(chat: Chat, go: Callback<String>) -> impl IntoView {
                                 }
                             })
                     }}
+                    <div class="menu-sep"></div>
+                    <button
+                        type="button"
+                        role="menuitem"
+                        on:click=move |_| {
+                            open.set(false);
+                            go.run("/chats".into());
+                        }
+                    >
+                        <span>"全部对话…"</span>
+                    </button>
                 </div>
             </Show>
         </span>

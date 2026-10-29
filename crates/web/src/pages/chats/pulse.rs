@@ -69,44 +69,61 @@ pub fn Pulse(rail_mode: Callback<bool>) -> impl IntoView {
             String::new()
         }
     });
+    let seg = move |k: &'static str,
+                    tone: &'static str,
+                    label: &'static str,
+                    n: Signal<usize>,
+                    tip: Signal<String>,
+                    on: Callback<()>| {
+        view! {
+            <button
+                type="button"
+                class="pulse-seg"
+                data-k=k
+                data-zero=move || (n.get() == 0).to_string()
+                title=move || tip.get()
+                on:click=move |_| on.run(())
+            >
+                <i class="dot" data-tone=tone></i>
+                <b>{move || n.get()}</b>
+                {label}
+            </button>
+        }
+    };
+    let to_list = Callback::new(move |()| go("/workspaces"));
+    let to_rail = Callback::new(move |()| rail_mode.run(false));
     view! {
-        <section class="pulse" aria-label="状态">
-            <button type="button" class="tile" data-k="running" on:click=move |_| go("/workspaces")>
-                <span class="tl">
-                    <i class="dot" data-tone="run"></i>
-                    "在跑"
-                </span>
-                <span class="tn">{move || running.with(Vec::len)}</span>
-                <span class="ts">{move || running.with(|l| names(l))}</span>
-            </button>
-            <button
-                type="button"
-                class="tile"
-                data-k="waiting"
-                data-on=move || (waiting.get().0 > 0).to_string()
-                on:click=move |_| rail_mode.run(false)
-            >
-                <span class="tl">
-                    <i class="dot" data-tone="attention"></i>
-                    "等你"
-                </span>
-                <span class="tn">{move || waiting.get().0}</span>
-                <span class="ts">{move || waiting.get().1}</span>
-            </button>
-            <button
-                type="button"
-                class="tile"
-                data-k="failed"
-                data-on=move || (waiting.get().2 > 0).to_string()
-                on:click=move |_| rail_mode.run(false)
-            >
-                <span class="tl">
-                    <i class="dot" data-tone="failed"></i>
-                    "失败"
-                </span>
-                <span class="tn">{move || waiting.get().2}</span>
-                <span class="ts">{move || failed_sub.get()}</span>
-            </button>
-        </section>
+        <p class="pulse" aria-label="状态">
+            {seg(
+                "running",
+                "run",
+                "在跑",
+                Signal::derive(move || running.with(Vec::len)),
+                Signal::derive(move || running.with(|l| names(l))),
+                to_list,
+            )}
+            <span class="pulse-sep" aria-hidden="true">
+                "·"
+            </span>
+            {seg(
+                "waiting",
+                "attention",
+                "等你",
+                Signal::derive(move || waiting.get().0),
+                Signal::derive(move || waiting.get().1),
+                to_rail,
+            )}
+            <span class="pulse-sep" aria-hidden="true">
+                "·"
+            </span>
+            {seg(
+                "failed",
+                "failed",
+                "失败",
+                Signal::derive(move || waiting.get().2),
+                Signal::derive(move || failed_sub.get()),
+                to_rail,
+            )}
+        </p>
     }
 }
