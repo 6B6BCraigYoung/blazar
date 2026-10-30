@@ -17,8 +17,10 @@ case "${1:-}" in
   ops) exec "${PY[@]}" ops "${@:2}" ;;
   memory) exec "${PY[@]}" memory "${@:2}" ;;
   launch) exec "${PY[@]}" launch "${@:2}" ;;
+  firstrun) exec "${PY[@]}" firstrun "${@:2}" ;;
+  keyboard) exec "${PY[@]}" keyboard "${@:2}" ;;
   compare) exec "${PY[@]}" compare "${@:2}" ;;
   *)
-    echo "用法：perf.sh prepare | start | stop | idle [秒数] [--label 名字] | ops [--label 名字] | memory [--cycles N] [--routes a,b] | launch [--reps N] | compare <结果1> <结果2>" >&2
+    echo "用法：perf.sh prepare | start | stop | idle [秒数] [--label 名字] | ops [--label 名字] | memory [--cycles N] [--routes a,b] | launch [--reps N] | firstrun | keyboard | compare <结果1> <结果2>" >&2
     exit 2 ;;
 esac

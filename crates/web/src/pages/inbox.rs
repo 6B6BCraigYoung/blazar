@@ -793,6 +793,39 @@ pub fn InboxCards(
             let _ = row.focus();
         }
     };
+    // 「处理下一件事」: the first card that needs you, opened and focused so 1 / 2 / 3 answer it.
+    if compact && open_first {
+        let open_thread = use_context::<OpenThread>();
+        Effect::new(move |_| {
+            if !app.needs_focus.get() || items.with(|l| !l.iter().any(Item::needs_you)) {
+                return;
+            }
+            app.needs_focus.set(false);
+            // A beat later: the palette hands the focus back as it closes, and the console's
+            // own conversation settles which request is already shown there.
+            gloo_timers::callback::Timeout::new(250, move || {
+                let here = open_thread.and_then(|t| t.0.try_get_untracked().flatten());
+                let Some((i, id)) = items
+                    .try_with_untracked(|l| {
+                        let elsewhere = |it: &Item| {
+                            !(it.open_request() && here.as_deref() == Some(it.thread.as_str()))
+                        };
+                        l.iter()
+                            .position(|it| it.needs_you() && elsewhere(it))
+                            .or_else(|| l.iter().position(Item::needs_you))
+                            .map(|i| (i, l[i].id.clone()))
+                    })
+                    .flatten()
+                else {
+                    return;
+                };
+                ctx.sel.set(i);
+                ctx.open_to(Some(id));
+                request_animation_frame(move || focus_row(i));
+            })
+            .forget();
+        });
+    }
     let selected = move || {
         let i = ctx.sel.try_get_untracked()?;
         items.try_with_untracked(|it| it.get(i).cloned()).flatten()

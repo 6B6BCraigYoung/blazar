@@ -37,6 +37,8 @@ pub struct AppData {
     pub selected_ws: RwSignal<Option<String>>,
     pub inspect_ws: RwSignal<Option<String>>,
     pub new_ws: RwSignal<bool>,
+    /// 「处理下一件事」asked for the console rail's first card that needs you, focused and open.
+    pub needs_focus: RwSignal<bool>,
     pub new_ws_node: RwSignal<Option<String>>,
     pub new_ws_parent: RwSignal<Option<(String, String)>>,
     pub palette: RwSignal<bool>,
@@ -543,6 +545,7 @@ pub fn provide(bus: Bus) -> AppData {
         selected_ws: RwSignal::new(None),
         inspect_ws: RwSignal::new(None),
         new_ws: RwSignal::new(false),
+        needs_focus: RwSignal::new(false),
         new_ws_node: RwSignal::new(None),
         new_ws_parent: RwSignal::new(None),
         palette: RwSignal::new(false),

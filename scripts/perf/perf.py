@@ -1,4 +1,5 @@
 import json
+import shutil
 import os
 import re
 import sqlite3
@@ -618,9 +619,138 @@ def launch(args):
     print("冷启动到首屏可操作（中位数）：" + "，".join(f"{k} {v}" for k, v in result["median"].items()))
 
 
-COMMANDS = {"prepare": prepare, "pids": pids, "idle": idle, "ops": ops, "memory": memory, "launch": launch, "compare": compare}
+def firstrun(args):
+    """A brand-new profile with Claude Code installed and signed in (the fake one): from opening
+    the app to the first message showing as sent, counting the clicks it took. The system's
+    folder panel is answered by BLAZAR_DEV_PICK_FOLDER; in real use it adds two clicks."""
+    di = ROOT / "scripts/dev-instance.sh"
+    subprocess.run([str(di), "stop"], check=True, capture_output=True)
+    shutil.rmtree(DATA, ignore_errors=True)
+    install_fake_claude(None)
+    project = HOME / "projects/demo-app"
+    if not (project / ".git").exists():
+        project.mkdir(parents=True, exist_ok=True)
+        (project / "README.md").write_text("# demo-app\n\nA small demo project.\n")
+        env = dict(os.environ, GIT_AUTHOR_NAME="Demo User", GIT_AUTHOR_EMAIL="demo@example.invalid",
+                   GIT_COMMITTER_NAME="Demo User", GIT_COMMITTER_EMAIL="demo@example.invalid")
+        for cmd in (["init", "-q", "-b", "main"], ["add", "."], ["commit", "-qm", "init"]):
+            subprocess.run(["git", "-C", str(project), *cmd], check=True, env=env)
+    clicks, marks = 0, {}
+    t0 = time.time()
+    subprocess.run([str(di), "start"], check=True, capture_output=True,
+                   env=dict(os.environ, BLAZAR_DEV_PICK_FOLDER=str(project)))
+    lap = lambda name: marks.setdefault(name, round(time.time() - t0, 2))
+
+    def step(cmd):
+        r = ui(cmd)
+        if "error" in r or (cmd["action"] == "wait" and r.get("found") is False):
+            die(f"驱动出错：{r.get('error', '等不到')}（{json.dumps(cmd, ensure_ascii=False)}）")
+        return r
+
+    step({"action": "init"})
+    step({"action": "wait", "text": "选择项目文件夹", "timeout_ms": 20000})
+    lap("start_page")
+    step({"action": "wait", "selector": ".start-lines [data-ok=\"true\"]", "timeout_ms": 20000})
+    lap("signed_in_shown")
+    step({"action": "click", "text": "选择项目文件夹…", "partial": True})
+    clicks += 1
+    step({"action": "wait", "selector": ".cc-box .prompt", "timeout_ms": 20000})
+    lap("workspace_open")
+    step({"action": "type", "selector": ".cc-box .prompt", "value": "Explain this codebase"})
+    step({"action": "key", "selector": ".cc-box .prompt", "key": "Enter", "code": "Enter"})
+    step({"action": "wait", "selector": ".cc-user", "timeout_ms": 20000})
+    lap("first_message_sent")
+    result = {"label": flag(args, "--label") or "firstrun", "firstrun": True, "clicks_in_app": clicks,
+              "clicks_with_system_panel": clicks + 2, "seconds": marks,
+              "at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+    path = OUT / f"firstrun-{result['label']}-{datetime.now().strftime('%m%d-%H%M%S')}.json"
+    path.write_text(json.dumps(result, ensure_ascii=False, indent=1))
+    print(path)
+    print(f"应用内点击 {clicks} 次（加上系统选择面板约 {clicks + 2} 次）；" + "，".join(f"{k} {v}s" for k, v in marks.items()))
+
+
+def keyboard(args):
+    """The main path with keys only: new workspace (⇧⌘N), a first message (⌘L, type, Enter),
+    the next thing that needs you from the palette (⌘K 「处理下一件事」), and a commit
+    from the palette (⌘K 「提交…」, type, ⌘Enter). Typing goes into whatever has the focus;
+    nothing is clicked. Synthetic Tab doesn't move the focus in a browser, so every step has to
+    be a key the app itself answers."""
+    di = ROOT / "scripts/dev-instance.sh"
+    project = HOME / "projects/kbd-app"
+    shutil.rmtree(project, ignore_errors=True)
+    project.mkdir(parents=True)
+    env = dict(os.environ, GIT_AUTHOR_NAME="Demo User", GIT_AUTHOR_EMAIL="demo@example.invalid",
+               GIT_COMMITTER_NAME="Demo User", GIT_COMMITTER_EMAIL="demo@example.invalid")
+    (project / "README.md").write_text("# kbd-app\n")
+    for cmd in (["init", "-q", "-b", "main"], ["add", "."], ["commit", "-qm", "init"]):
+        subprocess.run(["git", "-C", str(project), *cmd], check=True, env=env)
+    (project / "notes.md").write_text("A change to commit from the keyboard.\n")
+    subprocess.run([str(di), "stop"], check=True, capture_output=True)
+    subprocess.run([str(di), "start"], check=True, capture_output=True,
+                   env=dict(os.environ, BLAZAR_DEV_PICK_FOLDER=str(project)))
+    t0, steps = time.time(), []
+
+    def do(cmd):
+        r = ui(cmd)
+        if "error" in r:
+            raise RuntimeError(f"{r['error']}（{json.dumps(cmd, ensure_ascii=False)}）")
+        if cmd["action"] == "wait" and r.get("found") is False:
+            raise RuntimeError(f"等不到（{json.dumps(cmd, ensure_ascii=False)}）")
+        return r
+
+    def step(name, *cmds):
+        try:
+            for c in cmds:
+                do(c)
+            steps.append({"step": name, "ok": True, "at": round(time.time() - t0, 2)})
+        except RuntimeError as e:
+            steps.append({"step": name, "ok": False, "why": str(e)})
+            return False
+        return True
+
+    def palette(text):
+        return ({"action": "key", "selector": "body", "key": "k", "code": "KeyK", "meta": True},
+                {"action": "wait", "selector": "input[data-modal-initial-focus]", "timeout_ms": 3000},
+                {"action": "type", "selector": "input[data-modal-initial-focus]", "value": text},
+                {"action": "wait", "ms": 200},
+                {"action": "key", "selector": "input[data-modal-initial-focus]", "key": "Enter", "code": "Enter"})
+
+    do({"action": "init"})
+    do({"action": "wait", "selector": ".console", "timeout_ms": 20000})
+    ok = step("新建工作区（⇧⌘N）", {"action": "key", "key": "N", "code": "KeyN", "meta": True, "shift": True},
+              {"action": "wait", "selector": ".cc-box .prompt", "timeout_ms": 20000})
+    ok = ok and step("发第一条消息（⌘L、输入、回车）",
+                     {"action": "key", "key": "l", "code": "KeyL", "meta": True},
+                     {"action": "type", "selector": ".cc-box .prompt:focus", "value": "Explain this codebase"},
+                     {"action": "key", "key": "Enter", "code": "Enter"},
+                     {"action": "wait", "selector": ".cc-user", "timeout_ms": 20000})
+    # The driver won't answer an approval for a person (1 / 2 / 3 are refused while one is on
+    # screen), so this step stops where a person would press 1: focused on the open card.
+    ok = step("走到下一件要批准的事（⌘K「处理下一件事」，焦点落在展开的卡片上）", *palette("处理下一件事"),
+              {"action": "wait", "selector": ".console-rail .inbox-row[data-open=\"true\"]:focus [data-ui-guard]", "timeout_ms": 5000}) and ok
+    ok = step("回到工作区（⌘K 工作区名）", *palette("kbd-app"),
+              {"action": "wait", "selector": ".cc-box .prompt", "timeout_ms": 10000}) and ok
+    ok = step("提交（⌘K「提交…」、输入、⌘回车）", *palette("提交"),
+              {"action": "wait", "selector": "textarea[placeholder=\"改了什么、为什么\"]", "timeout_ms": 10000},
+              {"action": "type", "selector": "textarea[placeholder=\"改了什么、为什么\"]", "value": "Add notes"},
+              {"action": "key", "selector": "textarea[placeholder=\"改了什么、为什么\"]", "key": "Enter", "code": "Enter", "meta": True},
+              {"action": "wait", "ms": 2000}) and ok
+    porcelain = subprocess.run(["git", "-C", str(project), "status", "--porcelain"], capture_output=True, text=True).stdout
+    log = subprocess.run(["git", "-C", str(project), "log", "--oneline"], capture_output=True, text=True).stdout
+    result = {"label": flag(args, "--label") or "keyboard", "keyboard": True, "steps": steps,
+              "committed": "Add notes" in log and not porcelain.strip(),
+              "at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+    path = OUT / f"keyboard-{result['label']}-{datetime.now().strftime('%m%d-%H%M%S')}.json"
+    path.write_text(json.dumps(result, ensure_ascii=False, indent=1))
+    print(path)
+    for st in steps:
+        print(("✓ " if st["ok"] else "✗ ") + st["step"] + (f"  {st['at']}s" if st["ok"] else f"  {st['why'][:160]}"))
+    print(f"提交成功：{result['committed']}")
+
+
+COMMANDS = {"prepare": prepare, "pids": pids, "idle": idle, "ops": ops, "memory": memory, "launch": launch, "firstrun": firstrun, "keyboard": keyboard, "compare": compare}
 
 if __name__ == "__main__":
     if len(sys.argv) < 2 or sys.argv[1] not in COMMANDS:
-        die("用法：perf.py prepare|pids|idle|ops|memory|launch|compare")
+        die("用法：perf.py prepare|pids|idle|ops|memory|launch|firstrun|keyboard|compare")
     COMMANDS[sys.argv[1]](sys.argv[2:])

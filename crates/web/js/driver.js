@@ -498,6 +498,13 @@ async function run(command) {
     case 'key': {
       if (command.key === 'Tab' && command.shift) throw new Error('Shift+Tab 会切换权限模式，界面驱动不能用');
       const target = guard(command.ref || command.selector || command.text ? find(command) : (document.activeElement || document.body));
+      // 1 / 2 / 3 answer whatever approval is on screen through the app's own shortcuts, from
+      // anywhere outside a text field; the driver must not decide for a person that way either.
+      const field = target.closest('input, textarea, [contenteditable="true"]');
+      const answers = /^[123yn]$/i.test(command.key || '') && !command.meta && !command.ctrl && !command.alt;
+      if (answers && !field && [...document.querySelectorAll(GUARDED)].some(shown)) {
+        throw new Error('受保护的区域：屏幕上有待批准的请求，界面驱动不能按 1 / 2 / 3 替人回答');
+      }
       const accepted = key(target, command);
       await sleep(settle);
       return { ok: true, default_prevented: !accepted };

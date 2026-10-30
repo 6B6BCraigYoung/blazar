@@ -16,6 +16,10 @@ def main():
     if "--version" in sys.argv:
         print("2.1.0 (Claude Code)")
         return
+    if sys.argv[1:3] == ["auth", "status"]:
+        print(json.dumps({"loggedIn": True, "authMethod": "claude.ai", "email": "demo@example.invalid",
+                          "subscriptionType": "pro"}))
+        return
     threading.Thread(target=drain, daemon=True).start()
     lines = Path(CONF["record"]).read_text().splitlines()
     rate = float(CONF.get("rate", 10))

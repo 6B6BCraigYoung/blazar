@@ -117,6 +117,15 @@ impl Git {
         self.busy.with(|b| *b == Some(op))
     }
 
+    /// 「提交…」from the command palette: the commit form when there is something to commit.
+    pub fn ask_commit(self) {
+        match self.snapshot() {
+            Some(g) if g.uncommitted > 0 => self.form.set(Some(Form::Commit)),
+            Some(_) => toast("没有要提交的改动"),
+            None => toast("还在读取改动，稍等再试"),
+        }
+    }
+
     fn start(self, n: Next) {
         match n {
             Next::Commit => self.form.set(Some(Form::Commit)),

@@ -237,6 +237,22 @@ const COMMANDS: &[Cmd] = &[
         Scope::Workspace,
     ),
     cmd(
+        "提交…",
+        "commit",
+        icon::BRANCH,
+        "commit tj tijiao 提交 git 保存改动",
+        None,
+        Scope::Workspace,
+    ),
+    cmd(
+        "处理下一件事",
+        "next-needs",
+        icon::INBOX,
+        "next needs approve review clxyjs chuli 批准 允许 需要你处理 审批 下一件",
+        None,
+        Scope::Any,
+    ),
+    cmd(
         "预览",
         "preview",
         icon::EYE,
@@ -572,6 +588,19 @@ pub fn Palette() -> impl IntoView {
             "console" => go("/"),
             "workspaces" => go("/workspaces"),
             "newws" => app.new_ws.set(true),
+            "next-needs" => {
+                app.needs_focus.set(true);
+                go("/");
+                // The console's rail takes it once its list is in; nothing there to answer
+                // means nothing to do.
+                gloo_timers::callback::Timeout::new(1500, move || {
+                    if app.needs_focus.try_get_untracked() == Some(true) {
+                        app.needs_focus.set(false);
+                        toast("没有需要你处理的事");
+                    }
+                })
+                .forget();
+            }
             "inbox" => go("/?inbox=all"),
             "tasks" => go("/tasks"),
             "settings" => go("/settings"),

@@ -360,6 +360,10 @@ fn Workspace(id: String) -> impl IntoView {
             "chat" => state.toggle_inspect(),
             "panel" => state.toggle_term(),
             "diff" => state.open_changes(),
+            "commit" => {
+                state.open_changes();
+                git.ask_commit();
+            }
             "preview" => state.open(Tab::Preview),
             "inspect" => props.set(true),
             _ => return false,
