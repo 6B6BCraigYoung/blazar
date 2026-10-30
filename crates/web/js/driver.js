@@ -269,7 +269,7 @@ function colours(command) {
 function metrics(command) {
   const skip = command.skip || '.monaco-editor, .xterm, svg, script, style';
   const tally = () => new Map();
-  const out = { fontSize: tally(), fontWeight: tally(), color: tally(), background: tally(), radius: tally(), shadow: tally(), border: tally() };
+  const out = { fontSize: tally(), fontWeight: tally(), color: tally(), background: tally(), surface: tally(), radius: tally(), shadow: tally(), border: tally() };
   const bump = (map, key, el) => {
     if (!key) return;
     let entry = map.get(key);
@@ -287,9 +287,14 @@ function metrics(command) {
       bump(out.fontWeight, s.fontWeight, el);
       bump(out.color, s.color, el);
     }
-    if (s.backgroundColor !== 'rgba(0, 0, 0, 0)') bump(out.background, s.backgroundColor, el);
-    if (parseFloat(s.borderTopLeftRadius) > 0 && !isDot(r.width, r.height, parseFloat(s.borderTopLeftRadius))) bump(out.radius, s.borderTopLeftRadius, el);
-    if (s.boxShadow !== 'none') bump(out.shadow, s.boxShadow, el);
+    const dot = isDot(r.width, r.height, parseFloat(s.borderTopLeftRadius));
+    if (s.backgroundColor !== 'rgba(0, 0, 0, 0)') {
+      bump(out.background, s.backgroundColor, el);
+      // A surface is a block you read things on: at least 40×24, not a control, a dot or a badge.
+      if (r.width >= 40 && r.height >= 24 && !el.closest('button, a.btn, input, select, textarea, kbd, [role="button"]')) bump(out.surface, s.backgroundColor, el);
+    }
+    if (parseFloat(s.borderTopLeftRadius) > 0 && !dot) bump(out.radius, s.borderTopLeftRadius, el);
+    if (s.boxShadow !== 'none' && !dot) bump(out.shadow, s.boxShadow, el);
     const bw = ['Top', 'Right', 'Bottom', 'Left'].filter(side => parseFloat(s[`border${side}Width`]) > 0 && s[`border${side}Style`] !== 'none');
     if (bw.length) bump(out.border, `${bw.length === 4 ? 'all' : bw.join('+').toLowerCase()} ${s[`border${bw[0]}Width`]} ${s[`border${bw[0]}Color`]}`, el);
   }
@@ -297,6 +302,75 @@ function metrics(command) {
   const res = { url: location.pathname + location.search };
   for (const [k, v] of Object.entries(out)) res[k] = { distinct: v.size, top: list(v).slice(0, command.top ?? 12) };
   return res;
+}
+
+// rgb()/rgba() and color(srgb …) as computed styles give them, as [r, g, b, a] with r, g, b in 0–255.
+function parseColor(value) {
+  let m = value.match(/^rgba?\(([\d.]+),\s*([\d.]+),\s*([\d.]+)(?:,\s*([\d.]+))?\)$/);
+  if (m) return [+m[1], +m[2], +m[3], m[4] === undefined ? 1 : +m[4]];
+  m = value.match(/^color\(srgb ([\d.e-]+) ([\d.e-]+) ([\d.e-]+)(?: \/ ([\d.]+))?\)$/);
+  if (m) return [m[1] * 255, m[2] * 255, m[3] * 255, m[4] === undefined ? 1 : +m[4]];
+  return null;
+}
+
+const over = (top, under) => {
+  const a = top[3];
+  return [0, 1, 2].map(i => top[i] * a + under[i] * (1 - a)).concat(1);
+};
+
+function luminance([r, g, b]) {
+  const lin = c => ((c /= 255) <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+}
+
+// The colour actually behind an element: its own background and every ancestor's, composited
+// down to the first opaque one (the page canvas at the latest).
+function backdrop(el) {
+  const layers = [];
+  for (let p = el; p; p = p.parentElement) {
+    const c = parseColor(getComputedStyle(p).backgroundColor);
+    if (c && c[3] > 0) {
+      layers.push(c);
+      if (c[3] >= 1) break;
+    }
+  }
+  let colour = parseColor(getComputedStyle(document.body).backgroundColor) || [255, 255, 255, 1];
+  for (const c of layers.reverse()) colour = over(c, colour);
+  return colour;
+}
+
+// Every visible run of text against what it sits on. Large text (≥ 18px, or ≥ 14px bold) needs
+// 3:1, the rest 4.5:1. Disabled controls and placeholders don't count.
+function contrast(command) {
+  const skip = command.skip || '.monaco-editor, .xterm, svg, script, style, [disabled], [aria-disabled="true"]';
+  const fails = new Map();
+  let checked = 0;
+  for (const el of document.querySelectorAll('body *')) {
+    if (el.closest(skip) || !shown(el)) continue;
+    if (![...el.childNodes].some(n => n.nodeType === Node.TEXT_NODE && n.textContent.trim())) continue;
+    const s = getComputedStyle(el);
+    const fg = parseColor(s.color);
+    if (!fg) continue;
+    let alpha = fg[3];
+    for (let p = el; p; p = p.parentElement) alpha *= parseFloat(getComputedStyle(p).opacity);
+    // Faded all the way out (closing, or not on screen yet): not text anyone reads.
+    if (alpha < 0.1) continue;
+    const bg = backdrop(el);
+    const ink = over([fg[0], fg[1], fg[2], alpha], bg);
+    const [hi, lo] = [luminance(ink), luminance(bg)].sort((a, b) => b - a);
+    const ratio = (hi + 0.05) / (lo + 0.05);
+    const size = parseFloat(s.fontSize);
+    const need = size >= 18 || (size >= 14 && +s.fontWeight >= 700) ? 3 : 4.5;
+    checked++;
+    if (ratio >= need) continue;
+    const sig = signature(el);
+    const entry = fails.get(sig) || { where: sig, sample: clean(el.innerText || el.textContent).slice(0, 40), ratio, need, color: s.color, count: 0 };
+    entry.count++;
+    entry.ratio = Math.min(entry.ratio, ratio);
+    fails.set(sig, entry);
+  }
+  const list = [...fails.values()].sort((a, b) => a.ratio - b.ratio).map(f => ({ ...f, ratio: Math.round(f.ratio * 100) / 100 }));
+  return { url: location.pathname + location.search, checked, failing: list.length, fails: list.slice(0, command.top ?? 40) };
 }
 
 function watchFrames() {
@@ -344,6 +418,8 @@ async function run(command) {
       return colours(command);
     case 'metrics':
       return metrics(command);
+    case 'contrast':
+      return contrast(command);
     case 'click': {
       const el = guard(find(command));
       const box = el.getBoundingClientRect();

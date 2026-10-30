@@ -417,3 +417,14 @@
 - **推送 GitHub**：用户在卡片上点了「推送到 origin/main」，但这个会话的自动权限分类器两次拦下了 `git push`（理由是“发布到外部”）。我没有绕开它。本地 main 比 origin/main 多 59 个提交（推送卡片上写的 158 是我写错了），都是快进，不改写历史。要么在 mac-mini 上执行 `git -C ~/workspace/blazar push origin main`，要么给这个会话加一条允许 `git push` 的权限规则，下次由我来推。
 - **升级 mac-mini 的正式 hub**：用户点了「升级」，执行时同样被拦下（理由是“生产部署”）。我已经把 release 版 `blazar-hub` 构建好了（`target/release/blazar-hub`，0.1.1），写好了 `target/hub-upgrade/upgrade.sh`：先用 SQLite 在线备份正式库到 `hub/blazar.sqlite.before-<时间>`，再把旧二进制留成 `~/.blazar/bin/blazar-hub.before-<时间>`，换上新二进制，`launchctl kickstart -k` 重启，检查有响应后打印迁移版本。执行一次 `~/workspace/blazar/target/hub-upgrade/upgrade.sh` 就行。正式库现在在迁移 45，新版会应用 0046（只新建两张表）。
   - **回滚**：`launchctl bootout gui/$(id -u)/ai.blazar.hub`，把 `blazar-hub.before-<时间>` 拷回 `blazar-hub`。数据库二选一：要么把 `blazar.sqlite.before-<时间>` 拷回 `blazar.sqlite`（同时删掉 `-wal`、`-shm`，升级后写入的数据会丢）；要么保留现在的库，执行 `sqlite3 blazar.sqlite "DELETE FROM _sqlx_migrations WHERE version = 46"`，让旧版能启动（新建的两张表留着不影响）。最后 `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.blazar.hub.plist`。
+
+## b19 · 第五轮审视和验收测量
+
+第四份清单做完后，按「同类最好的验收标准」开了第五轮。这一批只补测量工具、量一遍，没改界面。
+
+- **界面驱动**（`crates/web/js/driver.js`）：新增 `contrast` 动作，对每段可见文字算它和实际背景的对比度。背景沿祖先逐层合成到第一个不透明的底色，文字的透明度乘上所有祖先的 opacity；大字（≥ 18px 或 ≥ 14px 粗体）要 3:1，其余要 4.5:1；禁用态、整体淡到 0.1 以下的不算。`metrics` 加了 `surface`（只数 ≥ 40×24、不是控件的块的底色），阴影不再把状态圆点的描边环算进去。
+- **`ui_audit.py accept`**：13 个主要页面在深浅两色下各跑一遍，扫一屏视觉变量、对比度和内部术语（端口、token、会话 id、worktree、HEAD、运行时，以及 stderr、ENOENT 这类原文），再静态扫 CSS 里超过 200ms 的过渡和动画（先把动效令牌换成实际值）。开发实例窗口在后台时进场动画会停在第一帧，所以扫描前先注入样式把动画和过渡时长压到 0。
+- **第一次验收**：结果和第五份清单在 [product-north-star](product-north-star.md) 的「第五轮审视」。达标的只有动效。性能是部分达标（空闲、流式、内存达标，首屏没量）。字号 26 页全部 ≤ 5。对比度、阴影、圆角、表面色、术语都有没达标的地方。
+- 验收标准里动效那一条的例外写明了：“运行中”的呼吸脉冲和跳转后 1.2 秒的定位高亮。表面色写明不算控件、选中态、进度条、行内代码。
+
+验证：`node --check`、`py_compile`；在演示配置的开发实例里跑了两遍 `accept`，第二遍是修正测量以后的，结果在 `target/dev-instance/accept-r5/accept2.json`。

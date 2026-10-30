@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import shutil
 import sqlite3
 import subprocess
@@ -1779,6 +1780,78 @@ def metrics(out):
     Path(out).write_text(json.dumps(res, ensure_ascii=False, indent=1))
 
 
+# The 13 main pages of the acceptance table. New chat and new workspace are reached by a click.
+ACCEPT_PAGES = [
+    ("console", "/", None), ("chat", f"/chats/{CHATS['status']}", None),
+    ("new-chat", "/", {"action": "click", "text": "新对话", "partial": True}),
+    ("workspaces", "/workspaces", None), ("tasks", "/tasks", None), ("bots", "/bots", None),
+    ("agents", "/agents", None), ("skills", "/skills", None), ("accounts", "/runtimes", None),
+    ("machines", "/nodes", None), ("usage", "/usage", None), ("settings", "/settings?s=appearance", None),
+    ("new-workspace", "/workspaces", {"action": "click", "selector": ".home-page .page-actions .btn.primary"}),
+]
+# Words that shouldn't reach the main path, and the marks of an error shown as it came.
+JARGON = ["端口", "token", "会话 id", "session id", "worktree", "HEAD", "运行时"]
+RAW_ERROR = ["stderr", "ENOENT", "ENOSPC", "panicked", "Traceback", "status code", "os error"]
+LIMITS = {"fontSize": 5, "shadow": 2, "radius": 4, "surface": 4}
+
+
+def motion_scan():
+    """Transitions and animations longer than 200ms in the stylesheets, after resolving the
+    motion tokens; infinite animations (the running pulse) are reported apart."""
+    style = ROOT / "crates/web/style"
+    tokens = {}
+    for m in re.finditer(r"(--[\w-]+):\s*([\d.]+)(ms|s)\b", (style / "tokens.css").read_text()):
+        tokens[m.group(1)] = float(m.group(2)) * (1000 if m.group(3) == "s" else 1)
+    slow, ambient = [], []
+    for css in sorted(style.glob("*.css")):
+        for n, line in enumerate(css.read_text().splitlines(), 1):
+            for decl in re.findall(r"(?:transition|animation)(?:-duration)?:\s*([^;}]+)", line):
+                times = [float(v) * (1000 if u == "s" else 1) for v, u in re.findall(r"(?<![\w-])([\d.]+)(ms|s)\b", decl)]
+                times += [tokens.get(t, 0) for t in re.findall(r"var\((--[\w-]+)\)", decl)]
+                if times and max(times) > 200:
+                    # The running pulse and the highlight after a jump are state, not motion.
+                    state = "infinite" in decl or re.search(r"--motion-(pulse|flash)\b", decl) or ("!important" in decl and "@media" not in line and css.name == "tokens.css")
+                    (ambient if state else slow).append(f"{css.name}:{n} {decl.strip()[:80]}")
+    return slow, ambient
+
+
+def accept(out):
+    res, rows = {}, []
+    ui({"action": "init"})
+    ready()
+    for t in ("dark", "light"):
+        theme(t)
+        for slug, route, then in ACCEPT_PAGES:
+            ui({"action": "navigate", "path": route, "settle_ms": 900})
+            # A window in the background freezes entrance animations at their first frame; end
+            # them so the scan sees what a person would.
+            ui({"action": "css", "value": "*, *::before, *::after { animation-duration: 0s !important; animation-delay: 0s !important; transition-duration: 0s !important; }"})
+            if then:
+                ui({**then, "settle_ms": 900})
+            m = ui({"action": "metrics", "top": 6})
+            c = ui({"action": "contrast", "top": 12})
+            body = ui({"action": "text", "selector": "main"}).get("texts", [{}])
+            words = " ".join(x.get("text", "") for x in body)
+            jargon = [w for w in JARGON if re.search(rf"(?<![A-Za-z]){re.escape(w)}(?![A-Za-z])", words)]
+            raw = [w for w in RAW_ERROR if w in words]
+            if then:
+                dismiss()
+            ui({"action": "css", "value": ""})
+            key = f"{slug}-{t}"
+            res[key] = {"metrics": m, "contrast": c, "jargon": jargon, "raw_errors": raw}
+            over = [f"{k} {m[k]['distinct']}" for k, lim in LIMITS.items() if m[k]["distinct"] > lim]
+            rows.append((key, *(m[k]["distinct"] for k in LIMITS), c["failing"], ",".join(jargon + raw) or "—", "；".join(over)))
+    theme("system")
+    slow, ambient = motion_scan()
+    res["motion"] = {"over_200ms": slow, "ambient": ambient}
+    Path(out).write_text(json.dumps(res, ensure_ascii=False, indent=1))
+    print("页面\t字号\t阴影\t圆角\t表面\t对比度不足\t术语/原文\t超出")
+    for r in rows:
+        print("\t".join(str(x) for x in r))
+    print(f"\n动效超过 200ms：{len(slow)} 处" + "".join(f"\n  {s}" for s in slow))
+    print(f"状态提示（脉冲、定位高亮，不计）：{len(ambient)} 处")
+
+
 def main():
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
     if cmd == "seed":
@@ -1791,6 +1864,8 @@ def main():
         index(Path(sys.argv[2]))
     elif cmd == "metrics" and len(sys.argv) == 3:
         metrics(sys.argv[2])
+    elif cmd == "accept" and len(sys.argv) == 3:
+        accept(sys.argv[2])
     elif cmd == "publish" and len(sys.argv) >= 4:
         publish(sys.argv[2], sys.argv[3:])
     elif cmd == "stress" and len(sys.argv) <= 3:
