@@ -511,5 +511,5 @@
 4. 应用内一键升级：评估，公证仍待用户。
 
 **等用户的两件事**（b18 里写过）：
-- 推送 GitHub：本地 main 比 origin 多了 b4 以来的提交，`git push` 被这个会话的权限分类器拦下了。用户执行 `git -C ~/workspace/blazar push origin main`，或者给会话加一条允许推送的规则。
+- 推送 GitHub：origin/main 已经由用户推到 `28099d6`（b18）。本地还领先 5 个提交（b19–b22，以及还原一个被误改的字节码文件），没有推送。这个会话的 `git push` 会被权限分类器拦下；要推的话，用户执行 `git -C ~/workspace/blazar push origin main`，或者给会话加一条允许推送的规则。
 - 升级正式 hub：用户点了「升级」，但执行被分类器拦下。release 版 `blazar-hub` 已经构建好，执行 `~/workspace/blazar/target/hub-upgrade/upgrade.sh` 即可，回滚步骤见 b18。按这次的暂停要求，我没有再去动它。
