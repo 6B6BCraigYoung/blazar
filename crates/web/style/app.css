@@ -1,5 +1,11 @@
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none; }
+/* Chinese and Latin: a quarter-space between CJK and Latin letters or digits is set by the
+   browser (text-autospace), so strings don't need hand-typed spaces to look right; code, fields
+   and terminals keep their exact spacing. Text in Chinese runs at --line-height-zh. */
+body { text-autospace: normal; }
+:is(code, pre, kbd, samp, input, textarea, [contenteditable], .mono, .monaco-editor, .xterm) { text-autospace: no-autospace; }
+:is(p, .blank-detail, .pref-row-detail, .pref-item-detail, .cc-ut, .cc-dtext, .cc-md):lang(zh) { line-height: var(--line-height-zh); }
 body { background: var(--bg-canvas); color: var(--fg); font: var(--font-weight-regular) var(--font-size-body)/var(--line-height-body) var(--font-sans); -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; text-rendering: optimizeLegibility; }
 * { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--fg) 22%, transparent) transparent; }
 a { color: inherit; text-decoration: none; }

@@ -62,7 +62,7 @@
   --status-fg: var(--fg-3);
 
   --font-sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
-  --font-mono: "JetBrains Mono", Menlo, Monaco, monospace;
+  --font-mono: "JetBrains Mono", Menlo, Monaco, "PingFang SC", monospace;
   --r-sm: 6px;
   --r-md: 8px;
   --r-group: 12px;
@@ -99,6 +99,8 @@
   --line-height-chat: 1.65;
   --chat-line: calc(var(--font-size-chat) * var(--line-height-chat));
   --line-height-prose: 1.7;
+  /* Chinese runs a little taller than English: body text and replies written in Chinese. */
+  --line-height-zh: 1.7;
   --tracking-heading: 0;
   --tracking-menu: .03em;
   --tracking-caption: .04em;

@@ -175,9 +175,11 @@ pub fn Md(text: String, ws: String) -> impl IntoView {
             });
         }
     });
+    let lang = crate::vocab::lang_of(&text);
     view! {
         <div
             class="cc-md md-body"
+            lang=lang
             node_ref=el
             inner_html=html
             on:click=move |e| copy_code(&e)
@@ -656,6 +658,7 @@ fn tool_view(t: Tool, chat: Chat, opened: Opened, ws: String) -> AnyView {
 /// Work handed to another workspace reads as a small card: who it went to, then the
 /// prompt itself in body type, instead of one squeezed tool line.
 fn dispatch_view(t: &Tool, to: String, text: String, opened: Opened) -> AnyView {
+    let lang = crate::vocab::lang_of(&text);
     let lead = match t.state {
         St::Run => "Send to",
         St::Ok => "Sent to",
@@ -674,7 +677,9 @@ fn dispatch_view(t: &Tool, to: String, text: String, opened: Opened) -> AnyView 
                         <span>{lead}</span>
                         {ws_chip(to)}
                     </div>
-                    <div class="cc-dtext">{text}</div>
+                    <div class="cc-dtext" lang=lang>
+                        {text}
+                    </div>
                 </div>
                 <div class="cc-res">
                     {result.map(|r| result_view(r, format!("res:{id}"), opened))}
@@ -925,6 +930,7 @@ fn UserMsg(
     let cp = Memo::new(move |_| chat.checkpoints.with(|c| c.get(&cp_key).cloned()));
     let sid2 = sid.clone();
     let t2 = text.clone();
+    let lang = crate::vocab::lang_of(&text);
     let later = move || {
         chat.transcript.with_untracked(|t| {
             let mut after = false;
@@ -987,6 +993,7 @@ fn UserMsg(
     view! {
         <div
             class="cc-user"
+            lang=lang
             on:click=move |e: leptos::ev::MouseEvent| {
                 let Some(u) = e
                     .target()
@@ -1954,6 +1961,7 @@ pub fn Log(chat: Chat, tick: RwSignal<u32>, log_h: RwSignal<f64>) -> impl IntoVi
     view! {
         <div
             class="cc-log"
+            lang="en"
             node_ref=el
             on:click=click
             data-dim=move || dim().to_string()

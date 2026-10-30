@@ -232,6 +232,27 @@ pub fn error(raw: &str, status: Option<u16>) -> String {
     }
 }
 
+/// The language a piece of free text is mostly written in, for its `lang` attribute: Chinese
+/// once at least a fifth of its letters are CJK (so a Chinese reply full of code names still
+/// reads as Chinese), English otherwise. Chinese text gets the taller line height.
+#[must_use]
+pub fn lang_of(text: &str) -> &'static str {
+    let (mut cjk, mut letters) = (0usize, 0usize);
+    for c in text.chars().take(2000) {
+        if ('\u{4e00}'..='\u{9fff}').contains(&c) {
+            cjk += 1;
+            letters += 1;
+        } else if c.is_alphabetic() {
+            letters += 1;
+        }
+    }
+    if cjk > 0 && cjk * 5 >= letters {
+        "zh-CN"
+    } else {
+        "en"
+    }
+}
+
 fn has_cjk(text: &str) -> bool {
     text.chars()
         .any(|c| ('\u{4e00}'..='\u{9fff}').contains(&c) || ('\u{3000}'..='\u{303f}').contains(&c))
@@ -424,6 +445,23 @@ pub fn retry_round(attempt: u64, max: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mostly_chinese_text_reads_as_chinese() {
+        assert_eq!(
+            lang_of("把 `src/theme.ts` 的对比度调高，然后跑一次 cargo test"),
+            "zh-CN"
+        );
+        assert_eq!(
+            lang_of("Fixed the contrast in src/theme.ts and ran the tests."),
+            "en"
+        );
+        assert_eq!(
+            lang_of("Renamed `用户` to `user` in fn handle_request(req: Request) -> Response"),
+            "en"
+        );
+        assert_eq!(lang_of(""), "en");
+    }
 
     #[test]
     fn only_failures_you_can_just_continue_are_orange() {
