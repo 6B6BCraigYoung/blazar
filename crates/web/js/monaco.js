@@ -42,7 +42,7 @@ function themeData(dark) {
   const fallbackBg = dark ? '#202023' : '#f6f6f7';
   const bg = cssColor('--bg-code', fallbackBg).slice(0, 7);
   const fg = cssColor('--code-fg', dark ? '#d1d1d6' : '#1d1d1f').slice(0, 7);
-  const sel = cssColor('--code-selection', dark ? '#0a84ff59' : '#007aff38');
+  const sel = cssColor('--code-selection', dark ? '#7170ff59' : '#5e5ce638');
   const syn = SYNTAX[dark ? 'dark' : 'light'];
   const ink = (dark ? '#ffffff' : '#000000');
   const rule = (token, foreground, fontStyle) => (fontStyle ? { token, foreground, fontStyle } : { token, foreground });

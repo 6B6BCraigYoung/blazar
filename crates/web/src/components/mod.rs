@@ -1,3 +1,4 @@
+pub mod brand;
 pub mod dialog;
 pub mod downloads;
 pub mod empty;

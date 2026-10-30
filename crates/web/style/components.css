@@ -182,7 +182,14 @@ button.brow, button.palrow { --focus-offset: var(--focus-offset-inset); }
 .blank { display: flex; flex-direction: column; align-items: center; text-align: center; color: var(--fg-3); }
 .blank.fill { position: absolute; left: 50%; top: 38%; transform: translate(-50%, -50%); width: min(360px, calc(100% - var(--page-gutter) * 2)); }
 .blank.inset { max-width: 360px; margin-inline: auto; padding: var(--space-3xl) var(--space-xl); }
-.blank-icon { width: 48px; height: 48px; margin-bottom: var(--space-lg); display: grid; place-items: center; border-radius: var(--r-lg); background: var(--bg-group); box-shadow: inset 0 0 0 1px var(--line); color: var(--fg-3); }
+/* The brand's horizon around the page's own icon: the arc in a quiet grey, the jets in the
+   accent. Nothing else on an empty page carries colour. */
+.blank-mark { position: relative; width: 64px; height: 64px; margin-bottom: var(--space-lg); }
+.blank-horizon, .blank-horizon svg { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
+.blank-arc, .blank-jet { fill: none; stroke-linecap: round; }
+.blank-arc { stroke: var(--border-strong); stroke-width: 1.5; }
+.blank-jet { stroke: var(--accent); stroke-width: 2; }
+.blank-icon { position: absolute; left: 20px; top: 18px; width: 24px; height: 24px; display: grid; color: var(--fg-3); }
 .blank-icon svg { display: block; width: 24px; height: 24px; stroke-width: 1.5; }
 .blank-title { margin: 0; font-size: var(--font-size-section-title); font-weight: var(--font-weight-semibold); line-height: var(--line-height-heading); color: var(--fg); text-wrap: balance; }
 .blank-detail { margin: var(--space-sm) 0 0; max-width: 360px; font-size: var(--font-size-body); line-height: var(--line-height-body); color: var(--fg-3); text-wrap: balance; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }

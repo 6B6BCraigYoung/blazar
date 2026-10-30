@@ -46,7 +46,7 @@ function theme() {
     foreground: cssColor('--code-fg', light ? '#1d1d1f' : '#d1d1d6'),
     cursor: cssColor('--code-cursor', light ? '#3a3a3c' : '#c7c7cc'),
     cursorAccent: background,
-    selectionBackground: cssColor('--code-selection', light ? 'rgba(0,122,255,.22)' : 'rgba(10,132,255,.35)'),
+    selectionBackground: cssColor('--code-selection', light ? 'rgba(94,92,230,.22)' : 'rgba(113,112,255,.35)'),
   };
 }
 

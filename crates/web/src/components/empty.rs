@@ -70,7 +70,10 @@ pub fn Blank(
 ) -> impl IntoView {
     view! {
         <div class="blank" class:inset=inset class:fill=!inset>
-            <span class="blank-icon" aria-hidden="true" inner_html=icon::svg(icon)></span>
+            <span class="blank-mark" aria-hidden="true">
+                <span class="blank-horizon" inner_html=super::brand::HORIZON></span>
+                <span class="blank-icon" inner_html=icon::svg(icon)></span>
+            </span>
             <h2 class="blank-title">{title}</h2>
             {(!detail.is_empty()).then(|| view! { <p class="blank-detail">{detail}</p> })}
             {action

@@ -72,6 +72,15 @@ pub(super) fn AboutSettings() -> impl IntoView {
                 );
                 let source = text(&a["engine"], "source");
                 view! {
+                    <div class="about-brand">
+                        <span class="about-logo" inner_html=crate::components::brand::tile()></span>
+                        <div>
+                            <h2>"Blazar"</h2>
+                            <p>
+                                "把本地和远端机器上的代码与 AI 编码智能体放进同一个桌面工作台。"
+                            </p>
+                        </div>
+                    </div>
                     <PrefGroup title="Blazar">
                         <PrefRow label="版本" detail=version>
                             {update_line}

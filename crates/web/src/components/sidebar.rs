@@ -168,7 +168,6 @@ pub fn Sidebar() -> impl IntoView {
         }
     });
 
-    const LOGO: &str = r##"<svg viewBox="100 100 824 824" aria-hidden="true"><rect x="100" y="100" width="824" height="824" rx="185" fill="#0b0f19"/><g fill="none" stroke-linecap="round" transform="translate(0 24)"><path d="M365 616 A208 208 0 1 1 659 616" stroke="#e5e7f0" stroke-width="46"/><path d="M471 478 L449 690 M553 478 L575 690" stroke="#5ee6f0" stroke-width="54"/></g></svg>"##;
     let tip = RwSignal::new(None::<(String, f64, f64)>);
     let timer = StoredValue::new_local(None::<TimeoutHandle>);
     let hide = move || {
@@ -226,7 +225,7 @@ pub fn Sidebar() -> impl IntoView {
                     })
             }}
             <div class="brand">
-                <span class="logo" inner_html=LOGO></span>
+                <span class="logo" inner_html=super::brand::tile()></span>
                 <span class="nm">"Blazar"</span>
                 <span class="grow"></span>
                 <button
