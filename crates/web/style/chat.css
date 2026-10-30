@@ -209,20 +209,22 @@
    --ease-enter 回弹越过 0 时按 0 算，输入框不会往上跳。 */
 .chat-body[data-blank="true"] > .cc-log { display: flex; flex-direction: column; }
 .cc-empty { margin-top: auto; padding: var(--space-3xl) 0 var(--space-xl); color: var(--fg-3); display: flex; flex-direction: column; align-items: center; gap: var(--space-sm); text-align: center; }
-.cc-hello { margin: 0; max-width: 100%; font-size: var(--font-size-heading); line-height: var(--line-height-heading); font-weight: var(--font-weight-semibold); letter-spacing: -.01em; color: var(--fg); overflow-wrap: anywhere; }
-.cc-hello-sub { max-width: 36em; line-height: var(--line-height-body); color: var(--fg-3); }
-.cc-hero { display: inline-flex; align-items: center; gap: var(--space-sm); font-size: var(--font-size-heading); font-weight: var(--font-weight-semibold); letter-spacing: -.01em; color: var(--fg); }
+.cc-hello { margin: 0; max-width: 100%; display: inline-flex; align-items: center; gap: var(--space-sm); font-size: var(--font-size-heading); line-height: var(--line-height-heading); font-weight: var(--font-weight-semibold); letter-spacing: -.01em; color: var(--fg); overflow-wrap: anywhere; }
+.cc-hello-sub { font-size: var(--font-size-chat); line-height: var(--line-height-body); color: var(--fg-3); }
+/* 开场建议常驻在输入框下面，平时高度为 0。一排浅色小块，悬停时右边出现 ↵；快捷键说明用最淡的字贴在最底下。 */
+.cc-starters { --chat-pad: max(var(--space-xl), calc((100% - var(--chat-measure)) / 2)); flex: 0 1 0; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; padding: 0 var(--chat-pad); transition: flex-grow var(--motion-slow) var(--ease-enter); }
+.chat-body[data-blank="true"] > .cc-starters { flex-grow: 1.5; }
+.cc-starter-list { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--space-sm); }
+.cc-starter { all: unset; box-sizing: border-box; cursor: pointer; max-width: 100%; display: inline-flex; align-items: center; gap: var(--space-sm); height: 30px; padding: 0 var(--space-sm) 0 var(--space-md); border-radius: var(--r-md); background: var(--bg-hover); font-size: var(--font-size-body); color: var(--fg-2); transition: background-color var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard); }
+.cc-starter .t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cc-starter kbd { font: var(--font-size-label) var(--font-sans); color: var(--fg-3); opacity: 0; transition: opacity var(--motion-fast) var(--ease-standard); }
+.cc-starter:is(:hover, :focus-visible) { background: var(--control-track); color: var(--fg); }
+.cc-starter:is(:hover, :focus-visible) kbd { opacity: 1; }
+.cc-starter:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset-inset); }
+.cc-keys { margin: auto 0 0; padding: var(--space-lg) 0 var(--space-md); text-align: center; font-size: var(--font-size-caption-readable); color: var(--fg-4); }
+.cc-keys kbd { padding: 0 var(--space-xs); border: 1px solid var(--line); border-radius: var(--radius-keycap); font: var(--font-size-caption) var(--font-sans); color: var(--fg-4); }
 .cc-hero-mark { width: 22px; height: 22px; display: inline-grid; color: var(--fg-2); }
 .cc-hero-mark svg { width: 100%; height: 100%; }
-.cc-tip { max-width: 30em; margin-top: var(--space-xs); line-height: 1.6; color: var(--fg-3); }
-.cc-tip kbd { display: inline-block; padding: 0 5px; margin: 0 1px; border: 1px solid var(--border-strong); border-radius: var(--radius-keycap); font: var(--font-size-label) var(--font-sans); color: var(--fg-2); }
-.cc-tip code { font: var(--font-size-label) var(--font-mono); padding: 1px 5px; border-radius: var(--radius-keycap); background: var(--inline-code-bg); color: var(--fg); }
-/* 开场建议常驻在输入框下面，平时高度为 0；文字和输入框里的光标左对齐。 */
-.cc-starters { --chat-pad: max(var(--space-xl), calc((100% - var(--chat-measure)) / 2)); flex: 0 1 0; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-2xs); padding: 0 calc(var(--chat-pad) + var(--space-sm)); transition: flex-grow var(--motion-slow) var(--ease-enter); }
-.chat-body[data-blank="true"] > .cc-starters { flex-grow: 1.5; }
-.cc-starter { all: unset; box-sizing: border-box; cursor: pointer; flex: 0 0 auto; max-width: 100%; padding: var(--space-xs) var(--space-sm); border-radius: var(--r-sm); font-size: var(--font-size-body); line-height: var(--line-height-compact); color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transition: background-color var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard); }
-.cc-starter:hover { background: var(--bg-hover); color: var(--fg); }
-.cc-starter:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset-inset); color: var(--fg); }
 
 .composer { --chat-pad: max(var(--space-xl), calc((100% - var(--chat-measure)) / 2)); container: composer / inline-size; position: relative; flex: 0 0 auto; padding: var(--space-xs) var(--chat-pad) var(--space-xl); display: flex; flex-direction: column; gap: var(--space-sm); }
 /* While the input is swapped for an approval or failure card, the log only takes the room

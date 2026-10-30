@@ -2088,16 +2088,10 @@ const DEFAULT_STARTERS: [(&str, &str); 3] = [
 #[component]
 fn Empty(chat: Chat) -> impl IntoView {
     move || {
-        let greeting = match chat.profile() {
-            Some(p) => view! {
-                <h2 class="cc-hello">{p.name}</h2>
-                {p
-                    .description
-                    .filter(|d| !d.trim().is_empty())
-                    .map(|d| view! { <div class="cc-hello-sub">{d}</div> })}
-            }
-            .into_any(),
-            None if chat.no_agent.get() => ().into_any(),
+        // 问候语只有两行：智能体的名字和一句问话；档案的描述放在悬停提示里，快捷键说明放到底部。
+        let (mark, name, about) = match chat.profile() {
+            Some(p) => (None, p.name, p.description.unwrap_or_default()),
+            None if chat.no_agent.get() => return ().into_any(),
             None => {
                 let rt = chat.runtime();
                 let name = match rt.as_str() {
@@ -2106,21 +2100,19 @@ fn Empty(chat: Chat) -> impl IntoView {
                     other => other,
                 }
                 .to_owned();
-                // 一个智能体都没装时不挂 Claude Code 的招牌，说明和安装按钮在输入框的位置。
-                view! {
-                    <div class="cc-hero">
-                        <span class="cc-hero-mark" inner_html=crate::rt_logo::glyph(&rt)></span>
-                        <span>{name}</span>
-                    </div>
-                    <div class="cc-tip">
-                        "Press "<kbd>"Shift"</kbd>" "<kbd>"Tab"</kbd>
-                        " to cycle permission modes, or type "<code>"/"</code>" for commands."
-                    </div>
-                }
-                .into_any()
+                (Some(crate::rt_logo::glyph(&rt)), name, String::new())
             }
         };
-        view! { <div class="cc-empty">{greeting}</div> }
+        view! {
+            <div class="cc-empty">
+                <h2 class="cc-hello" title=(!about.trim().is_empty()).then_some(about)>
+                    {mark.map(|m| view! { <span class="cc-hero-mark" inner_html=m></span> })}
+                    {name}
+                </h2>
+                <div class="cc-hello-sub">"What should we work on?"</div>
+            </div>
+        }
+        .into_any()
     }
 }
 
@@ -2168,24 +2160,37 @@ pub(super) fn Starters(chat: Chat, blank: Memo<bool>) -> impl IntoView {
     };
     view! {
         <div class="cc-starters">
-            {move || {
-                list()
-                    .into_iter()
-                    .map(|(label, prompt)| {
-                        let pr = prompt.clone();
-                        view! {
-                            <button
-                                type="button"
-                                class="cc-starter"
-                                title=prompt
-                                on:click=move |_| pick(pr.clone())
-                            >
-                                {label}
-                            </button>
-                        }
-                    })
-                    .collect_view()
-            }}
+            <div class="cc-starter-list">
+                {move || {
+                    list()
+                        .into_iter()
+                        .map(|(label, prompt)| {
+                            let pr = prompt.clone();
+                            view! {
+                                <button
+                                    type="button"
+                                    class="cc-starter"
+                                    title=prompt
+                                    on:click=move |_| pick(pr.clone())
+                                >
+                                    <span class="t">{label}</span>
+                                    <kbd aria-hidden="true">"↵"</kbd>
+                                </button>
+                            }
+                        })
+                        .collect_view()
+                }}
+            </div>
+            <Show when=move || blank.get() && !chat.no_agent.get()>
+                <p class="cc-keys">
+                    <kbd>"Shift"</kbd>
+                    " "
+                    <kbd>"Tab"</kbd>
+                    " permission modes · "
+                    <kbd>"/"</kbd>
+                    " commands"
+                </p>
+            </Show>
         </div>
     }
 }

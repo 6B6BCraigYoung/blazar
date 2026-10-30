@@ -1201,11 +1201,29 @@ fn row_view(ctx: Ctx, i: usize, it: Item, pending: Option<Value>) -> impl IntoVi
     // The one line a compact list shows for an item that isn't open: where it came from,
     // what it says, when. A click opens it into the full card.
     let line = ctx.compact.then(|| {
-        let source = if it.place.is_empty() {
-            it.label.clone()
-        } else {
-            it.place.clone()
-        };
+        // Where it came from: a workspace by name (without the machine) after the sentence,
+        // or, for the hub's own kinds, a small icon in front of it.
+        let place = it.place.split('（').next().unwrap_or_default().to_owned();
+        let kind = place.is_empty().then(|| {
+            let glyph = match it.kind.as_str() {
+                "alert" => icon::BELL,
+                "job" => icon::TERMINAL,
+                "autopilot_paused" => icon::CLOCK,
+                "rate_limit" => icon::CHART,
+                "bot_reply" => icon::BOT,
+                _ => icon::INBOX,
+            };
+            view! {
+                <span
+                    class="inbox-kind"
+                    role="img"
+                    aria-label=it.label.clone()
+                    title=it.label.clone()
+                    inner_html=icon::svg(glyph)
+                ></span>
+            }
+        });
+        let source = (!place.is_empty()).then(|| view! { <span class="inbox-src">{place}</span> });
         view! {
             <button
                 type="button"
@@ -1224,8 +1242,9 @@ fn row_view(ctx: Ctx, i: usize, it: Item, pending: Option<Value>) -> impl IntoVi
                     }
                 }
             >
-                <span class="inbox-src">{source}</span>
+                {kind}
                 <span class="inbox-say">{title.clone()}</span>
+                {source}
                 <time>{fmt::ago(&it.created)}</time>
             </button>
         }

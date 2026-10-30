@@ -79,10 +79,15 @@
 .console-rail[data-mode="summary"] .inbox-row[data-open="true"] { margin: var(--space-xs) 0; }
 .console-rail[data-mode="summary"] .inbox-row[data-open="true"] .inbox-line { display: none; }
 .inbox-line { all: unset; grid-area: line; min-width: 0; display: flex; align-items: baseline; gap: var(--space-sm); cursor: pointer; font-size: var(--font-size-label-readable); line-height: 32px; }
-.inbox-src { flex: 0 1 auto; max-width: 38%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-3); }
-.inbox-say { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-2); }
+.inbox-kind { flex: 0 0 auto; align-self: center; width: 14px; height: 14px; display: inline-grid; color: var(--fg-3); }
+.inbox-kind svg { width: 14px; height: 14px; }
+.inbox-say { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-3); }
+.inbox-src { flex: 0 0 auto; max-width: 8em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--font-size-label); color: var(--fg-3); }
+.inbox-line time { flex: 0 0 auto; font-size: var(--font-size-label); color: var(--fg-3); font-variant-numeric: tabular-nums; }
+/* Unread is the whole line, not just the dot: the sentence in full colour, where it came from a
+   step up. Read lines stay grey. */
 .inbox-row[data-unread="true"] .inbox-say { color: var(--fg); font-weight: var(--font-weight-medium); }
-.inbox-line time { flex: 0 0 auto; font-size: var(--font-size-caption-readable); color: var(--fg-3); font-variant-numeric: tabular-nums; }
+.inbox-row[data-unread="true"] :is(.inbox-src, .inbox-kind) { color: var(--fg-2); }
 
 .console-rail[data-mode="all"] .inbox-tools { display: flex; align-items: center; gap: var(--space-md); margin-bottom: var(--space-md); }
 .console-rail[data-mode="all"] .work-filters .filter { max-width: 150px; }
