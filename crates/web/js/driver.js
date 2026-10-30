@@ -291,7 +291,8 @@ function metrics(command) {
     if (s.backgroundColor !== 'rgba(0, 0, 0, 0)') {
       bump(out.background, s.backgroundColor, el);
       // A surface is a block you read things on: at least 40×24, not a control, a dot or a badge.
-      if (r.width >= 40 && r.height >= 24 && !el.closest('button, a.btn, input, select, textarea, kbd, [role="button"]')) bump(out.surface, s.backgroundColor, el);
+      // Controls, selection highlights, tracks and meters, and inline code don't count.
+      if (r.width >= 40 && r.height >= 24 && !el.closest('a, button, input, select, textarea, kbd, code, progress, [role="button"], [role="tab"], [role="progressbar"], [aria-current], [aria-selected="true"], [data-sel="true"], .seg')) bump(out.surface, s.backgroundColor, el);
     }
     if (parseFloat(s.borderTopLeftRadius) > 0 && !dot) bump(out.radius, s.borderTopLeftRadius, el);
     if (s.boxShadow !== 'none' && !dot) bump(out.shadow, s.boxShadow, el);

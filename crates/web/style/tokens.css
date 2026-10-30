@@ -35,19 +35,20 @@
 
   --fg: #f2f2f7;
   --fg-2: #c7c7cc;
-  --fg-3: #98989f;
-  --fg-4: #8a8a90;
+  --fg-3: #a8a8af;
+  --fg-4: #9d9da4;
   --disabled-opacity: .45;
   --line: rgba(255,255,255,.08);
   --border: rgba(255,255,255,.11);
   --border-strong: rgba(255,255,255,.18);
   --line-side: 1px solid var(--line);
 
-  --accent: #7170ff;
-  --primary: #7170ff;
-  --primary-hover: #8584ff;
+  --accent: #8786ff;
+  /* Buttons sit a step deeper than the accent used for text, so white on them reads at 5.6:1. */
+  --primary: #5856d6;
+  --primary-hover: #6563e8;
   --on-accent: #fff;
-  --on-accent-muted: rgba(255,255,255,.75);
+  --on-accent-muted: rgba(255,255,255,.9);
   --shadow-composer: 0 1px 2px rgba(0,0,0,.1);
   --switch-knob: #fff;
   --shadow-switch-track: inset 0 0 0 .5px rgba(0,0,0,.2);
@@ -110,7 +111,7 @@
   --focus-ring-selected: 2px solid var(--accent, var(--accent-fallback));
   --focus-offset-inset: -2px;
 
-  --selection-bg: rgba(113,112,255,.35);
+  --selection-bg: rgba(135,134,255,.35);
   --decoration-muted: #48484d;
   --runtime-neutral-fg: #c8c8cc;
   --runtime-claude-fg: #d97757;
@@ -131,14 +132,14 @@
   --diff-removed-gutter: rgba(248, 81, 73, .05);
   --diff-empty-stripe: rgba(255,255,255,.02);
   --preview-canvas: #fff;
-  --option-selected-bg: rgba(113,112,255,.16);
+  --option-selected-bg: rgba(135,134,255,.16);
   --option-focus-bg: rgba(255,255,255,.08);
   --terminal-bg: var(--bg-code);
   --mask-opaque: #000;
   --inline-code-bg: rgba(255,255,255,.07);
-  --composer-focus-border: rgba(113,112,255,.55);
-  --option-selected-border: rgba(113,112,255,.5);
-  --accent-fallback: #7170ff;
+  --composer-focus-border: rgba(135,134,255,.55);
+  --option-selected-border: rgba(135,134,255,.5);
+  --accent-fallback: #8786ff;
   --line-fallback: rgba(128,128,128,.2);
   --qr-canvas: white;
 
@@ -192,7 +193,7 @@
   --margin-prose-rule: 1.6em 0;
   --margin-skill-editor: 16px 0;
 
-  --radius-mark: 2px;
+  --radius-mark: 0;
   --radius-keycap: 4px;
   --radius-tree-item: 6px;
   --radius-counter: 999px;
@@ -222,6 +223,7 @@
   --shadow-card: none;
   --shadow-card-hover: 0 0 0 1px rgba(255,255,255,.1);
   --shadow-control: inset 0 0 0 1px rgba(255,255,255,.06);
+  --control-edge: rgba(255,255,255,.06);
   --shadow-control-primary: none;
   --shadow-field: none;
   --r-control: var(--r-md);
@@ -315,15 +317,15 @@
   --chart-heat: #6e6e73;
   --fg: #1d1d1f;
   --fg-2: #3a3a3c;
-  --fg-3: #6e6e73;
-  --fg-4: #7c7c80;
+  --fg-3: #5f5f64;
+  --fg-4: #636367;
   --line: rgba(0,0,0,.08);
   --border: rgba(0,0,0,.12);
   --border-strong: rgba(0,0,0,.2);
   --accent: #5e5ce6;
-  --primary: #5e5ce6;
-  --primary-hover: #6e6cf0;
-  --ok-fg: #248a3d;
+  --primary: #5856d6;
+  --primary-hover: #6563e8;
+  --ok-fg: #1f7a35;
   --err: #ff3b30;
   --err-fg: #d70015;
   --status-run: var(--accent);
@@ -365,6 +367,7 @@
   --shadow-card: none;
   --shadow-card-hover: 0 0 0 1px rgba(0,0,0,.1);
   --shadow-control: inset 0 0 0 1px rgba(0,0,0,.1);
+  --control-edge: rgba(0,0,0,.1);
   --shadow-control-primary: none;
   --shadow-field: none;
   --field-border: 1px solid rgba(0,0,0,.12);
@@ -420,15 +423,15 @@
     --chart-heat: #6e6e73;
     --fg: #1d1d1f;
     --fg-2: #3a3a3c;
-    --fg-3: #6e6e73;
-    --fg-4: #7c7c80;
+    --fg-3: #5f5f64;
+    --fg-4: #636367;
     --line: rgba(0,0,0,.08);
     --border: rgba(0,0,0,.12);
     --border-strong: rgba(0,0,0,.2);
     --accent: #5e5ce6;
-    --primary: #5e5ce6;
-    --primary-hover: #6e6cf0;
-    --ok-fg: #248a3d;
+    --primary: #5856d6;
+    --primary-hover: #6563e8;
+    --ok-fg: #1f7a35;
     --err: #ff3b30;
     --err-fg: #d70015;
     --status-run: var(--accent);
@@ -470,6 +473,7 @@
     --shadow-card: none;
     --shadow-card-hover: 0 0 0 1px rgba(0,0,0,.1);
     --shadow-control: inset 0 0 0 1px rgba(0,0,0,.1);
+    --control-edge: rgba(0,0,0,.1);
     --shadow-control-primary: none;
     --shadow-field: none;
       --field-border: 1px solid rgba(0,0,0,.12);

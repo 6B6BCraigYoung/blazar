@@ -213,7 +213,7 @@ code.pref-item-title { font: var(--font-size-label-readable) var(--font-mono); c
 .about-brand .about-version { margin-top: var(--space-xs); font-size: var(--font-size-label); color: var(--fg-3); font-variant-numeric: tabular-nums; }
 .about-update { color: var(--accent); }
 .about-update:hover { text-decoration: underline; }
-.about-logo { width: 56px; height: 56px; flex: 0 0 auto; display: grid; border-radius: 13px; box-shadow: var(--shadow-brand-edge); overflow: hidden; }
+.about-logo { width: 56px; height: 56px; flex: 0 0 auto; display: grid; border-radius: 13px; overflow: hidden; }
 .about-logo svg { width: 100%; height: 100%; display: block; }
 .about-brand h2 { margin: 0; font-size: var(--font-size-heading); font-weight: var(--font-weight-semibold); line-height: var(--line-height-heading); }
 .about-brand p { margin: var(--space-2xs) 0 0; font-size: var(--font-size-body); color: var(--fg-3); }

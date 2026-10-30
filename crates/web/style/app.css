@@ -19,7 +19,7 @@ button { font: inherit; color: inherit; }
 .shell { display: flex; height: 100dvh; overflow: hidden; }
 .side { width: 216px; flex: 0 0 auto; background: var(--bg-sidebar); border-right: var(--line-side); display: flex; flex-direction: column; padding: var(--space-card) var(--space-control); gap: var(--space-section); overflow-y: auto; overscroll-behavior: contain; }
 .side .brand { display: flex; align-items: center; gap: var(--space-md); padding: var(--space-2xs) var(--space-md); font-weight: var(--font-weight-semibold); font-size: var(--font-size-card-title); }
-.side .brand .logo { width: 20px; height: 20px; flex: 0 0 auto; display: inline-grid; border-radius: var(--radius-tree-item); box-shadow: var(--shadow-brand-edge); overflow: hidden; }
+.side .brand .logo { width: 20px; height: 20px; flex: 0 0 auto; display: inline-grid; border-radius: var(--radius-tree-item); overflow: hidden; }
 .side .brand .logo svg { width: 100%; height: 100%; display: block; }
 .side .grp { display: flex; flex-direction: column; gap: var(--space-2xs); }
 .side .grp > span { padding: 0 var(--space-md) var(--space-xs); font-size: var(--font-size-caption); font-weight: var(--font-weight-semibold); color: var(--fg-4); }
@@ -70,7 +70,7 @@ button { font: inherit; color: inherit; }
 .quota { display: flex; flex-direction: column; gap: var(--space-sm); padding-right: var(--space-2xl); }
 .qbar { display: grid; grid-template-columns: 50px minmax(0, 1fr) 40px 96px; align-items: center; gap: var(--space-control); font-size: var(--font-size-label); }
 .qbar .l { color: var(--fg-3); }
-.qbar .t { height: 5px; border-radius: var(--radius-keycap); background: var(--bg-hover); overflow: hidden; }
+.qbar .t { height: 5px; border-radius: var(--radius-pill); background: var(--bg-hover); overflow: hidden; }
 .qbar .t i { display: block; height: 100%; background: var(--fg-4); }
 .qbar[data-lvl="warn"] .t i { background: var(--status-attention); }
 .qbar[data-lvl="bad"] .t i { background: var(--status-failed); }

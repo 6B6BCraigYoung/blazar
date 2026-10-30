@@ -222,7 +222,7 @@
 .cc-starter:is(:hover, :focus-visible) kbd { opacity: 1; }
 .cc-starter:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset-inset); }
 .cc-keys { margin: auto 0 0; padding: var(--space-lg) 0 var(--space-md); text-align: center; font-size: var(--font-size-caption-readable); color: var(--fg-4); }
-.cc-keys kbd { padding: 0 var(--space-xs); border: 1px solid var(--line); border-radius: var(--radius-keycap); font: var(--font-size-caption) var(--font-sans); color: var(--fg-4); }
+.cc-keys kbd { font: inherit; color: var(--fg-3); }
 .cc-hero-mark { width: 22px; height: 22px; display: inline-grid; color: var(--fg-2); }
 .cc-hero-mark svg { width: 100%; height: 100%; }
 
@@ -376,7 +376,7 @@
 .aopt[data-sel="true"] { background: var(--option-focus-bg); }
 .aopt[data-sel="true"]::before { content: "❯"; color: var(--status-attention); }
 .cc-ask .aopt.primary { background: var(--option-selected-bg); }
-.ak { min-width: 16px; text-align: center; font: var(--font-size-caption) var(--font-mono); color: var(--fg-4); }
+.ak { min-width: 16px; text-align: center; font: var(--font-size-caption) var(--font-mono); color: var(--fg-3); }
 .areject, .askother { margin-top: var(--space-xs); height: 28px; padding: 0 var(--space-control); border: var(--field-border); border-radius: var(--r-sm); background: var(--bg-canvas); color: var(--fg); font: var(--font-size-label-readable) var(--font-sans); outline: none; }
 .areject:focus, .askother:focus { border-color: var(--border-strong); }
 .ahint { margin-top: var(--space-sm); font-size: var(--font-size-caption); color: var(--fg-4); }

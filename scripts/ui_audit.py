@@ -1789,6 +1789,8 @@ ACCEPT_PAGES = [
     ("machines", "/nodes", None), ("usage", "/usage", None), ("settings", "/settings?s=appearance", None),
     ("new-workspace", "/workspaces", {"action": "click", "selector": ".home-page .page-actions .btn.primary"}),
 ]
+# The main path a first-time user walks: jargon is a failure here and only listed elsewhere.
+MAIN_PATH = {"console", "chat", "new-chat", "workspaces", "new-workspace", "tasks"}
 # Words that shouldn't reach the main path, and the marks of an error shown as it came.
 JARGON = ["端口", "token", "会话 id", "session id", "worktree", "HEAD", "运行时"]
 RAW_ERROR = ["stderr", "ENOENT", "ENOSPC", "panicked", "Traceback", "status code", "os error"]
@@ -1828,8 +1830,10 @@ def accept(out):
             ui({"action": "css", "value": "*, *::before, *::after { animation-duration: 0s !important; animation-delay: 0s !important; transition-duration: 0s !important; }"})
             if then:
                 ui({**then, "settle_ms": 900})
-            m = ui({"action": "metrics", "top": 6})
-            c = ui({"action": "contrast", "top": 12})
+            # Toasts come and go (switching the theme raises one); they aren't part of the page.
+            transient = ".monaco-editor, .xterm, svg, script, style, .toast, .toasts"
+            m = ui({"action": "metrics", "top": 6, "skip": transient})
+            c = ui({"action": "contrast", "top": 12, "skip": transient + ', [disabled], [aria-disabled="true"]'})
             body = ui({"action": "text", "selector": "main"}).get("texts", [{}])
             words = " ".join(x.get("text", "") for x in body)
             jargon = [w for w in JARGON if re.search(rf"(?<![A-Za-z]){re.escape(w)}(?![A-Za-z])", words)]
@@ -1840,7 +1844,12 @@ def accept(out):
             key = f"{slug}-{t}"
             res[key] = {"metrics": m, "contrast": c, "jargon": jargon, "raw_errors": raw}
             over = [f"{k} {m[k]['distinct']}" for k, lim in LIMITS.items() if m[k]["distinct"] > lim]
-            rows.append((key, *(m[k]["distinct"] for k in LIMITS), c["failing"], ",".join(jargon + raw) or "—", "；".join(over)))
+            if slug in MAIN_PATH and (jargon or raw):
+                over.append("术语")
+            words_col = ",".join(jargon + raw) or "—"
+            if slug not in MAIN_PATH and words_col != "—":
+                words_col += "（不在主路径）"
+            rows.append((key, *(m[k]["distinct"] for k in LIMITS), c["failing"], words_col, "；".join(over)))
     theme("system")
     slow, ambient = motion_scan()
     res["motion"] = {"over_200ms": slow, "ambient": ambient}
