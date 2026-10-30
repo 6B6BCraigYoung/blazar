@@ -13,7 +13,7 @@
 .cc-dot::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
 .cc-msg > .cc-dot { color: var(--fg); }
 .cc-row[data-st="err"] > .cc-dot { color: var(--status-failed); }
-.cc-row[data-st="run"] > .cc-dot { color: var(--status-run); animation: ccpulse var(--motion-pulse) infinite; }
+.cc-row[data-st="run"] > .cc-dot { color: var(--status-run); animation: ccpulse var(--motion-pulse-dot) infinite; }
 /* 同一屏最多一处脉冲：同一组里后面的、嵌在跑着的行里的，都只亮不闪。 */
 .cc-row[data-st="run"] ~ .cc-row[data-st="run"] > .cc-dot, .cc-row[data-st="run"] .cc-row > .cc-dot { animation: none; }
 .cc-fold[data-live="false"] .cc-row[data-st="run"] > .cc-dot { animation: none; }

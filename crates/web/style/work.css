@@ -176,7 +176,7 @@
 .chat-row { display: flex; align-items: center; gap: var(--space-md); padding: var(--space-md) var(--space-xl); color: inherit; outline: none; }
 .chat-row:hover { background: var(--bg-hover); }
 .chat-row .dot { width: 8px; height: 8px; }
-.chat-row[data-state="running"] .dot { animation: ccpulse var(--motion-pulse) infinite; }
+.chat-row[data-state="running"] .dot { animation: ccpulse var(--motion-pulse-dot) infinite; }
 .chat-row[data-state="running"] ~ .chat-row[data-state="running"] .dot { animation: none; }
 .chat-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--space-2xs); }
 .chat-title { font-weight: var(--font-weight-medium); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

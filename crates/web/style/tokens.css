@@ -286,6 +286,9 @@
   --ease-standard: cubic-bezier(.2, .8, .2, 1);
   --ease-exit: cubic-bezier(.4, 0, 1, 1);
   --motion-pulse: 1.2s ease-in-out;
+  /* The running dot breathes in steps: eight changes a cycle instead of a frame every 16ms, so a
+     visible window with an agent running isn't recomposited sixty times a second. */
+  --motion-pulse-dot: 1.2s steps(4, jump-none);
   --motion-flash: 1.2s ease-out;
 }
 

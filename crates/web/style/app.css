@@ -717,7 +717,7 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 .home-top { height: 20px; }
 .home-sub { height: 18px; padding-left: calc(6px + var(--space-md)); }
 .home-card .dot { width: 6px; height: 6px; }
-.home-card .dot[data-tone="run"] { animation: ccpulse var(--motion-pulse) infinite; }
+.home-card .dot[data-tone="run"] { animation: ccpulse var(--motion-pulse-dot) infinite; }
 .home-card .dot[data-still] { animation: none; }
 .home-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--font-size-card-title); font-weight: var(--font-weight-medium); }
 .home-card[data-unseen="true"] .home-name { font-weight: var(--font-weight-semibold); }

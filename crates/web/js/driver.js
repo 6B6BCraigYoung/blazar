@@ -531,6 +531,7 @@ async function run(command) {
       const round = v => (typeof v === 'number' ? Math.round(v) : null);
       return {
         now: round(performance.now()),
+        origin: performance.timeOrigin,
         dom_interactive: round(nav?.domInteractive),
         dom_content_loaded: round(nav?.domContentLoadedEventEnd),
         load: round(nav?.loadEventEnd),

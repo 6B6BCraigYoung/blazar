@@ -585,9 +585,42 @@ def compare(args):
         print(f"{name:<36}{'' if x is None else x:>12}{'' if y is None else y:>12}{delta:>10}")
 
 
-COMMANDS = {"prepare": prepare, "pids": pids, "idle": idle, "ops": ops, "memory": memory, "compare": compare}
+def launch(args):
+    """Cold start: from asking macOS to open the app to the first conversation loaded on screen
+    (the page's blazar:chat-ready mark), and the page's own share of it from navigation start."""
+    reps = int(flag(args, "--reps") or 5)
+    label = flag(args, "--label") or "launch"
+    di = ROOT / "scripts/dev-instance.sh"
+    runs = []
+    for _ in range(reps):
+        subprocess.run([str(di), "stop"], check=True, capture_output=True)
+        time.sleep(2)
+        t0 = time.time()
+        subprocess.run([str(di), "start"], check=True, capture_output=True)
+        mark = None
+        for _ in range(300):
+            t = ui({"action": "timing"})
+            mark = next((m for m in t.get("marks", []) if m["name"] == "blazar:chat-ready"), None)
+            if mark:
+                break
+            time.sleep(0.1)
+        if not mark:
+            die("30 秒内没等到 blazar:chat-ready")
+        mounted = next((m["at"] for m in t["marks"] if m["name"] == "blazar:mounted"), None)
+        runs.append({"cold_ms": round((t["origin"] + mark["at"]) - t0 * 1000), "page_ms": mark["at"],
+                     "mounted_ms": mounted, "wasm_ms": (t.get("wasm") or {}).get("duration")})
+    result = {"label": label, "launch": True, "runs": runs,
+              "median": {k: median_of(runs, k) for k in runs[0]},
+              "at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+    path = OUT / f"launch-{label}-{datetime.now().strftime('%m%d-%H%M%S')}.json"
+    path.write_text(json.dumps(result, ensure_ascii=False, indent=1))
+    print(path)
+    print("冷启动到首屏可操作（中位数）：" + "，".join(f"{k} {v}" for k, v in result["median"].items()))
+
+
+COMMANDS = {"prepare": prepare, "pids": pids, "idle": idle, "ops": ops, "memory": memory, "launch": launch, "compare": compare}
 
 if __name__ == "__main__":
     if len(sys.argv) < 2 or sys.argv[1] not in COMMANDS:
-        die("用法：perf.py prepare|pids|idle|ops|compare")
+        die("用法：perf.py prepare|pids|idle|ops|memory|launch|compare")
     COMMANDS[sys.argv[1]](sys.argv[2:])

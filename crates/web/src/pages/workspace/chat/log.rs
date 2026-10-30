@@ -1813,6 +1813,22 @@ pub(super) fn blank(chat: Chat) -> bool {
 
 #[component]
 pub fn Log(chat: Chat, tick: RwSignal<u32>, log_h: RwSignal<f64>) -> impl IntoView {
+    // The first conversation on screen has loaded: the page is usable. `scripts/perf launch`
+    // times a cold start up to this mark.
+    Effect::new(move |done: Option<bool>| {
+        if done == Some(true) || chat.loading.get() {
+            return done.unwrap_or(false);
+        }
+        if let Some(performance) = web_sys::window().and_then(|w| w.performance())
+            && performance
+                .get_entries_by_name("blazar:chat-ready")
+                .length()
+                == 0
+        {
+            let _ = performance.mark("blazar:chat-ready");
+        }
+        true
+    });
     let opened = Opened(RwSignal::new(HashSet::new()));
     let el = NodeRef::<html::Div>::new();
     let at_bottom = StoredValue::new(true);
