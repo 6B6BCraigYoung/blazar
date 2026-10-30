@@ -44,7 +44,7 @@ FAILED_LINE = {
     "quota": "额度用完了，没做完，可以换个账号",
     "other": "磁盘满了，打包脚本没跑完，清掉空间后可以重试",
 }
-ASK = {"question": "正式站的首页文案要不要一起改？", "options": ["一起改", "先不动正式站"]}
+ASK = {"question": "正式站的首页文案要不要一起改？", "options": ["一起改", "先不动正式站", "先只改测试站，等你看过效果、确认文案和配图都没问题之后，再一起改正式站（大约多花一天）"]}
 WS = {name: did(1, i) for i, name in enumerate(
     ["atlas-api", "nebula-web", "quasar-ml", "orbit-docs", "quasar-train", "orbit-site",
      "comet-sync", "quasar-eval", "atlas-worker", "lyra-build", *LEGACY], 1)}

@@ -210,15 +210,39 @@ function scrolledSideways(el) {
   return false;
 }
 
+function boxParent(el) {
+  let p = el.parentElement;
+  while (p && p !== document.body && getComputedStyle(p).display === 'contents') p = p.parentElement;
+  return p && p !== document.body ? p : null;
+}
+
+function escapesParent(el, s) {
+  if (s.position === 'absolute' || s.position === 'fixed') return 0;
+  const p = boxParent(el);
+  if (!p) return 0;
+  const ps = getComputedStyle(p);
+  if (['auto', 'scroll'].includes(ps.overflowX)) return 0;
+  const r = el.getBoundingClientRect();
+  const pr = p.getBoundingClientRect();
+  const over = Math.max(r.right - pr.right, pr.left - r.left);
+  const clips = ['hidden', 'clip'].includes(ps.overflowX);
+  return over > 12 || (clips && over > 1.5) ? Math.round(over) : 0;
+}
+
 function overflowing() {
   const out = [];
   for (const el of document.querySelectorAll('body *')) {
-    if (!visible(el) || el.children.length > 0) continue;
+    if (!visible(el)) continue;
     const s = getComputedStyle(el);
-    const clipped = el.scrollWidth > el.clientWidth + 1 && s.overflowX !== 'visible' && s.textOverflow !== 'ellipsis';
-    const r = el.getBoundingClientRect();
-    const outside = (r.right > innerWidth + 1 || r.left < -1) && !scrolledSideways(el);
-    if (clipped || outside) out.push({ ref: refOf(el), name: label(el), rect: rect(el), clipped, outside });
+    const over = escapesParent(el, s);
+    if (el.children.length > 0) {
+      if (over) out.push({ ref: refOf(el), name: label(el), rect: rect(el), escapes: over });
+    } else {
+      const clipped = el.scrollWidth > el.clientWidth + 1 && s.overflowX !== 'visible' && s.textOverflow !== 'ellipsis';
+      const r = el.getBoundingClientRect();
+      const outside = (r.right > innerWidth + 1 || r.left < -1) && !scrolledSideways(el);
+      if (clipped || outside || over) out.push({ ref: refOf(el), name: label(el), rect: rect(el), clipped, outside, escapes: over });
+    }
     if (out.length >= 50) break;
   }
   return out;
