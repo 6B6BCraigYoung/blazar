@@ -199,6 +199,7 @@
 .inbox-meta { flex: 0 0 auto; display: inline-flex; align-items: center; gap: var(--space-md); padding-top: 3px; font-size: var(--font-size-caption); color: var(--fg-4); white-space: nowrap; }
 .inbox-act { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-sm); margin-top: var(--space-2xs); }
 .inbox-act .btn { display: inline-flex; align-items: center; gap: var(--space-xs); }
+.inbox-act > .btn.opt { height: auto; min-height: 24px; max-width: 100%; padding-block: var(--space-2xs); white-space: normal; overflow-wrap: anywhere; text-align: left; justify-content: flex-start; line-height: var(--line-height-heading); }
 /* Shortcut keys read as counts when they sit next to a label, so they stay hidden
    until the card is pointed at or reached by keyboard, then show as a faint keycap. */
 .inbox-act .btn kbd, .bot-approval .row-actions .btn kbd { margin-left: var(--space-2xs); padding: 0 var(--space-xs); border: 1px solid var(--border); border-radius: var(--radius-keycap); font: var(--font-size-keycap) var(--font-sans); line-height: 14px; color: var(--fg-4); visibility: hidden; }

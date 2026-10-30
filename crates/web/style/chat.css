@@ -87,7 +87,8 @@
 .cc-copy[data-done="true"] { color: var(--fg); }
 .cc-msg.sub .cc-md { color: var(--fg-2); font-size: var(--font-size-label-readable); }
 
-.cc-fd > summary { list-style: none; cursor: pointer; display: inline-flex; align-items: center; gap: var(--space-xs); color: var(--fg-3); user-select: none; }
+.cc-fd > summary { list-style: none; cursor: pointer; display: inline-flex; align-items: center; gap: var(--space-xs); max-width: 100%; color: var(--fg-3); user-select: none; }
+.cc-fd > summary .cc-fl { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cc-fd > summary::-webkit-details-marker { display: none; }
 .cc-fd > summary:hover { color: var(--fg); }
 .cc-fchev { width: 12px; height: 12px; transition: transform var(--motion-fast) var(--ease-standard); }

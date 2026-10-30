@@ -292,7 +292,7 @@ fn ask_panel(ctx: Ctx, it: &Item) -> AnyView {
                     view! {
                         <button
                             type="button"
-                            class="btn small"
+                            class="btn small opt"
                             disabled=move || ctx.gate.with(|g| g.busy(&waiting))
                             on:click=move |_| pick(label.clone())
                         >
@@ -1096,7 +1096,7 @@ fn question_panel(ctx: Ctx, aid: String, a: &Value, href: String, item_id: Strin
                     view! {
                         <button
                             type="button"
-                            class="btn small"
+                            class="btn small opt"
                             disabled=move || ctx.gate.with(|g| g.busy(&waiting))
                             on:click=move |_| pick(label.clone())
                         >

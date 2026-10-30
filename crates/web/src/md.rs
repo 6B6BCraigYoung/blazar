@@ -208,7 +208,8 @@ pub fn render(src: &str, base: &str, ws: &str) -> String {
     });
     let mut out = String::with_capacity(src.len() * 3 / 2);
     pulldown_cmark::html::push_html(&mut out, events);
-    out
+    out.replace("<table>", "<div class=\"md-table\"><table>")
+        .replace("</table>", "</table></div>")
 }
 
 fn insight(c: &str) -> Option<String> {
