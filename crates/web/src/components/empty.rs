@@ -66,8 +66,20 @@ pub fn Blank(
     #[prop(into)] title: String,
     #[prop(optional, into)] detail: String,
     #[prop(optional)] action: Option<Action>,
+    /// A second, plain button beside `action`.
+    #[prop(optional)]
+    also: Option<Action>,
     #[prop(optional)] inset: bool,
 ) -> impl IntoView {
+    let button = |a: Action| {
+        let run = a.run;
+        view! {
+            <button type="button" class="btn" class:primary=a.primary on:click=move |_| run.run(())>
+                {a.label}
+                {a.keys.map(|k| view! { <kbd>{k}</kbd> })}
+            </button>
+        }
+    };
     view! {
         <div class="blank" class:inset=inset class:fill=!inset>
             <span class="blank-mark" aria-hidden="true">
@@ -76,19 +88,10 @@ pub fn Blank(
             </span>
             <h2 class="blank-title">{title}</h2>
             {(!detail.is_empty()).then(|| view! { <p class="blank-detail">{detail}</p> })}
-            {action
-                .map(|a| {
-                    let run = a.run;
+            {(action.is_some() || also.is_some())
+                .then(|| {
                     view! {
-                        <button
-                            type="button"
-                            class="btn"
-                            class:primary=a.primary
-                            on:click=move |_| run.run(())
-                        >
-                            {a.label}
-                            {a.keys.map(|k| view! { <kbd>{k}</kbd> })}
-                        </button>
+                        <div class="blank-actions">{action.map(button)} {also.map(button)}</div>
                     }
                 })}
         </div>

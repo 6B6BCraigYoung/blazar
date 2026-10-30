@@ -1,6 +1,12 @@
 .agent-page { gap: var(--space-xl); }
 .agent-toolbar, .agent-actions, .agent-save { display: flex; align-items: center; gap: var(--space-toolbar); flex-wrap: wrap; }
-.agent-tabs { align-self: flex-start; flex-wrap: wrap; }
+/* The second row of tabs inside a page is a line of text, not a second row of pills under the
+   section tabs. */
+.subtabs { display: flex; flex-wrap: wrap; gap: var(--space-xl); border-bottom: 1px solid var(--line); }
+.subtabs button { all: unset; cursor: pointer; margin-bottom: -1px; padding: var(--space-sm) 0; border-bottom: 2px solid transparent; font-size: var(--font-size-body); color: var(--fg-3); transition: color var(--motion-fast) var(--ease-standard); }
+.subtabs button:hover { color: var(--fg); }
+.subtabs button[data-on="true"] { border-bottom-color: var(--fg); color: var(--fg); font-weight: var(--font-weight-medium); }
+.subtabs button:focus-visible { outline: var(--focus-ring); border-radius: var(--r-sm); }
 .agent-toolbar .grow, .agent-save .grow, .agent-run .grow { flex: 1; }
 .agent-page input:not([type=checkbox]):not(.filter), .agent-page select:not(.filter), .agent-page textarea, .agent-modal input:not([type=checkbox]), .agent-modal select, .agent-modal textarea { border: var(--field-border); border-radius: var(--r-md); background: var(--bg-canvas); color: var(--fg); padding: var(--space-md) var(--space-control); font: var(--font-size-body) var(--font-sans); max-width: 100%; box-sizing: border-box; }
 .agent-toolbar input { flex: 0 1 var(--measure); min-width: 180px; }

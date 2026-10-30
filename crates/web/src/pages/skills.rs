@@ -104,6 +104,8 @@ pub fn SkillsPage() -> impl IntoView {
     let importing = RwSignal::new(false);
     let mcp = RwSignal::new(None::<Value>);
     let new_name = RwSignal::new(String::new());
+    let naming = RwSignal::new(false);
+    let filter = RwSignal::new(String::new());
     let busy = RwSignal::new(false);
     let error = RwSignal::new(String::new());
     let preview = RwSignal::new(None::<(Value, bool)>);
@@ -172,7 +174,7 @@ pub fn SkillsPage() -> impl IntoView {
             app.skills_n.set(l.len());
         }
     });
-    let create = move |_| {
+    let create = move |()| {
         if busy.get_untracked() {
             return;
         }
@@ -188,6 +190,7 @@ pub fn SkillsPage() -> impl IntoView {
                 Ok(v) => {
                     editing.set(Some(text(&v, "id")));
                     new_name.set(String::new());
+                    naming.set(false);
                     rev.update(|r| *r += 1);
                 }
                 Err(e) => error.set(e.to_string()),
@@ -198,7 +201,7 @@ pub fn SkillsPage() -> impl IntoView {
     view! {
         <div class="page wide agent-page skills-page">
             <PageHead title="技能" nav=|| crate::components::section::agents("/skills") />
-            <div class="seg agent-tabs" role="group" aria-label="技能内容">
+            <div class="subtabs" role="group" aria-label="技能内容">
                 {[("skills", "已安装"), ("market", "发现"), ("mcp", "MCP 服务器")]
                     .into_iter()
                     .map(|(k, l)| {
@@ -210,6 +213,8 @@ pub fn SkillsPage() -> impl IntoView {
                                 on:click=move |_| {
                                     if tab.get_untracked() != k {
                                         tab.set(k.into());
+                                        filter.set(String::new());
+                                        naming.set(false);
                                         navigate
                                             .with_value(|go| go(
                                                 &format!("/skills?tab={k}"),
@@ -229,54 +234,102 @@ pub fn SkillsPage() -> impl IntoView {
                     view! { <SkillMarket preview refresh=rev /> }.into_any()
                 } else {
                     let is_mcp = tab.get() == "mcp";
+                    let filled = move || lib.with(|l| matches!(l, Some(Ok(l)) if !l.is_empty()));
+                    // An empty list is just the empty state with its buttons; the intro, the
+                    // search and the buttons above the list come with the first item.
                     view! {
-                        <p class="muted">
-                            {if is_mcp {
-                                "添加服务器后，在智能体中启用。密钥保存后只显示键名。"
+                        <Show when=filled>
+                            <p class="muted">
+                                {if is_mcp {
+                                    "添加服务器后，在智能体中启用。密钥保存后只显示键名。"
+                                } else {
+                                    "添加技能后，在智能体中启用，下一轮运行生效。"
+                                }}
+                            </p>
+                        </Show>
+                        {move || {
+                            if naming.get() && !is_mcp {
+                                view! {
+                                    <div class="agent-toolbar">
+                                        <input
+                                            class="filter"
+                                            aria-label="新技能名称"
+                                            placeholder="技能名称"
+                                            title="使用字母、数字、连字符或下划线"
+                                            autofocus
+                                            prop:value=move || new_name.get()
+                                            on:input=move |e| new_name.set(event_target_value(&e))
+                                            on:keydown=move |e| match e.key().as_str() {
+                                                "Enter" if !e.is_composing() => create(()),
+                                                "Escape" => {
+                                                    e.stop_propagation();
+                                                    naming.set(false);
+                                                }
+                                                _ => {}
+                                            }
+                                        />
+                                        <button
+                                            class="btn primary"
+                                            disabled=move || busy.get()
+                                            on:click=move |_| create(())
+                                        >
+                                            {move || if busy.get() { "创建中…" } else { "创建" }}
+                                        </button>
+                                        <button
+                                            class="btn ghost"
+                                            on:click=move |_| naming.set(false)
+                                        >
+                                            "取消"
+                                        </button>
+                                    </div>
+                                }
+                                    .into_any()
+                            } else if !filled() {
+                                ().into_any()
+                            } else if is_mcp {
+                                view! {
+                                    <div class="agent-toolbar">
+                                        <input
+                                            class="filter"
+                                            aria-label="搜索 MCP 服务器"
+                                            placeholder="搜索"
+                                            prop:value=move || filter.get()
+                                            on:input=move |e| filter.set(event_target_value(&e))
+                                        />
+                                        <button
+                                            class="btn primary"
+                                            on:click=move |_| {
+                                                mcp.set(Some(json!({"transport":"stdio"})))
+                                            }
+                                        >
+                                            "添加 MCP 服务器"
+                                        </button>
+                                    </div>
+                                }
+                                    .into_any()
                             } else {
-                                "添加技能后，在智能体中启用，下一轮运行生效。"
-                            }}
-                        </p>
-                        {if is_mcp {
-                            view! {
-                                <div>
-                                    <button
-                                        class="btn primary"
-                                        on:click=move |_| {
-                                            mcp.set(Some(json!({"transport":"stdio"})))
-                                        }
-                                    >
-                                        "添加 MCP 服务器"
-                                    </button>
-                                </div>
+                                view! {
+                                    <div class="agent-toolbar">
+                                        <input
+                                            class="filter"
+                                            aria-label="搜索技能"
+                                            placeholder="搜索"
+                                            prop:value=move || filter.get()
+                                            on:input=move |e| filter.set(event_target_value(&e))
+                                        />
+                                        <button
+                                            class="btn primary"
+                                            on:click=move |_| naming.set(true)
+                                        >
+                                            "新建技能"
+                                        </button>
+                                        <button class="btn" on:click=move |_| importing.set(true)>
+                                            "从本机导入"
+                                        </button>
+                                    </div>
+                                }
+                                    .into_any()
                             }
-                                .into_any()
-                        } else {
-                            view! {
-                                <div class="agent-toolbar">
-                                    <input
-                                        class="filter"
-                                        aria-label="新技能名称"
-                                        placeholder="技能名称"
-                                        title="使用字母、数字、连字符或下划线"
-                                        prop:value=move || new_name.get()
-                                        on:input=move |e| new_name.set(event_target_value(&e))
-                                    />
-                                    <button
-                                        class="btn primary"
-                                        disabled=move || busy.get()
-                                        on:click=create
-                                    >
-                                        {move || {
-                                            if busy.get() { "创建中…" } else { "新建技能" }
-                                        }}
-                                    </button>
-                                    <button class="btn" on:click=move |_| importing.set(true)>
-                                        "从本机导入"
-                                    </button>
-                                </div>
-                            }
-                                .into_any()
                         }}
                         {move || {
                             (!error.get().is_empty())
@@ -298,11 +351,33 @@ pub fn SkillsPage() -> impl IntoView {
                                     .into_any()
                             }
                             Some(Ok(lib)) => {
-                                let lib: Vec<Value> = lib
+                                let all: Vec<Value> = lib
                                     .into_iter()
                                     .filter(|v| undo::shows(&text(v, "id")))
                                     .collect();
+                                let q = filter.get().trim().to_lowercase();
+                                let lib: Vec<Value> = all
+                                    .iter()
+                                    .filter(|v| {
+                                        q.is_empty() || text(v, "name").to_lowercase().contains(&q)
+                                            || text(v, "description").to_lowercase().contains(&q)
+                                    })
+                                    .cloned()
+                                    .collect();
                                 shown.set(lib.clone());
+                                if lib.is_empty() && !all.is_empty() {
+                                    return view! {
+                                        <Blank
+                                            icon=icon::FILTER
+                                            title=empty::unmatched(
+                                                if is_mcp { "MCP 服务器" } else { "技能" },
+                                            )
+                                            action=Action::clear(move || filter.set(String::new()))
+                                            inset=true
+                                        />
+                                    }
+                                        .into_any();
+                                }
                                 if lib.is_empty() {
                                     return if is_mcp {
                                         view! {
@@ -311,9 +386,10 @@ pub fn SkillsPage() -> impl IntoView {
                                                 title=empty::never("MCP 服务器")
                                                 detail="MCP 服务器给智能体接上外部工具，添加后在智能体里启用。"
                                                 action=Action::new(
-                                                    "添加 MCP 服务器",
-                                                    move || mcp.set(Some(json!({"transport":"stdio"}))),
-                                                )
+                                                        "添加 MCP 服务器",
+                                                        move || mcp.set(Some(json!({"transport":"stdio"}))),
+                                                    )
+                                                    .primary()
                                             />
                                         }
                                             .into_any()
@@ -323,7 +399,9 @@ pub fn SkillsPage() -> impl IntoView {
                                                 icon=icon::WAND
                                                 title=empty::never("技能")
                                                 detail="技能是一组说明和脚本，启用后智能体会按需使用。可以新建、从本机导入，或去「发现」里安装。"
-                                                action=Action::new(
+                                                action=Action::new("新建技能", move || naming.set(true))
+                                                    .primary()
+                                                also=Action::new(
                                                     "从本机导入",
                                                     move || importing.set(true),
                                                 )

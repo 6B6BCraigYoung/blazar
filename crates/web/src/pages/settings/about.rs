@@ -24,111 +24,124 @@ pub(super) fn AboutSettings() -> impl IntoView {
             let latest = text(&u, "latest");
             let url = text(&u, "url");
             view! {
-                <a class="btn" href=url target="_blank" rel="noopener noreferrer">
+                <a class="about-update" href=url target="_blank" rel="noopener noreferrer">
                     {format!("下载 {latest} ↗")}
                 </a>
             }
             .into_any()
         } else {
-            view! { <span class="muted">"已是最新"</span> }.into_any()
+            view! { <span>"已是最新"</span> }.into_any()
         })
     };
     let resetting = RwSignal::new(false);
+    // 品牌在最上面：标志、名字、一句话，下面一行是版本和更新。
+    let version = move || {
+        data.get()
+            .and_then(Result::ok)
+            .map(|a| format!("版本 {}", text(&a, "version")))
+    };
+    let local = move || match data.get() {
+        None => view! { <LoadingState text="正在加载…" /> }.into_any(),
+        Some(Err(e)) => view! {
+            <InlineError
+                lead="无法加载本机数据"
+                error=e.clone()
+                retry=Callback::new(move |_| data.refetch())
+            />
+        }
+        .into_any(),
+        Some(Ok(a)) => {
+            let hub_url = a["hub_url"]
+                .as_str()
+                .filter(|s| !s.is_empty())
+                .map(str::to_owned)
+                .unwrap_or_else(|| window().location().origin().unwrap_or_default());
+            let db = format!(
+                "{:.1} MB",
+                a["db_bytes"].as_f64().unwrap_or_default() / 1048576.0
+            );
+            let counts = a["counts"]
+                .as_object()
+                .map(|c| {
+                    c.iter()
+                        .map(|(k, v)| (k.clone(), v.to_string()))
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            let engine = format!(
+                "{} {}（{} 许可证）",
+                text(&a["engine"], "name"),
+                text(&a["engine"], "version"),
+                text(&a["engine"], "license"),
+            );
+            let source = text(&a["engine"], "source");
+            view! {
+                <PrefAdvanced title="本地数据与许可证">
+                    {
+                        let url = hub_url.clone();
+                        view! {
+                            <PrefRow label="本地服务地址">
+                                <code>{url}</code>
+                            </PrefRow>
+                        }
+                    }
+                    {
+                        let db = db.clone();
+                        view! {
+                            <PrefRow label="本机数据">
+                                <span>{db}</span>
+                            </PrefRow>
+                        }
+                    }
+                    {counts
+                        .iter()
+                        .map(|(k, v)| {
+                            let (k, v) = (k.clone(), v.clone());
+                            view! {
+                                <PrefRow label=k>
+                                    <span>{v}</span>
+                                </PrefRow>
+                            }
+                        })
+                        .collect_view()}
+                    <p>
+                        "文档在仓库 README.md。Blazar 代码使用 MIT 许可证。Monaco Editor、xterm.js：MIT；IBM Plex Sans、JetBrains Mono：SIL OFL 1.1。完整声明见 THIRD-PARTY-NOTICES.md。"
+                    </p>
+                    <p>
+                        {format!("机器组网用的是 {engine}。")}
+                        <a href=source.clone() target="_blank" rel="noopener noreferrer">
+                            "对应版本源码 ↗"
+                        </a>
+                    </p>
+                </PrefAdvanced>
+            }
+                .into_any()
+        }
+    };
     view! {
-        {move || match data.get() {
-            None => view! { <LoadingState text="正在加载设置…" /> }.into_any(),
-            Some(Err(e)) => {
-                view! {
-                    <InlineError
-                        lead="无法加载设置"
-                        error=e.clone()
-                        retry=Callback::new(move |_| data.refetch())
-                    />
-                }
-                    .into_any()
-            }
-            Some(Ok(a)) => {
-                let hub_url = a["hub_url"]
-                    .as_str()
-                    .filter(|s| !s.is_empty())
-                    .map(str::to_owned)
-                    .unwrap_or_else(|| window().location().origin().unwrap_or_default());
-                let db = format!(
-                    "{:.1} MB",
-                    a["db_bytes"].as_f64().unwrap_or_default() / 1048576.0,
-                );
-                let counts = a["counts"]
-                    .as_object()
-                    .map(|c| {
-                        c.iter().map(|(k, v)| (k.clone(), v.to_string())).collect::<Vec<_>>()
-                    })
-                    .unwrap_or_default();
-                let version = text(&a, "version");
-                let engine = format!(
-                    "{} {}（{} 许可证）",
-                    text(&a["engine"], "name"),
-                    text(&a["engine"], "version"),
-                    text(&a["engine"], "license"),
-                );
-                let source = text(&a["engine"], "source");
-                view! {
-                    <div class="about-brand">
-                        <span class="about-logo" inner_html=crate::components::brand::tile()></span>
-                        <div>
-                            <h2>"Blazar"</h2>
-                            <p>
-                                "把本地和远端机器上的代码与 AI 编码智能体放进同一个桌面工作台。"
-                            </p>
-                        </div>
-                    </div>
-                    <PrefGroup title="Blazar">
-                        <PrefRow label="版本" detail=version>
-                            {update_line}
-                        </PrefRow>
-                        <PrefAdvanced title="本地数据与许可证">
-                            {
-                                let url = hub_url.clone();
+        <div class="about-brand">
+            <span class="about-logo" inner_html=crate::components::brand::tile()></span>
+            <div>
+                <h2>"Blazar"</h2>
+                <p>
+                    "把本地和远端机器上的代码与 AI 编码智能体放进同一个桌面工作台。"
+                </p>
+                <p class="about-version">
+                    {version}
+                    {move || {
+                        update_line()
+                            .map(|l| {
                                 view! {
-                                    <PrefRow label="本地服务地址">
-                                        <code>{url}</code>
-                                    </PrefRow>
+                                    " · "
+                                    {l}
                                 }
-                            }
-                            {
-                                let db = db.clone();
-                                view! {
-                                    <PrefRow label="本机数据">
-                                        <span>{db}</span>
-                                    </PrefRow>
-                                }
-                            }
-                            {counts
-                                .iter()
-                                .map(|(k, v)| {
-                                    let (k, v) = (k.clone(), v.clone());
-                                    view! {
-                                        <PrefRow label=k>
-                                            <span>{v}</span>
-                                        </PrefRow>
-                                    }
-                                })
-                                .collect_view()}
-                            <p>
-                                "文档在仓库 README.md。Blazar 代码使用 MIT 许可证。Monaco Editor、xterm.js：MIT；IBM Plex Sans、JetBrains Mono：SIL OFL 1.1。完整声明见 THIRD-PARTY-NOTICES.md。"
-                            </p>
-                            <p>
-                                {format!("机器组网用的是 {}。", engine.clone())}
-                                <a href=source.clone() target="_blank" rel="noopener noreferrer">
-                                    "对应版本源码 ↗"
-                                </a>
-                            </p>
-                        </PrefAdvanced>
-                    </PrefGroup>
-                }
-                    .into_any()
-            }
-        }}
-        <PrefGroup title="这台设备上的偏好">
+                            })
+                    }}
+                </p>
+            </div>
+        </div>
+        <crate::pages::transfer::TransferSettings />
+        <PrefGroup title="这台设备">
             <PrefRow
                 label="恢复默认"
                 detail="恢复主题、布局、快捷键、提醒和视图默认值。工作区、对话和任务数据保留。"
@@ -190,6 +203,7 @@ pub(super) fn AboutSettings() -> impl IntoView {
                     "恢复默认…"
                 </button>
             </PrefRow>
+            {local}
         </PrefGroup>
     }
 }

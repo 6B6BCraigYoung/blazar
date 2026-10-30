@@ -210,13 +210,7 @@ pub fn SettingsPage() -> impl IntoView {
                     "rules" => view! { <RuleSettings /> }.into_any(),
                     "snippets" => view! { <SnippetSettings /> }.into_any(),
                     "hooks" => view! { <HookSettings /> }.into_any(),
-                    "about" => {
-                        view! {
-                            <super::transfer::TransferSettings />
-                            <AboutSettings />
-                        }
-                            .into_any()
-                    }
+                    "about" => view! { <AboutSettings /> }.into_any(),
                     s if moved(s).is_some() => ().into_any(),
                     _ => view! { <AppearanceSettings /> }.into_any(),
                 }}

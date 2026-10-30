@@ -983,7 +983,7 @@ pub fn AgentProfilePage() -> impl IntoView {
                                 </span>
                             </div>
                         </div>
-                        <div class="seg agent-tabs" role="group" aria-label="智能体内容">
+                        <div class="subtabs" role="group" aria-label="智能体内容">
                             {[("overview", "概览"), ("settings", "设置"), ("tools", "工具")]
                                 .into_iter()
                                 .map(|(key, label)| {
