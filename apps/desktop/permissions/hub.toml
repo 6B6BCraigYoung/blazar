@@ -32,3 +32,8 @@ commands.allow = ["copy_image"]
 identifier = "menu-keys"
 description = "Show the shortcuts the page uses on the native menu."
 commands.allow = ["set_menu_shortcuts"]
+
+[[permission]]
+identifier = "app-update"
+description = "Check for a signed update of the app, install it and restart."
+commands.allow = ["update_ready", "install_update"]

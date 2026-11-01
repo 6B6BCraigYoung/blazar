@@ -15,7 +15,21 @@ use super::{apply_ui_preferences, text};
 pub(super) fn AboutSettings() -> impl IntoView {
     let data = LocalResource::new(|| api::get::<Value>("/api/about"));
     let update = LocalResource::new(|| api::get::<Value>("/api/update"));
+    let installable = LocalResource::new(crate::version_check::ready_update);
     let update_line = move || {
+        if let Some(v) = installable.get().flatten() {
+            return Some(
+                view! {
+                    <button
+                        class="btn small about-update"
+                        on:click=|_| crate::version_check::apply_update()
+                    >
+                        {format!("更新到 {v} 并重启")}
+                    </button>
+                }
+                .into_any(),
+            );
+        }
         let u = update.get()?.ok()?;
         if !u["checks"].as_bool().unwrap_or(false) {
             return None;

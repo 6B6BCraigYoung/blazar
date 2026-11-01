@@ -620,3 +620,28 @@
 验收：日常启动和升级后第一次启动都 ≤ 1 秒，**达标**。新装后的第一次仍然要等一次登录 shell，记在这里。
 
 验证：`cargo fmt`、`cargo clippy -p blazar-desktop --all-targets -D warnings`、`cargo test -p blazar-desktop`（35 个）都通过。结果在 `target/perf/launch-ab-*.json`、`launch-fresh-install-*.json`。这一项没有界面改动，所以没有对比截图。
+
+## b26 · 一键升级（原型）
+
+对应验收「发布」里的「应用内能升级」，原则 2（直接能用）、7（整体体验）。我自己做。
+
+**评估**：Tauri 自带的 `tauri-plugin-updater` 不依赖 Apple。它用自己的一对 minisign 密钥：私钥在 CI 上给更新包签名，公钥编译进应用，应用只装签名对得上的包。macOS 上它下载 `.app.tar.gz`、校验签名、原地替换应用包。更新是应用自己下载的，不带 quarantine 属性，所以**即使没有公证，更新后也不会再被 Gatekeeper 拦一次**，只有第一次安装还要「仍要打开」。公证仍然要 Apple Developer ID，由用户决定。代价是：每次换包，adhoc 签名都会变，屏幕录制这类系统权限要重新授权（这一点和手动装新版一样）。
+
+**做了什么**：
+- 桌面端接上插件，加了两个命令：`update_ready`（有没有签名对得上的新版本）和 `install_update`（下载、校验、替换，然后走现有的重启流程：先关 hub 再启动新版本）。页面要调用它们，得有新权限 `app-update`。
+- 公钥编译时从 `BLAZAR_UPDATER_PUBKEY` 读，地址是 `https://github.com/<仓库>/releases/latest/download/latest.json`。**没配公钥时什么都不变**，界面上照旧是「去下载」。`tauri.conf.json` 开了 `requireSignedVersion`：签名里带的版本号必须和 latest.json 里宣称的一致，防止有人拿旧版本的合法签名冒充新版本，把用户降级。
+- 界面：桌面端的 updater 找到可装的新版本时，启动时的 toast 写「Blazar x.y.z 可以更新了 · 更新并重启」，设置 → 数据与关于里版本号旁边是「更新到 x.y.z 并重启」按钮。装不上时只显示「更新没装上，请下载安装」，原文写进日志。
+- `release.yml`：仓库变量 `BLAZAR_UPDATER_PUBKEY` 有值时，构建会生成签名的更新包，tauri-action 会顺带上传 `latest.json`；没有值时和以前一样。
+
+**验证**（开发实例 profile `upd`，测试密钥只在 `target/updater-proto/`）：测试构建临时允许 http 端点，并关掉签名版本检查（本机的 tauri-cli 2.1.0 签名时不写版本号）。本机 http 服务提供 latest.json，加一个版本号改成 0.1.9、用测试密钥签名的包。
+- 「关于」页出现「更新到 0.1.9 并重启」；点下去 0.65 秒下载并装好，应用包变成 0.1.9，进程换了，页面重新加载，`codesign --verify` 通过，没有 quarantine。
+- 签名对不上时拒绝安装，界面显示「更新没装上，请下载安装」，日志里是「The signature verification failed」。
+- 第一次测试时，第一个失败是 toast 里直接显示了英文原文和临时目录路径，已经改掉。原因是测试包用 macOS 的 tar 打包，带进了 `._` 文件；Tauri 自己打的包不会这样。
+
+**还没验证**：正式的 https 地址、`requireSignedVersion` 开着时的完整链路、CI 上生成更新包和 latest.json，这些都要等用户配好密钥、打出第一个带更新包的版本才能看到。打 tag 和发 Release 归用户决定。
+
+**要用户做的**：生成一对更新密钥（`cargo tauri signer generate`），私钥和密码放进仓库的 Secrets（`TAURI_SIGNING_PRIVATE_KEY`、`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`），公钥放进仓库变量 `BLAZAR_UPDATER_PUBKEY`。私钥丢了，已经装好的应用就再也收不到更新，所以要备份。
+
+截图（**1x**）：`docs/iteration-shots/b26/after-{dark,light}-about-update-1x.jpg`。改前的样子（「下载 x.y.z ↗」链接）要等 hub 从 GitHub 查到新版本才会出现，本机构建不带仓库名、不查，所以没有改前的截图。
+
+验证：`cargo fmt`、`cargo clippy -p blazar-desktop --all-targets -D warnings`、wasm 的 clippy、`cargo test -p blazar-desktop`（35 个）、`cargo test -p blazar-web` 都通过。

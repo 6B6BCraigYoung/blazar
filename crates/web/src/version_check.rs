@@ -44,6 +44,18 @@ async fn mismatch() {
 }
 
 async fn newer() {
+    if let Some(version) = ready_update().await {
+        if storage::load::<String>(SEEN).as_deref() != Some(version.as_str()) {
+            storage::save(SEEN, &version);
+            toast::offer(
+                format!("Blazar {version} 可以更新了"),
+                "更新并重启",
+                LATER_MS,
+                apply_update,
+            );
+        }
+        return;
+    }
     let Ok(u) = api::get::<Value>("/api/update").await else {
         return;
     };
@@ -64,4 +76,24 @@ async fn newer() {
             let _ = window().open_with_url_and_target(&url, "_blank");
         },
     );
+}
+
+pub async fn ready_update() -> Option<String> {
+    if !crate::desktop::available() || crate::desktop::remote_hub().await {
+        return None;
+    }
+    let r = crate::desktop::invoke("update_ready", &json!({})).await.ok()?;
+    r["ready"]
+        .as_bool()
+        .unwrap_or(false)
+        .then(|| r["version"].as_str().unwrap_or_default().to_owned())
+}
+
+pub fn apply_update() {
+    toast::toast("正在下载更新，装好后会自动重启");
+    spawn_local(async {
+        if let Err(e) = crate::desktop::invoke("install_update", &json!({})).await {
+            toast::toast(e);
+        }
+    });
 }

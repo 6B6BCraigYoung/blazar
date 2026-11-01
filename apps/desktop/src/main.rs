@@ -21,6 +21,7 @@ mod menu;
 mod profile;
 mod remote;
 mod snapshot;
+mod updater;
 
 const BUNDLED_PAGE: &str = "index.html";
 
@@ -117,6 +118,7 @@ fn run() -> Result<()> {
 
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             commands::hub_mode,
             commands::test_remote_hub,
@@ -131,6 +133,8 @@ fn run() -> Result<()> {
             snapshot::snapshot_webview,
             clipboard::copy_image,
             commands::set_menu_shortcuts,
+            updater::update_ready,
+            updater::install_update,
         ])
         .setup(move |app| {
             let hub = setup_hub;
@@ -234,7 +238,8 @@ fn run() -> Result<()> {
                 .permission("hub-mode")
                 .permission("downloads")
                 .permission("clipboard-image")
-                .permission("menu-keys");
+                .permission("menu-keys")
+                .permission("app-update");
             let page = if hub.remote().is_some() {
                 page.permission("remote-forward")
             } else {
