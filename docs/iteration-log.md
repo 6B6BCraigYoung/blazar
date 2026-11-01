@@ -645,3 +645,21 @@
 截图（**1x**）：`docs/iteration-shots/b26/after-{dark,light}-about-update-1x.jpg`。改前的样子（「下载 x.y.z ↗」链接）要等 hub 从 GitHub 查到新版本才会出现，本机构建不带仓库名、不查，所以没有改前的截图。
 
 验证：`cargo fmt`、`cargo clippy -p blazar-desktop --all-targets -D warnings`、wasm 的 clippy、`cargo test -p blazar-desktop`（35 个）、`cargo test -p blazar-web` 都通过。
+
+## 暂停（系统升级，2026-11-01）
+
+用户要升级这台笔记本的系统，按中控台要求停在这里。开发实例、后台构建和等 CI 的任务都停了。
+
+**发 v0.1.2（排最前面）**：
+- `1af1be9` 修了 9f9d27d 的 CI：`cargo fmt --all`；更新插件关掉 `zip` feature（只有老格式的 zip / gz 更新包用得到），`zip 4.6.1` 从锁文件里去掉了，三个 RUSTSEC 公告随之消失，没有放宽审计规则、没有加豁免。
+- `cb99ca9` 文档里的机器名换成泛称（发版前扫泄漏时发现的）。
+- `a0347c3` `release: v0.1.2`：Cargo.toml、tauri.conf.json、Cargo.lock 改成 0.1.2，CHANGELOG 加了中英两段。已推送 origin/main。
+- `v0.1.1..HEAD` 按整词扫过：ssh 配置里的主机名、本机名、`/Users/<用户名>`、各类 token 前缀、私钥头，都没有命中；IP 只有 127.0.0.1 和测试里的 10.0.0.x 示例地址。
+- 暂停时 `a0347c3` 的 CI 还在跑，**没看到结果**。下一步：等 CI 三项（ubuntu、macOS、安全审计）全绿，把 `a0347c3` 交给中控台打 tag。我不打 tag。
+
+**b27 界面修复（没做完，在 stash 里）**：`pre-os-upgrade b27 wip: …`。
+- toast 盖住「新建」：右上角那个其实是新消息弹层 `.pops`（top 60px），各页页头按钮在 y 35–63px。改成 top 76px；弹层里失败的后台任务原来带对勾图标，改成和动态列表同一套图标（抽出 `inbox::kind_glyph`）。改前截图在 `target/b27/before-{dark,light}-pop.png`。
+- 右栏打开时底栏被截断：原来按固定宽度断点收起文字，底栏多出上下文文件、账号这些标签时就会放不下。改成 `composer/fit.rs`：用 ResizeObserver 加 MutationObserver 测量，放不下就逐级收起（灰字 → Add/Commands 等文字 → 文件名 → 智能体和模式文字 → 模型文字），去掉了原来的 `@container composer` 断点。wasm 的 clippy 通过，**还没在开发实例里核对过**。复现脚本是 `target/b24/tools/composer.py`（1300×783 窗口，工作区新对话，在检查器里打开 README.md）。
+- /tmp 下的演示仓库会被系统清理，只剩空目录和 `.git`，`make_repos()` 会误以为它们还在。遇到这种情况先删掉 `/tmp/blazar-ui-demo` 再重建。
+
+**接下来的顺序**：v0.1.2 的 CI 和 SHA → 取回 stash，核对两处界面修复，拍改后截图并提交 → b23 两个偶发问题各跑 20 次以上 → ask_user 改成发完卡片不打断其他活 → 22 点后复测 b25 的启动时间 → 按 b24 初评做界面批次（用户回复「按它的初评改」）。用户的其他回答：更新签名密钥已经配好；这次不做公证；v0.1.2 现在发。
