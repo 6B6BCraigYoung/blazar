@@ -30,6 +30,7 @@ if [ -e exit.code ]; then echo "exited=$(cat exit.code)"
 elif alive; then
   I=$(stat -c %i in.jsonl 2>/dev/null || stat -f %i in.jsonl 2>/dev/null)
   [ -n "$I" ] && [ "$I" = "$(cat in.inode 2>/dev/null)" ] && echo alive || echo alive-replaced
+elif [ -e exit.code ]; then echo "exited=$(cat exit.code)"
 else echo lost; fi"#;
 
 const RUN_SH: &str = r#"D=$1; MODE=$2; RID=$3

@@ -58,8 +58,13 @@ case "$P" in ''|*[!0-9]*) echo '运行 PID 无效' >&2; exit 15;; esac
 [ "$P" -gt 1 ] || exit 15
 TABLE=$(ps -eo pid=,pgid=,stat=) || {{ echo '无法检查进程组' >&2; exit 15; }}
 STATE=$(printf '%s\n' "$TABLE" | awk -v p="$P" '$1 == p {{print $3}}')
+LIVE=
 if [ -n "$STATE" ] && [ "${{STATE#Z}}" = "$STATE" ]; then
-  alive || {{ echo '运行进程身份不匹配，无法确认已经停止' >&2; exit 15; }}
+  if alive; then LIVE=1
+  elif kill -0 "$P" 2>/dev/null; then echo '运行进程身份不匹配，无法确认已经停止' >&2; exit 15
+  fi
+fi
+if [ -n "$LIVE" ]; then
   PG=$(printf '%s\n' "$TABLE" | awk -v p="$P" '$1 == p {{print $2}}')
   [ "$PG" = "$P" ] || {{ echo '运行进程组身份不匹配' >&2; exit 15; }}
   echo "alive=$P"

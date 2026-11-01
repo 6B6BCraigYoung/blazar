@@ -528,9 +528,15 @@ async fn run_with_stdin(mut cmd: Command, stdin: Option<&[u8]>) -> Result<ExecOu
     cmd.stdin(Stdio::piped());
     let mut child = cmd.spawn()?;
     if let Some(mut w) = child.stdin.take() {
-        w.write_all(data).await?;
-        w.shutdown().await?;
+        let fed = match w.write_all(data).await {
+            Ok(()) => w.shutdown().await,
+            Err(e) => Err(e),
+        };
         drop(w);
+        match fed {
+            Err(e) if e.kind() != std::io::ErrorKind::BrokenPipe => return Err(e.into()),
+            _ => {}
+        }
     }
     let out = child.wait_with_output().await?;
     Ok(to_output(&out))
@@ -970,6 +976,20 @@ mod tests {
     }
 
     use super::*;
+
+    #[tokio::test]
+    async fn a_command_that_exits_without_reading_its_input_still_reports_its_code() {
+        let out = LocalTransport
+            .exec(
+                ExecSpec::new("sh")
+                    .arg("-c")
+                    .arg("exit 9")
+                    .stdin(vec![b'x'; 4 << 20]),
+            )
+            .await
+            .unwrap();
+        assert_eq!(out.code, 9);
+    }
 
     #[test]
     fn ssh_targets_cannot_be_interpreted_as_options() {
