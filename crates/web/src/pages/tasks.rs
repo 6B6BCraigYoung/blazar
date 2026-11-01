@@ -700,14 +700,14 @@ pub fn TasksPage() -> impl IntoView {
                                                                                 on:click=move |_| ui.selected.set(id.clone())
                                                                             >
                                                                                 <strong>{s(&t, "title")}</strong>
-                                                                                <span class="work-task-key">
-                                                                                    {priority_mark(&t)} <span class="key">{s(&t, "key")}</span>
-                                                                                    {(t["running"] == true).then(|| badge("running"))}
-                                                                                </span>
-                                                                                <small class="muted">
-                                                                                    {meta(&[crate::fmt::ws_label_of(&t), who(&t)])}
-                                                                                </small>
-                                                                                <span class="row-actions">
+                                                                                <span class="work-task-meta">
+                                                                                    <span class="work-task-key">
+                                                                                        {priority_mark(&t)} <span class="key">{s(&t, "key")}</span>
+                                                                                        {(t["running"] == true).then(|| badge("running"))}
+                                                                                    </span>
+                                                                                    <small class="muted">
+                                                                                        {meta(&[crate::fmt::ws_label_of(&t), who(&t)])}
+                                                                                    </small>
                                                                                     {arr(&t, "labels")
                                                                                         .into_iter()
                                                                                         .filter_map(|v| v.as_str().map(str::to_string))

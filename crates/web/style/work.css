@@ -82,7 +82,9 @@
 .tasks-page .work-task-key { font-family: var(--font-sans); align-items: center; gap: var(--space-md); }
 .tasks-page .work-task-key > .key { font-family: var(--font-mono); }
 .work-task-key > span:empty { display: none; }
-.tasks-page .work-list .work-task { grid-template-columns: minmax(160px, 1fr) auto minmax(100px, 180px); }
+.tasks-page .work-list .work-task { grid-template-columns: minmax(160px, 1fr) auto; }
+.work-task-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-sm) var(--space-md); min-width: 0; }
+.work-list .work-task-meta { flex-wrap: nowrap; justify-content: flex-end; }
 .tasks-page .tasks-empty { padding: var(--space-section) 0; }
 .tasks-page .tasks-column-empty { padding: var(--space-xl) var(--space-xs); font-size: var(--font-size-label); color: var(--fg-3); }
 .tasks-page .tasks-inline-empty { padding: var(--space-sm) 0; color: var(--fg-3); font-size: var(--font-size-label); }
