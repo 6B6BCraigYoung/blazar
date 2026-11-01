@@ -551,33 +551,78 @@ fn notify_page(handle: &tauri::AppHandle) {
 }
 
 #[cfg(target_os = "macos")]
-fn inherit_login_path() {
-    use std::os::unix::process::CommandExt;
+const LOGIN_PATH_MARK: &str = "BLAZAR_LOGIN_PATH";
 
-    const MARK: &str = "BLAZAR_LOGIN_PATH";
-    if std::env::var_os(MARK).is_some() {
-        return;
-    }
+#[cfg(target_os = "macos")]
+fn login_path_cache() -> Option<std::path::PathBuf> {
+    profile::data_dir().ok().map(|d| d.join("login-path"))
+}
+
+#[cfg(target_os = "macos")]
+fn read_login_path() -> Option<String> {
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
-
-    let Ok(out) = std::process::Command::new(&shell)
+    let out = std::process::Command::new(&shell)
         .args([
             "-ilc",
             "printf '__BLAZAR_PATH__%s__BLAZAR_PATH__' \"$PATH\"",
         ])
+        .env("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
         .stdin(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .output()
-    else {
-        return;
-    };
+        .ok()?;
     let text = String::from_utf8_lossy(&out.stdout);
-    let Some(path) = text
-        .split("__BLAZAR_PATH__")
+    text.split("__BLAZAR_PATH__")
         .nth(1)
         .filter(|p| !p.is_empty())
-    else {
+        .map(str::to_owned)
+}
+
+#[cfg(target_os = "macos")]
+fn refresh_login_path_cache(cached: Option<&str>) {
+    let Some(cache) = login_path_cache() else {
         return;
+    };
+    if let Some(path) = read_login_path()
+        && cached != Some(path.as_str())
+    {
+        let _ = std::fs::write(&cache, &path);
+        if cached.is_some() {
+            tracing::info!("登录 PATH 变了，下次启动生效");
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn inherit_login_path() {
+    use std::os::unix::process::CommandExt;
+
+    if let Some(mark) = std::env::var_os(LOGIN_PATH_MARK) {
+        if mark == "cached" {
+            let cached = login_path_cache()
+                .and_then(|c| std::fs::read_to_string(c).ok())
+                .filter(|p| !p.is_empty());
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_secs(5));
+                refresh_login_path_cache(cached.as_deref());
+            });
+        }
+        return;
+    }
+    let cached = login_path_cache()
+        .and_then(|c| std::fs::read_to_string(c).ok())
+        .filter(|p| !p.is_empty());
+    let (path, mark) = match cached {
+        Some(path) => (path, "cached"),
+        None => {
+            let Some(path) = read_login_path() else {
+                return;
+            };
+            if let Some(cache) = login_path_cache() {
+                let _ = std::fs::write(cache, &path);
+            }
+            (path, "1")
+        }
     };
     let mut merged: Vec<&str> = path.split(':').collect();
     let current = std::env::var("PATH").unwrap_or_default();
@@ -593,7 +638,7 @@ fn inherit_login_path() {
     let err = std::process::Command::new(exe)
         .args(std::env::args_os().skip(1))
         .env("PATH", merged.join(":"))
-        .env(MARK, "1")
+        .env(LOGIN_PATH_MARK, mark)
         .exec();
     tracing::warn!("带登录 PATH 重启失败，沿用当前 PATH: {err}");
 }
