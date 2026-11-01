@@ -2,6 +2,32 @@
 
 # 更新日志
 
+## v0.1.3 — 2026-11-01
+
+这一版主要是界面打磨和几处修复。从这一版起，发布的版本真正带上签名的更新包，可以在应用内一键升级。
+
+### 升级与构建
+
+- 发版时生成带签名的更新包和更新清单：从这一版起，设置 → 数据与关于和启动提示里的「更新并重启」可以直接装上新版本。
+- 修复升级到 macOS 27 之后从源码构建失败的问题。
+
+### 对话与卡片
+
+- 智能体发出「待你决定」卡片后，手上还有不依赖回答的活就接着做，不再停下来干等；对话正忙、一时收不进回答时，回答会排队，这一轮做完后自动送达。
+- 后台的小活（卡片摘要、标签页标题、提交信息、能力清单）不再保存成会话，不会堆进 Claude Code 的历史，也不会被其他工具导入成一堆对话。
+- 对话正文和卡片标题调大到 15px；有待批准的请求时，对话历史不再被调暗。
+
+### 界面
+
+- 中控台右栏只有失败保留红色，其余都是中性灰，已读的行不再画圆圈；新消息弹出层用同一套规则。
+- 新消息弹出层从页头下方开始，不再盖住右上角的按钮；失败的后台任务不再显示成对勾。
+- 输入框底栏按实际宽度逐级收起文字，右栏打开时按钮不再被截断。
+- 设置 → 外观的主题改成三张预览卡；用量页的趋势图默认不再高亮最后一天，额度条改成定宽的短条。
+- 任务卡片收成两行：标题下面一行依次是优先级、编号、工作区、智能体和标签。
+- bot 的暂停、恢复等操作常驻显示；技能页没有可操作的行时不再显示空的「操作」列；机器页的表格加了「所有机器」标题。
+- 检查器很窄时，文件树最多占不到一半宽度，编辑器的工具条不再挤成竖排。
+- 新建工作区弹窗里目录栏的按钮降了一级，「创建工作区」成为唯一的重点；账号页底部的三项改成卡片；智能体页的表头改成「工具 · 模型」。
+
 ## v0.1.2 — 2026-11-01
 
 这一版主要做三件事：照着同类最好的产品统一界面，让新用户第一次就能用起来，断网、重启、机器离线之后不丢东西。从这一版起，应用可以在应用内升级。
@@ -105,6 +131,32 @@ v0.1.0 之后的第一个版本，重点是让多台机器、多个智能体同�
 [简体中文](#更新日志) · **English**
 
 # Changelog
+
+## v0.1.3 — 2026-11-01
+
+This release polishes the interface and fixes a few things. From this release on, releases really carry a signed update, so the app can upgrade itself in one click.
+
+### Updates and builds
+
+- Releases now ship a signed update and its manifest: from this release on, "update and restart" in Settings → Data & About and the launch notice installs the new version directly.
+- Building from source works again after upgrading to macOS 27.
+
+### Chat and cards
+
+- After an agent posts a decision card, it keeps going on anything that doesn't depend on the answer instead of waiting idle; if the conversation is busy and can't take the answer yet, the answer is queued and delivered when the turn ends.
+- Small background jobs (card summaries, tab titles, commit messages, the capability list) no longer save a session, so they stop piling up in the Claude Code history and being imported by other tools as heaps of conversations.
+- Chat text and card titles are now 15px; the conversation is no longer dimmed while an approval waits.
+
+### Interface
+
+- On the console rail only failures stay red and everything else is neutral gray; read rows no longer draw a circle. New-message pops follow the same rules.
+- New-message pops start below the page header instead of covering the top-right buttons, and a failed background job no longer shows a check mark.
+- The composer bar folds its labels step by step based on the space it actually has, so no button is cut off when the side panel is open.
+- Settings → Appearance picks the theme from three preview tiles; the usage chart no longer highlights the last day by default, and quota bars are short fixed-width bars.
+- Task cards come down to two lines: the title, then one line with priority, key, workspace, agent and labels.
+- Bot actions such as pause and resume are always shown; the skills page drops the empty Actions column when no row has one; the machines table gets an "All machines" heading.
+- In a narrow inspector the file tree takes less than half the width, and the editor bar no longer stacks into a column.
+- In the new-workspace dialog the folder buttons step back so "Create workspace" is the only emphasis; the extras at the bottom of the accounts page are cards; the agents table header reads "Tool · Model".
 
 ## v0.1.2 — 2026-11-01
 
