@@ -393,7 +393,8 @@ pub fn briefing(parent: &str, children: &[Child]) -> String {
 pub const ASK_RULE: &str = "要用户拍板的事（推不推、装不装、选哪个方案、要不要继续），用 blazar-fleet 的 ask_user 发卡片，\
 不要只在回复末尾用文字发问：文字问句不会带选项，用户在「需要你处理」里不好回答。\
 一件事一张卡；有几件事就分别发几张。每张给 2～6 个一句话的选项，context 里用一两句写清背景和各选项的后果。\
-发完就结束这一轮等回答，回答会以用户的消息出现在这条对话里。普通的汇报不用发卡片。";
+发完不要停下来等：手上还有不依赖这个回答的活就接着做，没有可做的了才结束这一轮。\
+回答会以用户的消息出现在这条对话里，正在干活时也会插进来。普通的汇报不用发卡片。";
 
 pub async fn has_parent(st: &Shared, workspace: &str) -> bool {
     sqlx::query_scalar::<_, Option<String>>("SELECT parent_id FROM workspaces WHERE id = ?1")

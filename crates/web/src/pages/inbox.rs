@@ -258,8 +258,12 @@ fn answer_ask(ctx: Ctx, it: &Item, text: String) {
                     .unwrap_or("这个对话正在忙，稍后再回")
                     .to_owned(),
             ),
-            Ok(_) => {
-                toast("已回复");
+            Ok(r) => {
+                toast(if r["queued"] == json!(true) {
+                    "已回复，这一轮做完后送达"
+                } else {
+                    "已回复"
+                });
                 refresh(ctx.rev);
             }
             Err(e) => toast_error("没能回复", &e),

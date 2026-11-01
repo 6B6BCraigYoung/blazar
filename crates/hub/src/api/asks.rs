@@ -63,7 +63,7 @@ pub async fn create_ask(
         "id": id,
         "question": ask.question,
         "options": ask.options,
-        "hint": "The card is in the user's Needs you list. End this turn now and wait; the answer will arrive as a new user message in this conversation.",
+        "hint": "The card is in the user's Needs you list. Don't wait for it: carry on with any work that doesn't depend on this answer, and end the turn only when nothing is left. The answer will arrive as a new user message in this conversation, even mid-turn.",
     })))
 }
 
@@ -172,13 +172,39 @@ pub async fn answer_ask(
         interject: true,
         ..Default::default()
     };
-    let out = super::sessions::prompt_for_bot(st.clone(), workspace_id, prompt)
+    let queued = serde_json::json!({
+        "text": prompt.text,
+        "keep_asks": true,
+        "resume": true,
+        "resume_session": thread,
+        "permission_mode": prompt.permission_mode,
+    });
+    let out = super::sessions::prompt_for_bot(st.clone(), workspace_id.clone(), prompt)
         .await
         .map_err(ApiError::bad_request)?;
     if out["admitted"] == serde_json::json!(false) {
+        let put = crate::agent::chat::put(
+            State(st.clone()),
+            Path(workspace_id),
+            Json(crate::agent::chat::QueueBody {
+                thread_id: Some(thread.clone()),
+                request: queued,
+                append: true,
+                expected: None,
+            }),
+        )
+        .await;
+        if !put.status().is_success() {
+            return Ok(Json(serde_json::json!({
+                "delivered": false,
+                "reason": out["reason"].as_str().unwrap_or("这个对话正在忙，稍后再回"),
+            })));
+        }
+        crate::inbox::resolve_ask(&st, &id).await;
         return Ok(Json(serde_json::json!({
-            "delivered": false,
-            "reason": out["reason"].as_str().unwrap_or("这个对话正在忙，稍后再回"),
+            "delivered": true,
+            "queued": true,
+            "thread_id": thread,
         })));
     }
     crate::inbox::resolve_ask(&st, &id).await;
@@ -332,5 +358,73 @@ mod tests {
             options: vec![],
         };
         assert!(post(&st, "missing", &ask, "").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn an_answer_to_a_busy_run_that_cannot_take_it_waits_in_the_queue() {
+        let (_dir, st) = state().await;
+        let now = Utc::now().to_rfc3339();
+        let node = ok(super::super::workspaces::ensure_node(&st, "local", &now).await);
+        let ws = WorkspaceId::new();
+        sqlx::query(
+            "INSERT INTO workspaces (id, node_id, name, path, created_at) VALUES (?1, ?2, 'w', '/tmp/w', ?3)",
+        )
+        .bind(ws.to_string())
+        .bind(&node)
+        .bind(&now)
+        .execute(st.db.pool())
+        .await
+        .unwrap();
+        let sid = SessionId::new();
+        sqlx::query(
+            "INSERT INTO sessions (id, workspace_id, runtime_kind, status, created_at) VALUES (?1, ?2, 'claude', 'running', ?3)",
+        )
+        .bind(sid.to_string())
+        .bind(ws.to_string())
+        .bind(&now)
+        .execute(st.db.pool())
+        .await
+        .unwrap();
+        st.running.write().await.insert(
+            sid,
+            crate::state::RunningSession {
+                workspace_id: ws,
+                task: tokio::spawn(std::future::pending()),
+                killer: None,
+                live: None,
+            },
+        );
+        let ask = normalize(&AskRequest {
+            question: "推不推？".into(),
+            options: vec!["推".into(), "不推".into()],
+            context: String::new(),
+        })
+        .unwrap();
+        let card = ok(post(&st, &sid.to_string(), &ask, "").await);
+
+        let out = ok(answer_ask(
+            State(st.clone()),
+            Path(card.clone()),
+            Json(AnswerRequest { text: "推".into() }),
+        )
+        .await)
+        .0;
+        assert_eq!(out["delivered"], true);
+        assert_eq!(out["queued"], true);
+        let queued: String = sqlx::query_scalar(
+            "SELECT request FROM queued_messages WHERE workspace_id = ?1 AND thread_id = ?2",
+        )
+        .bind(ws.to_string())
+        .bind(sid.to_string())
+        .fetch_one(st.db.pool())
+        .await
+        .unwrap();
+        let queued: serde_json::Value = serde_json::from_str(&queued).unwrap();
+        assert_eq!(queued["text"], "推");
+        assert_eq!(queued["resume_session"], sid.to_string());
+        assert!(!crate::inbox::has_open_ask(&st, &sid.to_string()).await);
+        for (_, run) in st.running.write().await.drain() {
+            run.task.abort();
+        }
     }
 }
