@@ -513,3 +513,18 @@
 **等用户的两件事**（b18 里写过）：
 - 推送 GitHub：origin/main 已经由用户推到 `28099d6`（b18）。本地还领先 5 个提交（b19–b22，以及还原一个被误改的字节码文件），没有推送。这个会话的 `git push` 会被权限分类器拦下；要推的话，用户执行 `git -C ~/workspace/blazar push origin main`，或者给会话加一条允许推送的规则。
 - 升级正式 hub：用户点了「升级」，但执行被分类器拦下。release 版 `blazar-hub` 已经构建好，执行 `~/workspace/blazar/target/hub-upgrade/upgrade.sh` 即可，回滚步骤见 b18。按这次的暂停要求，我没有再去动它。
+
+## 恢复（2026-11-01）
+
+用户说「恢复 然后一个一个做」，以后开发只在笔记本上。三处 main 都在 `a3c1d77`。
+
+## b23-0 · 收尾
+
+原则 7（整体体验）、验收「稳定」。没有界面改动，所以没有对比截图。
+
+- **CI 上 ubuntu 偶发失败**：不只 `waits_for_is_validated_and_normalized` 一个。把最近 9 次失败的日志拉下来，一共 7 个测试，归成两个原因：
+  - 分离运行的进程刚好在「ps 里还在」和「核对身份」之间退出：停止脚本把它当成「身份不匹配」报退出码 15，探测脚本把它当成「丢了」（lost）。6 次失败都是这个。改成：核对身份不过时，再看进程是否真的还在，不在就按正在退出 / 已停止处理；探测时先看身份，身份不过再看一次 `exit.code`。
+  - vfs 写文件时内容走标准输入，脚本发现路径越界立刻退出、没读输入，写入方拿到 EPIPE，被当成执行失败，测试就拿不到「越界」这个结果。改成忽略 BrokenPipe、照常读退出码；加了一个 4 MB 输入的回归测试，改前必失败。
+  - 推送后 CI 两个平台都绿（`ee2dbb6`）。
+- **hub 重启后把失效账号显示成「正常」**：启动时的账号检查跑 `claude auth status`，这个命令不联网，会把 401 标出来的 logged_out 改回 ok。现在已经是 logged_out 的账号，只有凭据真的变过才重新认：token 文件、`.credentials.json` / `auth.json`，或 macOS 钥匙串条目的修改时间晚于标记时间（钥匙串只读修改时间，不读内容）。能查额度的账号再用额度接口真验证一次，不过就保持 logged_out。在 Blazar 里刚登录完的那一次直接认。另外两处一起改了：浏览器登录的账号运行中遇到 401 也标 logged_out（原来又去跑一次不联网的检查），Codex 查额度遇到认证错误直接标 logged_out。
+- **开发实例**：`scripts/dev-instance.sh build` 增量构建（-j 4）。b23 的故障注入用独立的 profile（`faults`）、独立的 HOME（`target/faults/home`），端口由 hub 自己挑。`dev-instance.sh` 多认一个 `BLAZAR_DEV_PATH`，用来把假的 ssh 放进开发实例的 PATH。
