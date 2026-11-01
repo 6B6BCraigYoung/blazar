@@ -98,7 +98,7 @@
 .console-rail[data-mode="all"] .inbox-row { flex-wrap: wrap; padding: var(--space-md) var(--space-lg); }
 .console-rail[data-mode="all"] .inbox-meta { width: 100%; padding: 0 0 0 calc(8px + var(--space-md)); flex-wrap: wrap; white-space: normal; color: var(--fg-3); }
 
-.pops { position: fixed; top: 60px; right: var(--space-2xl); z-index: var(--layer-toast); width: 384px; max-width: calc(100vw - 48px); display: flex; flex-direction: column; gap: var(--space-control); pointer-events: none; }
+.pops { position: fixed; top: 76px; right: var(--space-2xl); z-index: var(--layer-toast); width: 384px; max-width: calc(100vw - 48px); display: flex; flex-direction: column; gap: var(--space-control); pointer-events: none; }
 .pop { position: relative; pointer-events: auto; border-radius: var(--r-lg); background: var(--bg-panel); box-shadow: var(--shadow-menu); animation: popin var(--motion-base) var(--ease-enter); }
 .pop.card .inbox-row { box-shadow: none; padding-right: calc(var(--space-card) + 20px); }
 .pop.card .inbox-row[data-needs="true"] { box-shadow: none; }

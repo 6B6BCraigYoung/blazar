@@ -1238,14 +1238,7 @@ fn row_view(ctx: Ctx, i: usize, it: Item, pending: Option<Value>) -> impl IntoVi
         // or, for the hub's own kinds, a small icon in front of it.
         let place = it.place.split('（').next().unwrap_or_default().to_owned();
         let kind = place.is_empty().then(|| {
-            let glyph = match it.kind.as_str() {
-                "alert" => icon::BELL,
-                "job" => icon::TERMINAL,
-                "autopilot_paused" => icon::CLOCK,
-                "rate_limit" => icon::CHART,
-                "bot_reply" => icon::BOT,
-                _ => icon::INBOX,
-            };
+            let glyph = kind_glyph(&it.kind);
             view! {
                 <span
                     class="inbox-kind"
@@ -1437,4 +1430,15 @@ fn inbox_menu(ctx: Ctx, item: Item, pending: Option<Value>) -> Vec<Vec<RowAction
             .hint("E"),
         ],
     ]
+}
+
+pub fn kind_glyph(kind: &str) -> &'static str {
+    match kind {
+        "alert" => icon::BELL,
+        "job" => icon::TERMINAL,
+        "autopilot_paused" => icon::CLOCK,
+        "rate_limit" => icon::CHART,
+        "bot_reply" => icon::BOT,
+        _ => icon::INBOX,
+    }
 }

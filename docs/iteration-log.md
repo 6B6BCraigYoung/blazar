@@ -675,3 +675,19 @@
 **修法**（下次发版生效，不重打 tag、不重发）：`release.yml` 在配置了 `BLAZAR_UPDATER_PUBKEY` 时，先在 `$RUNNER_TEMP/updater.json` 写一份配置（开启 `createUpdaterArtifacts`，并写入公钥），再用 `--config` 交给打包命令。公钥也要写进去，因为 CLI 签名时会读 `plugins.updater.pubkey`，而 `tauri.conf.json` 里这一项是空的。本地用测试密钥验证过：只用 `--config` 开启更新包、不写公钥时，报「failed to decode pubkey」；两样都写上时，生成了 `Blazar.app.tar.gz.sig`。
 
 **还要留意**：`tauri.conf.json` 开了 `requireSignedVersion`，要求签名里带版本号。本机的 tauri-cli 2.1.0 签出来的 trusted comment 只有 `timestamp` 和 `file`；CI 用的是 npm 上最新的 `@tauri-apps/cli@v2`（现在是 2.12.4），tauri 仓库里当前的 `updater_signature.rs` 会写入 `version:`。下一次发版后，要核对 `.sig` 里的 trusted comment 带了版本号；如果没带，用户那边会拒绝安装这个更新。
+
+## b27 · 弹出层不挡页头，底栏不截断
+
+对应 b23 顺带发现的两个问题，第 0 条「好看」和原则 7（整体体验）。我自己做。
+
+- **右上角盖住「新建」**：那其实不是 toast（toast 在底部居中），而是新消息弹出层 `.pops`，原来固定在距顶部 60px 的位置。量了 10 个页面，页头的按钮都在 y 35–63px 之间，所以弹出层会压住按钮下沿和阴影。现在从 76px 开始，在页头下方。顺带修了一处：失败的后台任务在弹出层里带的是对勾，读起来像成功了。现在和中控台「动态」列表用同一套图标（`inbox::kind_glyph`），后台任务是终端图标。复现方法：建一个马上失败、`notify: inbox` 的后台任务，后台大约 12 秒会检查一次，届时弹出。
+- **右栏打开时底栏被截断**：底栏原来按输入框宽度的三个固定断点（720 / 600 / 460px）收起文字。可底栏里的东西不固定，多出当前文件、账号这类标签时，断点之间就放不下，只好截成「Defa…」「Claude C…」。现在改成按实际宽度测量（`composer/fit.rs`，ResizeObserver 加 MutationObserver）：先完整显示，放不下就逐级收起，依次收掉灰字、Add / Commands / MCP 的文字、智能体和模式的文字、文件名、模型名，直到所有按钮都完整显示。原来的 `@container composer` 断点删掉了。智能体排在文件名前面收，是因为 Claude 的图标本身就能认出来；而文件名收掉之后只剩一个「+」，会和左边的「+」分不清。
+- 验证：注入样式把输入框限制在 300–760px 之间逐档检查，每一档都没有按钮被截断。改前的样子用注入样式模拟（换回原来的断点），在 640px 宽度下复现了 b23 的截断。
+
+**升级系统后的构建问题**：macOS 27 的 dyld 拒绝加载 release 构建里的过程宏 dylib（「mis-aligned LINKEDIT string pool」），重新编译也一样。原因是 release 构建会默认对构建期依赖做 strip，新系统的 strip 处理过的 dylib，新 dyld 不认。Cargo.toml 里加了 `[profile.release.build-override] strip = false`（`44c7fc8`），只影响构建脚本和过程宏，最终的二进制不变。另外发现 `/tmp/blazar-ui-demo` 在重启后被清空了，`make_repos()` 重新建了一份。
+
+**顺带看到、留给界面批次的**：检查器很窄时，编辑器顶上的工具条会挤成竖排，「已保存」一个字一行。
+
+截图（**1x**，演示数据）：`docs/iteration-shots/b27/`，`{before,after}-{dark,light}-{pop,composer}-1x.jpg`。
+
+验证：`cargo fmt`、wasm 的 clippy、`cargo test -p blazar-web` 都通过。

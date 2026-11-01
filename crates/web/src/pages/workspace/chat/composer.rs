@@ -18,6 +18,7 @@ use crate::storage;
 use super::dock::Dock;
 use super::state::{ACC_RUNTIMES, Attach, Chat, mode_label};
 
+mod fit;
 mod pickers;
 mod presentation;
 mod queue;
@@ -233,6 +234,8 @@ pub fn Composer(
         }
     });
     let file_in = NodeRef::<html::Input>::new();
+    let bar = NodeRef::<html::Div>::new();
+    fit::keep_fitting(bar);
 
     let grow = move || {
         if let Some(t) = ta.try_get_untracked().flatten() {
@@ -1133,7 +1136,7 @@ pub fn Composer(
                         }
                     }
                 ></textarea>
-                <div class="cb-bar">
+                <div class="cb-bar" node_ref=bar>
                     <button
                         class="cb-btn cb-trigger cb-add"
                         aria-label="Add"
