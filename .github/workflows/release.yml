@@ -63,6 +63,11 @@ jobs:
       - name: Mesh engine
         shell: bash
         run: scripts/fetch-easytier.sh ${{ matrix.engine }}
+      - name: Updater bundle config
+        if: vars.BLAZAR_UPDATER_PUBKEY != ''
+        shell: bash
+        run: |
+          python3 -B -c 'import json, os, sys; json.dump({"bundle": {"createUpdaterArtifacts": True}, "plugins": {"updater": {"pubkey": os.environ["BLAZAR_UPDATER_PUBKEY"]}}}, sys.stdout)' > "$RUNNER_TEMP/updater.json"
       - name: Desktop app
         id: tauri
         uses: tauri-apps/tauri-action@v0
@@ -70,7 +75,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          TAURI_CONFIG: ${{ vars.BLAZAR_UPDATER_PUBKEY != '' && '{"bundle":{"createUpdaterArtifacts":true}}' || '{}' }}
         with:
           projectPath: apps/desktop
           tagName: ${{ github.ref_name }}
@@ -81,7 +85,7 @@ jobs:
             The macOS builds are not notarized, so macOS stops the first launch and says the developer cannot be verified, or that the app is "damaged". Drag Blazar.app to Applications and open it once, then go to System Settings → Privacy & Security and click Open Anyway. If there is no Open Anyway button (there isn't one when macOS says "damaged"), run `xattr -dr com.apple.quarantine /Applications/Blazar.app` once in Terminal. Downloads made with `curl` are not quarantined.
           releaseDraft: true
           prerelease: false
-          args: --target ${{ matrix.target }}
+          args: --target ${{ matrix.target }}${{ vars.BLAZAR_UPDATER_PUBKEY != '' && format(' --config {0}/updater.json', runner.temp) || '' }}
       - name: CLI, hub and MCP server
         if: runner.os != 'Windows'
         shell: bash

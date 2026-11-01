@@ -663,3 +663,15 @@
 - /tmp 下的演示仓库会被系统清理，只剩空目录和 `.git`，`make_repos()` 会误以为它们还在。遇到这种情况先删掉 `/tmp/blazar-ui-demo` 再重建。
 
 **接下来的顺序**：v0.1.2 的 CI 和 SHA → 取回 stash，核对两处界面修复，拍改后截图并提交 → b23 两个偶发问题各跑 20 次以上 → ask_user 改成发完卡片不打断其他活 → 22 点后复测 b25 的启动时间 → 按 b24 初评做界面批次（用户回复「按它的初评改」）。用户的其他回答：更新签名密钥已经配好；这次不做公证；v0.1.2 现在发。
+
+## 恢复（系统升级后）· v0.1.2 的更新包
+
+中控台在 `a0347c3` 上打了 v0.1.2，release run 41298443318 结束后查了三件事：
+
+- **发布**：Publish 那一步把草稿正式发出去了（`isDraft: false`）。Linux、两个 macOS 构建都成功；Windows（实验性）在 WiX 的 `light.exe` 生成 msi 时失败，按 `continue-on-error` 没有影响发布，原因没有查。
+- **公钥**：从 Release 下载 `Blazar_aarch64.app.tar.gz` 解开，`blazar-desktop` 里能找到完整的公钥字符串，和仓库变量 `BLAZAR_UPDATER_PUBKEY` 一字不差（key id `1A0D9F9A6F531659`）。它和 Secrets 里的私钥是不是一对，要等第一个带签名的更新包出来才能验证。
+- **更新包签名和 latest.json：缺了**。日志里 `TAURI_CONFIG` 传进去了，但打包结果只有普通的包，tauri-action 报「Signature not found for the updater JSON. Skipping upload」。原因：`TAURI_CONFIG` 只有编译期的宏会读（我本地的原型测试就是靠它生效的），**tauri CLI 打包时不读**。所以 `.app.tar.gz` 只是 macOS 本来就会上传的压缩包，没有 `.sig`，也没有 `latest.json`。
+
+**修法**（下次发版生效，不重打 tag、不重发）：`release.yml` 在配置了 `BLAZAR_UPDATER_PUBKEY` 时，先在 `$RUNNER_TEMP/updater.json` 写一份配置（开启 `createUpdaterArtifacts`，并写入公钥），再用 `--config` 交给打包命令。公钥也要写进去，因为 CLI 签名时会读 `plugins.updater.pubkey`，而 `tauri.conf.json` 里这一项是空的。本地用测试密钥验证过：只用 `--config` 开启更新包、不写公钥时，报「failed to decode pubkey」；两样都写上时，生成了 `Blazar.app.tar.gz.sig`。
+
+**还要留意**：`tauri.conf.json` 开了 `requireSignedVersion`，要求签名里带版本号。本机的 tauri-cli 2.1.0 签出来的 trusted comment 只有 `timestamp` 和 `file`；CI 用的是 npm 上最新的 `@tauri-apps/cli@v2`（现在是 2.12.4），tauri 仓库里当前的 `updater_signature.rs` 会写入 `version:`。下一次发版后，要核对 `.sig` 里的 trusted comment 带了版本号；如果没带，用户那边会拒绝安装这个更新。
