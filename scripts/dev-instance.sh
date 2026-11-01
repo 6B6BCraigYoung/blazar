@@ -57,6 +57,7 @@ start() {
     ${BLAZAR_WINDOW_SIZE:+--env "BLAZAR_WINDOW_SIZE=$BLAZAR_WINDOW_SIZE"} \
     ${BLAZAR_DEV_DOWNLOAD_DIR:+--env "BLAZAR_DEV_DOWNLOAD_DIR=$BLAZAR_DEV_DOWNLOAD_DIR"} \
     ${BLAZAR_DEV_PICK_FOLDER:+--env "BLAZAR_DEV_PICK_FOLDER=$BLAZAR_DEV_PICK_FOLDER"} \
+    ${BLAZAR_DEV_PATH:+--env "PATH=$BLAZAR_DEV_PATH"} \
     --args -ApplePersistenceIgnoreState YES
   for _ in $(seq 1 120); do
     local p u

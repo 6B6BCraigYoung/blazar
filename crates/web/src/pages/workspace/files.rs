@@ -190,6 +190,9 @@ impl Files {
                 if !d && !offered {
                     self.drop_draft(&p);
                 }
+                if d && offered {
+                    self.draft_offer.set(None);
+                }
                 if self.dirty.try_with_untracked(|s| s.contains(&p) != d) == Some(true) {
                     self.dirty.update(|s| {
                         if d {

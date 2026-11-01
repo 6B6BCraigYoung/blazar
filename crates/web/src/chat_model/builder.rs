@@ -62,6 +62,7 @@ pub fn retry_why(status: Option<u16>, error: &str) -> String {
         (_, "billing_error") => "Credit balance too low",
         (Some(s), _) if s >= 500 => "Server error",
         (_, "server_error") => "Server error",
+        (None, _) => "Connection error",
         _ => "Request failed",
     };
     match status {

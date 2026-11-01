@@ -955,6 +955,7 @@ pub fn Composer(
                     .map(|(id, request)| {
                         let text = request["text"].as_str().unwrap_or_default().to_owned();
                         let images = request["images"].as_array().map_or(0, Vec::len);
+                        let why = chat.deliveries.with(|d| d.reason(id));
                         view! {
                             <div class="cb-band queue">
                                 <div class="cq-h">
@@ -996,6 +997,7 @@ pub fn Composer(
                                     {text}
                                     {(images > 0).then(|| format!(" · {images} attachments"))}
                                 </div>
+                                {why.map(|why| view! { <div class="cq-why">{why}</div> })}
                             </div>
                         }
                     })

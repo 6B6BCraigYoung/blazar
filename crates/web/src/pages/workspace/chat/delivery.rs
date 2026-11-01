@@ -11,6 +11,7 @@ pub struct Deliveries {
     next: u32,
     sending: BTreeMap<u32, Value>,
     failed: BTreeMap<u32, Value>,
+    reasons: BTreeMap<u32, String>,
 }
 
 impl Deliveries {
@@ -37,7 +38,20 @@ impl Deliveries {
     }
 
     pub fn take_failed(&mut self, id: u32) -> Option<Value> {
+        self.reasons.remove(&id);
         self.failed.remove(&id)
+    }
+
+    pub fn fail(&mut self, id: u32, why: String) {
+        self.finish(id, false);
+        if self.failed.contains_key(&id) && !why.is_empty() {
+            self.reasons.insert(id, why);
+        }
+    }
+
+    #[must_use]
+    pub fn reason(&self, id: u32) -> Option<String> {
+        self.reasons.get(&id).cloned()
     }
 
     pub fn edit_failed(&mut self, id: u32, request: Value) -> bool {
@@ -102,6 +116,19 @@ mod tests {
 
     fn request() -> Value {
         json!({"text":"first", "images":[{"media_type":"image/png", "data":"YQ=="}], "context_file":"src/main.rs", "model":"demo-model", "thinking":false, "resume_session":"thread-a"})
+    }
+
+    #[test]
+    fn a_failed_message_keeps_why_it_failed_until_it_is_taken_back() {
+        let mut deliveries = Deliveries::default();
+        let id = deliveries.begin(request());
+        deliveries.fail(id, "Pick a token account for remote machines".into());
+        assert_eq!(
+            deliveries.reason(id).as_deref(),
+            Some("Pick a token account for remote machines")
+        );
+        assert!(deliveries.take_failed(id).is_some());
+        assert_eq!(deliveries.reason(id), None);
     }
 
     #[test]

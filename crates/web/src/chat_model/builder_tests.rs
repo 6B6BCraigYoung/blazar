@@ -666,3 +666,14 @@ fn a_decision_marks_the_card_and_a_second_denial_of_the_same_command_is_a_hard_s
         .collect();
     assert_eq!(hard, [false, false], "没批准过的命令再次被拦不算硬拦截");
 }
+
+#[test]
+fn a_retry_without_any_response_reads_as_a_connection_error() {
+    assert_eq!(retry_why(None, "unknown"), "Connection error");
+    assert_eq!(retry_why(None, "connection_error"), "Connection error");
+    assert_eq!(
+        retry_why(Some(400), "invalid_request"),
+        "Request failed (400)"
+    );
+    assert_eq!(retry_why(None, "rate_limit"), "Rate limited");
+}

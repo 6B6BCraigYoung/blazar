@@ -241,6 +241,7 @@
 .cq-h .grow { flex: 1; }
 .cq-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--status-other); }
 .cq-t { margin-top: var(--space-xs); white-space: pre-wrap; color: var(--fg-2); max-height: 6em; overflow: auto; }
+.cq-why { margin-top: var(--space-xs); color: var(--fg-3); overflow-wrap: anywhere; }
 .cq-o { font-size: var(--font-size-caption-readable); margin-top: var(--space-2xs); }
 .cb-tray { display: flex; flex-direction: column; border-bottom: 1px solid var(--line); }
 .cb-tray-row { display: flex; align-items: center; gap: var(--space-md); height: 32px; padding: 0 var(--space-control) 0 var(--space-card); font-size: var(--font-size-label); color: var(--fg-2); }

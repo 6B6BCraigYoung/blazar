@@ -103,10 +103,10 @@ fn parse_assistant(v: &Value) -> Vec<EntryKind> {
             .filter_map(|b| non_empty(b.get("text")))
             .collect();
         return vec![EntryKind::Error {
-            message: if text.is_empty() {
-                kind.to_owned()
-            } else {
-                format!("{kind}：{}", text.join(" "))
+            message: match (text.is_empty(), kind) {
+                (true, _) => kind.to_owned(),
+                (false, "unknown") => text.join(" "),
+                (false, _) => format!("{} ({kind})", text.join(" ")),
             },
         }];
     }
@@ -599,6 +599,17 @@ mod tests {
         assert_eq!(usages[0].output, 140, "要取 result 的权威值而不是快照累加");
         assert_eq!(usages[0].cache_read, 34347);
         assert_eq!(usages[0].cost_usd, Some(0.1839295));
+    }
+
+    #[test]
+    fn an_unknown_error_kind_is_not_shown_in_front_of_the_cli_message() {
+        let a = r#"{"type":"assistant","error":"unknown","message":{"content":[{"type":"text","text":"API Error: Connection error."}]}}"#;
+        let p = parse_line(a).unwrap();
+        assert!(
+            matches!(&p.entries[..], [EntryKind::Error { message }] if message == "API Error: Connection error."),
+            "{:?}",
+            p.entries
+        );
     }
 
     #[test]

@@ -475,7 +475,8 @@ impl Chat {
                 }
                 Err(e) => {
                     self.drop_pending(pid);
-                    self.deliveries.update(|d| d.finish(pid, false));
+                    let why = crate::components::toast::Failure::shown(&e, true).0;
+                    self.deliveries.update(|d| d.fail(pid, why));
                     toast_error_en("Send failed, message kept", &e);
                 }
             }
