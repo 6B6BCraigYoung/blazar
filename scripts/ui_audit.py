@@ -1861,6 +1861,35 @@ def accept(out):
     print(f"状态提示（脉冲、定位高亮，不计）：{len(ambient)} 处")
 
 
+def gallery(out):
+    """The 13 acceptance pages in both themes, one still each, for the side-by-side review."""
+    out = Path(out)
+    out.mkdir(parents=True, exist_ok=True)
+    make_repos()
+    ui({"action": "init"})
+    ready()
+    still = ("*, *::before, *::after { animation-duration: 0s !important; animation-delay: 0s !important; "
+             "transition-duration: 0s !important; } .toasts { display: none !important; }")
+    for t in ("dark", "light"):
+        theme(t)
+        for no, (slug, route, then) in enumerate(ACCEPT_PAGES, 1):
+            ui({"action": "navigate", "path": route, "settle_ms": 900})
+            ui({"action": "css", "value": still})
+            if then:
+                ui({**then, "settle_ms": 900})
+            if slug == "new-workspace":
+                for step in browse_to(DEMO, DEMO / "atlas-api"):
+                    try_ui(step)
+            name = f"{no:02d}-{slug}-{t}.png"
+            shot = ui({"action": "shot", "name": name, "settle_ms": 300})
+            shutil.move(shot["path"], out / name)
+            print(f"{name}\t{shot['width']}×{shot['height']}")
+            if then:
+                dismiss()
+            ui({"action": "css", "value": ""})
+    theme("system")
+
+
 def main():
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
     if cmd == "seed":
@@ -1875,12 +1904,14 @@ def main():
         metrics(sys.argv[2])
     elif cmd == "accept" and len(sys.argv) == 3:
         accept(sys.argv[2])
+    elif cmd == "gallery" and len(sys.argv) == 3:
+        gallery(sys.argv[2])
     elif cmd == "publish" and len(sys.argv) >= 4:
         publish(sys.argv[2], sys.argv[3:])
     elif cmd == "stress" and len(sys.argv) <= 3:
         stress(int(sys.argv[2]) if len(sys.argv) == 3 else 30)
     else:
-        sys.exit("用法：ui_audit.py seed | clean | shots <目录> empty|data [--rehearse] | index <目录> | metrics <文件> | publish <仓库目录> <截图…> | stress [轮数]")
+        sys.exit("用法：ui_audit.py seed | clean | shots <目录> empty|data [--rehearse] | index <目录> | metrics <文件> | accept <文件> | gallery <目录> | publish <仓库目录> <截图…> | stress [轮数]")
 
 
 if __name__ == "__main__":

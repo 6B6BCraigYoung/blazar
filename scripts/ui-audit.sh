@@ -11,6 +11,7 @@ case "${1:-}" in
   publish) exec python3 -I "$ROOT/scripts/ui_audit.py" publish "${2:?用法：ui-audit.sh publish <仓库目录> <截图…>}" "${@:3}" ;;
   metrics) exec python3 -I "$ROOT/scripts/ui_audit.py" metrics "${2:?用法：ui-audit.sh metrics <输出 JSON>}" ;;
   stress) exec python3 -I "$ROOT/scripts/ui_audit.py" stress "${@:2}" ;;
+  gallery) exec python3 -I "$ROOT/scripts/ui_audit.py" gallery "${2:?用法：ui-audit.sh gallery <目录>}" ;;
 esac
 read -r -a ROUTES <<<"${BLAZAR_AUDIT_ROUTES:-/ /workspaces /chats /?inbox=all /tasks /autopilots /runtimes /agents /skills /apps /nodes /usage /settings}"
 TMP=$(mktemp -d)
