@@ -82,7 +82,9 @@ pub async fn ready_update() -> Option<String> {
     if !crate::desktop::available() || crate::desktop::remote_hub().await {
         return None;
     }
-    let r = crate::desktop::invoke("update_ready", &json!({})).await.ok()?;
+    let r = crate::desktop::invoke("update_ready", &json!({}))
+        .await
+        .ok()?;
     r["ready"]
         .as_bool()
         .unwrap_or(false)
