@@ -2,6 +2,34 @@
 
 # 更新日志
 
+## v0.1.2 — 2026-11-01
+
+这一版主要做三件事：照着同类最好的产品统一界面，让新用户第一次就能用起来，断网、重启、机器离线之后不丢东西。从这一版起，应用可以在应用内升级。
+
+### 第一次打开
+
+- 第一次打开先显示「开始」清单：缺 Claude Code 或 Codex 时可以一键安装，选项目文件夹用系统自带的选择框，选完直接建好工作区。
+- 冷启动更快：不再每次都等登录 shell 取 PATH，日常打开到首屏可操作约 0.6 秒。
+- 应用内升级：发布的版本带签名的更新包，设置 → 数据与关于和启动提示里可以「更新并重启」。签名不对时不会安装。
+
+### 中控台与对话
+
+- 中控台右栏改成一行一条的列表，可以用 j / k、回车、Esc 操作；新对话居中显示问候、输入框和几个起步建议。
+- ⌘N 新建对话，⇧⌘N 新建工作区；新增快捷键速查表，菜单、设置和页面共用一套按键；命令面板加入「提交…」和「处理下一件事」。
+- 「总是允许」会说明规则保存在哪里，可以撤销，每张审批卡片上都有这个选项。
+
+### 不丢东西
+
+- 断网、hub 重启、机器离线、睡眠唤醒之后，进行中的活会接着做完，草稿和没保存的改动都会保留。
+- 失败的一轮不会再因为 CLI 正常退出而被记成「已完成」；同一个错误只显示一行，「Failed to send」会写明原因。
+- 机器每 45 秒检测一次，回来后自动续上中断的运行；登出的账号在凭据变化、真正验证通过之前保持登出状态。
+
+### 审阅与设置
+
+- 「更改」合成一个视图，可以丢弃某个文件或某一处改动，并且可以撤销；审阅意见保存在 hub 里。
+- 设置收成 8 个分区、24 项，其余的挪回各自的页面。
+- 界面统一：一种强调色，所有文字对比度至少 4.5:1，四级圆角，动效不超过 200ms，中英文之间自动加空格。
+
 ## v0.1.1 — 2026-10-29
 
 v0.1.0 之后的第一个版本，重点是让多台机器、多个智能体同时干活时更容易看清状态，也更少需要你守着。
@@ -77,6 +105,34 @@ v0.1.0 之后的第一个版本，重点是让多台机器、多个智能体同�
 [简体中文](#更新日志) · **English**
 
 # Changelog
+
+## v0.1.2 — 2026-11-01
+
+This release brings the interface in line with the best tools of its kind, makes the first run work without help, and keeps work safe through dropped networks, hub restarts and machines going offline. From this release on, the app can update itself.
+
+### First run
+
+- The first launch opens a start list: install a missing Claude Code or Codex in one click, pick the project folder with the system panel and get a workspace right away.
+- Faster launch: the app no longer waits on the login shell for PATH every time; a normal launch reaches a usable screen in about 0.6 s.
+- In-app updates: releases carry a signed update, and Settings → Data & About and the launch notice offer "update and restart". A bad signature is never installed.
+
+### Console and chat
+
+- The console rail is a list with one line per item, driven by j / k, Enter and Esc; a new conversation centers the greeting, the input and a few starters.
+- ⌘N starts a conversation and ⇧⌘N a workspace; a shortcut sheet, one keymap for menus, settings and pages, and the palette gains Commit… and Handle next.
+- "Always allow" says where the rule lives, can be undone, and appears on every approval card.
+
+### Nothing lost
+
+- After a dropped network, a hub restart, a machine going offline or sleep, running work carries on, and drafts and unsaved edits stay.
+- A failed turn no longer counts as finished when the CLI exits cleanly; one row per error, and "Failed to send" says why.
+- Machines are probed every 45 s and resume what they dropped; a logged-out account stays logged out until its credentials change and a real check passes.
+
+### Review and settings
+
+- One Changes view: discard a file or a single change with undo, and review comments live in the hub.
+- Settings come down to 24 items in 8 sections; the rest moved to the pages they belong to.
+- One visual system: a single accent, every text at 4.5:1 or better, four radii, motion within 200 ms, and automatic spacing between Chinese and Latin.
 
 ## v0.1.1 — 2026-10-29
 

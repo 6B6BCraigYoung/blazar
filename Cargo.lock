@@ -405,7 +405,7 @@ dependencies = [
 
 [[package]]
 name = "blazar-cli"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "blazar-core-types",
@@ -426,7 +426,7 @@ dependencies = [
 
 [[package]]
 name = "blazar-core-types"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "chrono",
  "directories",
@@ -437,7 +437,7 @@ dependencies = [
 
 [[package]]
 name = "blazar-db"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "blazar-core-types",
  "chrono",
@@ -453,7 +453,7 @@ dependencies = [
 
 [[package]]
 name = "blazar-desktop"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "blazar-core-types",
@@ -484,7 +484,7 @@ dependencies = [
 
 [[package]]
 name = "blazar-hooks"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "blazar-transport",
  "serde",
@@ -494,7 +494,7 @@ dependencies = [
 
 [[package]]
 name = "blazar-hub"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "axum",
@@ -539,7 +539,7 @@ dependencies = [
 
 [[package]]
 name = "blazar-mcp"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -557,7 +557,7 @@ dependencies = [
 
 [[package]]
 name = "blazar-netmesh"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "base64 0.22.1",
  "blazar-core-types",
@@ -574,7 +574,7 @@ dependencies = [
 
 [[package]]
 name = "blazar-runtime"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "async-trait",
  "blazar-core-types",
@@ -592,7 +592,7 @@ dependencies = [
 
 [[package]]
 name = "blazar-scheduler"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "chrono",
  "serde",
@@ -601,7 +601,7 @@ dependencies = [
 
 [[package]]
 name = "blazar-terminal"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "blazar-transport",
  "portable-pty",
@@ -611,7 +611,7 @@ dependencies = [
 
 [[package]]
 name = "blazar-transport"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "async-trait",
  "futures",
@@ -626,7 +626,7 @@ dependencies = [
 
 [[package]]
 name = "blazar-vfs"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "async-trait",
  "blazar-core-types",
@@ -639,7 +639,7 @@ dependencies = [
 
 [[package]]
 name = "blazar-web"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "blazar-core-types",
  "chrono",
@@ -660,7 +660,7 @@ dependencies = [
 
 [[package]]
 name = "blazar-worktree"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "blazar-transport",
  "serde",
