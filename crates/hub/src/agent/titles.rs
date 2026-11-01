@@ -227,6 +227,7 @@ pub(crate) async fn ask_haiku(brain: &Brain, prompt: &str, secs: u64) -> Option<
             "text",
             "--tools",
             "",
+            "--no-session-persistence",
         ])
         .envs(brain.env.iter().map(|(k, v)| (k.as_str(), v.as_str())))
         .current_dir(dir)
@@ -360,6 +361,38 @@ pub async fn rename(
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn background_calls_leave_no_session_behind() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let args = dir.path().join("args");
+        let fake = dir.path().join("claude");
+        std::fs::write(
+            &fake,
+            format!(
+                "#!/bin/sh\nprintf '%s\\n' \"$@\" > '{}'\ncat > /dev/null\necho 修复登录\n",
+                args.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let brain = super::Brain {
+            program: fake.display().to_string(),
+            env: Vec::new(),
+        };
+        assert_eq!(
+            super::ask_haiku(&brain, "起个标题", 10).await.as_deref(),
+            Some("修复登录")
+        );
+        let seen = std::fs::read_to_string(&args).unwrap();
+        assert!(
+            seen.lines().any(|a| a == "--no-session-persistence"),
+            "{seen}"
+        );
+        assert!(seen.lines().any(|a| a == "-p"), "{seen}");
+    }
+
     use super::*;
 
     #[test]

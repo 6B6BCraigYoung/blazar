@@ -35,6 +35,7 @@ async fn fetch(program: &str) -> anyhow::Result<Value> {
             "--verbose",
             "--input-format",
             "stream-json",
+            "--no-session-persistence",
         ])
         .current_dir(home)
         .stdin(Stdio::piped())

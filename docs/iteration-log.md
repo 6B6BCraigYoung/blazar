@@ -732,3 +732,27 @@
 截图（**1x**，演示数据）：`docs/iteration-shots/b31/`。中控台、对话、账号的改前图是 b24 的那套；检查器的改前图是 b30 的改后图。
 
 验证：`cargo fmt`、wasm 的 clippy、`cargo test -p blazar-web`。
+
+## b32 · 后台小活不再出现在用户的 ChatGPT / Codex 历史里
+
+用户发现自己的 ChatGPT 里多了很多对话，提示词是 Blazar 的（卡片摘要、标签页标题、对话交接），问是不是我们派的活。对应原则 6：对用户负责。
+
+**原因**：Blazar 并没有用 Codex 做这些小活，卡片摘要、标签页标题、提交信息都走 `claude -p --model haiku`（`titles::ask_haiku`），现在的代码和正式版 a3c1d77 都是这样。问题出在两层「保存」叠加：
+1. `claude -p` 默认会把每次调用存成一条会话（`~/.claude/projects/<目录>/*.jsonl`）。摘要和标题在系统临时目录里运行，那个目录对应的项目下已经积了 576 条会话，其中 335 条是卡片摘要。
+2. ChatGPT.app 里的 Codex 会**导入** Claude Code 的历史。`~/.codex/sessions` 里这些会话的 `turn_id` 是 `external-import-turn-1`，`history_mode` 是 `legacy`，`originator: Codex Desktop`、`source: vscode`、`cli_version 0.166.0-alpha.5.1` 都是 ChatGPT.app 自带的 Codex 写的，因为是它做的导入。工作目录是 `profiles/default/brain/…` 的那些，是用户在 Blazar 里真正的对话，同样被导入了；「Below is the earlier part of this conversation」是用户把对话换成另一种智能体时附上的上下文。
+
+所以这些会话不是 Codex 跑出来的，是 Claude 跑完以后被 Codex 导入的。导入会不会占用 ChatGPT 的额度，从文件里看不出来：导入的那一轮里只有原样搬过来的回复，没有 Codex 自己的模型调用记录。5 小时额度用到 64%，更可能来自用户自己用 Codex 的那部分，但我没法确认。
+
+**改法**：后台的一次性调用都加上 `--no-session-persistence`，不再存会话，Codex 也就没有东西可导入。
+- `titles::ask_haiku`：卡片摘要（brief）、标签页标题、提交信息都走这里。
+- `catalog::fetch`：每次启动都会用 `claude -p` 拉一次能力清单，同样会留下会话。
+- 用户真正的对话（`runtime/claude`）照常保存，因为要靠它用 `--resume` 续接。
+
+Blazar 的后台小活本来就不用 Codex，所以不需要额外的 `CODEX_HOME` 和设置开关。
+
+**验证**：
+- 新测试 `background_calls_leave_no_session_behind`：用一个假的 claude 记录收到的参数，断言 `ask_haiku` 传了 `--no-session-persistence`；去掉这个参数后测试会失败。
+- 用本机真实的 `claude` 带上这个参数跑一次：CLI 接受这个参数（这个会话环境里的默认账号是登出状态，只回了「Not logged in」）；临时目录项目下的会话数前后都是 576。
+- 开发实例（真实 HOME）启动一次：日志里没有能力清单失败的记录；`~/.claude/projects` 下没有新增会话文件（排除了我自己这个会话的目录）。
+
+**以前产生的会话**：没有删。`~/.claude/projects/-private-var-folders-…-T/` 下的 576 条，和 `~/.codex/sessions` 里导入的那些，删不删、怎么删由用户决定。另外，Codex 是否继续导入 Claude Code 的历史（包括用户在 Blazar 里的真实对话），是 ChatGPT.app 那边的设置，Blazar 管不到。
