@@ -15,24 +15,40 @@ pub(super) fn AppearanceSettings() -> impl IntoView {
     let size = move || p.get()["fontSize"].as_f64().unwrap_or(FONT_DEFAULT);
     view! {
         <PrefGroup title="显示" aside="仅对这台设备生效">
-            <PrefRow label="主题" for_id="settings-theme">
-                <select
-                    id="settings-theme"
-                    class="settings-input"
-                    prop:value=move || text(&p.get(), "theme")
-                    on:change=move |e| change("theme", json!(event_target_value(&e)))
-                >
-                    <option value="system" selected=move || text(&p.get(), "theme") == "system">
-                        "跟随系统"
-                    </option>
-                    <option value="light" selected=move || text(&p.get(), "theme") == "light">
-                        "浅色"
-                    </option>
-                    <option value="dark" selected=move || text(&p.get(), "theme") == "dark">
-                        "深色"
-                    </option>
-                </select>
-            </PrefRow>
+            <div class="theme-tiles" id="settings-theme" role="radiogroup" aria-label="主题">
+                {[("system", "跟随系统"), ("light", "浅色"), ("dark", "深色")]
+                    .into_iter()
+                    .map(|(value, label)| {
+                        let on = move || text(&p.get(), "theme") == value;
+                        view! {
+                            <button
+                                type="button"
+                                class="theme-tile"
+                                role="radio"
+                                data-theme-choice=value
+                                aria-checked=move || on().to_string()
+                                on:click=move |_| change("theme", json!(value))
+                            >
+                                <span class="theme-shot" data-look=value aria-hidden="true">
+                                    <span class="theme-pane" data-look="light">
+                                        <i class="side"></i>
+                                        <i class="line"></i>
+                                        <i class="line short"></i>
+                                        <i class="dot"></i>
+                                    </span>
+                                    <span class="theme-pane" data-look="dark">
+                                        <i class="side"></i>
+                                        <i class="line"></i>
+                                        <i class="line short"></i>
+                                        <i class="dot"></i>
+                                    </span>
+                                </span>
+                                <span class="theme-name">{label}</span>
+                            </button>
+                        }
+                    })
+                    .collect_view()}
+            </div>
             <PrefRow label="代码字号" for_id="settings-font">
                 <input
                     id="settings-font"

@@ -236,9 +236,11 @@ body.drag-y, body.drag-y * { cursor: row-resize !important; user-select: none; }
 .etab[data-dirty="true"] .x::before { content: "●"; font-size: var(--font-size-dirty-indicator); color: var(--fg-2); }
 .etab[data-dirty="true"] .x:hover { font-size: var(--font-size-label); }
 .etab[data-dirty="true"] .x:hover::before { content: none; }
-.edbar { display: flex; align-items: center; gap: var(--space-control); height: 32px; flex: 0 0 auto; padding: 0 var(--space-card); font-size: var(--font-size-label); color: var(--fg-3); border-bottom: 1px solid var(--line); }
+.edbar { display: flex; align-items: center; gap: var(--space-control); height: 32px; flex: 0 0 auto; padding: 0 var(--space-card); font-size: var(--font-size-label); color: var(--fg-3); border-bottom: 1px solid var(--line); overflow: hidden; white-space: nowrap; }
 .ed-draft { display: flex; align-items: center; gap: var(--space-md); flex: 0 0 auto; padding: var(--space-md) var(--space-card); font-size: var(--font-size-label); color: var(--fg-2); border-bottom: 1px solid var(--line); }
-.edbar .crumbs { display: flex; gap: var(--space-sm); overflow: hidden; white-space: nowrap; }
+.edbar > * { flex-shrink: 0; }
+.edbar > .crumbs { flex-shrink: 1; min-width: 0; }
+.edbar .crumbs { display: flex; gap: var(--space-sm); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .edbar .crumbs i { font-style: normal; color: var(--decoration-muted); }
 .edbar .crumbs .cur { color: var(--fg-2); }
 .edbar .grow { flex: 1; }

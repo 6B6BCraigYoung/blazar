@@ -485,7 +485,7 @@ pub fn AgentsPage() -> impl IntoView {
                                             <th>"选择"</th>
                                             {sort_head(sort, asc, "name", "智能体")}
                                             <th>"状态"</th>
-                                            <th>"Claude Code / Codex · 模型"</th>
+                                            <th>"工具 · 模型"</th>
                                             {sort_head(sort, asc, "runs", "近 30 天")}
                                             {sort_head(sort, asc, "recent", "最近活跃")}
                                         </tr>

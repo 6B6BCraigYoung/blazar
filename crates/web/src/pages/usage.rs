@@ -507,7 +507,7 @@ fn Analytics(data: Value, days: u32, widen: Callback<()>) -> impl IntoView {
                         .into_iter()
                         .enumerate()
                         .map(|(i, (day, title))| {
-                            let sel = move || (shown() == i).to_string();
+                            let sel = move || (hover.get().or(keyed.get()) == Some(i)).to_string();
                             let enter = move |_: leptos::ev::PointerEvent| hover.set(Some(i));
                             match day {
                                 Some((runs, failed)) => {

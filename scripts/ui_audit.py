@@ -1162,7 +1162,11 @@ def theme(value):
     if left:
         sys.exit(f"切主题前还有没关掉的{'、'.join(left)}，先处理再拍")
     ui({"action": "navigate", "path": "/settings?s=appearance", "settle_ms": 500})
-    ui({"action": "type", "selector": "#settings-theme", "value": value, "settle_ms": 300})
+    tile = f'.theme-tile[data-theme-choice="{value}"]'
+    if ui({"action": "text", "selector": tile}).get("matches"):
+        ui({"action": "click", "selector": tile, "settle_ms": 300})
+    else:
+        ui({"action": "type", "selector": "#settings-theme", "value": value, "settle_ms": 300})
 
 
 TITLES = {"/": "中控台", "/workspaces": "工作区", "/chats": "全部对话", "/tasks": "任务", "/autopilots": "任务",
