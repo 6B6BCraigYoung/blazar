@@ -56,6 +56,9 @@ unsafe_code = "forbid"
 dbg_macro = "deny"
 todo = "deny"
 
+[profile.release.build-override]
+strip = false
+
 [profile.wasm]
 inherits = "release"
 codegen-units = 1
