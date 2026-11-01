@@ -1,11 +1,15 @@
+use std::path::PathBuf;
+
 use blazar_transport::{ExecSpec, LocalTransport, NodeTransport};
-use chrono::Utc;
+use chrono::{DateTime, NaiveDateTime, Utc};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 
 use crate::api::Shared;
 use crate::state::ServerEvent;
 
-use super::{Account, TOKEN_ENV, get};
+use super::quota::{can_query_quota, refresh_quota};
+use super::{Account, TOKEN_ENV, default_home, get};
 
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Probe {
@@ -119,11 +123,110 @@ pub async fn check_on_start(st: Shared) {
     }
 }
 
+fn credential_files(a: &Account) -> Vec<PathBuf> {
+    let home = a
+        .config_dir
+        .as_ref()
+        .map(PathBuf::from)
+        .or_else(|| default_home(&a.provider));
+    let mut files: Vec<PathBuf> = a.token_file().into_iter().collect();
+    if let Some(home) = home {
+        files.push(home.join(match a.provider.as_str() {
+            "claude" => ".credentials.json",
+            _ => "auth.json",
+        }));
+    }
+    files
+}
+
+fn keychain_service(a: &Account) -> Option<String> {
+    if !cfg!(target_os = "macos") || a.provider != "claude" || a.kind == "token" {
+        return None;
+    }
+    Some(match &a.config_dir {
+        None => "Claude Code-credentials".to_owned(),
+        Some(dir) => {
+            let hash: String = Sha256::digest(dir.as_bytes())
+                .iter()
+                .take(4)
+                .map(|b| format!("{b:02x}"))
+                .collect();
+            format!("Claude Code-credentials-{hash}")
+        }
+    })
+}
+
+#[must_use]
+pub fn parse_keychain_mdat(out: &str) -> Option<DateTime<Utc>> {
+    let line = out
+        .lines()
+        .find(|l| l.trim_start().starts_with("\"mdat\""))?;
+    let quoted = line.rsplit_once('=')?.1;
+    let digits: String = quoted
+        .split_once('"')?
+        .1
+        .chars()
+        .take_while(char::is_ascii_digit)
+        .collect();
+    NaiveDateTime::parse_from_str(&digits, "%Y%m%d%H%M%S")
+        .ok()
+        .map(|t| t.and_utc())
+}
+
+async fn credentials_changed_at(a: &Account) -> Option<DateTime<Utc>> {
+    let mut latest = credential_files(a)
+        .iter()
+        .filter_map(|p| std::fs::metadata(p).ok()?.modified().ok())
+        .map(DateTime::<Utc>::from)
+        .max();
+    if let Some(service) = keychain_service(a)
+        && let Ok(out) = tokio::process::Command::new("security")
+            .args(["find-generic-password", "-s", &service])
+            .output()
+            .await
+    {
+        latest = latest.max(parse_keychain_mdat(&String::from_utf8_lossy(&out.stdout)));
+    }
+    latest
+}
+
+async fn signed_in_again(st: &Shared, a: &Account) -> bool {
+    let Some(since) = a
+        .checked_at
+        .as_deref()
+        .and_then(|t| DateTime::parse_from_rfc3339(t).ok())
+    else {
+        return true;
+    };
+    if credentials_changed_at(a)
+        .await
+        .is_none_or(|t| t <= since.with_timezone(&Utc))
+    {
+        return false;
+    }
+    !can_query_quota(a) || refresh_quota(st, a).await.is_ok()
+}
+
 pub(super) async fn check(st: &Shared, a: &Account) -> Option<Account> {
+    check_as(st, a, false).await
+}
+
+pub(super) async fn check_after_login(st: &Shared, a: &Account) -> Option<Account> {
+    check_as(st, a, true).await
+}
+
+async fn check_as(st: &Shared, a: &Account, just_signed_in: bool) -> Option<Account> {
     if st.services == crate::services::Services::Isolated {
         return None;
     }
     let p = probe(a).await;
+    if p.logged_in == Some(true)
+        && a.status == "logged_out"
+        && !just_signed_in
+        && !signed_in_again(st, a).await
+    {
+        return get(st, &a.id).await;
+    }
     let status = match p.logged_in {
         Some(true) => "ok",
         Some(false) => "logged_out",
@@ -173,6 +276,46 @@ mod tests {
         assert!(!fresh(Some(&at(61)), now));
         assert!(!fresh(None, now));
         assert!(!fresh(Some("2026-10-13"), now));
+    }
+
+    #[test]
+    fn keychain_change_time_is_read_without_the_secret() {
+        let out = r#"keychain: "/Users/u/Library/Keychains/login.keychain-db"
+attributes:
+    "cdat"<timedate>=0x32303236303930313130303030305A00  "20260901100000Z\000"
+    "mdat"<timedate>=0x32303236313033303132333435305A00  "20261030123450Z\000"
+    "svce"<blob>="Claude Code-credentials""#;
+        assert_eq!(
+            parse_keychain_mdat(out).map(|t| t.to_rfc3339()),
+            Some("2026-10-30T12:34:50+00:00".into())
+        );
+        assert_eq!(parse_keychain_mdat("security: not found"), None);
+    }
+
+    #[tokio::test]
+    async fn a_rewritten_token_file_counts_as_signing_in_again() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = Account {
+            id: "t".into(),
+            provider: "claude".into(),
+            label: "t".into(),
+            config_dir: Some(dir.path().display().to_string()),
+            email: None,
+            plan: None,
+            status: "logged_out".into(),
+            disabled: false,
+            checked_at: None,
+            created_at: String::new(),
+            builtin: false,
+            kind: "token".into(),
+            linked: None,
+        };
+        assert_eq!(credentials_changed_at(&a).await, None);
+        let before = Utc::now() - chrono::Duration::seconds(5);
+        std::fs::write(dir.path().join(super::super::TOKEN_FILE), "x").unwrap();
+        let changed = credentials_changed_at(&a).await.unwrap();
+        assert!(changed > before);
+        assert!(changed < Utc::now() + chrono::Duration::seconds(5));
     }
 
     #[test]

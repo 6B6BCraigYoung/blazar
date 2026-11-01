@@ -11,7 +11,7 @@ use crate::api::Shared;
 use crate::state::ServerEvent;
 
 use super::failover::upsert_window;
-use super::probe::{check, shell};
+use super::probe::shell;
 use super::{Account, all, fail, get};
 
 const QUOTA_MODEL: &str = "claude-haiku-4-5-20251001";
@@ -234,7 +234,7 @@ async fn refresh_codex_quota(st: &Shared, a: &Account) -> Result<(), String> {
     if let Some(err) = v.get("error") {
         let msg = err["message"].as_str().unwrap_or("未知错误");
         if msg.to_ascii_lowercase().contains("not logged in") || msg.contains("auth") {
-            check(st, a).await;
+            mark_logged_out(st, a).await;
         }
         return Err(format!("codex 查额度失败：{msg}"));
     }

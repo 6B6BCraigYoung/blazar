@@ -6,7 +6,7 @@ use serde::Deserialize;
 
 use crate::api::Shared;
 
-use super::probe::{check, shell};
+use super::probe::{check_after_login, shell};
 use super::{fail, get};
 
 fn login_ssh_args(node: &str, remote: &str) -> Result<Vec<String>, String> {
@@ -244,7 +244,7 @@ pub async fn login_ws(
             _ = pump => {}
         }
         if let Some(a) = get(&st, &a.id).await {
-            check(&st, &a).await;
+            check_after_login(&st, &a).await;
         }
     })
 }

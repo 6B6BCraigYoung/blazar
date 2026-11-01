@@ -7,7 +7,6 @@ use crate::api::Shared;
 use crate::state::ServerEvent;
 
 use super::get;
-use super::probe::check;
 use super::quota::refresh_quota;
 use super::selection::{resolve, windows_of};
 
@@ -350,17 +349,12 @@ pub async fn note_failure(st: &Shared, sid: blazar_core_types::SessionId, messag
     let Some(a) = get(st, &account).await else {
         return;
     };
-    if a.kind == "token" {
-        let _ =
-            sqlx::query("UPDATE accounts SET status = 'logged_out', checked_at = ?2 WHERE id = ?1")
-                .bind(&a.id)
-                .bind(Utc::now().to_rfc3339())
-                .execute(st.db.pool())
-                .await;
-        st.emit(ServerEvent::AccountsChanged);
-    } else {
-        check(st, &a).await;
-    }
+    let _ = sqlx::query("UPDATE accounts SET status = 'logged_out', checked_at = ?2 WHERE id = ?1")
+        .bind(&a.id)
+        .bind(Utc::now().to_rfc3339())
+        .execute(st.db.pool())
+        .await;
+    st.emit(ServerEvent::AccountsChanged);
 }
 
 #[cfg(test)]
