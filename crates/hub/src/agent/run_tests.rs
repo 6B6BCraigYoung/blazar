@@ -252,6 +252,16 @@ async fn exited_run_keeps_its_log_until_the_last_line_is_persisted() {
 }
 
 #[tokio::test]
+async fn a_failed_last_turn_marks_the_run_failed_even_when_the_cli_exits_cleanly() {
+    let failed = r#"{"type":"result","subtype":"success","is_error":true,"terminal_reason":"api_error","result":"API Error: Connection error."}"#;
+    let (_dir, ctx, _transport) = fixture(format!("{failed}\n")).await;
+    tokio::time::timeout(Duration::from_secs(3), supervise(ctx.clone(), 0, None))
+        .await
+        .unwrap();
+    assert_eq!(session_state(&ctx).await.0, "failed");
+}
+
+#[tokio::test]
 async fn exited_run_retries_failed_drain_before_cleanup() {
     let (_dir, ctx, transport) = fixture(format!("{FINISHED}\n")).await;
     transport.drain_failed.store(true, Ordering::SeqCst);
