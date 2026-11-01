@@ -1922,13 +1922,6 @@ pub fn Log(chat: Chat, tick: RwSignal<u32>, log_h: RwSignal<f64>) -> impl IntoVi
         }
         n
     });
-    let dim = move || {
-        chat.transcript.with(|t| {
-            t.pending
-                .iter()
-                .any(|p| !p.ask && !chat.decided.with(|d| d.contains(&p.id)))
-        })
-    };
     let busy = move || {
         (chat.running.get() || chat.pending.with(|p| !p.is_empty()))
             && chat.transcript.with(|t| {
@@ -1980,7 +1973,6 @@ pub fn Log(chat: Chat, tick: RwSignal<u32>, log_h: RwSignal<f64>) -> impl IntoVi
             lang="en"
             node_ref=el
             on:click=click
-            data-dim=move || dim().to_string()
             on:scroll=move |_| {
                 if let Some(e) = el.try_get_untracked().flatten() {
                     mark_stuck(&e);

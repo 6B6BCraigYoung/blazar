@@ -1,6 +1,5 @@
 .chat-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .cc-log { flex: 1; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; overflow-anchor: none; padding: var(--space-card) max(var(--space-card), calc((100% - var(--chat-measure)) / 2)) var(--space-sm); font-size: var(--font-size-chat); line-height: var(--line-height-chat); transition: opacity var(--motion-base) var(--ease-standard); }
-.cc-log[data-dim="true"] { opacity: .55; }
 
 .cc-row { position: relative; display: flex; gap: var(--space-md); align-items: flex-start; margin: 0 0 var(--space-control); }
 .cc-row::after { content: ""; position: absolute; left: 5.5px; top: var(--chat-line); bottom: -10px; width: 1px; background: var(--line); }
