@@ -637,7 +637,7 @@ fn Dialog() -> impl IntoView {
                 <div class="browse-bar">
                     <button
                         type="button"
-                        class="btn small"
+                        class="btn small ghost"
                         aria-label="上一级目录"
                         title="上一级"
                         disabled=move || {
@@ -670,7 +670,7 @@ fn Dialog() -> impl IntoView {
                     />
                     <button
                         type="button"
-                        class="btn small"
+                        class="btn small ghost"
                         on:click=move |_| {
                             path.set(typed.get_untracked().trim().to_owned());
                             touched.set(true);
@@ -681,7 +681,7 @@ fn Dialog() -> impl IntoView {
                     </button>
                     <button
                         type="button"
-                        class="btn small"
+                        class="btn small ghost"
                         title="在当前目录下新建文件夹"
                         disabled=move || busy.get() || !listed()
                         on:click=move |_| start_folder()

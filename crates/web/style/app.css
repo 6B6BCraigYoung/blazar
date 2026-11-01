@@ -605,7 +605,8 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 .node-state[data-state="ok"] { color: var(--fg-2); }
 .node-slow { margin-left: var(--space-sm); color: var(--fg-3); }
 .node-confirm { margin-left: var(--space-md); }
-.nodes-pending { margin: 0; font-size: var(--font-size-label); color: var(--fg-2); }
+.nodes-heading { margin-bottom: var(--space-md); }
+.nodes-pending { color: var(--fg-3); }
 .nodes-pending .linkbtn { color: var(--accent); }
 .node-row[data-off="true"] :is(.node-name, .node-link, .node-ws) { color: var(--fg-3); }
 .node-row[data-off="true"] .node-name:hover { color: var(--fg); }

@@ -410,6 +410,7 @@ pub fn SkillsPage() -> impl IntoView {
                                             .into_any()
                                     };
                                 }
+                                let acts = !is_mcp && lib.iter().any(|item| !item["origin"].is_null());
                                 view! {
                                     <ListGroup>
                                         <div class="agent-table skills-lib">
@@ -420,7 +421,7 @@ pub fn SkillsPage() -> impl IntoView {
                                                         <th>{if is_mcp { "连接方式" } else { "说明" }}</th>
                                                         <th>{if is_mcp { "密钥" } else { "文件" }}</th>
                                                         <th>"用在"</th>
-                                                        <th>"操作"</th>
+                                                        {acts.then(|| view! { <th>"操作"</th> })}
                                                     </tr>
                                                 </thead>
                                                 <tbody>
@@ -498,23 +499,28 @@ pub fn SkillsPage() -> impl IntoView {
                                                                             text(&item, "used_by")
                                                                         }}
                                                                     </td>
-                                                                    <td>
-                                                                        <div class="agent-actions">
-                                                                            {(!is_mcp && !item["origin"].is_null())
-                                                                                .then(|| {
-                                                                                    view! {
-                                                                                        <button
-                                                                                            class="btn"
-                                                                                            on:click=move |_| {
-                                                                                                preview.set(Some((install_of(&v.get_value()), true)));
+                                                                    {acts
+                                                                        .then(|| {
+                                                                            view! {
+                                                                            <td>
+                                                                                <div class="agent-actions">
+                                                                                    {(!is_mcp && !item["origin"].is_null())
+                                                                                        .then(|| {
+                                                                                            view! {
+                                                                                                <button
+                                                                                                    class="btn"
+                                                                                                    on:click=move |_| {
+                                                                                                        preview.set(Some((install_of(&v.get_value()), true)));
+                                                                                                    }
+                                                                                                >
+                                                                                                    "更新"
+                                                                                                </button>
                                                                                             }
-                                                                                        >
-                                                                                            "更新"
-                                                                                        </button>
-                                                                                    }
-                                                                                })}
-                                                                        </div>
-                                                                    </td>
+                                                                                        })}
+                                                                                </div>
+                                                                            </td>
+                                                                            }
+                                                                        })}
                                                                 </tr>
                                                             }
                                                         })

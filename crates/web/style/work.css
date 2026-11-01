@@ -124,9 +124,7 @@
 .bot-head strong { font-weight: var(--font-weight-medium); }
 .bot-card .bot-line { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bot-line { font-size: var(--font-size-label); overflow-wrap: anywhere; }
-.bot-acts { flex: 0 0 auto; display: flex; align-items: center; gap: var(--space-xs); opacity: 0; transition: opacity var(--motion-fast) var(--ease-standard); }
-.bot-card:is(:hover, :focus-within, [data-sel="true"], [data-menu="true"]) .bot-acts { opacity: 1; }
-@media (hover: none) { .bot-acts { opacity: 1; } }
+.bot-acts { flex: 0 0 auto; display: flex; align-items: center; gap: var(--space-xs); }
 .bot-page .row-actions { display: flex; align-items: center; gap: var(--space-md); flex-wrap: wrap; }
 .bot-page .card.pad { display: flex; flex-direction: column; gap: var(--space-md); padding: var(--space-xl); margin-bottom: var(--space-xl); }
 .bot-page .card.pad > h3 { margin: 0; font-size: var(--font-size-body); }

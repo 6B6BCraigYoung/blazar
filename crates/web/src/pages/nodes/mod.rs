@@ -319,28 +319,36 @@ pub fn NodesPage() -> impl IntoView {
             }}
             {move || {
                 let n = pending_count.get();
-                (n > 0 && !loading.get())
+                (!loading.get() && !empty.get())
                     .then(|| {
                         view! {
-                            <p class="nodes-pending" role="status">
-                                {format!("有 {n} 台机器等你确认")}
-                                " · "
-                                <button
-                                    type="button"
-                                    class="linkbtn nodes-pending-open"
-                                    aria-haspopup="dialog"
-                                    on:click=move |_| {
-                                        let names = nodes()
-                                            .into_iter()
-                                            .filter(|n| n.is_pending())
-                                            .map(|n| n.name)
-                                            .collect();
-                                        confirm.set(Some(names));
-                                    }
-                                >
-                                    "查看"
-                                </button>
-                            </p>
+                            <h3 class="pref-heading nodes-heading">
+                                <span>"所有机器"</span>
+                                {(n > 0)
+                                    .then(|| {
+                                        view! {
+                                            <span class="pref-aside nodes-pending" role="status">
+                                                {format!("有 {n} 台等你确认")}
+                                                " · "
+                                                <button
+                                                    type="button"
+                                                    class="linkbtn nodes-pending-open"
+                                                    aria-haspopup="dialog"
+                                                    on:click=move |_| {
+                                                        let names = nodes()
+                                                            .into_iter()
+                                                            .filter(|n| n.is_pending())
+                                                            .map(|n| n.name)
+                                                            .collect();
+                                                        confirm.set(Some(names));
+                                                    }
+                                                >
+                                                    "查看"
+                                                </button>
+                                            </span>
+                                        }
+                                    })}
+                            </h3>
                         }
                     })
             }}
