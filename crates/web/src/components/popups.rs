@@ -64,7 +64,11 @@ fn pop_view(x: Pop) -> impl IntoView {
         let it = x.item;
         return view! {
             <article class="pop mini" data-kind=it.kind.clone()>
-                <span class="ic" aria-hidden="true" inner_html=icon::svg(crate::pages::inbox::kind_glyph(&it.kind))></span>
+                <span
+                    class="ic"
+                    aria-hidden="true"
+                    inner_html=icon::svg(crate::pages::inbox::kind_glyph(&it.kind))
+                ></span>
                 <a class="pop-line" href=it.href.clone() on:click=move |_| dismiss(id)>
                     {it.title.clone()}
                 </a>
