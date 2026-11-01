@@ -202,6 +202,7 @@ struct Builder<'a> {
     pending: Vec<Pending>,
     bail: bool,
     mark: Option<Mark>,
+    last_error: Option<(usize, String)>,
 }
 
 const FOLDED: [&str; 3] = ["thinking", "tool_use", "tool_result"];
@@ -252,6 +253,7 @@ impl<'a> Builder<'a> {
             pending: Vec::new(),
             bail: false,
             mark: None,
+            last_error: None,
         }
     }
 
@@ -395,6 +397,14 @@ impl<'a> Builder<'a> {
     }
 
     fn push_error(&mut self, key: String, message: &str) {
+        let at = self.container().len();
+        if self
+            .last_error
+            .as_ref()
+            .is_some_and(|(len, raw)| *len == at && message.starts_with(raw.as_str()))
+        {
+            return;
+        }
         let cause = FailureCause::of(message, true);
         if cause == FailureCause::Resume {
             self.push(
@@ -415,6 +425,7 @@ impl<'a> Builder<'a> {
                 cause,
             },
         );
+        self.last_error = Some((self.container().len(), message.to_owned()));
     }
 
     fn push(&mut self, key: String, body: BBody) {

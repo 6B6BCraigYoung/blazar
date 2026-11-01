@@ -182,6 +182,8 @@ pub fn error_kind(raw: &str, status: Option<u16>) -> Option<ErrorKind> {
             ErrorKind::Forbidden
         } else if has(&["billing_error"]) {
             ErrorKind::Billing
+        } else if has(&["connection error", "connection_error"]) {
+            ErrorKind::Offline
         } else if has(&[
             "api error: 500",
             "internal server error",

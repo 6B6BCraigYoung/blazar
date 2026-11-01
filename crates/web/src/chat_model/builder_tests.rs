@@ -677,3 +677,35 @@ fn a_retry_without_any_response_reads_as_a_connection_error() {
     );
     assert_eq!(retry_why(None, "rate_limit"), "Rate limited");
 }
+
+#[test]
+fn a_failed_turn_that_repeats_the_error_above_it_is_one_row() {
+    let out = build(
+        &[
+            row(
+                "s",
+                1,
+                0,
+                json!({"type":"error","message":"API Error: Connection error."}),
+            ),
+            row(
+                "s",
+                2,
+                0,
+                json!({"type":"finished","status":"failed","message":"API Error: Connection error.（api_error）"}),
+            ),
+        ],
+        "",
+        false,
+    );
+    let errors: Vec<_> = out
+        .items
+        .iter()
+        .filter_map(|i| match &i.body {
+            Body::Error { text, .. } => Some(text.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert!(!errors[0].contains("Server error"), "{errors:?}");
+}
