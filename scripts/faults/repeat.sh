@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-cd /Users/craig/workspace/blazar
-PY="/opt/homebrew/bin/python3.11 -I scripts/faults/faults.py"
+cd "$(dirname "$0")/../.."
+PY="python3 -I scripts/faults/faults.py"
 OUT=${OUT:-target/faults/repeat.tsv}
 for kind in "hub edit" "sleep chat"; do
   for i in $(seq 1 ${N:-22}); do
