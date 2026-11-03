@@ -962,3 +962,28 @@ fn machines_dropping_together_merge_and_a_real_drop_is_left_alone() {
     assert!(burst.is_empty());
     assert_eq!(single.len(), 2);
 }
+
+#[tokio::test]
+async fn machines_gone_for_days_are_treated_as_retired() {
+    let h = hub().await;
+    for (id, name, mins) in [("n-old", "old", 4 * 24 * 60), ("n-new", "new", 60)] {
+        sqlx::query(
+            "INSERT INTO nodes (id, name, transport, status, last_seen_at, created_at)
+             VALUES (?1, ?2, 'ssh', 'offline', ?3, '0')",
+        )
+        .bind(id)
+        .bind(name)
+        .bind(ago(mins))
+        .execute(h.st.db.pool())
+        .await
+        .unwrap();
+    }
+    run_once(&h.st).await;
+    let titles: Vec<String> = h
+        .alerts("node_offline")
+        .await
+        .into_iter()
+        .map(|a| a.0)
+        .collect();
+    assert_eq!(titles, ["机器 new 离线超过 10 分钟"]);
+}

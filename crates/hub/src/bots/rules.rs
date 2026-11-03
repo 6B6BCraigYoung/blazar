@@ -77,7 +77,7 @@ pub const SPECS: &[Spec] = &[
     Spec {
         key: "node_offline",
         label: "机器离线",
-        about: "机器离线这么久：提醒你并通知总控 bot，列出上面还在跑的任务和相关的 bot。",
+        about: "机器离线这么久：提醒你并通知总控 bot，列出上面还在跑的任务和相关的 bot。几台机器前后几分钟一起断开时合并成一条；离线超过 3 天的机器当作已停用，不再提醒，回来后照常。",
         unit: "分钟",
         default: Some(10),
         min: 1,
@@ -617,6 +617,8 @@ async fn job_orphan(st: &Shared) -> Vec<Cond> {
 
 pub const BURST_MIN: usize = 3;
 pub const BURST_GAP_SECS: i64 = 180;
+const FRESH_BURST_SECS: i64 = 3600;
+pub const RETIRED_SECS: i64 = 3 * 86_400;
 
 type Seen = Vec<(String, DateTime<Utc>)>;
 
@@ -643,12 +645,20 @@ pub fn bursts(mut offline: Seen) -> (Seen, Seen) {
 }
 
 async fn node_offline(st: &Shared, mins: i64) -> Vec<Cond> {
-    let nodes: Vec<(String, String, Option<String>)> = sqlx::query_as(
-        "SELECT id, name, last_seen_at FROM nodes WHERE status = 'offline' AND transport != 'local'",
+    let now = Utc::now();
+    let nodes: Vec<(String, String, Option<String>)> = sqlx::query_as::<_, (String, String, Option<String>, String)>(
+        "SELECT id, name, last_seen_at, created_at FROM nodes WHERE status = 'offline' AND transport != 'local'",
     )
     .fetch_all(st.db.pool())
     .await
-    .unwrap_or_default();
+    .unwrap_or_default()
+    .into_iter()
+    .filter(|(_, _, seen, created)| {
+        parse_time(seen.as_deref().unwrap_or(created))
+            .is_none_or(|t| (now - t).num_seconds() < RETIRED_SECS)
+    })
+    .map(|(id, name, seen, _)| (id, name, seen))
+    .collect();
     let ids: HashMap<String, String> = nodes
         .iter()
         .map(|(id, n, _)| (n.clone(), id.clone()))
@@ -666,9 +676,13 @@ async fn node_offline(st: &Shared, mins: i64) -> Vec<Cond> {
             subject: "burst".into(),
             since: Some(first),
             after_secs: mins * 60,
-            title: format!("{} 台机器同时离线，可能是 hub 或网络在抖", burst.len()),
+            title: if (Utc::now() - first).num_seconds() < FRESH_BURST_SECS {
+                format!("{} 台机器同时离线，可能是 hub 或网络在抖", burst.len())
+            } else {
+                format!("{} 台机器从 {} 起一直离线", burst.len(), local(first))
+            },
             body: format!(
-                "{} 在 {} 前后一起断开。多台同时断开通常是 hub 所在的网络或组网出了问题，不是机器本身；恢复的机器会从这里移走，剩下单独离线的机器会另外提醒。",
+                "{} 在 {} 前后一起断开。刚断开时多半是 hub 所在的网络或组网出了问题，不是机器本身；恢复的机器会从这里移走，剩下单独离线的机器会另外提醒。",
                 names.join("、"),
                 local(first)
             ),
