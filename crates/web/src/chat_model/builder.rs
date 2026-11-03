@@ -130,6 +130,8 @@ pub(super) struct BItem {
     pub(super) body: BBody,
 }
 
+pub const COMPACTED: &str = "Context compacted";
+
 #[derive(Clone, Default)]
 struct Carry {
     last_ts: i64,
@@ -142,6 +144,8 @@ struct Carry {
     mode: String,
     model: String,
     refusals: HashMap<String, String>,
+    context: Option<(u64, u64)>,
+    costs: Vec<(String, f64)>,
 }
 
 #[derive(Default)]
@@ -627,7 +631,21 @@ impl<'a> Builder<'a> {
                 self.carry.mcp = mcp_servers.clone();
                 self.carry.mode = permission_mode.clone().unwrap_or_default();
             }
-            EntryKind::TokenUsage(_) => {}
+            EntryKind::TokenUsage(u) => {
+                if let Some(used) = u.context {
+                    let window = u
+                        .window
+                        .or(self.carry.context.map(|c| c.1))
+                        .unwrap_or_default();
+                    self.carry.context = Some((used, window));
+                }
+                if let Some(cost) = u.cost_usd {
+                    match self.carry.costs.iter_mut().find(|c| c.0 == r.session_id) {
+                        Some(c) => c.1 = cost,
+                        None => self.carry.costs.push((r.session_id.clone(), cost)),
+                    }
+                }
+            }
             EntryKind::Progress {
                 message_id,
                 output_tokens,
@@ -640,13 +658,18 @@ impl<'a> Builder<'a> {
                 *n = (*n).max(*output_tokens);
             }
             EntryKind::RateLimit(rl) => self.carry.rate = rl.windows.clone(),
-            EntryKind::Notice { message } => self.push(
-                key,
-                BBody::Meta {
-                    text: message.clone(),
-                    bad: false,
-                },
-            ),
+            EntryKind::Notice { message } => {
+                if message == COMPACTED {
+                    self.carry.context = None;
+                }
+                self.push(
+                    key,
+                    BBody::Meta {
+                        text: message.clone(),
+                        bad: false,
+                    },
+                );
+            }
             EntryKind::Error { message } => self.push_error(key, message),
             EntryKind::ApiRetry {
                 attempt,
@@ -988,6 +1011,8 @@ impl<'a> Builder<'a> {
             todos: carry.todos,
             mcp: carry.mcp,
             rate: carry.rate,
+            context: carry.context,
+            cost: carry.costs.iter().map(|c| c.1).sum(),
             model: Some(carry.model).filter(|m| !m.is_empty()),
             last_session: rows.last().map(|r| r.session_id.clone()),
             turn_tokens,

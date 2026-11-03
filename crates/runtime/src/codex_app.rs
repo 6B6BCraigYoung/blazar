@@ -282,7 +282,8 @@ fn rate_limits(v: &Value) -> Option<EntryKind> {
 }
 
 fn usage(v: &Value) -> Option<TokenUsage> {
-    let u = v.get("tokenUsage")?.get("last")?;
+    let all = v.get("tokenUsage")?;
+    let u = all.get("last")?;
     let n = |k: &str| u.get(k).and_then(Value::as_u64).unwrap_or(0);
     Some(TokenUsage {
         input: n("inputTokens"),
@@ -290,6 +291,8 @@ fn usage(v: &Value) -> Option<TokenUsage> {
         cache_read: n("cachedInputTokens"),
         cache_creation: n("cacheWriteInputTokens"),
         cost_usd: None,
+        context: Some(n("totalTokens")).filter(|t| *t > 0),
+        window: all.get("modelContextWindow").and_then(Value::as_u64),
     })
 }
 

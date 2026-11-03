@@ -28,6 +28,9 @@ pub fn parse_line(line: &str) -> Option<ParsedLine> {
                 parse_task(st, &value).into_iter().collect()
             }
             Some("api_retry") => parse_retry(&value).into_iter().collect(),
+            Some("compact_boundary") => vec![EntryKind::Notice {
+                message: "Context compacted".to_owned(),
+            }],
             _ => Vec::new(),
         },
         "assistant" => parse_assistant(&value),
@@ -200,6 +203,29 @@ fn parse_user(v: &Value) -> Vec<EntryKind> {
 fn parse_result(v: &Value) -> Vec<EntryKind> {
     let usage = v.get("usage").map(parse_usage).map(|mut u| {
         u.cost_usd = v.get("total_cost_usd").and_then(Value::as_f64);
+        u.context = v
+            .pointer("/usage/iterations")
+            .and_then(Value::as_array)
+            .and_then(|i| i.last())
+            .map(|last| {
+                [
+                    "input_tokens",
+                    "cache_read_input_tokens",
+                    "cache_creation_input_tokens",
+                    "output_tokens",
+                ]
+                .iter()
+                .filter_map(|k| last.get(*k).and_then(Value::as_u64))
+                .sum()
+            });
+        u.window = v
+            .get("modelUsage")
+            .and_then(Value::as_object)
+            .and_then(|m| {
+                m.values()
+                    .filter_map(|x| x.get("contextWindow").and_then(Value::as_u64))
+                    .max()
+            });
         u
     });
 
@@ -368,7 +394,7 @@ fn parse_usage(v: &Value) -> TokenUsage {
         output: u("output_tokens"),
         cache_read: u("cache_read_input_tokens"),
         cache_creation: u("cache_creation_input_tokens"),
-        cost_usd: None,
+        ..TokenUsage::default()
     }
 }
 
@@ -659,6 +685,35 @@ mod tests {
             Some(blazar_core_types::ActivityState::Errored),
             "有操作被拦下的一轮不能显示成已完成"
         );
+    }
+
+    #[test]
+    fn a_compact_boundary_says_the_context_was_compacted() {
+        let line = r#"{"type":"system","subtype":"compact_boundary","compact_metadata":{"trigger":"manual","pre_tokens":182000}}"#;
+        assert!(matches!(
+            &parse_line(line).unwrap().entries[..],
+            [EntryKind::Notice { message }] if message == "Context compacted"
+        ));
+    }
+
+    #[test]
+    fn a_result_reports_the_context_size_and_window() {
+        let r = r#"{"type":"result","subtype":"success","is_error":false,"result":"ok","total_cost_usd":0.5,
+            "usage":{"input_tokens":2,"output_tokens":143,"cache_read_input_tokens":25551,"cache_creation_input_tokens":302,
+              "iterations":[{"input_tokens":3,"output_tokens":10,"cache_read_input_tokens":100,"cache_creation_input_tokens":0},
+                            {"input_tokens":2,"output_tokens":143,"cache_read_input_tokens":25551,"cache_creation_input_tokens":302}]},
+            "modelUsage":{"claude-haiku-5-5":{"contextWindow":1000000},"claude-opus-5-5":{"contextWindow":200000}}}"#;
+        let usage = parse_line(r)
+            .unwrap()
+            .entries
+            .into_iter()
+            .find_map(|e| match e {
+                EntryKind::TokenUsage(u) => Some(u),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(usage.context, Some(25998));
+        assert_eq!(usage.window, Some(1_000_000));
     }
 
     #[test]

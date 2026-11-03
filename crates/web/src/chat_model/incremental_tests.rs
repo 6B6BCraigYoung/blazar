@@ -28,6 +28,12 @@ fn same(a: &Transcript, b: &Transcript) -> Result<(), String> {
     if format!("{:?}", a.rate) != format!("{:?}", b.rate) {
         return Err("rate differs".into());
     }
+    if a.context != b.context || a.cost.to_bits() != b.cost.to_bits() {
+        return Err(format!(
+            "usage {:?} {} vs {:?} {}",
+            a.context, a.cost, b.context, b.cost
+        ));
+    }
     if a.last_session != b.last_session {
         return Err("last session differs".into());
     }

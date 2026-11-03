@@ -23,11 +23,13 @@ mod pickers;
 mod presentation;
 mod queue;
 mod status;
+mod usage;
 
 use pickers::{FilesPop, agent_pop, mcp_pop, mode_pop, model_pop, plus_pop, slash_pop, style_pop};
 use presentation::{eff_label, icon, model_name, svg};
 use queue::{FailedEditor, QueueBand, QueueEditor};
 use status::{NoAgent, RateBanner, Tray};
+use usage::{context_usage, usage_pop};
 
 #[wasm_bindgen(module = "/js/files.js")]
 extern "C" {
@@ -45,6 +47,7 @@ enum Pop {
     Agent,
     Mcp,
     Style,
+    Usage,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -821,6 +824,7 @@ pub fn Composer(
                         Some(Pop::Agent) => agent_pop(chat, pop).into_any(),
                         Some(Pop::Mcp) => mcp_pop(chat, pop).into_any(),
                         Some(Pop::Style) => style_pop(chat, pop).into_any(),
+                        Some(Pop::Usage) => usage_pop(chat, pop).into_any(),
                         None => ().into_any(),
                     }}
                 </div>
@@ -1237,6 +1241,39 @@ pub fn Composer(
                                 })
                         }}
                     </button>
+                    {move || {
+                        context_usage(chat)
+                            .map(|u| {
+                                view! {
+                                    <button
+                                        type="button"
+                                        class="cb-btn cb-trigger cb-usage"
+                                        data-low=u.low().to_string()
+                                        aria-label="Context and cost"
+                                        title=u.tip()
+                                        on:click=move |_| {
+                                            pop.update(|p| {
+                                                *p = if *p == Some(Pop::Usage) {
+                                                    None
+                                                } else {
+                                                    Some(Pop::Usage)
+                                                };
+                                            });
+                                        }
+                                    >
+                                        <span class="cb-tx">{u.label()}</span>
+                                        {(u.cost > 0.0)
+                                            .then(|| {
+                                                view! {
+                                                    <span class="muted">
+                                                        {format!("· {}", u.cost_label())}
+                                                    </span>
+                                                }
+                                            })}
+                                    </button>
+                                }
+                            })
+                    }}
                     <Show when=move || chat.fresh.get() && chat.view.get().is_some()>
                         <button
                             type="button"

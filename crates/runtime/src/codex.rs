@@ -170,7 +170,7 @@ fn parse_usage(u: &Value) -> TokenUsage {
         output: n("output_tokens") + n("reasoning_output_tokens"),
         cache_read: n("cached_input_tokens"),
         cache_creation: n("cache_write_input_tokens"),
-        cost_usd: None,
+        ..TokenUsage::default()
     }
 }
 
