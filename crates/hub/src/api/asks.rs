@@ -18,6 +18,17 @@ pub struct AskRequest {
     pub context: String,
 }
 
+#[derive(Debug, Default, Deserialize)]
+pub struct ReportRequest {
+    #[serde(default)]
+    pub level: String,
+    pub text: String,
+    #[serde(default)]
+    pub detail: String,
+    #[serde(default)]
+    pub options: Vec<String>,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct AnswerRequest {
     pub text: String,
@@ -65,6 +76,82 @@ pub async fn create_ask(
         "options": ask.options,
         "hint": "The card is in the user's Needs you list. Don't wait for it: carry on with any work that doesn't depend on this answer, and end the turn only when nothing is left. The answer will arrive as a new user message in this conversation, even mid-turn.",
     })))
+}
+
+fn caller_session(headers: &HeaderMap) -> ApiResult<&str> {
+    headers
+        .get(crate::bots::jobs::SESSION_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| ApiError::bad_request("Only a session can report"))
+}
+
+pub async fn create_report(
+    State(st): State<Shared>,
+    headers: HeaderMap,
+    Json(req): Json<ReportRequest>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let sid = caller_session(&headers)?;
+    let detail: String = req.detail.trim().chars().take(CONTEXT_MAX).collect();
+    match req.level.as_str() {
+        "decision" => {
+            let ask = normalize(&AskRequest {
+                question: req.text.clone(),
+                options: req.options.clone(),
+                context: String::new(),
+            })
+            .map_err(ApiError::bad_request)?;
+            let id = post(&st, sid, &ask, &detail).await?;
+            Ok(Json(serde_json::json!({
+                "id": id,
+                "level": "decision",
+                "hint": "Sent as a card to the user's Needs you list. Carry on with work that doesn't depend on the answer; it arrives as a new user message.",
+            })))
+        }
+        "info" | "" => {
+            let text = req.text.trim();
+            if text.is_empty() {
+                return Err(ApiError::bad_request("Report text can't be empty"));
+            }
+            let (workspace_id, thread) = session_home(&st, sid).await?;
+            let id = crate::inbox::push_id(
+                &st,
+                crate::inbox::Item {
+                    kind: "report",
+                    title: text.chars().take(QUESTION_MAX).collect(),
+                    body: detail,
+                    workspace_id: Some(workspace_id),
+                    thread_id: Some(thread),
+                    session_id: Some(sid.to_owned()),
+                    ref_id: None,
+                },
+            )
+            .await
+            .ok_or_else(|| ApiError(anyhow::anyhow!("汇报没有存进收件箱")))?;
+            Ok(Json(serde_json::json!({
+                "id": id,
+                "level": "info",
+                "hint": "Added to the console's report feed without disturbing the user.",
+            })))
+        }
+        other => Err(ApiError::bad_request(format!(
+            "Unknown level \"{other}\"; use info or decision"
+        ))),
+    }
+}
+
+async fn session_home(st: &Shared, sid: &str) -> ApiResult<(String, String)> {
+    let row = sqlx::query(
+        "SELECT workspace_id, COALESCE(thread_id, id) AS thread FROM sessions WHERE id = ?1",
+    )
+    .bind(sid)
+    .fetch_optional(st.db.pool())
+    .await?;
+    let Some(row) = row else {
+        return Err(ApiError(anyhow::Error::new(NotFound("会话不存在".into()))));
+    };
+    Ok((row.try_get("workspace_id")?, row.try_get("thread")?))
 }
 
 pub(crate) async fn post(st: &Shared, sid: &str, ask: &Ask, context: &str) -> ApiResult<String> {

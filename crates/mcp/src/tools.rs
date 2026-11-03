@@ -410,13 +410,13 @@ pub const TOOLS: &[Tool] = &[
     },
     Tool {
         name: "facts_put",
-        description: "写一条你负责的事实。给了 ttl_secs 就要按这个间隔更新，超过 2 倍标 stale、5 倍标 lost 并告警。别人负责的事实写不了。",
+        description: "写一条你负责的事实。给了 ttl_secs 就要按这个间隔更新，超过 2 倍标 stale、5 倍标 lost 并告警。别人负责的事实写不了。登记常驻服务用 kind=service、key 如 service/ali/demo-ingest，value 写 {node, label, 再加 port、url、process 三选一}，hub 每 2 分钟检查，连续挂了会提醒用户。",
         schema: || {
             obj(
                 json!({
                     "key": s("string", "如 run/q01、gpu/gpu-1/0、node/robot-1/online"),
                     "value": { "description": "任意 JSON" },
-                    "kind": s("string", "run / gpu / node / dataset / custom，省略按 key 前缀猜"),
+                    "kind": s("string", "run / gpu / node / dataset / service / custom，省略按 key 前缀猜"),
                     "ttl_secs": s("integer", "心跳间隔秒数"),
                 }),
                 &["key", "value"],
@@ -844,6 +844,45 @@ pub const TOOLS: &[Tool] = &[
             ))
         },
     },
+    Tool {
+        name: "report",
+        description: "向中控台汇报。level=info：一句话进中控台的汇报流，不打扰用户，用在阶段完成（上线了、跑完了、渲完了、方案出来了）或发现异常时；level=decision：要用户拍板，发一张带选项的卡片进「需要你处理」，等同于 ask_user。普通的中间进展不用汇报。",
+        schema: || {
+            obj(
+                json!({
+                    "level": {
+                        "type": "string",
+                        "enum": ["info", "decision"],
+                        "description": "info 只进汇报流；decision 发卡片等用户定",
+                    },
+                    "text": s("string", "一句话：结果或要定的问题"),
+                    "detail": s("string", "要点或背景，一两句"),
+                    "options": {
+                        "type": "array",
+                        "description": "level=decision 时的选项，2～6 个短句",
+                        "items": { "type": "string" },
+                    },
+                }),
+                &["level", "text"],
+            )
+        },
+        build: |v| {
+            let level = arg(v, "level")?;
+            if !matches!(level, "info" | "decision") {
+                anyhow::bail!("level must be info or decision");
+            }
+            Ok((
+                "POST",
+                "/api/reports".into(),
+                Some(json!({
+                    "level": level,
+                    "text": arg(v, "text")?,
+                    "detail": v.get("detail").and_then(Value::as_str).unwrap_or_default(),
+                    "options": v.get("options").cloned().unwrap_or_else(|| json!([])),
+                })),
+            ))
+        },
+    },
 ];
 
 #[must_use]
@@ -988,6 +1027,18 @@ mod tests {
         let (_, url, _) =
             (find("list_jobs").unwrap().build)(&json!({ "status": "running" })).unwrap();
         assert_eq!(url, "/api/jobs?status=running");
+    }
+
+    #[test]
+    fn report_posts_to_the_console() {
+        let (m, url, body) = (find("report").unwrap().build)(&json!({
+            "level": "info", "text": "demo-repo 上线了", "detail": "迁移和同步都完成",
+        }))
+        .unwrap();
+        assert_eq!((m, url.as_str()), ("POST", "/api/reports"));
+        assert_eq!(body.unwrap()["level"], "info");
+        assert!((find("report").unwrap().build)(&json!({ "level": "loud", "text": "x" })).is_err());
+        assert!((find("report").unwrap().build)(&json!({ "level": "info" })).is_err());
     }
 
     #[test]

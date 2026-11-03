@@ -1543,9 +1543,37 @@ fn retry_view(chat: Chat, why: String, attempt: u32, max: u32, until: i64) -> An
     .into_any()
 }
 
+const HUB_NOTICE: &str = "(Hub notice) ";
+
 fn item_view(it: Item, chat: Chat, opened: Opened, ws: String, copyable: bool) -> AnyView {
     let key = it.key.clone();
     match it.body {
+        Body::User { text, .. } if text.starts_with(HUB_NOTICE) => {
+            let rest = text[HUB_NOTICE.len()..].trim().to_owned();
+            let head = rest
+                .lines()
+                .map(str::trim)
+                .find(|l| l.starts_with("Background job"))
+                .or_else(|| rest.lines().map(str::trim).find(|l| !l.is_empty()))
+                .unwrap_or_default()
+                .trim_end_matches('.')
+                .to_owned();
+            details(
+                opened,
+                format!("hn:{key}"),
+                "cc-notice",
+                view! { {format!("Hub notice · {head}")} }.into_any(),
+                move || {
+                    view! {
+                        <div class="cc-notice-body">
+                            <Md text=rest ws />
+                        </div>
+                    }
+                    .into_any()
+                },
+            )
+            .into_any()
+        }
         Body::User {
             sid,
             seq,

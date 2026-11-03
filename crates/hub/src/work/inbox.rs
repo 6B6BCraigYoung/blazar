@@ -40,6 +40,8 @@ fn changed(st: &Shared) {
     st.emit(ServerEvent::InboxChanged);
 }
 
+const QUIET: &[&str] = &["report"];
+
 pub async fn push(st: &Shared, it: Item) {
     push_id(st, it).await;
 }
@@ -53,9 +55,10 @@ pub async fn push_ask(st: &Shared, it: Item, ask: &Ask) -> Option<String> {
 }
 
 async fn insert(st: &Shared, it: Item, ask: Option<String>) -> Option<String> {
-    let muted = crate::office::prefs(st).await["inbox"]["muted"]
-        .as_array()
-        .is_some_and(|m| m.iter().any(|k| k == it.kind));
+    let muted = QUIET.contains(&it.kind)
+        || crate::office::prefs(st).await["inbox"]["muted"]
+            .as_array()
+            .is_some_and(|m| m.iter().any(|k| k == it.kind));
     let id = uuid::Uuid::now_v7().to_string();
     let r = sqlx::query(
         "INSERT INTO inbox (id, kind, title, body, workspace_id, thread_id, session_id, ref_id, created_at, read_at, ask)

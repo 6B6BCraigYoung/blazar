@@ -918,3 +918,47 @@ async fn periodic_node_probes_run_every_two_minutes_regardless_of_the_offline_ru
     assert!(probe_due(Some(long_ago)), "规则关掉也照常探测");
     assert!(probe_due(None));
 }
+
+#[test]
+fn machines_dropping_together_merge_and_a_real_drop_is_left_alone() {
+    let at = |t: &str| {
+        chrono::DateTime::parse_from_rfc3339(t)
+            .unwrap()
+            .with_timezone(&chrono::Utc)
+    };
+    let night = |names: &[&str]| -> Vec<(String, chrono::DateTime<chrono::Utc>)> {
+        names
+            .iter()
+            .enumerate()
+            .map(|(i, n)| {
+                (
+                    n.to_string(),
+                    at(&format!("2026-11-02T14:40:{:02}Z", i * 5)),
+                )
+            })
+            .collect()
+    };
+    let all = [
+        "pro6000-1",
+        "5090x2",
+        "5090-1",
+        "5090-2",
+        "5090-sim-1",
+        "5090-sim-2",
+        "pro6000-2",
+        "5090-3",
+    ];
+    let (burst, single) = crate::bots::rules::bursts(night(&all));
+    assert_eq!(burst.len(), 8);
+    assert!(single.is_empty());
+
+    let mut after = night(&["5090-3"]);
+    after.push(("old-laptop".into(), at("2026-10-20T14:37:54Z")));
+    let (burst, single) = crate::bots::rules::bursts(after);
+    assert!(burst.is_empty());
+    assert_eq!(single.len(), 2);
+
+    let (burst, single) = crate::bots::rules::bursts(night(&["5090-3", "5090x2"]));
+    assert!(burst.is_empty());
+    assert_eq!(single.len(), 2);
+}

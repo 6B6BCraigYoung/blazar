@@ -18,6 +18,7 @@ pub mod dispatch;
 pub mod facts;
 pub mod jobs;
 pub mod memory;
+pub mod patrol;
 pub mod rules;
 pub mod status;
 
@@ -57,6 +58,7 @@ pub struct BotsState {
     pub wake: tokio::sync::Notify,
     pub starting: Mutex<HashSet<String>>,
     pub jobs: jobs::JobsState,
+    pub patrol: patrol::PatrolState,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

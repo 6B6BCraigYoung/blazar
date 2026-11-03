@@ -25,9 +25,13 @@ pub fn Rail(all: Signal<bool>, rail_mode: Callback<bool>) -> impl IntoView {
     let cleared = RwSignal::new(crate::storage::load_raw(FEED_CLEARED).unwrap_or_default());
     let feed = Signal::derive(move || {
         let mark = cleared.get();
+        let console = app.chats.with(|a| a.id.clone()).unwrap_or_default();
         items.with(|l| {
             l.iter()
                 .filter(|it| !it.needs_you() && !it.archived && it.created > mark)
+                .filter(|it| {
+                    !(it.kind == "run_done" && !console.is_empty() && it.workspace == console)
+                })
                 .take(FEED_MAX)
                 .cloned()
                 .collect::<Vec<Item>>()
@@ -101,9 +105,9 @@ pub fn Rail(all: Signal<bool>, rail_mode: Callback<bool>) -> impl IntoView {
                                 />
                             </Show>
                         </section>
-                        <section class="rail-feed" aria-label="动态">
+                        <section class="rail-feed" aria-label="汇报">
                             <h3 class="rail-title">
-                                "动态" <span class="grow"></span>
+                                "汇报" <span class="grow"></span>
                                 <Show when=move || feed.with(|l| !l.is_empty())>
                                     <button type="button" class="linkbtn" on:click=clear_feed>
                                         "清理"
@@ -122,9 +126,9 @@ pub fn Rail(all: Signal<bool>, rail_mode: Callback<bool>) -> impl IntoView {
                             </h3>
                             <Show
                                 when=move || feed.with(|l| !l.is_empty())
-                                fallback=|| view! { <p class="rail-empty">"还没有动态。"</p> }
+                                fallback=|| view! { <p class="rail-empty">"还没有汇报。"</p> }
                             >
-                                <InboxCards items=feed rev label="动态" compact=true />
+                                <InboxCards items=feed rev label="汇报" compact=true />
                             </Show>
                         </section>
                     }

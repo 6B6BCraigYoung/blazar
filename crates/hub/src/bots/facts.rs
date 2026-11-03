@@ -8,7 +8,7 @@ use super::{Caller, opt, s};
 use crate::api::Shared;
 use crate::state::ServerEvent;
 
-pub const KINDS: &[&str] = &["run", "gpu", "node", "dataset", "custom"];
+pub const KINDS: &[&str] = &["run", "gpu", "node", "dataset", "service", "custom"];
 const HISTORY_KEEP: i64 = 200;
 const REPORT_TOKEN_KEY: &str = "facts.report_token";
 
@@ -118,6 +118,9 @@ pub async fn put(st: &Shared, key: &str, p: Put, by: Option<&Caller>) -> Result<
         });
     if !KINDS.contains(&kind.as_str()) {
         return Err(format!("Unknown kind {kind}; use {}", KINDS.join(" / ")));
+    }
+    if kind == "service" {
+        super::patrol::parse(key, &p.value)?;
     }
     let owner = match (&existing, by) {
         (Some(f), Some(c)) => {

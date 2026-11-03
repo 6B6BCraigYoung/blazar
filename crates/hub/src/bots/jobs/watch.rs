@@ -6,7 +6,7 @@ use chrono::Utc;
 
 use crate::api::Shared;
 
-use super::announce::{announce, took};
+use super::announce::announce;
 use super::launch::finish;
 use super::{EVERY, Job, SELECT, SUMMARY_LINES, changed, get, job_of};
 
@@ -170,7 +170,7 @@ async fn past_deadline(st: &Shared, job: &Job) -> bool {
     if job.deadline_noted_at.is_some() || at > now.to_rfc3339().as_str() {
         return false;
     }
-    let first = sqlx::query(
+    sqlx::query(
         "UPDATE jobs SET deadline_noted_at = ?2, updated_at = ?2
          WHERE id = ?1 AND deadline_noted_at IS NULL",
     )
@@ -178,26 +178,5 @@ async fn past_deadline(st: &Shared, job: &Job) -> bool {
     .bind(now.to_rfc3339())
     .execute(st.db.pool())
     .await
-    .is_ok_and(|r| r.rows_affected() == 1);
-    if first {
-        crate::inbox::push(
-            st,
-            crate::inbox::Item {
-                kind: "job",
-                title: format!("后台任务「{}」过了截止时间还在跑", job.label),
-                body: format!(
-                    "机器 {}，发起方 {}，已经跑了 {}。要结束就到任务页的「后台任务」里点「结束」。",
-                    job.node,
-                    job.owner_label(),
-                    took(&job.created_at, None)
-                ),
-                workspace_id: job.workspace_id.clone(),
-                thread_id: None,
-                session_id: None,
-                ref_id: Some(job.id.clone()),
-            },
-        )
-        .await;
-    }
-    first
+    .is_ok_and(|r| r.rows_affected() == 1)
 }

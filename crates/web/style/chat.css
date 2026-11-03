@@ -195,6 +195,9 @@
 .cc-deny .ui-detail { margin: 0; }
 .cd-acts { display: flex; align-items: center; gap: var(--space-md); }
 .cd-note { font-size: var(--font-size-label); color: var(--fg-2); }
+.cc-notice { margin: 0 0 var(--space-lg); }
+.cc-notice > summary { cursor: pointer; color: var(--fg-3); font-size: var(--font-size-label-readable); }
+.cc-notice-body { margin-top: var(--space-sm); padding-left: var(--space-lg); border-left: 1px solid var(--line); color: var(--fg-2); font-size: var(--font-size-label-readable); }
 .cc-rewound { margin: 0 0 var(--space-lg); padding: var(--space-sm) var(--space-control); border: 1px dashed var(--border); border-radius: var(--r-md); opacity: .7; }
 .cc-rwl { margin-top: var(--space-md); }
 

@@ -664,10 +664,14 @@ async fn prompt_inner(
                 brief.push_str("\n\n");
             }
             brief.push_str(crate::fleet::ASK_RULE);
-            spec.allowed_tools.push(format!(
-                "mcp__{}__ask_user",
-                blazar_mcp::fleet::SERVER_NAME
-            ));
+            brief.push_str("\n\n");
+            brief.push_str(crate::fleet::REPORT_RULE);
+            for tool in ["ask_user", "report"] {
+                spec.allowed_tools.push(format!(
+                    "mcp__{}__{tool}",
+                    blazar_mcp::fleet::SERVER_NAME
+                ));
+            }
         }
         let kids = crate::fleet::briefing(&id, &children);
         if !kids.is_empty() {

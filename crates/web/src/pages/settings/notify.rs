@@ -17,7 +17,7 @@ pub(crate) const NOTIFY_KINDS: &[(&str, &str)] = &[
     ("autopilot_paused", "自动化已暂停"),
     ("rate_limit", "额度告警"),
     ("job", "后台任务"),
-    ("alert", "异常：机器离线、bot 没动静等"),
+    ("alert", "异常：机器离线、磁盘快满、服务停了、任务过期等"),
 ];
 
 #[component]

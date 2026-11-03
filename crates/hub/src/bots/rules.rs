@@ -84,6 +84,33 @@ pub const SPECS: &[Spec] = &[
         max: 1440,
     },
     Spec {
+        key: "disk_full",
+        label: "磁盘快满",
+        about: "机器根分区用了这个百分比以上，或剩余不到 20G：提醒你。每 30 分钟查一次，降回去自动标为已解决。",
+        unit: "%",
+        default: Some(95),
+        min: 50,
+        max: 99,
+    },
+    Spec {
+        key: "service_down",
+        label: "常驻服务停了",
+        about: "登记的常驻服务（事实里 kind=service）连续这么久检查不通：提醒你。每 2 分钟查一次，恢复后自动标为已解决。",
+        unit: "分钟",
+        default: Some(15),
+        min: 2,
+        max: 1440,
+    },
+    Spec {
+        key: "job_overdue",
+        label: "后台任务过了截止时间",
+        about: "后台任务过了截止时间还在跑：提醒你，任务结束后自动标为已解决。",
+        unit: "",
+        default: None,
+        min: 0,
+        max: 0,
+    },
+    Spec {
         key: "quota_high",
         label: "额度快用完",
         about: "账号某个额度窗口的用量超过「运行时 → Claude Code」里设的额度线（自动分摊也按它停止派新对话）：每个窗口提醒一次。",
@@ -588,58 +615,221 @@ async fn job_orphan(st: &Shared) -> Vec<Cond> {
     out
 }
 
+pub const BURST_MIN: usize = 3;
+pub const BURST_GAP_SECS: i64 = 180;
+
+type Seen = Vec<(String, DateTime<Utc>)>;
+
+#[must_use]
+pub fn bursts(mut offline: Seen) -> (Seen, Seen) {
+    offline.sort_by_key(|x| x.1);
+    let mut groups: Vec<Seen> = Vec::new();
+    for n in offline {
+        match groups.last_mut() {
+            Some(g)
+                if g.last()
+                    .is_some_and(|l| (n.1 - l.1).num_seconds() <= BURST_GAP_SECS) =>
+            {
+                g.push(n)
+            }
+            _ => groups.push(vec![n]),
+        }
+    }
+    let (burst, single): (Vec<_>, Vec<_>) = groups.into_iter().partition(|g| g.len() >= BURST_MIN);
+    (
+        burst.into_iter().flatten().collect(),
+        single.into_iter().flatten().collect(),
+    )
+}
+
 async fn node_offline(st: &Shared, mins: i64) -> Vec<Cond> {
-    let nodes: Vec<(String, String)> = sqlx::query_as(
-        "SELECT id, name FROM nodes WHERE status = 'offline' AND transport != 'local'",
+    let nodes: Vec<(String, String, Option<String>)> = sqlx::query_as(
+        "SELECT id, name, last_seen_at FROM nodes WHERE status = 'offline' AND transport != 'local'",
     )
     .fetch_all(st.db.pool())
     .await
     .unwrap_or_default();
+    let ids: HashMap<String, String> = nodes
+        .iter()
+        .map(|(id, n, _)| (n.clone(), id.clone()))
+        .collect();
+    let (burst, single) = bursts(
+        nodes
+            .iter()
+            .filter_map(|(_, n, seen)| Some((n.clone(), parse_time(seen.as_deref()?)?)))
+            .collect(),
+    );
     let mut out = Vec::new();
-    for (id, name) in nodes {
-        let jobs: Vec<String> = sqlx::query_scalar(
-            "SELECT label FROM jobs WHERE node_id = ?1 AND status = 'running' ORDER BY created_at",
-        )
-        .bind(&id)
-        .fetch_all(st.db.pool())
-        .await
-        .unwrap_or_default();
-        let bots: Vec<String> = sqlx::query_scalar(
-            "SELECT DISTINCT COALESCE(NULLIF(b.display_name, ''), b.handle) FROM bots b
-             WHERE b.archived_at IS NULL AND (
-                 EXISTS (SELECT 1 FROM workspaces w WHERE w.node_id = ?1
-                         AND (w.id = b.home_ws_id OR w.id = b.brain_ws_id))
-                 OR EXISTS (SELECT 1 FROM claims c WHERE c.node_id = ?1 AND c.bot_id = b.id))
-             ORDER BY 1",
-        )
-        .bind(&id)
-        .fetch_all(st.db.pool())
-        .await
-        .unwrap_or_default();
-        let jobs = if jobs.is_empty() {
-            "上面没有还在跑的后台任务。".to_owned()
-        } else {
-            let labels: Vec<String> = jobs.iter().map(|l| format!("「{l}」")).collect();
-            format!("还在跑的后台任务：{}。", labels.join("、"))
-        };
-        let bots = if bots.is_empty() {
-            "没有家在这台机器上的 bot。".to_owned()
-        } else {
-            format!(
-                "相关的 bot：{}，离线期间不给它们派活，恢复在线后留着的工作照常处理。",
-                bots.join("、")
-            )
-        };
+    if let Some(first) = burst.iter().map(|b| b.1).min() {
+        let names: Vec<&str> = burst.iter().map(|b| b.0.as_str()).collect();
         out.push(Cond {
-            subject: name.clone(),
+            subject: "burst".into(),
+            since: Some(first),
             after_secs: mins * 60,
-            escalate_after_secs: Some(mins * 60),
-            title: format!("机器 {name} 离线超过 {mins} 分钟"),
-            body: format!("{jobs}{bots}恢复在线后这条会自动标为已解决。"),
+            title: format!("{} 台机器同时离线，可能是 hub 或网络在抖", burst.len()),
+            body: format!(
+                "{} 在 {} 前后一起断开。多台同时断开通常是 hub 所在的网络或组网出了问题，不是机器本身；恢复的机器会从这里移走，剩下单独离线的机器会另外提醒。",
+                names.join("、"),
+                local(first)
+            ),
             ..Cond::default()
         });
     }
+    let unseen = nodes
+        .iter()
+        .filter(|(_, _, seen)| seen.as_deref().and_then(parse_time).is_none())
+        .map(|(_, n, _)| (n.clone(), None));
+    for (name, since) in single.into_iter().map(|(n, t)| (n, Some(t))).chain(unseen) {
+        let id = ids.get(&name).cloned().unwrap_or_default();
+        out.push(single_offline(st, &id, &name, since, mins).await);
+    }
     out
+}
+
+async fn single_offline(
+    st: &Shared,
+    id: &str,
+    name: &str,
+    since: Option<DateTime<Utc>>,
+    mins: i64,
+) -> Cond {
+    let jobs: Vec<String> = sqlx::query_scalar(
+        "SELECT label FROM jobs WHERE node_id = ?1 AND status = 'running' ORDER BY created_at",
+    )
+    .bind(id)
+    .fetch_all(st.db.pool())
+    .await
+    .unwrap_or_default();
+    let bots: Vec<String> = sqlx::query_scalar(
+        "SELECT DISTINCT COALESCE(NULLIF(b.display_name, ''), b.handle) FROM bots b
+         WHERE b.archived_at IS NULL AND (
+             EXISTS (SELECT 1 FROM workspaces w WHERE w.node_id = ?1
+                     AND (w.id = b.home_ws_id OR w.id = b.brain_ws_id))
+             OR EXISTS (SELECT 1 FROM claims c WHERE c.node_id = ?1 AND c.bot_id = b.id))
+         ORDER BY 1",
+    )
+    .bind(id)
+    .fetch_all(st.db.pool())
+    .await
+    .unwrap_or_default();
+    let jobs = if jobs.is_empty() {
+        "上面没有还在跑的后台任务。".to_owned()
+    } else {
+        let labels: Vec<String> = jobs.iter().map(|l| format!("「{l}」")).collect();
+        format!("还在跑的后台任务：{}。", labels.join("、"))
+    };
+    let bots = if bots.is_empty() {
+        "没有家在这台机器上的 bot。".to_owned()
+    } else {
+        format!(
+            "相关的 bot：{}，离线期间不给它们派活，恢复在线后留着的工作照常处理。",
+            bots.join("、")
+        )
+    };
+    let held = since
+        .map(|t| format!("从 {} 起连不上。", local(t)))
+        .unwrap_or_default();
+    Cond {
+        subject: name.to_owned(),
+        since,
+        after_secs: mins * 60,
+        escalate_after_secs: Some(mins * 60),
+        title: format!("机器 {name} 离线超过 {mins} 分钟"),
+        body: format!("{held}{jobs}{bots}恢复在线后这条会自动标为已解决。"),
+        ..Cond::default()
+    }
+}
+
+async fn disk_full(st: &Shared, pct_line: i64) -> Vec<Cond> {
+    type DiskRow = (String, Option<f64>, Option<f64>, Option<String>);
+    let rows: Vec<DiskRow> = sqlx::query_as(
+        "SELECT name,
+                CAST(json_extract(capabilities, '$.disk_used_pct') AS REAL),
+                CAST(json_extract(capabilities, '$.disk_free_gb') AS REAL),
+                json_extract(capabilities, '$.disk_checked_at')
+         FROM nodes
+         WHERE json_valid(capabilities) AND (transport = 'local' OR status = 'online')",
+    )
+    .fetch_all(st.db.pool())
+    .await
+    .unwrap_or_default();
+    let now = Utc::now();
+    rows.into_iter()
+        .filter_map(|(name, pct, free, at)| {
+            let (pct, free) = (pct?, free?);
+            let fresh = parse_time(at.as_deref()?).is_some_and(|t| (now - t).num_seconds() <= super::patrol::DISK_FRESH_SECS);
+            let full = pct >= pct_line as f64 || free < super::patrol::DISK_FREE_GB;
+            (fresh && full).then(|| Cond {
+                subject: name.clone(),
+                title: format!("机器 {name} 磁盘快满了：用了 {pct}%，剩 {free}G"),
+                body: format!(
+                    "根分区用量超过 {pct_line}% 或剩余不到 {}G。写满后训练、构建和日志都会失败，清理到线以下后这条会自动标为已解决。",
+                    super::patrol::DISK_FREE_GB
+                ),
+                ..Cond::default()
+            })
+        })
+        .collect()
+}
+
+fn service_cond(s: &super::patrol::Service, c: &super::patrol::Check, mins: i64) -> Option<Cond> {
+    (!c.up).then(|| Cond {
+        subject: s.key.clone(),
+        after_secs: mins * 60,
+        title: format!("服务「{}」停了", s.label),
+        body: format!(
+            "{} 上的 {} 连续 {mins} 分钟以上检查不通：{}。恢复后这条会自动标为已解决；不再需要监控就删掉事实 {}。",
+            s.node,
+            s.how(),
+            c.why,
+            s.key
+        ),
+        ..Cond::default()
+    })
+}
+
+async fn service_down(st: &Shared, mins: i64) -> Vec<Cond> {
+    super::patrol::services(st)
+        .await
+        .iter()
+        .filter_map(|s| service_cond(s, &st.bots.patrol.check(&s.key)?, mins))
+        .collect()
+}
+
+async fn job_overdue(st: &Shared) -> Vec<Cond> {
+    let filter = super::jobs::Filter {
+        status: Some("running".into()),
+        ..super::jobs::Filter::default()
+    };
+    let now = Utc::now();
+    super::jobs::list(st, &filter, None)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|job| {
+            let due = parse_time(job.deadline_at.as_deref()?)?;
+            (due <= now).then(|| {
+                let waits = if job.command.as_deref().is_some_and(|c| c.contains("pgrep -f")) {
+                    "命令里用 pgrep -f 等别的进程时，它会匹配到自己，永远等不完；"
+                } else {
+                    ""
+                };
+                Cond {
+                    subject: job.id.clone(),
+                    since: Some(due),
+                    title: format!("后台任务「{}」过了截止时间还在跑", job.label),
+                    body: format!(
+                        "机器 {}，发起方 {}，已经跑了 {}。{waits}不需要了就到任务页的「后台任务」里结束它，结束后这条会自动标为已解决。",
+                        job.node,
+                        job.owner_label(),
+                        super::jobs::took(&job.created_at, None)
+                    ),
+                    workspace_id: job.workspace_id.clone(),
+                    ..Cond::default()
+                }
+            })
+        })
+        .collect()
 }
 
 fn window_label(name: &str) -> String {
@@ -725,6 +915,10 @@ pub async fn run_once(st: &Shared) {
                 "approval_waiting" => approval_waiting(st, c.threshold).await,
                 "job_orphan" => job_orphan(st).await,
                 "node_offline" => node_offline(st, c.threshold).await,
+                "disk_full" => disk_full(st, c.threshold).await,
+                "service_down" if !st.bots.patrol.ready() => continue,
+                "service_down" => service_down(st, c.threshold).await,
+                "job_overdue" => job_overdue(st).await,
                 "quota_high" => {
                     quota_high(st, crate::agent::accounts::selection::threshold(st).await).await
                 }

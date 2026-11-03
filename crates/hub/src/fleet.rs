@@ -396,6 +396,11 @@ pub const ASK_RULE: &str = "要用户拍板的事（推不推、装不装、选�
 发完不要停下来等：手上还有不依赖这个回答的活就接着做，没有可做的了才结束这一轮。\
 回答会以用户的消息出现在这条对话里，正在干活时也会插进来。普通的汇报不用发卡片。";
 
+/// Told alongside [`ASK_RULE`]: when a workspace should report to the console on its own.
+pub const REPORT_RULE: &str = "到了关键节点，用 blazar-fleet 的 report 主动向中控台汇报，用户不用来翻历史：\
+阶段完成（上线了、跑完了、渲完了、方案出来了）、发现异常（机器、磁盘、服务、数据不对）时发 level=info，一句话写清结果，detail 里放要点；\
+要用户拍板时发 level=decision，等同于 ask_user。普通的中间进展不用汇报。";
+
 pub async fn has_parent(st: &Shared, workspace: &str) -> bool {
     sqlx::query_scalar::<_, Option<String>>("SELECT parent_id FROM workspaces WHERE id = ?1")
         .bind(workspace)

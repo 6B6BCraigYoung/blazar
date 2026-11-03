@@ -442,11 +442,10 @@ async fn a_passed_deadline_is_noted_only_once() {
     .await
     .unwrap();
     sweep(&h.st).await;
-    assert_eq!(
-        h.count("SELECT COUNT(*) FROM inbox WHERE kind = 'job'")
-            .await,
-        0
-    );
+    crate::bots::rules::run_once(&h.st).await;
+    let overdue =
+        "SELECT COUNT(*) FROM inbox WHERE kind = 'alert' AND ref_id LIKE 'rule:job_overdue:%'";
+    assert_eq!(h.count(overdue).await, 0);
     sqlx::query("UPDATE jobs SET deadline_at = '2000-01-01T00:00:00Z' WHERE id = ?1")
         .bind(&job.id)
         .execute(h.st.db.pool())
@@ -454,16 +453,19 @@ async fn a_passed_deadline_is_noted_only_once() {
         .unwrap();
     for _ in 0..3 {
         sweep(&h.st).await;
+        crate::bots::rules::run_once(&h.st).await;
     }
-    assert_eq!(
-        h.count("SELECT COUNT(*) FROM inbox WHERE kind = 'job'")
-            .await,
-        1
-    );
+    assert_eq!(h.count(overdue).await, 1);
     let j = get(&h.st, &job.id).await.unwrap();
     assert_eq!(j.status, "running");
     assert!(j.deadline_noted_at.is_some());
     kill(&h.st, &job.id, None, &Owner::User).await.unwrap();
+    crate::bots::rules::run_once(&h.st).await;
+    assert_eq!(
+        h.count("SELECT COUNT(*) FROM inbox WHERE ref_id LIKE 'rule:job_overdue:%' AND resolved_at IS NOT NULL")
+            .await,
+        1
+    );
 }
 
 #[tokio::test]

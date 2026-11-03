@@ -279,6 +279,7 @@ pub fn build_router(st: Arc<AppState>) -> Router {
         .route("/api/inbox/seen/{thread}", post(inbox::seen_thread))
         .route("/api/inbox/{id}/resolve", post(inbox::resolve_one))
         .route("/api/asks", post(api::create_ask))
+        .route("/api/reports", post(api::create_report))
         .route("/api/asks/{id}/answer", post(api::answer_ask))
         .route("/api/approval-rules", get(rules::list).post(rules::create))
         .route(

@@ -31,7 +31,8 @@ pub(crate) const KINDS: &[(&str, &str)] = &[
     ("autopilot_paused", "自动化已暂停"),
     ("rate_limit", "额度告警"),
     ("job", "后台任务"),
-    ("alert", "提醒规则"),
+    ("alert", "异常"),
+    ("report", "汇报"),
 ];
 
 pub(crate) const ALL: &str = "/?inbox=all";
@@ -84,9 +85,14 @@ impl Item {
             && !self.session.is_empty()
     }
 
+    pub fn open_alert(&self) -> bool {
+        self.kind == "alert" && !self.archived && self.resolved.is_empty()
+    }
+
     pub fn needs_you(&self) -> bool {
         self.open_request()
             || self.open_denial()
+            || self.open_alert()
             || (self.kind == "run_failed" && !self.handled && !self.archived)
     }
 
@@ -95,6 +101,7 @@ impl Item {
     pub fn tone(&self) -> Tone {
         match self.kind.as_str() {
             "approval" | "question" | "denied" => Tone::Attention,
+            "alert" if self.open_alert() => Tone::Failed,
             "run_failed" => self.failure.as_ref().map_or(Tone::Failed, Failure::tone),
             _ => Tone::Other,
         }
@@ -1386,7 +1393,7 @@ fn inbox_menu(ctx: Ctx, item: Item, pending: Option<Value>) -> Vec<Vec<RowAction
             }),
             RowAction::new("不用了", move || decide_denial(ctx, &n, false)),
         ]
-    } else if item.asking() {
+    } else if item.asking() || item.open_alert() {
         let id = item.id.clone();
         vec![RowAction::new("标为已处理", move || {
             resolve_item(id.clone(), move || refresh(ctx.rev));

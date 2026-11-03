@@ -101,9 +101,6 @@ pub fn summary_en(job: &Job, tail: &str) -> String {
         job.node,
         took_en(&job.created_at, job.ended_at.as_deref()),
     );
-    if let Some(c) = &job.command {
-        out.push_str(&format!("Command: {c}\n"));
-    }
     if tail.trim().is_empty() {
         out.push_str("Last 20 log lines: (no output)\n");
     } else {
@@ -210,6 +207,25 @@ async fn to_inbox(st: &Shared, job: &Job, text: String) {
 }
 
 pub async fn announce(st: &Shared, job: &Job, tail: &str) {
+    if job.status == "lost" {
+        crate::inbox::push(
+            st,
+            crate::inbox::Item {
+                kind: "alert",
+                title: headline(job),
+                body: format!(
+                    "机器 {} 上的任务目录或进程不见了，结果没有保存下来，跑了 {}。看一下要不要重跑。",
+                    job.node,
+                    took(&job.created_at, job.ended_at.as_deref())
+                ),
+                workspace_id: job.workspace_id.clone(),
+                thread_id: None,
+                session_id: None,
+                ref_id: Some(format!("job-lost:{}", job.id)),
+            },
+        )
+        .await;
+    }
     if job.notify == "none" {
         return;
     }
