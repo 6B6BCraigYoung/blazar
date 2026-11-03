@@ -119,6 +119,7 @@ impl Fixture {
             state: tokio::sync::Mutex::new(crate::run::LiveState {
                 next_seq: 1,
                 pending_user: 0,
+                unreplayed: Vec::new(),
                 user_no: 0,
                 eof_sent: false,
                 interrupt_requested: false,

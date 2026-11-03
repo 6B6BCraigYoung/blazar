@@ -30,6 +30,7 @@ pub struct LiveState {
     pub next_seq: u64,
 
     pub pending_user: u32,
+    pub unreplayed: Vec<String>,
 
     pub user_no: u32,
     pub eof_sent: bool,
@@ -114,6 +115,53 @@ async fn drive_app(ctx: &Ctx, line: &str) {
     }
 }
 
+pub async fn sessions_in(st: &Shared, ws: WorkspaceId) -> Vec<(SessionId, Option<Arc<Live>>)> {
+    st.running
+        .read()
+        .await
+        .iter()
+        .filter(|(_, x)| x.workspace_id == ws)
+        .map(|(sid, x)| (*sid, x.live.clone()))
+        .collect()
+}
+
+pub async fn thread_of(st: &Shared, sid: SessionId) -> Option<(String, String)> {
+    sqlx::query_as("SELECT COALESCE(thread_id, id), runtime_kind FROM sessions WHERE id = ?1")
+        .bind(sid.to_string())
+        .fetch_optional(st.db.pool())
+        .await
+        .ok()
+        .flatten()
+}
+
+pub async fn running_in_thread(
+    st: &Shared,
+    ws: WorkspaceId,
+    thread: &str,
+) -> Option<(SessionId, Option<Arc<Live>>)> {
+    for (sid, live) in sessions_in(st, ws).await {
+        if thread_of(st, sid).await.is_some_and(|(t, _)| t == thread) {
+            return Some((sid, live));
+        }
+    }
+    None
+}
+
+#[must_use]
+pub fn take_replayed(unreplayed: &mut Vec<String>, replay: &str) -> u32 {
+    let mut rest = replay;
+    let mut n = 0;
+    unreplayed.retain(|t| match rest.find(t.as_str()).filter(|_| !t.is_empty()) {
+        Some(i) => {
+            rest = &rest[i + t.len()..];
+            n += 1;
+            false
+        }
+        None => true,
+    });
+    n.max(1)
+}
+
 #[must_use]
 pub fn bg_alive(status: &str) -> bool {
     matches!(status, "started" | "running" | "pending")
@@ -133,6 +181,21 @@ fn settle_later(live: Arc<Live>) {
             }
         }
     });
+}
+
+pub async fn between_turns(st: &Shared, sid: &str) -> bool {
+    let Ok(sid) = sid.parse().map(SessionId) else {
+        return false;
+    };
+    let live = {
+        let r = st.running.read().await;
+        r.get(&sid).and_then(|x| x.live.clone())
+    };
+    let Some(live) = live else {
+        return false;
+    };
+    let s = live.state.lock().await;
+    live.interactive && s.idle && !s.eof_sent
 }
 
 pub async fn release_idle(st: &Shared, sid: SessionId) -> bool {
@@ -170,27 +233,27 @@ pub async fn send_to_idle(
     images: &[ImageInput],
 ) -> Option<(SessionId, String)> {
     let _guard = st.quiesce(ws).ok()?;
-    let (sid, live) = {
-        let r = st.running.read().await;
-        let (sid, run) = r.iter().find(|(_, x)| x.workspace_id == ws)?;
-        (*sid, run.live.clone()?)
-    };
-    {
-        let s = live.state.lock().await;
-        if !live.interactive || !s.idle || s.eof_sent || s.interrupt_requested {
-            return None;
+    let mut found = None;
+    for (sid, live) in sessions_in(st, ws).await {
+        let Some(live) = live else {
+            continue;
+        };
+        {
+            let s = live.state.lock().await;
+            if !live.interactive || !s.idle || s.eof_sent || s.interrupt_requested {
+                continue;
+            }
         }
+        let Some((its_thread, its_runtime)) = thread_of(st, sid).await else {
+            continue;
+        };
+        if thread.is_some_and(|t| t != its_thread) || runtime.is_some_and(|r| r != its_runtime) {
+            continue;
+        }
+        found = Some((sid, live, its_thread));
+        break;
     }
-    let (its_thread, its_runtime): (String, String) =
-        sqlx::query_as("SELECT COALESCE(thread_id, id), runtime_kind FROM sessions WHERE id = ?1")
-            .bind(sid.to_string())
-            .fetch_optional(st.db.pool())
-            .await
-            .ok()
-            .flatten()?;
-    if thread.is_some_and(|t| t != its_thread) || runtime.is_some_and(|r| r != its_runtime) {
-        return None;
-    }
+    let (sid, live, its_thread) = found?;
     live.state.lock().await.idle = false;
     interject(st, sid, text, sent, images).await.ok()?;
     Some((sid, its_thread))
@@ -329,8 +392,9 @@ async fn process_line(ctx: &Ctx, line: &str, at: u64, p: &mut Progress) -> Line 
     state.next_seq += entries.len() as u64;
     for entry in &entries {
         match &entry.kind {
-            EntryKind::InputConsumed { .. } => {
-                state.pending_user = state.pending_user.saturating_sub(1);
+            EntryKind::InputConsumed { text } => {
+                let n = take_replayed(&mut state.unreplayed, text);
+                state.pending_user = state.pending_user.saturating_sub(n);
             }
             EntryKind::Finished(_) => p.saw_finished = true,
             EntryKind::BackgroundTask {
@@ -855,6 +919,7 @@ pub async fn interject(
             .map_err(|e| format!("Write failed: {e}"))?;
         if !crate::api::is_slash_command(text) {
             s.pending_user += 1;
+            s.unreplayed.push(sent.trim().to_owned());
         }
         let n = s.next_seq;
         s.next_seq += 1;
@@ -1300,6 +1365,7 @@ pub async fn reattach_all(st: Shared) {
             state: Mutex::new(LiveState {
                 next_seq,
                 pending_user: u32::try_from((users - slash - consumed).max(0)).unwrap_or(0),
+                unreplayed: Vec::new(),
                 user_no: u32::try_from(users).unwrap_or(0),
                 eof_sent: false,
                 interrupt_requested: false,
@@ -1339,7 +1405,8 @@ pub async fn reattach_all(st: Shared) {
         .is_some_and(|p| p.starts_with(r#"{"type":"finished""#));
         if last_finished && live.interactive {
             let mut s = live.state.lock().await;
-            if s.pending_user == 0 && !s.eof_sent {
+            s.pending_user = 0;
+            if !s.eof_sent {
                 if !s.bg.is_empty() {
                     s.idle = true;
                 } else if live.run.eof().await.is_ok() {

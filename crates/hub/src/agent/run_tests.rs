@@ -149,6 +149,7 @@ async fn fixture(log: String) -> (tempfile::TempDir, Ctx, Arc<FakeTransport>) {
         state: Mutex::new(LiveState {
             next_seq: 1,
             pending_user: 1,
+            unreplayed: Vec::new(),
             user_no: 1,
             eof_sent: false,
             interrupt_requested: false,
@@ -319,6 +320,32 @@ fn only_unfinished_background_tasks_keep_the_cli_alive() {
     for st in ["completed", "killed", "stopped", "failed"] {
         assert!(!bg_alive(st), "{st}");
     }
+}
+
+#[test]
+fn a_replay_that_merges_queued_messages_settles_all_of_them() {
+    let mut unreplayed = vec![
+        "notice one".to_owned(),
+        "notice two".to_owned(),
+        "later".to_owned(),
+    ];
+    assert_eq!(take_replayed(&mut unreplayed, "notice one\nnotice two"), 2);
+    assert_eq!(unreplayed, ["later"]);
+    assert_eq!(take_replayed(&mut unreplayed, "the first prompt"), 1);
+    assert_eq!(unreplayed, ["later"]);
+    let mut twice = vec!["go on".to_owned(), "go on".to_owned()];
+    assert_eq!(take_replayed(&mut twice, "go on"), 1);
+    assert_eq!(twice, ["go on"]);
+}
+
+#[test]
+fn only_a_leading_command_name_is_a_slash_command() {
+    assert!(crate::api::is_slash_command("/compact"));
+    assert!(crate::api::is_slash_command("  /goal clear"));
+    assert!(!crate::api::is_slash_command(
+        "/dev/mapper/ubuntu--vg-ubuntu--lv is full"
+    ));
+    assert!(!crate::api::is_slash_command("/"));
 }
 
 #[tokio::test]
@@ -633,6 +660,7 @@ async fn a_prompt_with_interject_joins_the_running_turn() {
         state: Mutex::new(LiveState {
             next_seq: 1,
             pending_user: 1,
+            unreplayed: Vec::new(),
             user_no: 1,
             eof_sent: false,
             interrupt_requested: false,

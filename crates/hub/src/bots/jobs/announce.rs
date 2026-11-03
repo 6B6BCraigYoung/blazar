@@ -1,4 +1,4 @@
-use blazar_core_types::{SessionId, WorkspaceId};
+use blazar_core_types::WorkspaceId;
 use chrono::{DateTime, Utc};
 
 use crate::api::Shared;
@@ -120,27 +120,15 @@ pub enum Wake {
 }
 
 pub async fn route(st: &Shared, ws: WorkspaceId, thread: &str) -> Wake {
-    let running: Option<(SessionId, bool)> = st
-        .running
-        .read()
-        .await
-        .iter()
-        .find(|(_, r)| r.workspace_id == ws)
-        .map(|(sid, r)| (*sid, r.live.as_ref().is_some_and(|l| l.interactive)));
-    let Some((sid, interactive)) = running else {
+    let running = crate::run::sessions_in(st, ws).await;
+    if running.is_empty() {
         return Wake::Resume;
-    };
-    let its: Option<String> =
-        sqlx::query_scalar("SELECT COALESCE(thread_id, id) FROM sessions WHERE id = ?1")
-            .bind(sid.to_string())
-            .fetch_optional(st.db.pool())
-            .await
-            .ok()
-            .flatten();
-    if interactive && its.as_deref() == Some(thread) {
-        Wake::Interject
-    } else {
-        Wake::Busy
+    }
+    match crate::run::running_in_thread(st, ws, thread).await {
+        Some((_, live)) if live.as_ref().is_some_and(|l| l.interactive) => Wake::Interject,
+        Some(_) => Wake::Busy,
+        None if crate::api::assistant::is_assistant(st, &ws.to_string()).await => Wake::Resume,
+        None => Wake::Busy,
     }
 }
 

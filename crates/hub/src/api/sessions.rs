@@ -206,6 +206,33 @@ async fn prompt_using(
         .map_err(ApiError::from)?
 }
 
+async fn beside(st: &Shared, ws: WorkspaceId) -> Option<crate::state::AdmitGuard> {
+    let running = crate::run::sessions_in(st, ws).await;
+    if running
+        .iter()
+        .any(|(_, live)| live.as_ref().is_none_or(|l| !l.interactive))
+    {
+        return None;
+    }
+    let persisted: Vec<String> = sqlx::query_scalar(
+        "SELECT id FROM sessions WHERE workspace_id = ?1 AND status = 'running'",
+    )
+    .bind(ws.to_string())
+    .fetch_all(st.db.pool())
+    .await
+    .ok()?;
+    if persisted
+        .iter()
+        .any(|sid| !running.iter().any(|(id, _)| id.to_string() == *sid))
+    {
+        return None;
+    }
+    for (sid, _) in &running {
+        crate::run::release_idle(st, *sid).await;
+    }
+    st.quiesce(ws).ok()
+}
+
 async fn requested_runtime(st: &Shared, req: &PromptRequest) -> String {
     let profile = match req.profile.as_deref().filter(|p| !p.is_empty()) {
         Some(pid) => crate::agents::get(st, pid).await.map(|p| p.runtime),
@@ -270,13 +297,16 @@ async fn prompt_inner(
                     "interactive": true,
                 })));
             }
-            let running_session = st
-                .running
-                .read()
+            let wanted_thread = req.resume_session.as_deref().filter(|t| !t.is_empty());
+            let running_session = match wanted_thread {
+                Some(t) => crate::run::running_in_thread(&st, workspace_id, t).await,
+                None => None,
+            }
+            .or(crate::run::sessions_in(&st, workspace_id)
                 .await
-                .iter()
-                .find(|(_, r)| r.workspace_id == workspace_id)
-                .map(|(sid, r)| (*sid, r.live.as_ref().is_some_and(|l| l.interactive)));
+                .into_iter()
+                .next())
+            .map(|(sid, live)| (sid, live.as_ref().is_some_and(|l| l.interactive)));
             if req.interject
                 && let Some((sid, true)) = running_session
                 && let Some(thread) = sqlx::query_scalar::<_, String>(
@@ -311,15 +341,32 @@ async fn prompt_inner(
                     },
                 ));
             }
-            let running_session =
-                running_session.map(|(sid, interactive)| (sid.to_string(), interactive));
-            return Ok(Json(serde_json::json!({
-                "admitted": false,
-                "reason": reason,
-                "hint": "Interrupt the running session first, or wait for it to finish",
-                "running_session_id": running_session.as_ref().map(|x| x.0.clone()),
-                "running_interactive": running_session.is_some_and(|x| x.1),
-            })));
+            let other_conversation = match (req.resume, wanted_thread) {
+                (false, _) => true,
+                (true, Some(t)) => crate::run::running_in_thread(&st, workspace_id, t)
+                    .await
+                    .is_none(),
+                (true, None) => false,
+            };
+            let beside = if assistant && req.retry_thread.is_none() && other_conversation {
+                beside(&st, workspace_id).await
+            } else {
+                None
+            };
+            match beside {
+                Some(guard) => guard,
+                None => {
+                    let running_session =
+                        running_session.map(|(sid, interactive)| (sid.to_string(), interactive));
+                    return Ok(Json(serde_json::json!({
+                        "admitted": false,
+                        "reason": reason,
+                        "hint": "Interrupt the running session first, or wait for it to finish",
+                        "running_session_id": running_session.as_ref().map(|x| x.0.clone()),
+                        "running_interactive": running_session.is_some_and(|x| x.1),
+                    })));
+                }
+            }
         }
     };
 
@@ -770,6 +817,7 @@ async fn prompt_inner(
                 next_seq,
 
                 pending_user: u32::from(interactive && !is_slash_command(&req.text)),
+                unreplayed: Vec::new(),
                 user_no: 1,
                 eof_sent: false,
                 interrupt_requested: false,

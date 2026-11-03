@@ -321,7 +321,10 @@ pub(crate) fn dsh_entry() -> Option<String> {
 }
 
 pub(crate) fn is_slash_command(text: &str) -> bool {
-    text.trim_start().starts_with('/')
+    text.trim_start()
+        .strip_prefix('/')
+        .and_then(|rest| rest.split_whitespace().next())
+        .is_some_and(|name| !name.contains('/'))
 }
 
 pub(crate) fn with_image_note(text: &str, n: usize) -> String {

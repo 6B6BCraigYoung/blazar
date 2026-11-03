@@ -188,9 +188,23 @@ pub async fn workspace_sessions(
             })
             .unwrap_or_default()
     };
+    let mut idle = std::collections::HashSet::new();
+    for r in &rows {
+        if let Ok(Some(sid)) = r.try_get::<Option<String>, _>("latest")
+            && r.try_get::<Option<String>, _>("status")
+                .ok()
+                .flatten()
+                .as_deref()
+                == Some("running")
+            && crate::run::between_turns(&st, &sid).await
+        {
+            idle.insert(sid);
+        }
+    }
     Ok(Json(
         rows.iter()
             .map(|r| {
+                let latest = r.try_get::<Option<String>, _>("latest").unwrap_or(None);
                 let stored = r
                     .try_get::<Option<String>, _>("title")
                     .unwrap_or(None)
@@ -201,13 +215,15 @@ pub async fn workspace_sessions(
                     .map(|s| {
                         if r.try_get::<i64, _>("waiting").unwrap_or(0) > 0 {
                             "awaiting_approval".to_owned()
+                        } else if latest.as_ref().is_some_and(|l| idle.contains(l)) {
+                            "idle".to_owned()
                         } else {
                             s
                         }
                     });
                 serde_json::json!({
                     "id": r.try_get::<String, _>("thread").unwrap_or_default(),
-                    "latest": r.try_get::<Option<String>, _>("latest").unwrap_or(None),
+                    "latest": latest,
                     "account": r.try_get::<Option<String>, _>("account").unwrap_or(None),
                     "runtime": r.try_get::<String, _>("runtime_kind").unwrap_or_default(),
                     "status": status,

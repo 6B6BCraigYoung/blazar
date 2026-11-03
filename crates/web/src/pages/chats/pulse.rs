@@ -22,19 +22,11 @@ pub fn Pulse(rail_mode: Callback<bool>) -> impl IntoView {
         navigate.with_value(|n| n(&href, Default::default()));
     };
     let running = Memo::new(move |_| {
-        let mut list: Vec<String> = app
-            .top_workspaces()
+        app.top_workspaces()
             .iter()
             .filter(|w| matches!(w.activity.as_str(), "running" | "starting"))
             .map(|w| fmt::ws_label(&w.name, &w.node))
-            .collect();
-        if app
-            .assistant()
-            .is_some_and(|w| matches!(w.activity.as_str(), "running" | "starting"))
-        {
-            list.insert(0, "对话".into());
-        }
-        list
+            .collect::<Vec<String>>()
     });
     let waiting = Memo::new(move |_| {
         let items = app.inbox_items();
