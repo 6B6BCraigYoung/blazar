@@ -44,9 +44,30 @@ fn link(dest: &str, base: &str) -> String {
         h.to_owned()
     } else if has_scheme(h) {
         "#".to_owned()
+    } else if h.starts_with('/') && crate::media_kind::kind_of(h).is_some() {
+        format!("{OPEN_PREFIX}{}", encode_component(h))
     } else {
         resolve(h, base).map_or_else(|| "#".to_owned(), |p| format!("{OPEN_PREFIX}{p}"))
     }
+}
+
+/// A media file named in a code span or embedded with image syntax becomes a link that opens
+/// the file viewer. Absolute paths stay absolute; the hub reads media outside the workspace too.
+fn media_link(path: &str, base: &str, text: &str, code: bool) -> Option<String> {
+    let target = if path.starts_with('/') {
+        path.to_owned()
+    } else {
+        resolve(path, base)?
+    };
+    let shown = if code {
+        format!("<code>{}</code>", escape(text))
+    } else {
+        format!("▶ {}", escape(text))
+    };
+    Some(format!(
+        "<a class=\"md-media\" href=\"{OPEN_PREFIX}{}\">{shown}</a>",
+        encode_component(&target)
+    ))
 }
 
 pub(crate) fn encode_component(s: &str) -> String {
@@ -165,7 +186,25 @@ pub fn render(src: &str, base: &str, ws: &str) -> String {
         | Options::ENABLE_TASKLISTS
         | Options::ENABLE_FOOTNOTES;
     let mut pic: Option<(String, String, String)> = None;
+    let mut clip: Option<(String, String)> = None;
     let events = Parser::new_ext(src, opts).filter_map(|ev| {
+        if let Some((_, alt)) = clip.as_mut() {
+            return match ev {
+                Event::End(TagEnd::Image) => {
+                    let (dest, alt) = clip.take().unwrap_or_default();
+                    let name = dest.rsplit('/').next().unwrap_or(&dest).to_owned();
+                    let text = if alt.trim().is_empty() { name } else { alt };
+                    Some(Event::InlineHtml(CowStr::from(
+                        media_link(&dest, base, &text, false).unwrap_or_else(|| escape(&text)),
+                    )))
+                }
+                Event::Text(t) | Event::Code(t) => {
+                    alt.push_str(&t);
+                    None
+                }
+                _ => None,
+            };
+        }
         if let Some((_, _, alt)) = pic.as_mut() {
             return match ev {
                 Event::End(TagEnd::Image) => {
@@ -187,6 +226,16 @@ pub fn render(src: &str, base: &str, ws: &str) -> String {
             Event::Code(c) | Event::Text(c) if insight(&c).is_some() => {
                 Event::InlineHtml(CowStr::from(insight(&c).unwrap_or_default()))
             }
+            Event::Code(c)
+                if crate::media_kind::mentioned(&c)
+                    .and_then(|p| media_link(p, base, &c, true))
+                    .is_some() =>
+            {
+                let p = crate::media_kind::mentioned(&c).unwrap_or_default();
+                Event::InlineHtml(CowStr::from(
+                    media_link(p, base, &c, true).unwrap_or_default(),
+                ))
+            }
             Event::Start(Tag::Link {
                 link_type,
                 dest_url,
@@ -198,6 +247,13 @@ pub fn render(src: &str, base: &str, ws: &str) -> String {
                 title,
                 id,
             }),
+            Event::Start(Tag::Image { dest_url, .. })
+                if crate::media_kind::kind_of(dest_url.trim())
+                    .is_some_and(|k| k != crate::media_kind::Media::Image) =>
+            {
+                clip = Some((dest_url.trim().to_owned(), String::new()));
+                return None;
+            }
             Event::Start(Tag::Image { dest_url, .. }) => {
                 let (s, p) = image(&dest_url, base, ws);
                 pic = Some((s, p, String::new()));
@@ -265,6 +321,28 @@ mod tests {
         assert!(html.contains(r#"alt="shot""#));
         let bad = render("![x](javascript:alert(1))", "", "w1");
         assert!(bad.contains(r#"data-state="failed""#) && !bad.contains("<img"));
+    }
+
+    #[test]
+    fn media_paths_open_in_the_viewer() {
+        let html = render("Saved `videos/out.mp4` and `notes.txt`.", "", "w1");
+        assert!(
+            html.contains(r##"<a class="md-media" href="#open:videos%2Fout.mp4"><code>videos/out.mp4</code></a>"##),
+            "{html}"
+        );
+        assert!(html.contains("<code>notes.txt</code>"));
+        let abs = render("See `/tmp/run 1.mp4` and `/tmp/run.mp4`", "", "w1");
+        assert!(abs.contains(r##"href="#open:%2Ftmp%2Frun.mp4""##), "{abs}");
+        assert!(!abs.contains("run%201"), "{abs}");
+        let embedded = render("![demo](clips/a.webm)", "docs/x.md", "w1");
+        assert!(
+            embedded
+                .contains(r##"<a class="md-media" href="#open:docs%2Fclips%2Fa.webm">▶ demo</a>"##),
+            "{embedded}"
+        );
+        assert!(!embedded.contains("<img"));
+        assert_eq!(link("/srv/out/a.mov", "a.md"), "#open:%2Fsrv%2Fout%2Fa.mov");
+        assert_eq!(link("/srv/out/a.rs", "a.md"), "#open:srv/out/a.rs");
     }
 
     #[test]

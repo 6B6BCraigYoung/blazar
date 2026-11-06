@@ -835,3 +835,21 @@ Blazar 的后台小活本来就不用 Codex，所以不需要额外的 `CODEX_HO
 截图用临时 hub 和演示数据，里面有真实的机器名，不放进仓库。
 
 验证：`cargo fmt --check`、`leptosfmt --check crates/web/src`、`cargo clippy --workspace --all-targets -- -D warnings`、wasm 的 clippy、`cargo test --workspace`、`node --test crates/web/tests/navigation.mjs`。
+
+## b36 · 编辑器里看图片、视频、音频和 PDF
+
+用户：「在编辑器内能看到图片视频等」。对应第 3 条（内容优先）。
+
+- **查看器**：文件树里点图片（png / jpg / gif / webp / svg / bmp / avif / ico）、视频、音频、PDF，不再进 Monaco，而是在编辑器的位置打开查看器。顶上一行写类型、像素尺寸和大小，右边「下载」，本机工作区在桌面端再给「用默认程序打开」。
+- **图片**：默认适应窗口（小图不放大，四周留 24px），可切 1:1；滚轮以指针为中心缩放，拖动平移，双击在两种模式间切换；透明区域铺棋盘格；放大到 3 倍以上按像素显示。SVG 仍走沙箱 CSP，用 `<img>` 显示，不执行脚本。
+- **视频 / 音频 / PDF**：`<video>` / `<audio>` 自带进度条，可拖动；PDF 用内嵌框。WebView 放不了的格式（`canPlayType` 为空、加载出错，或者视频没有画面）换成回退页：文件名、类型、大小、说明，「下载」，本机再给「用默认程序打开」。
+- **hub `raw` 接口**：放到 `api/raw.rs`，加视频、音频、PDF 的 MIME；支持 `Range`（206、`Accept-Ranges`、`Content-Range`，越界返回 416），单段最多 8 MB，播放器会自己接着要。视频和音频不设总大小上限，图片保留原来的上限。PDF 不加沙箱 CSP，其余照旧。
+- **远程按段读取**：vfs 加 `file_size` 和 `open_range`，在节点上用 `tail -c +N | head -c LEN` 切好再传，hub 不再整文件拉取；读短了照样报错，不会把截断的片段当成完整的。
+- **桌面端**：新命令 `open_path`，只打开本机工作区里的图片、音视频和 PDF，脚本、应用一律拒绝（交给 `open` 会被执行）。
+- **对话里的路径**：反引号里的媒体路径（如 `videos/out.mp4`、`/tmp/shot.png`）变成链接；`![](clip.mp4)` 这类图片语法指向视频 / 音频时变成「▶ 名字」链接；Markdown 链接里的绝对媒体路径保持绝对。点一下都用同一个查看器打开。
+
+测试：vfs 用一个记录脚本的传输验证切片在节点上完成、只传回那一段、读短会报错；hub 测 Range 解析（含后缀、开放区间、越界、多段、非法）和 206 / 200 / 416 / 415 / 404 响应；web 测扩展名分类、大小文字、代码片段识别和 Markdown 渲染；桌面端测只放行媒体文件。
+
+截图用临时 hub 和本机文件；临时 hub 没接远程节点，远程按段读取靠测试覆盖。不放进仓库。
+
+验证：`cargo fmt --check`、`leptosfmt --check crates/web/src`、`cargo clippy --workspace --all-targets -- -D warnings`、wasm 的 clippy、`cargo test --workspace`、`node --test crates/web/tests/navigation.mjs`。

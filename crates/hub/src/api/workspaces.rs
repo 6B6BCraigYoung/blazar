@@ -620,26 +620,9 @@ pub async fn workspace_ls(
     Ok(Json(vfs_for(&st, &node, &path).list_dir(&q.path).await?))
 }
 
-pub(crate) fn image_type(path: &str) -> Option<&'static str> {
-    let ext = path.rsplit('.').next()?.to_ascii_lowercase();
-    Some(match ext.as_str() {
-        "png" => "image/png",
-        "jpg" | "jpeg" => "image/jpeg",
-        "gif" => "image/gif",
-        "webp" => "image/webp",
-        "svg" => "image/svg+xml",
-        "ico" => "image/x-icon",
-        "bmp" => "image/bmp",
-        "avif" => "image/avif",
-        _ => return None,
-    })
-}
-
-const RAW_MAX: u64 = blazar_core_types::sanitize::MAX_IMAGE_BYTES;
-
 /// 绝对路径在工作区里就换成相对路径；在工作区外（比如 /tmp 下的截图）就以它所在
-/// 的目录为根去读，仍然只认图片扩展名。
-fn raw_target(root: &str, path: &str) -> (String, String) {
+/// 的目录为根去读，仍然只认图片、音视频和 PDF 的扩展名。
+pub(super) fn raw_target(root: &str, path: &str) -> (String, String) {
     let Some(abs) = path.strip_prefix('/') else {
         return (root.to_owned(), path.to_owned());
     };
@@ -654,44 +637,6 @@ fn raw_target(root: &str, path: &str) -> (String, String) {
         Some((dir, name)) => (format!("/{dir}"), name.to_owned()),
         None => ("/".to_owned(), abs.to_owned()),
     }
-}
-
-pub async fn workspace_raw(
-    State(st): State<Shared>,
-    Path(id): Path<String>,
-    Query(q): Query<FileQuery>,
-) -> Response {
-    let Some(ctype) = image_type(&q.path) else {
-        return (StatusCode::UNSUPPORTED_MEDIA_TYPE, "只提供图片").into_response();
-    };
-    let (node, root) = match locate(&st, &id).await {
-        Ok(v) => v,
-        Err(e) => return ApiError(e).into_response(),
-    };
-    let (root, rel) = raw_target(&root, &q.path);
-    let download = match vfs_for(&st, &node, &root)
-        .open_download(&rel, false, RAW_MAX)
-        .await
-    {
-        Ok(d) => d,
-        Err(e) => return download_refused(&e).into_response(),
-    };
-    let mut response = Response::builder()
-        .header(axum::http::header::CONTENT_TYPE, ctype)
-        .header(
-            axum::http::header::CONTENT_SECURITY_POLICY,
-            "default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox",
-        )
-        .header(axum::http::header::X_CONTENT_TYPE_OPTIONS, "nosniff")
-        .header(axum::http::header::CACHE_CONTROL, "private, max-age=30");
-    if let Some(size) = download.size {
-        response = response.header(axum::http::header::CONTENT_LENGTH, size);
-    }
-    response
-        .body(axum::body::Body::from_stream(download_body(
-            download, RAW_MAX,
-        )))
-        .unwrap_or_else(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response())
 }
 
 const DOWNLOAD_MAX: u64 = 128 * 1024 * 1024;
@@ -717,12 +662,13 @@ async fn serve_download(st: &AppState, id: &str, q: &DownloadQuery, max: u64) ->
         Ok(v) => v,
         Err(e) => return ApiError(e).into_response(),
     };
-    // 对话里的大图可能在工作区外，只对图片放开绝对路径。
-    let (root, rel) = if !q.dir && q.path.starts_with('/') && image_type(&q.path).is_some() {
-        raw_target(&root, &q.path)
-    } else {
-        (root, q.path.clone())
-    };
+    // Media the agent mentions can sit outside the workspace; absolute paths open only for media.
+    let (root, rel) =
+        if !q.dir && q.path.starts_with('/') && super::raw::media_type(&q.path).is_some() {
+            raw_target(&root, &q.path)
+        } else {
+            (root, q.path.clone())
+        };
     let download = match vfs_for(st, &node, &root)
         .open_download(&rel, q.dir, max)
         .await
@@ -749,7 +695,7 @@ async fn serve_download(st: &AppState, id: &str, q: &DownloadQuery, max: u64) ->
         .unwrap_or_else(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response())
 }
 
-fn download_refused(e: &blazar_vfs::VfsError) -> (StatusCode, String) {
+pub(super) fn download_refused(e: &blazar_vfs::VfsError) -> (StatusCode, String) {
     use blazar_transport::TransportError;
     use blazar_vfs::VfsError;
     match e {
@@ -770,7 +716,7 @@ fn download_refused(e: &blazar_vfs::VfsError) -> (StatusCode, String) {
 /// 把节点进程的 stdout 原样转发给客户端。传输不完整时以错误结束响应体，
 /// hyper 会直接断开连接，客户端拿到的是“下载失败”而不是一个被截断却看似完整的文件。
 /// 客户端断开时响应体被丢弃，节点上的进程随之被杀掉。
-fn download_body(
+pub(super) fn download_body(
     download: blazar_vfs::Download,
     max: u64,
 ) -> impl futures::Stream<Item = std::io::Result<axum::body::Bytes>> + Send {

@@ -631,6 +631,7 @@ dependencies = [
  "async-trait",
  "blazar-core-types",
  "blazar-transport",
+ "futures",
  "serde",
  "tempfile",
  "thiserror 2.0.20",

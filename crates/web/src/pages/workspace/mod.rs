@@ -7,6 +7,7 @@ pub(crate) mod git_panel;
 mod head;
 mod inspector;
 mod layout;
+mod media;
 mod mini;
 mod preview_panel;
 mod term_panel;

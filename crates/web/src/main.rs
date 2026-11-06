@@ -52,6 +52,8 @@ mod loopback;
 mod markdown_mode;
 #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 mod md;
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+mod media_kind;
 #[cfg(target_arch = "wasm32")]
 mod monaco;
 #[cfg(target_arch = "wasm32")]

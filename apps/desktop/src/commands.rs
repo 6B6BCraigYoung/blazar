@@ -163,6 +163,45 @@ pub async fn reveal_path(hub: State<'_, Arc<Hub>>, path: String) -> Result<(), S
         })
 }
 
+const OPENABLE: &[&str] = &[
+    "png", "jpg", "jpeg", "gif", "webp", "svg", "ico", "bmp", "avif", "tif", "tiff", "heic", "mp4",
+    "m4v", "mov", "webm", "mkv", "ogv", "avi", "wmv", "flv", "wav", "mp3", "ogg", "oga", "opus",
+    "flac", "m4a", "aac", "pdf",
+];
+
+/// Only pictures, sound, video and PDFs: handing a script or an app to `open` would run it.
+fn openable(path: &std::path::Path) -> bool {
+    path.is_file()
+        && path
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| OPENABLE.contains(&e.to_ascii_lowercase().as_str()))
+}
+
+#[tauri::command]
+pub async fn open_path(hub: State<'_, Arc<Hub>>, path: String) -> Result<(), String> {
+    let roots = hub.local_roots().await?;
+    let real = inside_workspace(&path, &roots)?;
+    if !openable(&real) {
+        return Err("只能用默认程序打开图片、音视频和 PDF".into());
+    }
+    if !cfg!(target_os = "macos") {
+        return Err("只有 macOS 能用默认程序打开".into());
+    }
+    std::process::Command::new("open")
+        .arg("--")
+        .arg(&real)
+        .status()
+        .map_err(|e| e.to_string())
+        .and_then(|s| {
+            if s.success() {
+                Ok(())
+            } else {
+                Err("没有能打开它的程序".into())
+            }
+        })
+}
+
 /// 原生「选择文件夹」面板，给内嵌 hub 新建工作区用；用户取消就返回 None。
 /// 开发实例设了 BLAZAR_DEV_PICK_FOLDER 就不弹面板，直接返回那个目录，方便界面驱动。
 #[tauri::command]
@@ -198,6 +237,20 @@ pub async fn pick_folder(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_media_files_open_in_their_default_app() {
+        let dir = tempfile::tempdir().unwrap();
+        for name in ["clip.MP4", "run.sh", "Tool.app"] {
+            std::fs::write(dir.path().join(name), "x").unwrap();
+        }
+        std::fs::create_dir(dir.path().join("frames.mp4")).unwrap();
+        assert!(openable(&dir.path().join("clip.MP4")));
+        assert!(!openable(&dir.path().join("run.sh")));
+        assert!(!openable(&dir.path().join("Tool.app")));
+        assert!(!openable(&dir.path().join("frames.mp4")));
+        assert!(!openable(&dir.path().join("gone.mp4")));
+    }
 
     #[test]
     fn reveal_stays_inside_local_workspaces() {

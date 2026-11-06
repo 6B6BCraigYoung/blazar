@@ -132,6 +132,7 @@ pub fn Inspector(
                     <div class="editor-stack">
                         <div class="editor-host" node_ref=host aria-label="代码编辑器"></div>
                         <MdView files preview=md_preview />
+                        <super::media::MediaView files local=tree.acts.local root=tree.acts.root />
                         <Show when=move || files.open_tabs.with(Vec::is_empty)>
                             <div class="welcome">{welcome}</div>
                         </Show>

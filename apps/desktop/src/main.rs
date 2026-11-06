@@ -126,6 +126,7 @@ fn run() -> Result<()> {
             commands::retry_hub,
             commands::forward_port,
             commands::reveal_path,
+            commands::open_path,
             commands::pick_folder,
             download::save_download,
             download::cancel_download,

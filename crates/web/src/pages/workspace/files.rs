@@ -170,6 +170,11 @@ impl Files {
         p.ends_with(".md") || p.ends_with(".markdown") || p.ends_with(".mdx")
     }
 
+    /// Pictures, video, sound and PDFs open in the file viewer instead of the code editor.
+    pub fn is_media(path: &str) -> bool {
+        crate::media_kind::kind_of(path).is_some()
+    }
+
     pub fn readonly(self, path: &str) -> bool {
         self.meta
             .with_value(|m| m.get(path).is_some_and(|x| x.readonly))
@@ -254,6 +259,16 @@ impl Files {
             }
         });
         self.current.set(Some(path.clone()));
+        if Self::is_media(&path) {
+            self.meta.update_value(|m| {
+                m.entry(path.clone()).or_insert(Meta {
+                    readonly: true,
+                    ..Meta::default()
+                });
+            });
+            self.rev.update(|n| *n = n.wrapping_add(1));
+            return;
+        }
         if self.with_editor(|e| e.has(&path)) == Some(true) {
             let ro = self.readonly(&path);
             self.with_editor(|e| e.open(&path, "", ro, line));
@@ -431,7 +446,7 @@ impl Files {
     }
 
     pub fn reload(self, path: String, discard: bool) {
-        if !discard && self.dirty.with_untracked(|d| d.contains(&path)) {
+        if Self::is_media(&path) || (!discard && self.dirty.with_untracked(|d| d.contains(&path))) {
             return;
         }
         let ws = self.ws();

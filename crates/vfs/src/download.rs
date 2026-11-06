@@ -111,4 +111,57 @@ fi"#
             folder,
         })
     }
+
+    /// The size of one file, refused when it is bigger than `max`.
+    pub async fn file_size(&self, rel: &str, max: Option<u64>) -> Result<u64> {
+        let rel = self.safe_rel(rel)?;
+        let guard = guarded_path(&self.root, &rel);
+        let limit = max.map_or(String::new(), |m| {
+            format!("\n[ \"$SZ\" -le {m} ] || exit 8")
+        });
+        let probe = format!(
+            r#"{guard}
+[ -f "$F" ] || exit 4
+SZ=$(stat -c %s -- "$F" 2>/dev/null || stat -f %z -- "$F" 2>/dev/null || wc -c < "$F" | tr -d ' '){limit}
+printf '%s' "$SZ""#
+        );
+        let out = self
+            .transport
+            .exec(ExecSpec::new("bash").arg("-lc").arg(probe))
+            .await?;
+        match out.code {
+            4 => return Err(refused(4, format!("{rel} 不是一个文件"))),
+            8 => {
+                let m = max.unwrap_or(0) >> 20;
+                return Err(refused(8, format!("{rel} 太大了，超过 {m} MB")));
+            }
+            _ => check(&out, &rel)?,
+        }
+        out.stdout
+            .trim()
+            .parse::<u64>()
+            .map_err(|_| refused(1, format!("读不出 {rel} 的大小：{}", out.stdout.trim())))
+    }
+
+    /// Streams `len` bytes of a file from `start`. The node seeks and cuts the piece itself, so
+    /// only that piece crosses the link.
+    pub async fn open_range(&self, rel: &str, start: u64, len: u64) -> Result<Download> {
+        let rel = self.safe_rel(rel)?;
+        let guard = guarded_path(&self.root, &rel);
+        let read = match (start, len) {
+            (_, 0) => String::new(),
+            (0, len) => format!("\nexec head -c {len} -- \"$F\""),
+            (start, len) => format!("\ntail -c +{} -- \"$F\" | head -c {len}", start + 1),
+        };
+        let script = format!("{guard}\n[ -f \"$F\" ] || exit 4{read}");
+        let stream = self
+            .transport
+            .spawn_bytes(ExecSpec::new("bash").arg("-lc").arg(script))
+            .await?;
+        Ok(Download {
+            size: Some(len),
+            stream,
+            folder: false,
+        })
+    }
 }

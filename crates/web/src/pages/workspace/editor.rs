@@ -81,6 +81,7 @@ pub fn EdBar(files: Files, preview: RwSignal<bool>) -> impl IntoView {
                     let p_save = p.clone();
                     let p_offer = p.clone();
                     let is_md = Files::is_md(&p);
+                    let media = Files::is_media(&p);
                     let ro = files.readonly(&p);
                     view! {
                         <div class="edbar">
@@ -98,7 +99,9 @@ pub fn EdBar(files: Files, preview: RwSignal<bool>) -> impl IntoView {
                             </span>
                             <span class="grow"></span>
                             {move || {
-                                if ro {
+                                if media {
+                                    ().into_any()
+                                } else if ro {
                                     view! { <span class="muted">"只读"</span> }.into_any()
                                 } else if files.dirty.with(|d| d.contains(&p_dirty)) {
                                     let p = p_save.clone();
@@ -116,19 +119,24 @@ pub fn EdBar(files: Files, preview: RwSignal<bool>) -> impl IntoView {
                                     view! { <span class="muted">"已保存"</span> }.into_any()
                                 }
                             }}
-                            <span class="seg">
-                                <button
-                                    type="button"
-                                    title="自动换行"
-                                    aria-pressed=move || wrap.get().to_string()
-                                    data-on=move || wrap.get().to_string()
-                                    on:click=move |_| {
-                                        wrap.set(crate::pages::set_word_wrap(!wrap.get_untracked()))
+                            {(!media)
+                                .then(|| {
+                                    view! {
+                                        <span class="seg">
+                                            <button
+                                                type="button"
+                                                title="自动换行"
+                                                aria-pressed=move || wrap.get().to_string()
+                                                data-on=move || wrap.get().to_string()
+                                                on:click=move |_| {
+                                                    wrap.set(crate::pages::set_word_wrap(!wrap.get_untracked()))
+                                                }
+                                            >
+                                                "换行"
+                                            </button>
+                                        </span>
                                     }
-                                >
-                                    "换行"
-                                </button>
-                            </span>
+                                })}
                             {is_md
                                 .then(|| {
                                     view! {

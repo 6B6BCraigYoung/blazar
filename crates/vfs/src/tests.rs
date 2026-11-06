@@ -34,6 +34,93 @@ impl NodeTransport for TestLocal {
             .spawn_lines(isolated(spec))
             .await
     }
+    async fn spawn_bytes(
+        &self,
+        spec: ExecSpec,
+    ) -> blazar_transport::Result<blazar_transport::ByteStream> {
+        blazar_transport::LocalTransport
+            .spawn_bytes(isolated(spec))
+            .await
+    }
+}
+
+/// Stands in for a node behind SSH: runs the same scripts, and keeps every script it was
+/// handed so a test can see what the node itself was asked to do.
+#[derive(Default)]
+struct Recording(std::sync::Mutex<Vec<String>>);
+
+#[async_trait::async_trait]
+impl NodeTransport for Recording {
+    fn kind(&self) -> blazar_transport::TransportKind {
+        blazar_transport::TransportKind::Ssh
+    }
+    fn target(&self) -> &str {
+        "remote"
+    }
+    async fn exec(&self, spec: ExecSpec) -> blazar_transport::Result<blazar_transport::ExecOutput> {
+        self.0
+            .lock()
+            .unwrap()
+            .push(spec.args.last().cloned().unwrap_or_default());
+        TestLocal.exec(spec).await
+    }
+    async fn spawn_lines(
+        &self,
+        spec: ExecSpec,
+    ) -> blazar_transport::Result<blazar_transport::LineStream> {
+        TestLocal.spawn_lines(spec).await
+    }
+    async fn spawn_bytes(
+        &self,
+        spec: ExecSpec,
+    ) -> blazar_transport::Result<blazar_transport::ByteStream> {
+        self.0
+            .lock()
+            .unwrap()
+            .push(spec.args.last().cloned().unwrap_or_default());
+        TestLocal.spawn_bytes(spec).await
+    }
+}
+
+async fn drain(d: &mut crate::Download) -> Vec<u8> {
+    use futures::StreamExt;
+    let mut got = Vec::new();
+    while let Some(chunk) = d.stream.stdout.next().await {
+        got.extend(chunk);
+    }
+    got
+}
+
+#[tokio::test]
+async fn a_range_is_cut_on_the_node_and_only_that_piece_comes_back() {
+    let root = tempfile::tempdir().unwrap();
+    let bytes: Vec<u8> = (0..200_000u32).map(|i| (i % 251) as u8).collect();
+    std::fs::write(root.path().join("clip.mp4"), &bytes).unwrap();
+    let node = Arc::new(Recording::default());
+    let v = Vfs::new(node.clone(), root.path().to_string_lossy());
+    assert_eq!(v.file_size("clip.mp4", None).await.unwrap(), 200_000);
+    assert!(v.file_size("clip.mp4", Some(1000)).await.is_err());
+    assert!(v.file_size("missing.mp4", None).await.is_err());
+
+    let mut d = v.open_range("clip.mp4", 150_000, 4096).await.unwrap();
+    let got = drain(&mut d).await;
+    assert_eq!(got, bytes[150_000..154_096]);
+    assert!(d.finished(got.len() as u64).await.is_ok());
+    let script = node.0.lock().unwrap().last().cloned().unwrap();
+    assert!(script.contains("tail -c +150001"), "{script}");
+    assert!(script.contains("head -c 4096"), "{script}");
+
+    let mut first = v.open_range("clip.mp4", 0, 10).await.unwrap();
+    assert_eq!(drain(&mut first).await, bytes[..10]);
+
+    let mut past = v.open_range("clip.mp4", 199_990, 100).await.unwrap();
+    let short = drain(&mut past).await;
+    assert_eq!(short.len(), 10);
+    assert!(
+        past.finished(short.len() as u64).await.is_err(),
+        "a piece cut short by the end of the file is not passed off as whole"
+    );
+    assert!(v.open_range("../clip.mp4", 0, 10).await.is_err());
 }
 
 struct PartialWrite;

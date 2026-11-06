@@ -411,10 +411,10 @@
           "markdownDescription": "Read and change which hub this desktop app uses."
         },
         {
-          "description": "Show a workspace file of the embedded hub in Finder, and pick a project folder through the native panel.",
+          "description": "Show a workspace file of the embedded hub in Finder, open a media file in its default app, and pick a project folder through the native panel.",
           "type": "string",
           "const": "local-files",
-          "markdownDescription": "Show a workspace file of the embedded hub in Finder, and pick a project folder through the native panel."
+          "markdownDescription": "Show a workspace file of the embedded hub in Finder, open a media file in its default app, and pick a project folder through the native panel."
         },
         {
           "description": "Show the shortcuts the page uses on the native menu.",

@@ -15,8 +15,8 @@ commands.allow = ["snapshot_webview"]
 
 [[permission]]
 identifier = "local-files"
-description = "Show a workspace file of the embedded hub in Finder, and pick a project folder through the native panel."
-commands.allow = ["reveal_path", "pick_folder"]
+description = "Show a workspace file of the embedded hub in Finder, open a media file in its default app, and pick a project folder through the native panel."
+commands.allow = ["reveal_path", "open_path", "pick_folder"]
 
 [[permission]]
 identifier = "downloads"
