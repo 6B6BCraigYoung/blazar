@@ -7,6 +7,7 @@ pub mod icon;
 pub mod keys_sheet;
 pub mod menu;
 pub mod modal;
+pub mod needs;
 pub mod new_workspace;
 pub mod page_head;
 pub mod palette;

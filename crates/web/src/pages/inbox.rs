@@ -109,6 +109,10 @@ impl Item {
 }
 
 fn href_of(it: &Value, k: &str, ws: &str, thread: &str, chats: bool) -> String {
+    crate::card_link::with_anchor(base_href(it, k, ws, thread, chats), it)
+}
+
+fn base_href(it: &Value, k: &str, ws: &str, thread: &str, chats: bool) -> String {
     if chats {
         return if thread.is_empty() {
             "/".into()

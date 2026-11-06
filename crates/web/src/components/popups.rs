@@ -6,7 +6,6 @@ use crate::fmt;
 use crate::pages::inbox::{InboxCards, Item};
 
 const SHOWN: usize = 3;
-const CARD_MS: u32 = 8000;
 const LINE_MS: u32 = 4000;
 
 #[derive(Clone)]
@@ -37,12 +36,14 @@ pub fn arrived(items: Vec<Item>) {
     for item in items {
         let id = p.next.get_value();
         p.next.set_value(id.wrapping_add(1));
-        let ms = if item.needs_you() { CARD_MS } else { LINE_MS };
+        let lasting = item.needs_you();
         p.list.update(|l| {
             l.retain(|x| x.item.id != item.id);
             l.push(Pop { id, item });
         });
-        gloo_timers::callback::Timeout::new(ms, move || dismiss(id)).forget();
+        if !lasting {
+            gloo_timers::callback::Timeout::new(LINE_MS, move || dismiss(id)).forget();
+        }
     }
 }
 
@@ -119,9 +120,16 @@ pub fn PopHost() -> impl IntoView {
             <Show when=move || { more() > 0 }>
                 <div class="pops-more">
                     {move || format!("还有 {} 条消息", more())}
-                    <a href="/" on:click=move |_| clear()>
-                        "打开中控台"
-                    </a>
+                    <button
+                        type="button"
+                        class="linkbtn"
+                        on:click=move |_| {
+                            clear();
+                            app.needs_open.set(true);
+                        }
+                    >
+                        "全部查看"
+                    </button>
                 </div>
             </Show>
         </div>

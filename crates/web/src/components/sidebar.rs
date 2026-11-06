@@ -343,15 +343,8 @@ fn MainNav(keys: RwSignal<u32>) -> impl IntoView {
             <span class="n">{palette_key}</span>
         </button>
         <div class="grp">
-            {section_with_pill(
-                "/",
-                icon::CONSOLE,
-                "中控台",
-                Signal::derive(move || n(app.pending_count())),
-                needs_you,
-                &["/", "/chats", "/inbox"],
-                true,
-            )}
+            <NeedsNav needs_you />
+            {section("/", icon::CONSOLE, "中控台", none, calm, &["/", "/chats", "/inbox"])}
             {section(
                 "/workspaces",
                 icon::FOLDER,
@@ -359,7 +352,8 @@ fn MainNav(keys: RwSignal<u32>) -> impl IntoView {
                 Signal::derive(move || n(app.attention_count())),
                 waiting,
                 &["/running", "/waiting", "/workspaces", "/w", "/project"],
-            )} {section("/bots", icon::BOT, "bot", none, calm, &["/bots"])}
+            )}
+            {section("/bots", icon::BOT, "bot", none, calm, &["/bots"])}
             {section(
                 "/tasks",
                 icon::TASKS,
@@ -413,6 +407,39 @@ fn MainNav(keys: RwSignal<u32>) -> impl IntoView {
         <div class="foot">
             {nav("/settings", icon::GEAR, "设置", none, calm, false)} <StatusDot />
         </div>
+    }
+}
+
+#[component]
+fn NeedsNav(needs_you: Signal<bool>) -> impl IntoView {
+    let app = use_app();
+    let count = Signal::derive(move || n(app.pending_count()));
+    view! {
+        <button
+            type="button"
+            class="nav needs-nav"
+            aria-haspopup="dialog"
+            aria-expanded=move || app.needs_open.get().to_string()
+            data-tip=rail_tip("需要你处理")
+            aria-label=rail_tip("需要你处理")
+            on:click=move |_| {
+                if app.rail_shown.get_untracked() {
+                    app.needs_focus.set(true);
+                } else {
+                    app.needs_open.update(|o| *o = !*o);
+                }
+            }
+        >
+            <span class="ic" inner_html=icon::svg(icon::INBOX)></span>
+            <span class="nm">"需要你处理"</span>
+            <span
+                class="n"
+                data-pill=move || (needs_you.get() && count.with(|c| !c.is_empty())).to_string()
+            >
+                {move || count.get()}
+            </span>
+            {badge(count, needs_you)}
+        </button>
     }
 }
 

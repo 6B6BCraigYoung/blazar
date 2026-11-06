@@ -16,6 +16,8 @@ pub struct AskRequest {
     pub options: Vec<String>,
     #[serde(default)]
     pub context: String,
+    #[serde(default)]
+    pub replaces: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -69,13 +71,41 @@ pub async fn create_ask(
         .ok_or_else(|| ApiError::bad_request("Only a session can post this card"))?;
     let ask = normalize(&req).map_err(ApiError::bad_request)?;
     let context: String = req.context.trim().chars().take(CONTEXT_MAX).collect();
+    let replaces = req
+        .replaces
+        .as_deref()
+        .map(str::trim)
+        .filter(|r| !r.is_empty());
+    if let Some(old) = replaces {
+        crate::inbox::withdraw_ask(&st, sid, old)
+            .await
+            .map_err(ApiError::bad_request)?;
+    }
     let id = post(&st, sid, &ask, &context).await?;
     Ok(Json(serde_json::json!({
         "id": id,
         "question": ask.question,
         "options": ask.options,
-        "hint": "The card is in the user's Needs you list. Don't wait for it: carry on with any work that doesn't depend on this answer, and end the turn only when nothing is left. The answer will arrive as a new user message in this conversation, even mid-turn.",
+        "replaced": replaces,
+        "hint": "The card is in the user's Needs you list. Don't wait for it: carry on with any work that doesn't depend on this answer, and end the turn only when nothing is left. The answer will arrive as a new user message in this conversation, even mid-turn. If the user answers in the chat instead, close this card with close_ask.",
     })))
+}
+
+pub async fn close_ask(
+    State(st): State<Shared>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let sid = headers
+        .get(crate::bots::jobs::SESSION_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| ApiError::bad_request("Only a session can close this card"))?;
+    crate::inbox::withdraw_ask(&st, sid, id.trim())
+        .await
+        .map_err(ApiError::bad_request)?;
+    Ok(Json(serde_json::json!({ "id": id, "closed": true })))
 }
 
 fn caller_session(headers: &HeaderMap) -> ApiResult<&str> {
@@ -99,7 +129,7 @@ pub async fn create_report(
             let ask = normalize(&AskRequest {
                 question: req.text.clone(),
                 options: req.options.clone(),
-                context: String::new(),
+                ..Default::default()
             })
             .map_err(ApiError::bad_request)?;
             let id = post(&st, sid, &ask, &detail).await?;
@@ -166,7 +196,6 @@ pub(crate) async fn post(st: &Shared, sid: &str, ask: &Ask, context: &str) -> Ap
     };
     let workspace_id: String = row.try_get("workspace_id")?;
     let thread: String = row.try_get("thread")?;
-    crate::inbox::resolve_asks_before(st, &thread, sid).await;
     sqlx::query("UPDATE sessions SET ask = COALESCE(ask, ?2) WHERE id = ?1")
         .bind(sid)
         .bind(serde_json::to_string(ask).unwrap_or_default())
@@ -187,6 +216,19 @@ pub(crate) async fn post(st: &Shared, sid: &str, ask: &Ask, context: &str) -> Ap
     )
     .await
     .ok_or_else(|| ApiError(anyhow::anyhow!("卡片没有存进收件箱")))?;
+    if !crate::inbox::locate_ask(st, &id, sid, &ask.question).await {
+        crate::inbox::anchor_at_tail(st, &id, sid).await;
+        let (st2, card, sid, question) =
+            (st.clone(), id.clone(), sid.to_owned(), ask.question.clone());
+        st.services.spawn(async move {
+            for _ in 0..12 {
+                tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+                if crate::inbox::locate_ask(&st2, &card, &sid, &question).await {
+                    break;
+                }
+            }
+        });
+    }
     st.emit(ServerEvent::WorkspacesChanged);
     Ok(id)
 }
@@ -252,7 +294,6 @@ pub async fn answer_ask(
     let permission_mode = thread_permission_mode(&st, &thread).await;
     let prompt = PromptRequest {
         text,
-        keep_asks: true,
         resume: true,
         resume_session: Some(thread.clone()),
         permission_mode,
@@ -261,7 +302,6 @@ pub async fn answer_ask(
     };
     let queued = serde_json::json!({
         "text": prompt.text,
-        "keep_asks": true,
         "resume": true,
         "resume_session": thread,
         "permission_mode": prompt.permission_mode,
@@ -350,7 +390,7 @@ mod tests {
         let req = AskRequest {
             question: "  推不推？ ".into(),
             options: vec![" 推 ".into(), "推".into(), String::new(), "不推".into()],
-            context: String::new(),
+            ..Default::default()
         };
         let ask = normalize(&req).unwrap();
         assert_eq!(ask.question, "推不推？");
@@ -358,83 +398,239 @@ mod tests {
         let many = AskRequest {
             question: "q".into(),
             options: (0..9).map(|i| i.to_string()).collect(),
-            context: String::new(),
+            ..Default::default()
         };
         assert_eq!(normalize(&many).unwrap().options.len(), OPTIONS_MAX);
         assert!(normalize(&AskRequest::default()).is_err());
     }
 
-    #[tokio::test]
-    async fn one_turn_can_post_several_cards_and_a_later_turn_closes_them() {
-        let (_dir, st) = state().await;
-        let sid = SessionId::new().to_string();
-        seed_session(&st, &sid).await;
-        let first = normalize(&AskRequest {
-            question: "先推还是先装？".into(),
-            options: vec!["先推".into(), "先装".into()],
-            context: String::new(),
+    fn ask(question: &str) -> Ask {
+        normalize(&AskRequest {
+            question: question.into(),
+            options: vec!["是".into(), "否".into()],
+            ..Default::default()
         })
-        .unwrap();
-        let a = ok(post(&st, &sid, &first, "两批一起装").await);
-        let second = normalize(&AskRequest {
-            question: "改主意了，装吗？".into(),
-            options: vec![],
-            context: String::new(),
-        })
-        .unwrap();
-        let b = ok(post(&st, &sid, &second, "").await);
-        assert_ne!(a, b);
-        let open: Vec<(String, String, String)> = sqlx::query_as(
-            "SELECT id, title, body FROM inbox WHERE kind = 'question' AND archived_at IS NULL ORDER BY id",
-        )
-        .fetch_all(st.db.pool())
-        .await
-        .unwrap();
-        assert_eq!(open.len(), 2);
-        assert_eq!(open[1].1, "待你决定：改主意了，装吗？");
-        let card: Option<String> = sqlx::query_scalar("SELECT ask FROM inbox WHERE id = ?1")
-            .bind(&a)
-            .fetch_one(st.db.pool())
-            .await
-            .unwrap();
-        let ask: Ask = serde_json::from_str(&card.unwrap()).unwrap();
-        assert_eq!(ask.options, vec!["先推", "先装"]);
-        assert!(crate::inbox::has_open_ask(&st, &sid).await);
-        assert!(!crate::inbox::has_open_ask(&st, "nope").await);
+        .unwrap()
+    }
 
-        crate::inbox::resolve_ask(&st, &a).await;
-        assert!(
-            crate::inbox::has_open_ask(&st, &sid).await,
-            "answering one card keeps the other open"
-        );
-        let stored: Option<String> = sqlx::query_scalar("SELECT ask FROM sessions WHERE id = ?1")
-            .bind(&sid)
-            .fetch_one(st.db.pool())
-            .await
-            .unwrap();
-        assert!(stored.is_some());
-
+    async fn later_turn(st: &Shared, thread: &str) -> String {
         let later = SessionId::new().to_string();
         sqlx::query(
             "INSERT INTO sessions (id, workspace_id, thread_id, runtime_kind, status, created_at)
              VALUES (?1, 'w1', ?2, 'claude', 'done', ?3)",
         )
         .bind(&later)
-        .bind(&sid)
+        .bind(thread)
         .bind(Utc::now().to_rfc3339())
         .execute(st.db.pool())
         .await
         .unwrap();
-        ok(post(&st, &later, &first, "").await);
-        assert!(!crate::inbox::has_open_ask(&st, &sid).await);
+        later
+    }
+
+    async fn open_cards(st: &Shared) -> Vec<String> {
+        sqlx::query_scalar(
+            "SELECT id FROM inbox WHERE kind = 'question' AND archived_at IS NULL ORDER BY id",
+        )
+        .fetch_all(st.db.pool())
+        .await
+        .unwrap()
+    }
+
+    fn session_headers(sid: &str) -> HeaderMap {
+        let mut h = HeaderMap::new();
+        h.insert(crate::bots::jobs::SESSION_HEADER, sid.parse().unwrap());
+        h
+    }
+
+    #[tokio::test]
+    async fn cards_stay_open_across_new_cards_and_later_turns() {
+        let (_dir, st) = state().await;
+        let sid = SessionId::new().to_string();
+        seed_session(&st, &sid).await;
+        let a = ok(post(&st, &sid, &ask("先推还是先装？"), "两批一起装").await);
+        let b = ok(post(&st, &sid, &ask("装吗？"), "").await);
+        assert_ne!(a, b);
+        let card: Option<String> = sqlx::query_scalar("SELECT ask FROM inbox WHERE id = ?1")
+            .bind(&a)
+            .fetch_one(st.db.pool())
+            .await
+            .unwrap();
+        let stored: Ask = serde_json::from_str(&card.unwrap()).unwrap();
+        assert_eq!(stored.options, vec!["是", "否"]);
+
+        let later = later_turn(&st, &sid).await;
+        let c = ok(post(&st, &later, &ask("换哪台机器？"), "").await);
+        assert_eq!(open_cards(&st).await, vec![a.clone(), b.clone(), c.clone()]);
+        assert!(crate::inbox::has_open_ask(&st, &sid).await);
         assert!(crate::inbox::has_open_ask(&st, &later).await);
-        crate::inbox::resolve_ask(&st, &b).await;
+        assert!(!crate::inbox::has_open_ask(&st, "nope").await);
+    }
+
+    #[tokio::test]
+    async fn answering_dismissing_and_withdrawing_close_only_that_card() {
+        let (_dir, st) = state().await;
+        let sid = SessionId::new().to_string();
+        seed_session(&st, &sid).await;
+        let a = ok(post(&st, &sid, &ask("一"), "").await);
+        let b = ok(post(&st, &sid, &ask("二"), "").await);
+        let c = ok(post(&st, &sid, &ask("三"), "").await);
+
+        crate::inbox::resolve_ask(&st, &a).await;
+        assert_eq!(open_cards(&st).await, vec![b.clone(), c.clone()]);
+
+        crate::inbox::resolve_one(State(st.clone()), Path(b.clone())).await;
+        assert_eq!(open_cards(&st).await, vec![c.clone()]);
+        assert!(crate::inbox::has_open_ask(&st, &sid).await);
+
+        let later = later_turn(&st, &sid).await;
+        let _ = ok(close_ask(State(st.clone()), session_headers(&later), Path(c.clone())).await);
+        assert!(open_cards(&st).await.is_empty());
         let stored: Option<String> = sqlx::query_scalar("SELECT ask FROM sessions WHERE id = ?1")
             .bind(&sid)
             .fetch_one(st.db.pool())
             .await
             .unwrap();
-        assert!(stored.is_none());
+        assert!(
+            stored.is_none(),
+            "the session stops asking once its last card closes"
+        );
+    }
+
+    #[tokio::test]
+    async fn only_the_same_conversation_can_withdraw_a_card() {
+        let (_dir, st) = state().await;
+        let sid = SessionId::new().to_string();
+        seed_session(&st, &sid).await;
+        let a = ok(post(&st, &sid, &ask("推不推？"), "").await);
+        let stranger = SessionId::new().to_string();
+        sqlx::query(
+            "INSERT INTO sessions (id, workspace_id, runtime_kind, status, created_at) VALUES (?1, 'w1', 'claude', 'done', '0')",
+        )
+        .bind(&stranger)
+        .execute(st.db.pool())
+        .await
+        .unwrap();
+        assert!(
+            close_ask(
+                State(st.clone()),
+                session_headers(&stranger),
+                Path(a.clone())
+            )
+            .await
+            .is_err()
+        );
+        assert!(
+            close_ask(State(st.clone()), HeaderMap::new(), Path(a.clone()))
+                .await
+                .is_err()
+        );
+        assert_eq!(open_cards(&st).await, vec![a]);
+    }
+
+    #[tokio::test]
+    async fn a_replacing_card_closes_the_one_it_replaces() {
+        let (_dir, st) = state().await;
+        let sid = SessionId::new().to_string();
+        seed_session(&st, &sid).await;
+        let keep = ok(post(&st, &sid, &ask("另一件事"), "").await);
+        let old = ok(post(&st, &sid, &ask("推不推？"), "").await);
+        let out = ok(create_ask(
+            State(st.clone()),
+            session_headers(&sid),
+            Json(AskRequest {
+                question: "推到哪个分支？".into(),
+                options: vec!["main".into(), "dev".into()],
+                replaces: Some(old.clone()),
+                ..Default::default()
+            }),
+        )
+        .await)
+        .0;
+        let new = out["id"].as_str().unwrap().to_owned();
+        assert_eq!(out["replaced"], old.as_str());
+        assert_eq!(open_cards(&st).await, vec![keep, new]);
+        assert!(
+            create_ask(
+                State(st.clone()),
+                session_headers(&sid),
+                Json(AskRequest {
+                    question: "q".into(),
+                    replaces: Some("missing".into()),
+                    ..Default::default()
+                }),
+            )
+            .await
+            .is_err()
+        );
+    }
+
+    async fn event(st: &Shared, sid: &str, seq: i64, payload: &str) {
+        sqlx::query("INSERT INTO events (session_id, seq, ts, payload) VALUES (?1, ?2, '0', ?3)")
+            .bind(sid)
+            .bind(seq)
+            .bind(payload)
+            .execute(st.db.pool())
+            .await
+            .unwrap();
+    }
+
+    async fn anchor(st: &Shared, card: &str) -> (Option<i64>, Option<String>) {
+        sqlx::query_as("SELECT anchor_seq, anchor_tool FROM inbox WHERE id = ?1")
+            .bind(card)
+            .fetch_one(st.db.pool())
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_card_remembers_the_call_that_asked_it() {
+        let (_dir, st) = state().await;
+        let sid = SessionId::new().to_string();
+        seed_session(&st, &sid).await;
+        event(&st, &sid, 1, r#"{"type":"user_message","text":"hi"}"#).await;
+        event(
+            &st,
+            &sid,
+            4,
+            r#"{"type":"tool_use","id":"toolu_a","name":"mcp__blazar-fleet__ask_user","input":{"question":"推不推？","options":["推","不推"]}}"#,
+        )
+        .await;
+        event(
+            &st,
+            &sid,
+            7,
+            r#"{"type":"tool_use","id":"toolu_b","name":"mcp__blazar-fleet__report","input":{"level":"decision","text":"装不装？"}}"#,
+        )
+        .await;
+        event(&st, &sid, 9, r#"{"type":"assistant_message","text":"ok"}"#).await;
+        let a = ok(post(&st, &sid, &ask("推不推？"), "").await);
+        let b = ok(post(&st, &sid, &ask("装不装？"), "").await);
+        let c = ok(post(&st, &sid, &ask("没在日志里的问题"), "").await);
+        assert_eq!(anchor(&st, &a).await, (Some(4), Some("toolu_a".into())));
+        assert_eq!(anchor(&st, &b).await, (Some(7), Some("toolu_b".into())));
+        assert_eq!(anchor(&st, &c).await, (Some(9), None));
+
+        let again = ok(post(&st, &sid, &ask("推不推？"), "").await);
+        assert_eq!(
+            anchor(&st, &again).await,
+            (Some(9), None),
+            "a call already pointed at by another card isn't reused"
+        );
+
+        let listed = crate::inbox::list(State(st.clone()), Query(Default::default())).await;
+        let body = axum::body::to_bytes(listed.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let item = v["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|it| it["id"] == a.as_str())
+            .unwrap();
+        assert_eq!(item["anchor_seq"], 4);
+        assert_eq!(item["anchor_tool"], "toolu_a");
     }
 
     #[tokio::test]
@@ -484,7 +680,7 @@ mod tests {
         let ask = normalize(&AskRequest {
             question: "推不推？".into(),
             options: vec!["推".into(), "不推".into()],
-            context: String::new(),
+            ..Default::default()
         })
         .unwrap();
         let card = ok(post(&st, &sid.to_string(), &ask, "").await);

@@ -1,0 +1,2 @@
+ALTER TABLE inbox ADD COLUMN anchor_seq INTEGER;
+ALTER TABLE inbox ADD COLUMN anchor_tool TEXT;

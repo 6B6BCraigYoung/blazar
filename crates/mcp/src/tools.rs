@@ -817,7 +817,7 @@ pub const TOOLS: &[Tool] = &[
     },
     Tool {
         name: "ask_user",
-        description: "把要用户拍板的事做成一张带选项的卡片，放进用户的「需要你处理」。立即返回卡片 id，不等回答：发完接着做不依赖这个回答的事，没有可做的了才结束这一轮；用户点选或回复后，原话会以新的用户消息出现在这条对话里，正在干活时也会插进来。一次只问一件事，选项 2～6 个、每个一句话。",
+        description: "把要用户拍板的事做成一张带选项的卡片，放进用户的「需要你处理」。立即返回卡片 id，不等回答：发完接着做不依赖这个回答的事，没有可做的了才结束这一轮；用户点选或回复后，原话会以新的用户消息出现在这条对话里，正在干活时也会插进来。一次只问一件事，选项 2～6 个、每个一句话。卡片不会自动关闭：问题变了就用 replaces 换掉旧卡；用户在对话里用文字答了，就用 close_ask 关掉。",
         schema: || {
             obj(
                 json!({
@@ -828,19 +828,32 @@ pub const TOOLS: &[Tool] = &[
                         "items": { "type": "string" },
                     },
                     "context": s("string", "一两句背景：为什么要定、各选项的后果"),
+                    "replaces": s("string", "可选：要换掉的旧卡片 id（问题改了、选项变了时用），旧卡片会被关掉"),
                 }),
                 &["question"],
             )
         },
         build: |v| {
+            let mut body = json!({
+                "question": arg(v, "question")?,
+                "options": v.get("options").cloned().unwrap_or_else(|| json!([])),
+                "context": v.get("context").and_then(Value::as_str).unwrap_or_default(),
+            });
+            if let Some(old) = v.get("replaces").and_then(Value::as_str) {
+                body["replaces"] = json!(old);
+            }
+            Ok(("POST", "/api/asks".into(), Some(body)))
+        },
+    },
+    Tool {
+        name: "close_ask",
+        description: "关掉自己发过的一张卡片（ask_user 返回的 id）。用户已经在对话里用文字回答了、或者这件事不用再问了，就把卡片关掉，免得还挂在「需要你处理」里。",
+        schema: || obj(json!({ "id": s("string", "卡片 id") }), &["id"]),
+        build: |v| {
             Ok((
                 "POST",
-                "/api/asks".into(),
-                Some(json!({
-                    "question": arg(v, "question")?,
-                    "options": v.get("options").cloned().unwrap_or_else(|| json!([])),
-                    "context": v.get("context").and_then(Value::as_str).unwrap_or_default(),
-                })),
+                format!("/api/asks/{}/close", enc(arg(v, "id")?)),
+                None,
             ))
         },
     },
@@ -1052,6 +1065,19 @@ mod tests {
         assert_eq!(body["options"][1], "不推");
         assert_eq!(body["context"], "两批一起");
         assert!((find("ask_user").unwrap().build)(&json!({ "options": ["a"] })).is_err());
+        let (_, _, body) = (find("ask_user").unwrap().build)(&json!({
+            "question": "换个问法？", "replaces": "c1"
+        }))
+        .unwrap();
+        assert_eq!(body.unwrap()["replaces"], "c1");
+    }
+
+    #[test]
+    fn close_ask_targets_the_card() {
+        let (m, url, body) = (find("close_ask").unwrap().build)(&json!({ "id": "c 1" })).unwrap();
+        assert_eq!((m, url.as_str()), ("POST", "/api/asks/c%201/close"));
+        assert!(body.is_none());
+        assert!((find("close_ask").unwrap().build)(&json!({})).is_err());
     }
 
     #[test]

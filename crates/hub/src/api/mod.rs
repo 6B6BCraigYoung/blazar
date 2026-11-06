@@ -137,7 +137,7 @@ mod view;
 mod websocket;
 mod workspaces;
 pub use agent_config::*;
-pub use asks::{answer_ask, create_ask, create_report};
+pub use asks::{answer_ask, close_ask, create_ask, create_report};
 pub use assistant::{get_assistant, open_assistant};
 pub use browse::*;
 pub use client::*;

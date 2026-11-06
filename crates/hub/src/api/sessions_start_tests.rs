@@ -423,3 +423,42 @@ async fn uncertain_launch_keeps_admission_closed_and_attaches_a_supervisor() {
     .unwrap();
     assert_eq!(running_rows(&st).await, 0);
 }
+
+#[tokio::test]
+async fn a_new_turn_leaves_the_conversations_cards_open() {
+    let (_dir, st, ws, fake) = fixture().await;
+    let prior = SessionId::new();
+    sqlx::query(
+        "INSERT INTO sessions (id, workspace_id, runtime_kind, status, created_at, node)
+         VALUES (?1, ?2, 'claude', 'done', '1', 'local')",
+    )
+    .bind(prior.to_string())
+    .bind(ws.to_string())
+    .execute(st.db.pool())
+    .await
+    .unwrap();
+    let ask = blazar_core_types::api::Ask {
+        question: "推不推？".into(),
+        options: vec!["推".into(), "不推".into()],
+    };
+    let card = super::asks::post(&st, &prior.to_string(), &ask, "")
+        .await
+        .unwrap_or_else(|error| panic!("{}", error.message()));
+    let req = serde_json::from_value(serde_json::json!({
+        "text": "先说说别的", "agent": "claude", "resume": true, "resume_session": prior.to_string(),
+    }))
+    .unwrap();
+    let transport = fake.clone();
+    let _ = prompt_using(st.clone(), ws.to_string(), req, move |_| transport.clone())
+        .await
+        .unwrap_or_else(|error| panic!("{}", error.message()));
+    assert!(fake.launched.load(Ordering::SeqCst));
+    let open: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM inbox WHERE id = ?1 AND archived_at IS NULL AND resolved_at IS NULL",
+    )
+    .bind(&card)
+    .fetch_one(st.db.pool())
+    .await
+    .unwrap();
+    assert_eq!(open, 1);
+}

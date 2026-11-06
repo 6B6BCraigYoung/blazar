@@ -281,6 +281,7 @@ pub fn build_router(st: Arc<AppState>) -> Router {
         .route("/api/asks", post(api::create_ask))
         .route("/api/reports", post(api::create_report))
         .route("/api/asks/{id}/answer", post(api::answer_ask))
+        .route("/api/asks/{id}/close", post(api::close_ask))
         .route("/api/approval-rules", get(rules::list).post(rules::create))
         .route(
             "/api/approval-rules/{id}",

@@ -590,6 +590,7 @@ fn tool_view(t: Tool, chat: Chat, opened: Opened, ws: String) -> AnyView {
             class="cc-row cc-tool"
             data-st=t.state.as_str()
             data-name=t.name.clone()
+            data-tool=t.id.clone()
             data-wait=move || waiting.get().to_string()
             data-path=locate.clone()
             data-line=locate.as_ref().map(|_| line.to_string())
@@ -1797,6 +1798,14 @@ extern "C" {
 }
 
 const WINDOW: usize = 120;
+const FOCUS_BEFORE: usize = 8;
+const FOCUS_MS: u32 = 2400;
+
+fn css_escape(v: &str) -> String {
+    v.chars()
+        .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | ':' | '.'))
+        .collect()
+}
 
 fn mark_stuck(log: &web_sys::HtmlElement) {
     let Ok(list) = log.query_selector_all(".cc-user") else {
@@ -1933,6 +1942,84 @@ pub fn Log(chat: Chat, tick: RwSignal<u32>, log_h: RwSignal<f64>) -> impl IntoVi
         }
         frozen.set(Some(earlier().saturating_sub(WINDOW)));
     };
+    let jumped = RwSignal::new(false);
+    let query = leptos_router::hooks::use_query_map();
+    let handled = StoredValue::new(None::<String>);
+    Effect::new(move |_| {
+        let at = query.read().get("at").unwrap_or_default();
+        let tool = query.read().get("tool").unwrap_or_default();
+        let Some((sid, seq)) = crate::card_link::parse_at(&at) else {
+            return;
+        };
+        if chat.loading.get() {
+            return;
+        }
+        let mark = format!("{:?}|{at}|{tool}", chat.view.get());
+        if handled.with_value(|h| h.as_deref() == Some(mark.as_str())) {
+            return;
+        }
+        let found = chat.transcript.with(|t| {
+            let i = crate::card_link::anchor_index(
+                t.items.iter().map(|it| it.key.as_str()),
+                &sid,
+                seq,
+            )?;
+            let len = t.items.len();
+            Some((i, len))
+        });
+        let Some((i, len)) = found else { return };
+        handled.set_value(Some(mark));
+        at_bottom.set_value(false);
+        let from = start(len).min(i.saturating_sub(FOCUS_BEFORE));
+        frozen.set(Some(from));
+        jumped.set(true);
+        let key = chat.transcript.with_untracked(|t| t.items[i].key.clone());
+        let head = turns.with_untracked(|ts| {
+            ts.iter()
+                .find(|t| t.keys.contains(&key))
+                .map(|t| t.head.clone())
+        });
+        gloo_timers::callback::Timeout::new(60, move || {
+            let Some(log) = el.get_untracked() else {
+                return;
+            };
+            let by_tool = (!tool.is_empty())
+                .then(|| {
+                    log.query_selector(&format!(".cc-tool[data-tool=\"{}\"]", css_escape(&tool)))
+                        .ok()
+                        .flatten()
+                })
+                .flatten();
+            let by_turn = || {
+                head.as_ref().and_then(|h| {
+                    log.query_selector(&format!(".cc-turn[data-head=\"{}\"]", css_escape(h)))
+                        .ok()
+                        .flatten()
+                })
+            };
+            let Some(target) = by_tool.or_else(by_turn) else {
+                return;
+            };
+            let opts = web_sys::ScrollIntoViewOptions::new();
+            opts.set_block(web_sys::ScrollLogicalPosition::Center);
+            target.scroll_into_view_with_scroll_into_view_options(&opts);
+            let _ = target.set_attribute("data-focus", "true");
+            gloo_timers::callback::Timeout::new(FOCUS_MS, move || {
+                let _ = target.remove_attribute("data-focus");
+            })
+            .forget();
+        })
+        .forget();
+    });
+    let to_latest = move |_| {
+        jumped.set(false);
+        at_bottom.set_value(true);
+        frozen.set(None);
+        if let Some(e) = el.get_untracked() {
+            e.set_scroll_top(e.scroll_height());
+            hold_bottom(&e);
+        }
+    };
     Effect::new(move |_| {
         chat.transcript.track();
         chat.local_errors.track();
@@ -2013,6 +2100,9 @@ pub fn Log(chat: Chat, tick: RwSignal<u32>, log_h: RwSignal<f64>) -> impl IntoVi
                     }
                     last_top.set_value(top);
                     let bottom = at_bottom.get_value();
+                    if bottom && jumped.get_untracked() {
+                        jumped.set(false);
+                    }
                     if bottom {
                         if frozen.get_untracked().is_some() {
                             frozen.set(None);
@@ -2051,6 +2141,7 @@ pub fn Log(chat: Chat, tick: RwSignal<u32>, log_h: RwSignal<f64>) -> impl IntoVi
                             turns.with(|ts| ts.last().is_some_and(|t| t.head == head))
                         });
                         let head = turn.head.clone();
+                        let head_attr = head.clone();
                         let last_reply = Memo::new(move |_| {
                             turns
                                 .with(|ts| {
@@ -2071,7 +2162,11 @@ pub fn Log(chat: Chat, tick: RwSignal<u32>, log_h: RwSignal<f64>) -> impl IntoVi
                                 })
                         });
                         view! {
-                            <div class="cc-turn" data-current=move || current.get().to_string()>
+                            <div
+                                class="cc-turn"
+                                data-head=head_attr
+                                data-current=move || current.get().to_string()
+                            >
                                 <For each=turn_keys(turn.head) key=|k| k.clone() let:k>
                                     {item_slot(k, chat, opened, ws.clone(), last_reply)}
                                 </For>
@@ -2108,6 +2203,13 @@ pub fn Log(chat: Chat, tick: RwSignal<u32>, log_h: RwSignal<f64>) -> impl IntoVi
                 <Show when=busy>
                     <Spinner chat tick />
                 </Show>
+                <div class="cc-latest-dock">
+                    <Show when=move || jumped.get()>
+                        <button type="button" class="cc-latest" on:click=to_latest>
+                            "Jump to latest ↓"
+                        </button>
+                    </Show>
+                </div>
             </div>
         </div>
     }

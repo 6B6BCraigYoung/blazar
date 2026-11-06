@@ -88,6 +88,7 @@ pub fn App() -> impl IntoView {
                     class="side-toggle"
                     aria-label="展开侧栏"
                     title="展开侧栏"
+                    data-needs=move || (app.pending_count() > 0).to_string()
                     on:click=move |_| app.side_collapsed.set(false)
                 >
                     "☰"
@@ -153,6 +154,7 @@ pub fn App() -> impl IntoView {
             <crate::components::downloads::DownloadHost />
             <ToastHost />
             <PopHost />
+            <crate::components::needs::NeedsSheet />
             <UndoHost />
         </Router>
     }

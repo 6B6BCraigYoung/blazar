@@ -160,41 +160,95 @@ async fn thread_has_open_ask(st: &Shared, thread: &str) -> bool {
         > 0
 }
 
-pub async fn resolve_asks(st: &Shared, thread: &str) {
-    close_asks(st, thread, None).await;
-}
-
-/// Closes the thread's question cards left by earlier turns; cards posted by `sid` itself stay open.
-pub async fn resolve_asks_before(st: &Shared, thread: &str, sid: &str) {
-    close_asks(st, thread, Some(sid)).await;
-}
-
-async fn close_asks(st: &Shared, thread: &str, keep: Option<&str>) {
-    let now = Utc::now().to_rfc3339();
-    let r = sqlx::query(
-        "UPDATE inbox SET read_at = COALESCE(read_at, ?2), archived_at = ?2, resolved_at = COALESCE(resolved_at, ?2)
-         WHERE thread_id = ?1 AND archived_at IS NULL AND kind = 'question' AND ref_id LIKE 'ask:%'
-           AND (?3 IS NULL OR session_id IS NOT ?3)",
+/// The message a card was asked from: the `ask_user` / `report` call that posted it, so a link
+/// can open the conversation right there. Text questions point at the reply that asked them.
+pub async fn locate_ask(st: &Shared, card: &str, sid: &str, question: &str) -> bool {
+    let rows: Vec<(i64, String)> = sqlx::query_as(
+        "SELECT seq, payload FROM events WHERE session_id = ?1 AND payload LIKE '{\"type\":\"tool_use\"%'
+         ORDER BY seq DESC LIMIT 200",
     )
-    .bind(thread)
-    .bind(&now)
-    .bind(keep)
-    .execute(st.db.pool())
-    .await;
-    let cleared = sqlx::query(
-        "UPDATE sessions SET ask = NULL WHERE COALESCE(thread_id, id) = ?1 AND ask IS NOT NULL
-           AND (?2 IS NULL OR id IS NOT ?2)",
+    .bind(sid)
+    .fetch_all(st.db.pool())
+    .await
+    .unwrap_or_default();
+    let taken: Vec<String> = sqlx::query_scalar(
+        "SELECT anchor_tool FROM inbox WHERE session_id = ?1 AND id != ?2 AND anchor_tool IS NOT NULL",
     )
-    .bind(thread)
-    .bind(keep)
-    .execute(st.db.pool())
-    .await;
+    .bind(sid)
+    .bind(card)
+    .fetch_all(st.db.pool())
+    .await
+    .unwrap_or_default();
+    let want: String = question.trim().chars().take(200).collect();
+    let hit = rows.iter().find_map(|(seq, payload)| {
+        let v: Value = serde_json::from_str(payload).ok()?;
+        let name = v["name"].as_str()?;
+        let id = v["id"].as_str()?;
+        let asked = if name.ends_with("ask_user") {
+            v["input"]["question"].as_str()
+        } else if name.ends_with("report") && v["input"]["level"] == "decision" {
+            v["input"]["text"].as_str()
+        } else {
+            None
+        }?;
+        let asked: String = asked.trim().chars().take(200).collect();
+        (asked == want && !taken.iter().any(|t| t == id)).then(|| (*seq, id.to_owned()))
+    });
+    let Some((seq, tool)) = hit else { return false };
+    let r = sqlx::query("UPDATE inbox SET anchor_seq = ?2, anchor_tool = ?3 WHERE id = ?1")
+        .bind(card)
+        .bind(seq)
+        .bind(tool)
+        .execute(st.db.pool())
+        .await;
     if r.is_ok_and(|r| r.rows_affected() > 0) {
         changed(st);
     }
-    if cleared.is_ok_and(|r| r.rows_affected() > 0) {
-        st.emit(ServerEvent::WorkspacesChanged);
+    true
+}
+
+/// Without the call itself in the log yet, the card points at the newest event of its turn.
+pub async fn anchor_at_tail(st: &Shared, card: &str, sid: &str) {
+    let _ = sqlx::query(
+        "UPDATE inbox SET anchor_seq = (SELECT MAX(seq) FROM events WHERE session_id = ?2)
+         WHERE id = ?1 AND anchor_seq IS NULL",
+    )
+    .bind(card)
+    .bind(sid)
+    .execute(st.db.pool())
+    .await;
+}
+
+/// Closes a card for the session that asked it, or one in the same conversation.
+pub async fn withdraw_ask(st: &Shared, sid: &str, card: &str) -> Result<(), &'static str> {
+    let row: Option<(Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT i.ref_id, i.thread_id, i.archived_at FROM inbox i WHERE i.id = ?1 AND i.kind = 'question'",
+    )
+    .bind(card)
+    .fetch_optional(st.db.pool())
+    .await
+    .ok()
+    .flatten();
+    let Some((ref_id, thread, archived)) = row else {
+        return Err("No such card");
+    };
+    if !ref_id.as_deref().is_some_and(|r| r.starts_with("ask:")) {
+        return Err("That card wasn't posted with ask_user");
     }
+    let mine: Option<String> =
+        sqlx::query_scalar("SELECT COALESCE(thread_id, id) FROM sessions WHERE id = ?1")
+            .bind(sid)
+            .fetch_optional(st.db.pool())
+            .await
+            .ok()
+            .flatten();
+    if mine.is_none() || mine != thread {
+        return Err("That card belongs to another conversation");
+    }
+    if archived.is_none() {
+        resolve_ask(st, card).await;
+    }
+    Ok(())
 }
 
 /// Closes one question card; the session counts as still asking while any of its other cards is open.
@@ -351,12 +405,27 @@ pub async fn on_run_finished(
                 session_id: Some(sid.to_string()),
                 ref_id: Some(format!("ask:{sid}")),
             };
-            push_ask(&st, item, ask).await;
+            if let Some(card) = push_ask(&st, item, ask).await {
+                anchor_at_reply(&st, &card, &sid.to_string()).await;
+            }
         }
     }
     if ok {
         push_denials(&st, sid, workspace_id, &thread).await;
     }
+}
+
+async fn anchor_at_reply(st: &Shared, card: &str, sid: &str) {
+    let _ = sqlx::query(
+        "UPDATE inbox SET anchor_seq = (SELECT MAX(seq) FROM events WHERE session_id = ?2
+             AND payload LIKE '{\"type\":\"assistant_message\"%')
+         WHERE id = ?1",
+    )
+    .bind(card)
+    .bind(sid)
+    .execute(st.db.pool())
+    .await;
+    anchor_at_tail(st, card, sid).await;
 }
 
 async fn push_denials(
@@ -497,6 +566,8 @@ pub async fn list(State(st): State<Shared>, Query(q): Query<ListQuery>) -> Respo
                 "cause": s("failure_cause"), "handled": s("handled_at").is_some(),
                 "resets_at": s("resets_at"),
                 "ask": crate::brief::ask_from_row(r, "card_ask"),
+                "anchor_seq": r.try_get::<Option<i64>, _>("anchor_seq").ok().flatten(),
+                "anchor_tool": s("anchor_tool"),
             })
         })
         .collect();

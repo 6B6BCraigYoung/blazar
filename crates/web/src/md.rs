@@ -49,7 +49,7 @@ fn link(dest: &str, base: &str) -> String {
     }
 }
 
-fn encode_component(s: &str) -> String {
+pub(crate) fn encode_component(s: &str) -> String {
     use std::fmt::Write;
     let mut out = String::with_capacity(s.len());
     for b in s.bytes() {
