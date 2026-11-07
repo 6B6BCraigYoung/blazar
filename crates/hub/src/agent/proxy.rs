@@ -419,19 +419,27 @@ async fn open_tunnel(node: &str, remote: u16, local: u16) -> Result<tokio::proce
     Ok(child)
 }
 
+fn probe_script(port: u16) -> String {
+    format!(
+        "command -v curl >/dev/null 2>&1 || {{ echo nocurl; exit 0; }}\n\
+         curl -s -o /dev/null -m 8 -w '%{{http_code}}' http://127.0.0.1:{port}/v1/blazar-ping 2>/dev/null || true"
+    )
+}
+
+/// `nocurl` 时没法判断，当作还通着（别误杀别的隧道）；否则取末尾的 HTTP 码，
+/// 代理没带有效账号密钥会回 401，拿得到任何回应就说明隧道还活着；连不上是 `000`。
+fn probe_says_up(stdout: &str) -> bool {
+    let last = stdout.split_whitespace().next_back().unwrap_or("");
+    last == "nocurl" || last == "401" || (last.len() == 3 && last.starts_with('2'))
+}
+
 async fn tunnel_works(st: &Shared, node: &str, port: u16) -> bool {
-    let probe = format!(
-        "curl -s -o /dev/null -m 8 -w '%{{http_code}}' http://127.0.0.1:{port}/v1/blazar-ping || echo nocurl"
-    );
     match st
         .transport(node)
-        .exec(ExecSpec::new("bash").arg("-lc").arg(probe))
+        .exec(ExecSpec::new("bash").arg("-lc").arg(probe_script(port)))
         .await
     {
-        Ok(out) => {
-            let s = out.stdout.trim();
-            s == "401" || s.ends_with("nocurl")
-        }
+        Ok(out) => probe_says_up(&out.stdout),
         Err(_) => false,
     }
 }
@@ -448,6 +456,12 @@ async fn reclaim(st: &Shared, node: &str, port: u16) -> bool {
     if tunnel_works(st, node, port).await {
         return false;
     }
+    kill_remote_listener(st, node, port).await
+}
+
+/// Kill a stale `sshd` still holding a reverse-tunnel port on `node`. Use only when a fresh
+/// forward to that port just failed, so the holder is our own orphan from a past run.
+pub(crate) async fn kill_remote_listener(st: &Shared, node: &str, port: u16) -> bool {
     let out = st
         .transport(node)
         .exec(ExecSpec::new("bash").arg("-lc").arg(reclaim_script(port)))
@@ -664,6 +678,19 @@ mod tests {
             .unwrap();
         assert!(!String::from_utf8_lossy(&out.stdout).contains("reclaimed"));
         assert!(std::net::TcpStream::connect(("127.0.0.1", mine_port)).is_ok());
+    }
+
+    #[test]
+    fn a_dead_tunnel_reads_as_down_so_its_port_can_be_reclaimed() {
+        assert!(probe_says_up("401"));
+        assert!(probe_says_up("200"));
+        assert!(probe_says_up("204\n"));
+        assert!(probe_says_up("nocurl"), "探不了就别当它死了");
+        assert!(!probe_says_up("000"), "连不上说明隧道断了");
+        assert!(!probe_says_up(""));
+        assert!(!probe_says_up("404"));
+        assert!(!probe_says_up("502"));
+        assert!(probe_script(5090).contains("command -v curl"));
     }
 
     #[test]

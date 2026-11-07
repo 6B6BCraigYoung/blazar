@@ -938,3 +938,15 @@ Blazar 的后台小活本来就不用 Codex，所以不需要额外的 `CODEX_HO
 截图（临时 hub，Chrome 里接了假的桌面接口，不放进仓库）：`target/shots/menubar/`：a1-switch-light（开关）、a2-skipped-light 和 a3-skipped-dark（自动跳过后的提示）。
 
 验证：`cargo fmt --check`、`leptosfmt --check crates/web/src`、`cargo clippy --workspace --all-targets -- -D warnings`、wasm 的 clippy、`cargo test --workspace`、`node --test crates/web/tests/navigation.mjs`。没装机，真实环境里的「卡住 → 下次跳过」只在测试里走过。
+
+## b43 · 远端隧道重启后沿用原端口
+
+B 的第一部分（迭代清单第 4 项，用户选了「全做」）。近 14 天远端会话的失败里，5090x2 每次 ECONNREFUSED / ECONNRESET 都对得上日志里一次「隧道换到了端口 …」；根源是 hub 重启后换端口，正在跑的远端 agent 还连着旧端口，连续重试后失败。对应第 2 条（直接能用）。
+
+- **通断检查之前一直把断的当成通的**：`tunnel_works` 的探测是 `curl … || echo nocurl`，连不上时 curl 输出 `000`、再追加 `nocurl`，而判断写的是 `ends_with("nocurl")`，所以任何连不上都被当成「还通着」，回收旧端口的逻辑从来没真正跑过。改成先 `command -v curl` 分开判断：探不到 curl 才回 `nocurl`（没法判断，不动它），否则只看 HTTP 码——代理没带有效密钥会回 401，拿到 2xx/401 就是通，`000` 就是断。解析抽成 `probe_says_up`，单独测。
+- **调度回程（fleet 反向隧道）重启后换端口**：`reopen_tunnels` 按 kv 里存的原端口重建，但远端还留着上次 hub 的孤儿 `sshd` 占着这个端口，`ExitOnForwardFailure` 让 ssh 直接失败（日志「没能按端口 34163 恢复」），于是下次 `tunnel_port` 又另挑一个新端口。新增 `open_reusing`：按原端口重建失败时，先杀掉远端占着这个端口的孤儿 `sshd`（复用凭据代理那套 `kill_remote_listener`，只杀监听这个端口的 sshd），再重建一次。`reopen`、`tunnel_port`、`repair_tunnels` 都走这条路。
+- 这样 hub 重启只会断几秒，远端 agent 自带的 API 重试就能接上；端口真被别的程序占了才会换，换了之后靠自动续跑接住。孤儿本身仍要靠下次启动回收：进程被强杀时 `kill_on_drop` 不触发，这条路径覆盖的就是这种情况。
+
+测试：`probe_says_up`（2xx/401 为通、`000`/404/502 为断、`nocurl` 不动它）；原有的 `reclaim_frees_only_ports_held_by_sshd` 仍覆盖「只杀监听该端口的 sshd」。
+
+验证：`cargo fmt --check`、`cargo clippy -p blazar-hub --all-targets -- -D warnings`、`cargo test -p blazar-hub`。真实的「重启后沿用端口」没在远端跑过（不重启本机 hub）。

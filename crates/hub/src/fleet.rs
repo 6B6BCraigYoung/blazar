@@ -169,7 +169,7 @@ impl FleetState {
         }
     }
 
-    pub async fn tunnel_port(&self, node: &str, hub_port: u16) -> anyhow::Result<u16> {
+    pub async fn tunnel_port(&self, st: &Shared, node: &str, hub_port: u16) -> anyhow::Result<u16> {
         let mut tunnels = self.tunnels.lock().await;
         let mut wanted = None;
         if let Some(tunnel) = tunnels.get_mut(node) {
@@ -179,13 +179,22 @@ impl FleetState {
             wanted = Some(tunnel.port);
             tunnels.remove(node);
         }
-        let tunnel = open_tunnel(node, hub_port, wanted).await?;
+        let tunnel = match wanted {
+            Some(port) => open_reusing(st, node, hub_port, port).await?,
+            None => open_tunnel(node, hub_port, None).await?,
+        };
         let port = tunnel.port;
         tunnels.insert(node.to_owned(), tunnel);
         Ok(port)
     }
 
-    async fn reopen(&self, node: &str, hub_port: u16, port: u16) -> anyhow::Result<()> {
+    async fn reopen(
+        &self,
+        st: &Shared,
+        node: &str,
+        hub_port: u16,
+        port: u16,
+    ) -> anyhow::Result<()> {
         let mut tunnels = self.tunnels.lock().await;
         if tunnels
             .get_mut(node)
@@ -193,12 +202,16 @@ impl FleetState {
         {
             return Ok(());
         }
-        let tunnel = open_tunnel(node, hub_port, Some(port)).await?;
+        let tunnel = open_reusing(st, node, hub_port, port).await?;
         tunnels.insert(node.to_owned(), tunnel);
         Ok(())
     }
 
-    pub async fn repair_tunnels(&self, hub_port: u16) -> Vec<(String, Result<u16, String>)> {
+    pub async fn repair_tunnels(
+        &self,
+        st: &Shared,
+        hub_port: u16,
+    ) -> Vec<(String, Result<u16, String>)> {
         let mut tunnels = self.tunnels.lock().await;
         let mut dead: Vec<(String, u16)> = Vec::new();
         for (n, t) in tunnels.iter_mut() {
@@ -209,7 +222,7 @@ impl FleetState {
         let mut out = Vec::new();
         for (node, port) in dead {
             tunnels.remove(&node);
-            match open_tunnel(&node, hub_port, Some(port)).await {
+            match open_reusing(st, &node, hub_port, port).await {
                 Ok(t) => {
                     let got = t.port;
                     tunnels.insert(node.clone(), t);
@@ -234,6 +247,22 @@ fn allocated_port(line: &str) -> Option<u16> {
         .next()?
         .parse()
         .ok()
+}
+
+/// Reopen a reverse tunnel on the same port, reclaiming it first if a stale `sshd` from a
+/// past run still holds it (otherwise `ExitOnForwardFailure` makes ssh bail and the port
+/// would drift, cutting whatever remote agent was still reaching the hub on it).
+async fn open_reusing(st: &Shared, node: &str, hub_port: u16, port: u16) -> anyhow::Result<Tunnel> {
+    match open_tunnel(node, hub_port, Some(port)).await {
+        Ok(t) => Ok(t),
+        Err(e) => {
+            if crate::proxy::kill_remote_listener(st, node, port).await {
+                open_tunnel(node, hub_port, Some(port)).await
+            } else {
+                Err(e)
+            }
+        }
+    }
 }
 
 async fn open_tunnel(node: &str, hub_port: u16, wanted: Option<u16>) -> anyhow::Result<Tunnel> {
@@ -329,7 +358,7 @@ pub async fn watchdog(st: Shared) {
         let Some(port) = hub_port() else {
             continue;
         };
-        for (node, result) in st.fleet.repair_tunnels(port).await {
+        for (node, result) in st.fleet.repair_tunnels(&st, port).await {
             match result {
                 Ok(p) => {
                     tracing::info!(target: "blazar::fleet", "{node} 的调度回程断了，已按端口 {p} 重建")
@@ -439,7 +468,7 @@ pub async fn mcp_spec(
             .next()
             .and_then(|p| p.parse().ok())
             .context("hub 地址里没有端口")?;
-        let port = st.fleet.tunnel_port(node, hub_port).await?;
+        let port = st.fleet.tunnel_port(st, node, hub_port).await?;
         let _ = crate::office::kv_put(st, &tunnel_key(node), &json!(port)).await;
         format!("http://127.0.0.1:{port}{PATH}")
     };
@@ -554,7 +583,7 @@ pub async fn reopen_tunnels(st: Shared) {
             tracing::warn!(target: "blazar::fleet", "没记下 {node} 的调度回程端口，重启前在那台机器上跑的会话用不了调度工具");
             continue;
         };
-        match st.fleet.reopen(&node, hub, port).await {
+        match st.fleet.reopen(&st, &node, hub, port).await {
             Ok(()) => {
                 tracing::info!(target: "blazar::fleet", "{node} 的调度回程已按端口 {port} 恢复")
             }
