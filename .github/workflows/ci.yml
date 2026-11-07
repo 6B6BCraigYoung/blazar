@@ -55,7 +55,7 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
       - name: Browser navigation guard
-        run: node --test crates/web/tests/navigation.mjs
+        run: node --test crates/web/tests/navigation.mjs crates/web/tests/heartbeat.mjs
       - name: Web UI (wasm)
         run: cargo clippy -p blazar-web --target wasm32-unknown-unknown -- -D warnings
 

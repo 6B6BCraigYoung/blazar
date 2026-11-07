@@ -8,6 +8,10 @@ extern "C" {
     fn note_js(kind: &str, message: &str);
     #[wasm_bindgen(js_name = panicked)]
     pub fn panicked(message: &str);
+    #[wasm_bindgen(js_name = doing)]
+    pub fn doing(label: &str);
+    #[wasm_bindgen(js_name = done)]
+    pub fn done();
 }
 
 pub fn note(kind: &str, message: &str) {

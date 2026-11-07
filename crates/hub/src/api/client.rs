@@ -51,6 +51,10 @@ pub async fn report_client(
     if events.iter().any(|e| e.kind == "panic") {
         tracing::error!(target: "blazar::web", "前端崩溃，详情见 logs/web.log");
     }
+    for stall in events.iter().filter(|e| e.kind == "stall") {
+        let message: String = stall.message.chars().take(MAX_MESSAGE_CHARS).collect();
+        tracing::warn!(target: "blazar::web", "网页卡住：{message}（页面 {}）", stall.path);
+    }
     write(&logs_dir(&st), &events);
     StatusCode::NO_CONTENT
 }

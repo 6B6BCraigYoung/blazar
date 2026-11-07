@@ -977,3 +977,19 @@ B 的第三部分。出网络故障时要能一眼看出是机器、组网还是
 测试：hub 测 `parse`（正常取中位延迟、较慢、按丢包判不稳定、代理不通 vs 连不上 API、机器连不上、没 curl 算未测、状态到色调）；web 测 `claude_link`（表格那格的文案、丢包只在有丢包时显示）。
 
 截图（临时 hub，演示数据，不放进仓库）：`target/shots/link/`：b1-table-light / b1-table-dark（五台机器五种链路状态）、b2-detail-light（某台「连不上 API」的详情）。真实链路探测没在真机上跑过（不碰真实远端）。
+
+## b46 · 卡顿取证：主线程 3 秒采样、网页心跳
+
+用户 11-07 晚 23:05、23:42 又卡了两次，中控台把「排查卡顿」并进这一轮。那两次跑的还是 20:34 的旧版，没有看门狗；macOS 也没留卡顿报告（原生主线程真卡死再被强制退出时一般会有），所以更像网页进程卡住。先把取证装上，下次再卡就有证据。对应第 5 条（细节里见品质）。
+
+- **原生看门狗**：卡住的判定从 5 秒改成 3 秒，心跳从每 2 秒改成每 1 秒（否则卡住开始到发现最长要 5 秒）。卡住时照旧从后台线程调 `/usr/bin/sample` 对自己采样 3 秒，存到 `logs/hang-<时间>.txt`，并在 desktop.log 记路径。
+- **网页心跳**（`crates/web/js/client_log.js`）：每 500 毫秒走一次，页面可见时两次间隔超过 2 秒就记一条 `stall`，写明卡了多久、在哪个页面、当时在做什么，并立刻发出去：
+  - 正在进行和刚结束的慢请求（超过 1 秒的，只记方法和路径，去掉查询参数）；
+  - 最近一次输入（点了哪个按钮、按了哪个功能键，打字只记成 typing，不记内容）；
+  - Rust 侧在重活前后打的标记，现在加在「加载对话历史」和「渲染对话历史（N 条）」两处。
+  页面隐藏时计时器会被系统放慢，这段时间不算卡。浏览器支持 longtask 观察时也接上（WebKit 不支持，会自动跳过）。
+- **hub**：收到 `stall` 除了写 web.log，再往 desktop.log 记一条「网页卡住」警告，两个日志对得上。
+
+测试：看门狗状态机按新阈值重写（3 秒报一次、带阶段、恢复时报时长、心跳间隔 1 秒）；新增 `crates/web/tests/heartbeat.mjs`（页面可见时长时间间隔会带上当时在做的事、页面隐藏时不报、在途请求只记路径不带查询），并加进 CI 的 node 测试。
+
+验证：`cargo fmt --check`、`leptosfmt --check crates/web/src`、`cargo clippy --workspace --all-targets -- -D warnings`、wasm 的 clippy、`cargo test --workspace`、`node --test crates/web/tests/navigation.mjs crates/web/tests/heartbeat.mjs`。

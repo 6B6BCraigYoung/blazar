@@ -6,8 +6,8 @@ use std::time::{Duration, Instant};
 use tauri::AppHandle;
 
 const TICK: Duration = Duration::from_millis(500);
-const BEAT: Duration = Duration::from_secs(2);
-pub const STUCK: Duration = Duration::from_secs(5);
+const BEAT: Duration = Duration::from_secs(1);
+pub const STUCK: Duration = Duration::from_secs(3);
 const SETTLE: Duration = Duration::from_secs(2);
 const REPORT_EVERY: Duration = Duration::from_secs(30);
 const KEEP_SAMPLES: usize = 4;
@@ -387,24 +387,24 @@ mod tests {
         assert!(m.due(0, t0));
         let seq = m.post(t0);
         assert!(!m.answered(0));
-        assert_eq!(m.observe(0, t0 + secs(4), Stage::Tray), Seen::Fine);
+        assert_eq!(m.observe(0, t0 + secs(2), Stage::Tray), Seen::Fine);
         assert_eq!(
-            m.observe(0, t0 + secs(5), Stage::Tray),
+            m.observe(0, t0 + secs(3), Stage::Tray),
             Seen::Stuck {
-                waited: secs(5),
+                waited: secs(3),
                 stage: Stage::Tray
             }
         );
         assert_eq!(m.observe(0, t0 + secs(6), Stage::Idle), Seen::Fine);
         assert!(!m.due(0, t0 + secs(20)), "不在没回音时再投递心跳");
         assert_eq!(
-            m.observe(0, t0 + secs(35), Stage::Idle),
+            m.observe(0, t0 + secs(33), Stage::Idle),
             Seen::StillStuck {
-                waited: secs(35),
+                waited: secs(33),
                 stage: Stage::Tray
             }
         );
-        assert_eq!(m.observe(0, t0 + secs(40), Stage::Idle), Seen::Fine);
+        assert_eq!(m.observe(0, t0 + secs(38), Stage::Idle), Seen::Fine);
         assert_eq!(
             m.observe(seq, t0 + secs(1440), Stage::Idle),
             Seen::Recovered {
@@ -426,15 +426,15 @@ mod tests {
             m.observe(first, t0 + Duration::from_millis(30), Stage::Window),
             Seen::Fine
         );
-        assert!(!m.due(first, t0 + secs(1)));
-        assert!(m.due(first, t0 + secs(2)));
-        let second = m.post(t0 + secs(2));
+        assert!(!m.due(first, t0 + Duration::from_millis(500)));
+        assert!(m.due(first, t0 + secs(1)));
+        let second = m.post(t0 + secs(1));
         assert_eq!(second, first + 1);
-        assert_eq!(m.observe(first, t0 + secs(6), Stage::Idle), Seen::Fine);
+        assert_eq!(m.observe(first, t0 + secs(3), Stage::Idle), Seen::Fine);
         assert_eq!(
-            m.observe(first, t0 + secs(7), Stage::Idle),
+            m.observe(first, t0 + secs(4), Stage::Idle),
             Seen::Stuck {
-                waited: secs(5),
+                waited: secs(3),
                 stage: Stage::Idle
             }
         );

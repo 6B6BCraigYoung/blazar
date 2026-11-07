@@ -255,11 +255,13 @@ impl Chat {
         self.loading.set(true);
         let ws = self.ws_id();
         self.spawn(async move {
+            crate::client_log::doing("loading conversation history");
             let r = api::get::<Vec<HistItem>>(&format!(
                 "/api/workspaces/{ws}/history?session={}",
                 api::enc(&thread)
             ))
             .await;
+            crate::client_log::done();
             if self.view.try_get_untracked().flatten().as_deref() != Some(thread.as_str())
                 || !self
                     .history_requests
@@ -270,6 +272,10 @@ impl Chat {
             }
             match r {
                 Ok(list) => {
+                    crate::client_log::doing(&format!(
+                        "rendering conversation history ({} rows)",
+                        list.len()
+                    ));
                     let history: Vec<Row> =
                         list.into_iter().filter_map(HistItem::into_row).collect();
                     self.flush_rows();
@@ -294,6 +300,7 @@ impl Chat {
                             .collect(),
                     );
                     self.replace_rows(rows);
+                    crate::client_log::done();
                 }
                 Err(e) => self.local_errors.set(vec![
                     crate::vocab_en::lead("Couldn't load this conversation", e.explained_en()).0,
