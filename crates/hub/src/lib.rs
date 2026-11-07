@@ -109,6 +109,7 @@ pub async fn build_state_with_services(
     services.spawn(fleet::reopen_tunnels(st.clone()));
     services.spawn(run::reattach_all(st.clone()));
     services.spawn(proxy::restore(st.clone()));
+    services.spawn(auto_resume::rearm(st.clone()));
     services.spawn(accounts::check_on_start(st.clone()));
 
     let cat = st.clone();

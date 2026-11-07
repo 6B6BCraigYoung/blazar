@@ -534,6 +534,7 @@ impl FailureClass {
             "quota",
             "429",
             "usage limit",
+            "session limit",
             "限流",
         ]) {
             Self::QuotaLimit
@@ -543,6 +544,7 @@ impl FailureClass {
             "invalid api key",
             "token expired",
             "authentication",
+            "revoked",
         ]) {
             Self::AuthExpired
         } else if has(&[

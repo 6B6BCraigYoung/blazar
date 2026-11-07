@@ -950,3 +950,16 @@ B 的第一部分（迭代清单第 4 项，用户选了「全做」）。近 14
 测试：`probe_says_up`（2xx/401 为通、`000`/404/502 为断、`nocurl` 不动它）；原有的 `reclaim_frees_only_ports_held_by_sshd` 仍覆盖「只杀监听该端口的 sshd」。
 
 验证：`cargo fmt --check`、`cargo clippy -p blazar-hub --all-targets -- -D warnings`、`cargo test -p blazar-hub`。真实的「重启后沿用端口」没在远端跑过（不重启本机 hub）。
+
+## b44 · 自动续跑补上漏掉的几类失败
+
+B 的第二部分。近 14 天逐条核对发现：装上自动续跑后网络类大多接住了，但还有几处漏网。对应第 2 条（直接能用）。
+
+- **agent 进程没了但机器还在**（含本机）：以前一律当「机器连不上」，要等机器「回来」才续跑；本机和一直在线的机器永远不会「回来」，于是卡住只能手动继续。改成：只有「机器连不上且此刻仍离线」才交给 `node_back` 等（`waits_for_machine`），其余——网络、繁忙、本机、以及机器已经在线的 Node 失败——都就地重跑。
+- **放行条件分本机和远端**：本机看 hub 到 API 通不通（`reachable`），远端只看那台机器在不在线（`node_online`），让重跑自己去试机器到 API 的链路——hub 能连 API 不代表远端能连。
+- **hub 重启丢掉在等的续跑**：等待的轮询任务只在内存里，重启就没了。启动时 `rearm` 扫出各工作区最新一轮、没人处理、原因可续跑的失败会话，重新挂上续跑；机器已经回来的 Node 失败这时就直接重跑，没回来的仍留给 `node_back`。
+- **分类补准**（`FailureCause` 和 `FailureClass` 两处）：`OAuth token revoked` / `token revoked` 归为未登录（不续跑，自动选号的对话由 failover 换号继续）；`session limit` / `reached your … limit` 归为额度（自动选号的对话换号）；`403 Request not allowed` 判成网络类——它一直是凭据代理出口落到被拒区域、会自己好，交给自动续跑，但顶多试 3 次（`capped_limit`），普通 403 Forbidden 仍按未登录。
+
+测试：`capped_limit`（代理 403 封顶 3、普通网络不封顶、不超过用户上限）、`waits_for_machine`（只有离线机器才等）、`node_online`（本机恒在线、在线/离线/不存在）、`rearm` 的选取（取各工作区最新一轮、跳过已处理 / 成功收尾 / 不可续跑的）；core-types 补 OAuth 吊销→未登录、session limit→额度、代理 403→网络、普通 403→未登录，两个分类器都测。
+
+验证：`cargo fmt --check`、`cargo clippy -p blazar-hub -p blazar-core-types --all-targets -- -D warnings`、`cargo test -p blazar-core-types`、`cargo test -p blazar-hub`。真实的「重启后重新挂上续跑」没在本机 hub 上跑过。

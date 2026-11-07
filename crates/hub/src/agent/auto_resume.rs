@@ -253,7 +253,9 @@ pub async fn on_run_finished(st: Shared, sid: SessionId, status: &'static str) {
     if status != "failed" || !takes_over(&st, sid).await {
         return;
     }
-    let limit = settings(&st).await.1;
+    let cause = crate::failures::cause_of(&st, &sid.to_string()).await;
+    let message = crate::failures::last_message(&st, &sid.to_string()).await;
+    let limit = capped_limit(settings(&st).await.1, &message);
     let Some(f) = load(&st, sid).await else {
         return;
     };
@@ -272,6 +274,8 @@ pub async fn on_run_finished(st: Shared, sid: SessionId, status: &'static str) {
         .await;
         return;
     };
+    let (_, node) = place(&st, &f.ws).await;
+    let online = node_online(&st, &node).await;
     let start = streak(&st, &f).await;
     if exhausted(start, limit) {
         give_up(
@@ -284,9 +288,9 @@ pub async fn on_run_finished(st: Shared, sid: SessionId, status: &'static str) {
         .await;
         return;
     }
-    if crate::failures::cause_of(&st, &sid.to_string()).await == Some(FailureCause::Node) {
-        // 机器连不上：不在这里轮询，等它回来时由 failures::node_back 接着做。
-        let (_, node) = place(&st, &f.ws).await;
+    if waits_for_machine(cause, online) {
+        // 机器连不上：不在这里轮询，等它回来时由 failures::node_back 接着做。机器在线的
+        // Node 失败（本机、或 agent 进程没了但机器还在）照常往下走，直接重跑。
         note(
             &st,
             sid,
@@ -305,7 +309,7 @@ pub async fn on_run_finished(st: Shared, sid: SessionId, status: &'static str) {
         sid,
         &f.ws,
         format!(
-            "Will continue automatically once the network is back (up to {} more attempts)",
+            "Will continue automatically once the connection is back (up to {} more attempts)",
             limit - start
         ),
     )
@@ -318,7 +322,7 @@ pub async fn on_run_finished(st: Shared, sid: SessionId, status: &'static str) {
             tracing::info!(target: "blazar::auto_resume", "{sid} 已被手动处理，取消自动续跑");
             return;
         }
-        if !reachable().await {
+        if !back_up(&st, &node).await {
             continue;
         }
         let Ok(parsed) =
@@ -338,7 +342,7 @@ pub async fn on_run_finished(st: Shared, sid: SessionId, status: &'static str) {
             &st,
             sid,
             &f.ws,
-            format!("Network is back. Continuing automatically (attempt {attempt})"),
+            format!("Connection is back. Continuing automatically (attempt {attempt})"),
         )
         .await;
         match send_again(st.clone(), f.ws.clone(), parsed).await {
@@ -357,10 +361,77 @@ pub async fn on_run_finished(st: Shared, sid: SessionId, status: &'static str) {
         &st,
         sid,
         &f,
-        &format!("试了 {limit} 次网络都没恢复"),
-        &format!("the network did not come back after {limit} attempts"),
+        &format!("试了 {limit} 次都没恢复"),
+        &format!("the connection did not come back after {limit} attempts"),
     )
     .await;
+}
+
+pub const PROXY_REJECT_ATTEMPTS: u64 = 3;
+
+/// 代理落在被拒区域的 403 会自己好，但别无限重试：顶多试 PROXY_REJECT_ATTEMPTS 次。
+#[must_use]
+pub fn capped_limit(full: u64, message: &str) -> u64 {
+    if blazar_core_types::failure::proxy_rejected(message) {
+        full.min(PROXY_REJECT_ATTEMPTS)
+    } else {
+        full
+    }
+}
+
+/// 只有「机器连不上且此刻仍不在线」才交给 node_back 等；其余（网络、繁忙、本机、或机器已
+/// 在线的 Node 失败）都就地重跑。
+#[must_use]
+pub fn waits_for_machine(cause: Option<FailureCause>, node_online: bool) -> bool {
+    cause == Some(FailureCause::Node) && !node_online
+}
+
+/// 续跑前的放行：本机看 API 通不通；远端看那台机器在不在线，让重跑去试它自己到 API 的链路。
+async fn back_up(st: &Shared, node: &str) -> bool {
+    if node == "local" {
+        reachable().await
+    } else {
+        node_online(st, node).await
+    }
+}
+
+async fn node_online(st: &Shared, node: &str) -> bool {
+    node == "local"
+        || sqlx::query_scalar::<_, String>("SELECT status FROM nodes WHERE name = ?1")
+            .bind(node)
+            .fetch_optional(st.db.pool())
+            .await
+            .ok()
+            .flatten()
+            .is_some_and(|s| s == "online")
+}
+
+/// hub 重启后，还在等自动续跑的失败会话（内存里的轮询任务已经随进程没了）重新接上：
+/// 网络 / 繁忙的接着轮询；机器已经回来的 Node 失败直接重跑；机器还没回来的留给 node_back。
+pub async fn rearm(st: Shared) {
+    if !settings(&st).await.0 {
+        return;
+    }
+    for id in waiting_sessions(&st).await {
+        if let Ok(sid) = id.parse().map(SessionId) {
+            st.services
+                .spawn(on_run_finished(st.clone(), sid, "failed"));
+        }
+    }
+}
+
+/// 还在等自动续跑的失败会话：各工作区里最新的那一轮、没人处理过、且原因是可续跑的那几类。
+async fn waiting_sessions(st: &Shared) -> Vec<String> {
+    sqlx::query_scalar(
+        "SELECT s.id FROM sessions s
+         WHERE s.status = 'failed' AND s.handled_at IS NULL
+           AND s.failure_cause IN ('network', 'busy', 'node')
+           AND s.id = (SELECT x.id FROM sessions x WHERE x.workspace_id = s.workspace_id
+                       ORDER BY x.created_at DESC LIMIT 1)",
+    )
+    .fetch_all(st.db.pool())
+    .await
+    .unwrap_or_default()
 }
 
 fn machine(node: &str) -> String {
@@ -591,6 +662,152 @@ mod tests {
             cur["auto_resume"],
             json!({ "enabled": false, "max_attempts": 5 })
         );
+    }
+
+    #[test]
+    fn a_proxy_reject_is_capped_low_while_a_plain_network_fault_keeps_the_full_budget() {
+        assert_eq!(
+            capped_limit(20, "API Error: Connection dropped (ECONNRESET)"),
+            20
+        );
+        assert_eq!(
+            capped_limit(
+                20,
+                "Failed to authenticate. API Error: 403 Request not allowed"
+            ),
+            PROXY_REJECT_ATTEMPTS
+        );
+        assert_eq!(
+            capped_limit(2, "403 request not allowed"),
+            2,
+            "别超过用户设的上限"
+        );
+    }
+
+    #[test]
+    fn only_an_offline_machine_waits_for_node_back() {
+        use FailureCause::*;
+        assert!(waits_for_machine(Some(Node), false));
+        assert!(!waits_for_machine(Some(Node), true), "机器在线就直接重跑");
+        assert!(!waits_for_machine(Some(Network), false));
+        assert!(!waits_for_machine(Some(Busy), true));
+        assert!(!waits_for_machine(None, false));
+    }
+
+    async fn db() -> Shared {
+        let db = blazar_db::Db::open_in_memory().await.unwrap();
+        crate::state::AppState::with_services(
+            db,
+            "local".into(),
+            None,
+            crate::mesh::MeshCtx::new(None, std::env::temp_dir().join("blazar-resume-tests")),
+            crate::services::Services::Isolated,
+        )
+    }
+
+    #[tokio::test]
+    async fn an_online_machine_reads_as_up_and_offline_as_down() {
+        let st = db().await;
+        sqlx::query("INSERT INTO nodes (id, name, transport, status, created_at) VALUES ('n1','gpu-x','ssh','online','0'),('n2','gpu-y','ssh','offline','0')")
+            .execute(st.db.pool()).await.unwrap();
+        assert!(node_online(&st, "local").await, "本机总当在线");
+        assert!(node_online(&st, "gpu-x").await);
+        assert!(!node_online(&st, "gpu-y").await);
+        assert!(!node_online(&st, "gone").await);
+    }
+
+    #[tokio::test]
+    async fn rearm_picks_the_latest_unhandled_resumable_failure_per_workspace() {
+        let st = db().await;
+        sqlx::query("INSERT INTO nodes (id, name, transport, status, created_at) VALUES ('n1','local','local','online','0')")
+            .execute(st.db.pool()).await.unwrap();
+        let ws = |id: &str| {
+            format!(
+                "INSERT INTO workspaces (id, node_id, name, path, activity, created_at) VALUES ('{id}','n1','w','/tmp/{id}','errored','0')"
+            )
+        };
+        for w in ["w1", "w2", "w3", "w4"] {
+            sqlx::query(&ws(w)).execute(st.db.pool()).await.unwrap();
+        }
+        let sess = |id: &str, w: &str, cause: &str, created: &str, handled: &str, status: &str| {
+            format!(
+                "INSERT INTO sessions (id, workspace_id, runtime_kind, status, failure_cause, handled_at, created_at) VALUES ('{id}','{w}','claude','{status}','{cause}',{handled},'{created}')"
+            )
+        };
+        // w1: newer resumable failure wins over an older one.
+        sqlx::query(&sess(
+            "10000000-0000-0000-0000-000000000001",
+            "w1",
+            "login",
+            "1",
+            "NULL",
+            "failed",
+        ))
+        .execute(st.db.pool())
+        .await
+        .unwrap();
+        sqlx::query(&sess(
+            "10000000-0000-0000-0000-000000000002",
+            "w1",
+            "network",
+            "2",
+            "NULL",
+            "failed",
+        ))
+        .execute(st.db.pool())
+        .await
+        .unwrap();
+        // w2: latest run is a success → nothing to resume.
+        sqlx::query(&sess(
+            "20000000-0000-0000-0000-000000000001",
+            "w2",
+            "network",
+            "1",
+            "NULL",
+            "failed",
+        ))
+        .execute(st.db.pool())
+        .await
+        .unwrap();
+        sqlx::query(&sess(
+            "20000000-0000-0000-0000-000000000002",
+            "w2",
+            "",
+            "2",
+            "NULL",
+            "done",
+        ))
+        .execute(st.db.pool())
+        .await
+        .unwrap();
+        // w3: already handled → skip.
+        sqlx::query(&sess(
+            "30000000-0000-0000-0000-000000000001",
+            "w3",
+            "node",
+            "1",
+            "'9'",
+            "failed",
+        ))
+        .execute(st.db.pool())
+        .await
+        .unwrap();
+        // w4: a non-resumable cause → skip.
+        sqlx::query(&sess(
+            "40000000-0000-0000-0000-000000000001",
+            "w4",
+            "quota",
+            "1",
+            "NULL",
+            "failed",
+        ))
+        .execute(st.db.pool())
+        .await
+        .unwrap();
+
+        let mut got = waiting_sessions(&st).await;
+        got.sort();
+        assert_eq!(got, vec!["10000000-0000-0000-0000-000000000002".to_owned()]);
     }
 
     #[test]

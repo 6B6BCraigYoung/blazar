@@ -42,14 +42,19 @@ const NODE: &[&str] = &[
 const LOGIN: &[&str] = &[
     "not logged in",
     "authentication",
+    "authenticate",
     "invalid_api_key",
     "invalid api key",
     "unauthorized",
     "oauth_org_not_allowed",
+    "oauth token revoked",
+    "token revoked",
+    "revoked",
     "account_on_hold",
     "cloud_credential_error",
     "token expired",
     "please run /login",
+    "log in again",
     "permission_error",
     "forbidden",
     "未登录",
@@ -63,7 +68,10 @@ const QUOTA: &[&str] = &[
     "quota",
     "usage limit",
     "usage_limit",
+    "session limit",
     "hit your limit",
+    "hit your session limit",
+    "reached your",
     "limit reached",
     "too many requests",
     "billing",
@@ -129,6 +137,14 @@ fn has_any(text: &str, needles: &[&str]) -> bool {
     needles.iter().any(|n| text.contains(n))
 }
 
+/// The credential proxy's egress reached Anthropic from a region it refuses: a 403 that
+/// clears once the route changes, so it is treated as a transient network fault.
+#[must_use]
+pub fn proxy_rejected(message: &str) -> bool {
+    let t = message.to_ascii_lowercase();
+    t.contains("request not allowed")
+}
+
 fn has_code(text: &str, code: &str) -> bool {
     text.match_indices(code).any(|(at, _)| {
         let before = text[..at].chars().next_back();
@@ -190,7 +206,12 @@ impl FailureCause {
             return Self::Node;
         }
         let t = message.to_ascii_lowercase();
-        if has_any(&t, NODE) {
+        if proxy_rejected(&t) {
+            // A 403 "request not allowed" here has been the credential proxy's egress
+            // landing in a region Anthropic refuses, not a real auth failure; it clears on
+            // its own, so let auto-resume ride it out (capped low).
+            Self::Network
+        } else if has_any(&t, NODE) {
             Self::Node
         } else if has_any(&t, LOGIN) || has_code(&t, "401") || has_code(&t, "403") {
             Self::Login
@@ -305,9 +326,42 @@ mod tests {
             "Fable 5.1 requires usage credits. Switch to another model, or manage usage credits",
             "rate_limit：This request would exceed your account's rate limit. Please try again later.",
             "billing_error",
+            "You've hit your session limit · resets 9:40pm (Asia/Taipei)",
+            "You've reached your Fable limit. Switch to another model, or manage usage",
         ] {
             assert_eq!(of(m), FailureCause::Quota, "{m}");
         }
+    }
+
+    #[test]
+    fn a_revoked_login_reads_as_login_not_a_passing_fault() {
+        for m in [
+            "Failed to authenticate: OAuth token revoked. Please log in again or contact your administrator",
+            "authentication token revoked",
+        ] {
+            assert_eq!(of(m), FailureCause::Login, "{m}");
+        }
+        assert_eq!(
+            crate::FailureClass::classify("Failed to authenticate: OAuth token revoked"),
+            crate::FailureClass::AuthExpired
+        );
+        assert_eq!(
+            crate::FailureClass::classify("You've hit your session limit"),
+            crate::FailureClass::QuotaLimit
+        );
+    }
+
+    #[test]
+    fn a_proxy_region_reject_reads_as_network_so_it_can_resume() {
+        let m = "Failed to authenticate. API Error: 403 Request not allowed（api_error）";
+        assert_eq!(of(m), FailureCause::Network, "{m}");
+        assert!(proxy_rejected(m));
+        assert!(!proxy_rejected("API Error: 403 Forbidden"));
+        assert_eq!(
+            of("API Error: 403 Forbidden"),
+            FailureCause::Login,
+            "普通 403 仍按未登录"
+        );
     }
 
     #[test]
