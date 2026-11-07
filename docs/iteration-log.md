@@ -823,7 +823,7 @@ Blazar 的后台小活本来就不用 Codex，所以不需要额外的 `CODEX_HO
 
 ## b35 · 卡片不乱关、全局可见、跳到提问处
 
-用户：卡片有时消失太快；离开中控台进工作区也要能看到；点卡片跳到对话没看到上下文。对应第 1 条（不丢东西）和第 3 条（内容优先）。
+用户：卡片有时消失太快；离开中控台进工作区也要能看到；点卡片跳到对话没看到上下文。对应第 6 条（对用户负责：要用户定的事不能悄悄消失）和第 7 条（整体体验：审批和卡片是完整路径上的一环）。
 
 - **卡片不乱关**：去掉「同一对话开始新一轮就关掉所有卡片」和「发新卡片关掉前几轮卡片」两条规则。卡片只在这几种情况关闭：在卡片上回答；用户点「不用了」或标为已处理；提问方撤回（fleet 新增 `close_ask`）或替换（`ask_user` 加 `replaces`）。撤回只认同一对话里的会话。`ASK_RULE` 和中控台的说明写明：用户在对话里用文字答了，agent 要用 `close_ask` 关卡。不设自动过期。
 - **全局可见**：侧栏加「需要你处理」，带数量；在中控台以外的页面点开是一个靠侧栏的弹层，列出所有工作区和中控台的未处理卡片，能直接回答。中控台页面点它只聚焦右栏，不重复显示。侧栏完全收起时，展开按钮上有橙点。中控台入口不再重复显示这个数字。
@@ -851,5 +851,17 @@ Blazar 的后台小活本来就不用 Codex，所以不需要额外的 `CODEX_HO
 测试：vfs 用一个记录脚本的传输验证切片在节点上完成、只传回那一段、读短会报错；hub 测 Range 解析（含后缀、开放区间、越界、多段、非法）和 206 / 200 / 416 / 415 / 404 响应；web 测扩展名分类、大小文字、代码片段识别和 Markdown 渲染；桌面端测只放行媒体文件。
 
 截图用临时 hub 和本机文件；临时 hub 没接远程节点，远程按段读取靠测试覆盖。不放进仓库。
+
+验证：`cargo fmt --check`、`leptosfmt --check crates/web/src`、`cargo clippy --workspace --all-targets -- -D warnings`、wasm 的 clippy、`cargo test --workspace`、`node --test crates/web/tests/navigation.mjs`。
+
+## b37 · 「文件」按钮挪到页头右边
+
+用户：「文件的按钮帮我放到右边去，因为编辑器在右边」，在三个方案里选了 1。对应第 4 条（一致）：「文件」和「更改」都打开右侧面板，现在并排、样子一样。
+
+- 去掉页头最左边的文件夹图标，在「更改」左边加同样的文字按钮「文件」，页头右边变成「文件 · 更改 · ⋯」。文件树开着时按钮和「更改」一样用选中底色；快捷键和提示不变；点它不抢编辑器的焦点。
+- 页头左边距从 8px 改成 16px，和右边对称（原来左边要给图标留位置）。
+- 去掉不再用的文件夹图标常量。
+
+截图（临时 hub，演示数据，不放进仓库）：`target/shots/files/` 里的 before-closed、before-open、after-closed、after-open。
 
 验证：`cargo fmt --check`、`leptosfmt --check crates/web/src`、`cargo clippy --workspace --all-targets -- -D warnings`、wasm 的 clippy、`cargo test --workspace`、`node --test crates/web/tests/navigation.mjs`。

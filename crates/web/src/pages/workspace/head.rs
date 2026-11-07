@@ -328,16 +328,6 @@ pub fn WsHead(
     let changed = move || diff.files.with(Vec::len);
     view! {
         <header class="ws-head" inert=move || gone.get()>
-            <button
-                type="button"
-                class="laybtn"
-                aria-label="文件"
-                title=crate::shortcuts::titled("文件", "explorer")
-                aria-pressed=move || lay().files_shown().to_string()
-                on:mousedown=|e: leptos::ev::MouseEvent| e.prevent_default()
-                on:click=move |_| state.toggle_files()
-                inner_html=super::ICON_FILES
-            ></button>
             <h1 class="ws-name" title=path>
                 {title}
             </h1>
@@ -386,6 +376,16 @@ pub fn WsHead(
             <WsStatus id=id.clone() failed />
             {move || error.get().map(|e| view! { <InlineError error=e /> })}
             <span class="grow"></span>
+            <button
+                type="button"
+                class="btn small ws-files"
+                aria-pressed=move || lay().files_shown().to_string()
+                title=crate::shortcuts::titled("文件", "explorer")
+                on:mousedown=|e: leptos::ev::MouseEvent| e.prevent_default()
+                on:click=move |_| state.toggle_files()
+            >
+                "文件"
+            </button>
             <button
                 type="button"
                 class="btn small ws-changes"

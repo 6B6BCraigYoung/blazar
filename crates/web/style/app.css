@@ -95,7 +95,7 @@ button { font: inherit; color: inherit; }
 .ws-gone { position: absolute; inset: 0; z-index: var(--layer-modal); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-lg); background: var(--bg-canvas); text-align: center; }
 .ws-gone h2 { margin: 0; font-size: var(--font-size-section-title); font-weight: var(--font-weight-semibold); }
 .ws-gone p { margin: 0 0 var(--space-md); }
-.ws-head { height: 46px; flex: 0 0 auto; display: flex; align-items: center; gap: var(--space-md); padding: 0 var(--space-card) 0 var(--space-md); background: var(--bg-canvas); min-width: 0; }
+.ws-head { height: 46px; flex: 0 0 auto; display: flex; align-items: center; gap: var(--space-md); padding: 0 var(--space-card); background: var(--bg-canvas); min-width: 0; }
 .ws-thread { flex: 0 1 auto; min-width: 0; }
 .ws-thread-btn { all: unset; box-sizing: border-box; cursor: pointer; display: inline-flex; align-items: center; gap: var(--space-xs); max-width: 260px; height: 26px; padding: 0 var(--space-sm) 0 var(--space-md); border-radius: var(--r-sm); font-size: var(--font-size-label); color: var(--fg-2); }
 .ws-thread-btn:hover, .ws-thread-btn:focus-visible, .ws-thread-btn[aria-expanded="true"] { background: var(--bg-hover); color: var(--fg); }
@@ -111,7 +111,7 @@ button { font: inherit; color: inherit; }
 .ws-threads .hist-row:hover { background: var(--bg-hover); color: var(--fg); }
 .ws-threads .hist-row[data-sel="true"] { background: var(--bg-selected); }
 .ws-threads .hist-row b { font-weight: var(--font-weight-medium); font-size: var(--font-size-label-readable); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ws-head .ws-name { margin: 0 0 0 var(--space-2xs); font-size: var(--font-size-card-title); font-weight: var(--font-weight-semibold); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1 auto; }
+.ws-head .ws-name { margin: 0; font-size: var(--font-size-card-title); font-weight: var(--font-weight-semibold); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1 auto; }
 .ws-head .ws-sub { font-size: var(--font-size-label); color: var(--fg-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1 auto; }
 .ws-head .ws-slow { margin-left: var(--space-xs); color: var(--fg-4); }
 .ws-head .ws-up { flex: 0 1 auto; }
@@ -119,9 +119,9 @@ button { font: inherit; color: inherit; }
 .ws-head .grow { flex: 1; }
 .ws-status { all: unset; flex: 0 0 auto; display: inline-flex; align-items: center; gap: var(--space-sm); padding: var(--space-2xs) var(--space-md); margin-left: calc(var(--space-2xs) * -1); border-radius: var(--radius-pill); font-size: var(--font-size-label); color: var(--status-fg); cursor: pointer; white-space: nowrap; }
 .ws-status:hover { background: var(--bg-hover); }
-.ws-changes { flex: 0 0 auto; padding: 0 var(--space-md); display: inline-flex; align-items: center; justify-content: center; gap: var(--space-xs); }
+.ws-files, .ws-changes { flex: 0 0 auto; padding: 0 var(--space-md); display: inline-flex; align-items: center; justify-content: center; gap: var(--space-xs); }
 .ws-changes .n { color: var(--fg-3); font-variant-numeric: tabular-nums; }
-.ws-changes[aria-pressed="true"] { background: var(--bg-selected); }
+.ws-files[aria-pressed="true"], .ws-changes[aria-pressed="true"] { background: var(--bg-selected); }
 .ws-menu { min-width: 200px; }
 .ws-menu button { display: flex; align-items: center; gap: var(--space-xl); }
 .ws-menu button span { flex: 1; }
