@@ -453,6 +453,9 @@ fn render(seq: &u64, kind: &EntryKind) -> String {
                 blazar_core_types::ApprovalDecision::Deny { message } => format!("拒绝：{message}"),
                 blazar_core_types::ApprovalDecision::Cancelled => "agent 撤回了询问".to_owned(),
                 blazar_core_types::ApprovalDecision::Aborted => "会话结束，作废".to_owned(),
+                blazar_core_types::ApprovalDecision::Interrupted => {
+                    "被重启打断，作废".to_owned()
+                }
             }
         ),
         EntryKind::InputConsumed { text } => format!("送达  {}", truncate(text)),

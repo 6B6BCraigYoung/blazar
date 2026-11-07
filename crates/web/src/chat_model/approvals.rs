@@ -123,6 +123,7 @@ pub fn decision_text(d: &ApprovalDecision) -> String {
         ApprovalDecision::Deny { .. } => "Denied".into(),
         ApprovalDecision::Cancelled => "Withdrawn by the agent".into(),
         ApprovalDecision::Aborted => "Session ended".into(),
+        ApprovalDecision::Interrupted => "Interrupted by a restart".into(),
     }
 }
 

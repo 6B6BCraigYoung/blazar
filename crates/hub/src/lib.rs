@@ -111,6 +111,11 @@ pub async fn build_state_with_services(
     services.spawn(run::reattach_all(st.clone()));
     services.spawn(proxy::restore(st.clone()));
     services.spawn(auto_resume::rearm(st.clone()));
+    let settle = st.clone();
+    services.spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+        run::settle_voided_approvals(&settle).await;
+    });
     services.spawn(accounts::check_on_start(st.clone()));
 
     let cat = st.clone();

@@ -993,3 +993,15 @@ B 的第三部分。出网络故障时要能一眼看出是机器、组网还是
 测试：看门狗状态机按新阈值重写（3 秒报一次、带阶段、恢复时报时长、心跳间隔 1 秒）；新增 `crates/web/tests/heartbeat.mjs`（页面可见时长时间间隔会带上当时在做的事、页面隐藏时不报、在途请求只记路径不带查询），并加进 CI 的 node 测试。
 
 验证：`cargo fmt --check`、`leptosfmt --check crates/web/src`、`cargo clippy --workspace --all-targets -- -D warnings`、wasm 的 clippy、`cargo test --workspace`、`node --test crates/web/tests/navigation.mjs crates/web/tests/heartbeat.mjs`。
+
+## b47 · 被重启打断的审批：落定成「被打断」，可以一键接着做
+
+用户报 YuanTu-dash 出问题：它 23:31 发起了一次 Write 审批，23:42 Blazar 重开时智能体进程没了。hub 只在 approvals 表里把这条审批记成 aborted，没往对话里写结果，所以前端一直把它当成待审批；用户点「Yes」，又因为没有保存的回复而报错「This approval has no saved reply to recover…」。中控台查到了根因。对应第 2 条（直接能用）和第 6 条（对用户负责）。
+
+- **收尾时补写结果**（`run.rs`）：会话结束时如果还有没回答的审批，在同一个事务里先取出这些审批的 id，提交后给每一条往事件流里写一条 `ApprovalResolved`。智能体进程是自己消失的（没有退出码、也不是用户停下的，也就是被重启、强杀或机器重启打断），记成新的 `Interrupted`；用户停下或进程正常退出的，仍记 `Aborted`（`voided_decision`）。
+- **启动时给旧的补写**（`settle_voided_approvals`）：老版本中止审批时只改了表，没写结果。hub 启动 60 秒后，给这类审批各补一条结果（等重新附着时发现智能体没了、走收尾补写的那些先写完，免得重复）。真实库里有 3 条，其中 YuanTu-dash 那条会补成「被打断」。
+- **界面**（对话面板照规矩用英文）：审批那一行落定成「Interrupted by a restart · Write」，不再能点。对话底部的失败卡在「智能体进程没了、机器在线」时，标题改成「Interrupted by a restart」，按钮是 Continue，一键续上这段对话，智能体会重做那一步、重新弹出审批。工作区卡片上的中文摘要写「这一轮被重启打断了，可以接着做」。自动续跑开着的话，新版也会自动续上这类失败（b44）。
+
+测试：hub 测 `voided_decision`（进程消失算打断，用户停下或有退出码算会话结束）和启动补写（只补一次、用户停下的记会话结束、已有结果的不补、还在跑的不动）；web 测审批落定成被打断以后不再挂着；core-types 测 `agent_vanished`（区分进程消失和智能体报错）。CLI 的事件列表也补上了这种结果。
+
+验证：`cargo fmt --check`、`leptosfmt --check crates/web/src`、`cargo clippy --workspace --all-targets -- -D warnings`、wasm 的 clippy、`cargo test --workspace`（1105 个全过）、两个 node 测试。

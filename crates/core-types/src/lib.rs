@@ -304,6 +304,8 @@ pub enum ApprovalDecision {
     Cancelled,
 
     Aborted,
+
+    Interrupted,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

@@ -731,3 +731,125 @@ fn chain_uuid_skips_messages_the_cli_never_persists() {
     assert_eq!(chain_uuid(r#"{"type":"result","uuid":"x"}"#), None);
     assert_eq!(chain_uuid("not json \"uuid\""), None);
 }
+
+#[test]
+fn a_vanished_agent_interrupts_its_approval_while_a_stop_or_an_exit_just_ends_it() {
+    assert_eq!(voided_decision(false, None), ApprovalDecision::Interrupted);
+    assert_eq!(voided_decision(true, None), ApprovalDecision::Aborted);
+    assert_eq!(voided_decision(false, Some(1)), ApprovalDecision::Aborted);
+    assert_eq!(voided_decision(false, Some(0)), ApprovalDecision::Aborted);
+}
+
+#[tokio::test]
+async fn approvals_voided_by_an_older_build_get_their_resolution_once() {
+    let db = blazar_db::Db::open_in_memory().await.unwrap();
+    let st = AppState::with_services(
+        db,
+        "local".into(),
+        None,
+        crate::mesh::MeshCtx::new(None, std::env::temp_dir().join("blazar-void-tests")),
+        crate::services::Services::Isolated,
+    );
+    let pool = st.db.pool();
+    let ws = "0a0b0c0d-0000-4000-8000-000000000001";
+    sqlx::query("INSERT INTO nodes (id, name, transport, status, created_at) VALUES ('n1', 'gpu-x', 'ssh', 'online', '0')")
+        .execute(pool).await.unwrap();
+    sqlx::query("INSERT INTO workspaces (id, node_id, name, path, activity, created_at) VALUES (?1, 'n1', 'repo', '/home/me/repo', 'idle', '0')")
+        .bind(ws).execute(pool).await.unwrap();
+    let cases = [
+        (
+            "0a0b0c0d-0000-4000-8000-0000000000a1",
+            "0a0b0c0d-0000-4000-8000-0000000000b1",
+            "failed",
+            None,
+            false,
+        ),
+        (
+            "0a0b0c0d-0000-4000-8000-0000000000a2",
+            "0a0b0c0d-0000-4000-8000-0000000000b2",
+            "interrupted",
+            None,
+            false,
+        ),
+        (
+            "0a0b0c0d-0000-4000-8000-0000000000a3",
+            "0a0b0c0d-0000-4000-8000-0000000000b3",
+            "failed",
+            Some(1),
+            true,
+        ),
+        (
+            "0a0b0c0d-0000-4000-8000-0000000000a4",
+            "0a0b0c0d-0000-4000-8000-0000000000b4",
+            "running",
+            None,
+            false,
+        ),
+    ];
+    for (sid, aid, status, code, resolved) in cases {
+        sqlx::query("INSERT INTO sessions (id, workspace_id, runtime_kind, status, exit_code, created_at) VALUES (?1, ?2, 'claude', ?3, ?4, '1')")
+            .bind(sid).bind(ws).bind(status).bind(code).execute(pool).await.unwrap();
+        sqlx::query("INSERT INTO approvals (id, session_id, request, decision, decided_at, created_at) VALUES (?1, ?2, '{}', 'aborted', '2', '1')")
+            .bind(aid).bind(sid).execute(pool).await.unwrap();
+        let mut payloads = vec![format!(
+            r#"{{"type":"approval","id":"{aid}","request":{{}}}}"#
+        )];
+        if resolved {
+            payloads.push(format!(
+                r#"{{"type":"approval_resolved","id":"{aid}","decision":{{"kind":"aborted"}}}}"#
+            ));
+        }
+        for (i, p) in payloads.iter().enumerate() {
+            sqlx::query(
+                "INSERT INTO events (session_id, seq, ts, payload) VALUES (?1, ?2, '1', ?3)",
+            )
+            .bind(sid)
+            .bind(i64::try_from(i).unwrap() + 1)
+            .bind(p)
+            .execute(pool)
+            .await
+            .unwrap();
+        }
+    }
+    let resolutions = |sid: &'static str| {
+        let st = st.clone();
+        async move {
+            sqlx::query_scalar::<_, String>(
+                "SELECT payload FROM events WHERE session_id = ?1 AND payload LIKE '{\"type\":\"approval_resolved\"%' ORDER BY seq",
+            )
+            .bind(sid)
+            .fetch_all(st.db.pool())
+            .await
+            .unwrap()
+        }
+    };
+
+    settle_voided_approvals(&st).await;
+    settle_voided_approvals(&st).await;
+
+    let vanished = resolutions("0a0b0c0d-0000-4000-8000-0000000000a1").await;
+    assert_eq!(vanished.len(), 1, "只补一次");
+    assert!(
+        vanished[0].contains(r#""decision":{"kind":"interrupted"}"#),
+        "{vanished:?}"
+    );
+    let stopped = resolutions("0a0b0c0d-0000-4000-8000-0000000000a2").await;
+    assert_eq!(stopped.len(), 1);
+    assert!(
+        stopped[0].contains(r#""decision":{"kind":"aborted"}"#),
+        "用户停下的不算重启打断"
+    );
+    assert_eq!(
+        resolutions("0a0b0c0d-0000-4000-8000-0000000000a3")
+            .await
+            .len(),
+        1,
+        "已有结果的不再补"
+    );
+    assert!(
+        resolutions("0a0b0c0d-0000-4000-8000-0000000000a4")
+            .await
+            .is_empty(),
+        "还在跑的会话不动"
+    );
+}

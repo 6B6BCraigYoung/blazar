@@ -137,6 +137,14 @@ fn has_any(text: &str, needles: &[&str]) -> bool {
     needles.iter().any(|n| text.contains(n))
 }
 
+/// The run ended because its agent process vanished — the app or hub was restarted or killed, or
+/// the machine rebooted — rather than because the agent reported an error.
+#[must_use]
+pub fn agent_vanished(message: &str) -> bool {
+    let t = message.trim_start();
+    t.starts_with("agent process is gone") || t.starts_with("agent 进程已经不在了")
+}
+
 /// The credential proxy's egress reached Anthropic from a region it refuses: a 403 that
 /// clears once the route changes, so it is treated as a transient network fault.
 #[must_use]
@@ -349,6 +357,20 @@ mod tests {
             crate::FailureClass::classify("You've hit your session limit"),
             crate::FailureClass::QuotaLimit
         );
+    }
+
+    #[test]
+    fn a_vanished_agent_is_told_apart_from_an_agent_that_errored() {
+        assert!(agent_vanished(
+            "agent process is gone (machine rebooted, process group killed, or directory removed); resume the previous conversation to try again"
+        ));
+        assert!(agent_vanished(
+            "agent 进程已经不在了（机器重启、被整组杀掉或目录被删）"
+        ));
+        assert!(!agent_vanished("agent exited unexpectedly (exit code 1)"));
+        assert!(!agent_vanished(
+            "ssh: connect to host gpu-x port 22: No route to host"
+        ));
     }
 
     #[test]

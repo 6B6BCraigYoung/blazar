@@ -775,6 +775,12 @@ async fn finalize(ctx: &Ctx, code: Option<i32>, p: &mut Progress) -> Result<(), 
         .begin_with("BEGIN IMMEDIATE")
         .await
         .map_err(|e| e.to_string())?;
+    let voided: Vec<String> =
+        sqlx::query_scalar("SELECT id FROM approvals WHERE session_id = ?1 AND decision IS NULL")
+            .bind(ctx.sid.to_string())
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(|e| e.to_string())?;
     sqlx::query(
         "UPDATE approvals SET decision = 'aborted', decided_at = ?1
          WHERE session_id = ?2 AND decision IS NULL",
@@ -792,6 +798,32 @@ async fn finalize(ctx: &Ctx, code: Option<i32>, p: &mut Progress) -> Result<(), 
         .await
         .map_err(|e| e.to_string())?;
     tx.commit().await.map_err(|e| e.to_string())?;
+    if !voided.is_empty() {
+        let decision = voided_decision(interrupted, code);
+        let mut state = ctx.live.state.lock().await;
+        for id in voided {
+            let Ok(uuid) = id.parse::<uuid::Uuid>() else {
+                continue;
+            };
+            let e = NormalizedEntry {
+                seq: state.next_seq,
+                ts: Utc::now(),
+                parent_tool_use_id: None,
+                kind: EntryKind::ApprovalResolved {
+                    id: ApprovalId(uuid),
+                    decision: decision.clone(),
+                },
+            };
+            if ctx.st.db.append_event(ctx.sid, ctx.ws, &e).await.is_ok() {
+                state.next_seq += 1;
+                ctx.st.emit(ServerEvent::Entry {
+                    workspace_id: ctx.ws,
+                    session_id: ctx.sid,
+                    entry: Box::new(e),
+                });
+            }
+        }
+    }
     ctx.st.emit(ServerEvent::WorkspacesChanged);
     if status == "failed" {
         crate::failures::record(&ctx.st, ctx.sid).await;
@@ -1283,6 +1315,63 @@ pub async fn interrupt(st: &Shared, live: Arc<Live>, sid: SessionId) {
         });
     } else {
         let _ = live.run.hard_kill().await;
+    }
+}
+
+/// A run that dies with an approval still open: when the agent process simply vanished (no exit
+/// code, and the user did not stop it) the approval was cut off by a restart or a kill, so it is
+/// marked interrupted and the chat can offer to continue; anything else just ended the session.
+#[must_use]
+pub fn voided_decision(interrupted: bool, code: Option<i32>) -> ApprovalDecision {
+    if !interrupted && code.is_none() {
+        ApprovalDecision::Interrupted
+    } else {
+        ApprovalDecision::Aborted
+    }
+}
+
+/// Older builds voided open approvals only in the approvals table, so the chat kept offering them
+/// as pending and a click failed. Give each such approval its resolution in the conversation.
+pub async fn settle_voided_approvals(st: &Shared) {
+    let rows: Vec<(String, String, String, String, Option<i64>)> = sqlx::query_as(
+        "SELECT a.id, a.session_id, s.workspace_id, s.status, s.exit_code
+         FROM approvals a JOIN sessions s ON s.id = a.session_id
+         WHERE a.decision = 'aborted' AND s.status <> 'running'
+           AND NOT EXISTS (SELECT 1 FROM events e WHERE e.session_id = a.session_id
+               AND e.payload LIKE '{\"type\":\"approval_resolved\",\"id\":\"' || a.id || '\"%')",
+    )
+    .fetch_all(st.db.pool())
+    .await
+    .unwrap_or_default();
+    for (id, sid, ws, status, code) in rows {
+        let (Ok(id), Ok(sid), Ok(ws)) = (
+            id.parse::<uuid::Uuid>(),
+            sid.parse::<uuid::Uuid>(),
+            ws.parse::<uuid::Uuid>(),
+        ) else {
+            continue;
+        };
+        let (sid, ws) = (SessionId(sid), WorkspaceId(ws));
+        let Ok(seq) = st.db.max_seq(sid).await else {
+            continue;
+        };
+        let code = code.map(|c| i32::try_from(c).unwrap_or(i32::MAX));
+        let e = NormalizedEntry {
+            seq: seq + 1,
+            ts: Utc::now(),
+            parent_tool_use_id: None,
+            kind: EntryKind::ApprovalResolved {
+                id: ApprovalId(id),
+                decision: voided_decision(status == "interrupted", code),
+            },
+        };
+        if st.db.append_event(sid, ws, &e).await.is_ok() {
+            st.emit(ServerEvent::Entry {
+                workspace_id: ws,
+                session_id: sid,
+                entry: Box::new(e),
+            });
+        }
     }
 }
 

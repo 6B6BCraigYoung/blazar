@@ -709,3 +709,43 @@ fn a_failed_turn_that_repeats_the_error_above_it_is_one_row() {
     assert_eq!(errors.len(), 1, "{errors:?}");
     assert!(!errors[0].contains("Server error"), "{errors:?}");
 }
+
+#[test]
+fn an_approval_cut_off_by_a_restart_stops_asking_and_says_so() {
+    let id = "0f0e0d0c-0b0a-4908-8706-050403020100";
+    let rows = vec![
+        row("s", 1, 0, json!({"type":"user_message","text":"x"})),
+        row(
+            "s",
+            2,
+            0,
+            json!({"type":"tool_use","id":"t1","name":"Write","input":{"file_path":"/w/notes.md","content":"hi"}}),
+        ),
+        row(
+            "s",
+            3,
+            0,
+            json!({"type":"approval","id":id,"request":{"tool_name":"Write","input":{"file_path":"/w/notes.md"}}}),
+        ),
+    ];
+    assert_eq!(build(&rows, "/w", false).pending.len(), 1);
+    let mut cut = rows.clone();
+    cut.push(row(
+        "s",
+        4,
+        0,
+        json!({"type":"approval_resolved","id":id,"decision":{"kind":"interrupted"}}),
+    ));
+    let t = build(&cut, "/w", false);
+    assert!(t.pending.is_empty(), "被重启打断的审批不再挂着让人点");
+    let Body::Fold(f) = &t.items[1].body else {
+        panic!()
+    };
+    assert!(
+        f.steps
+            .iter()
+            .any(|s| matches!(s, Step::Note(n) if n.starts_with("Interrupted by a restart"))),
+        "{:?}",
+        f.steps
+    );
+}

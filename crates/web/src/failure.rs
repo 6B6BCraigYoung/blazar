@@ -54,6 +54,9 @@ impl Failure {
     }
 
     pub fn headline_en(&self) -> String {
+        if self.interrupted() {
+            return "Interrupted by a restart".into();
+        }
         let resets = self.resets_at.as_deref().map(clock_en);
         crate::vocab_en::failure(
             self.cause,
@@ -72,6 +75,12 @@ impl Failure {
                 .is_some_and(|app| app.node_online(&self.node))
     }
 
+    /// The agent process vanished while its machine is still up (a restart or a kill, not an
+    /// error): the turn can simply be continued.
+    pub fn interrupted(&self) -> bool {
+        self.node_back() && blazar_core_types::failure::agent_vanished(&self.message)
+    }
+
     pub fn primary_en(&self) -> &'static str {
         if self.node_back() {
             crate::vocab_en::next_step(FailureCause::Network)
@@ -81,6 +90,9 @@ impl Failure {
     }
 
     pub fn line(&self) -> String {
+        if self.interrupted() {
+            return "这一轮被重启打断了，可以接着做".into();
+        }
         if self.node_back() {
             return format!("{} 回来了，可以继续", fmt::machine(&self.node));
         }
