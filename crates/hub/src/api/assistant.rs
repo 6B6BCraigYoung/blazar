@@ -510,6 +510,7 @@ mod tests {
             network: None,
             role: None,
             last_seen_at: None,
+            claude_link: None,
         };
         let ws =
             |id: &str, node: &str, activity: &str, step: Option<WorkspaceStep>| WorkspaceView {

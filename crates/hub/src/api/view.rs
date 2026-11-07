@@ -150,7 +150,7 @@ async fn latest_step(st: &AppState, session_id: &str) -> Option<WorkspaceStep> {
 
 pub(crate) async fn snapshot(st: &AppState) -> anyhow::Result<StateSnapshot> {
     let nodes: Vec<NodeView> = sqlx::query(
-        "SELECT n.name, n.transport, n.endpoint, n.status, n.labels, n.network, n.role, n.last_seen_at,
+        "SELECT n.name, n.transport, n.endpoint, n.status, n.labels, n.capabilities, n.network, n.role, n.last_seen_at,
                 (SELECT COUNT(*) FROM workspaces w WHERE w.node_id = n.id AND w.kind = 'project') AS wc
          FROM nodes n ORDER BY n.name",
     )
@@ -160,6 +160,12 @@ pub(crate) async fn snapshot(st: &AppState) -> anyhow::Result<StateSnapshot> {
     .map(|r| {
         let labels: String = r.try_get("labels").unwrap_or_default();
         let meta: serde_json::Value = serde_json::from_str(&labels).unwrap_or_default();
+        let caps: serde_json::Value = r
+            .try_get::<Option<String>, _>("capabilities")
+            .ok()
+            .flatten()
+            .and_then(|c| serde_json::from_str(&c).ok())
+            .unwrap_or_default();
         NodeView {
             name: r.try_get("name").unwrap_or_default(),
             transport: r.try_get("transport").unwrap_or_default(),
@@ -174,6 +180,7 @@ pub(crate) async fn snapshot(st: &AppState) -> anyhow::Result<StateSnapshot> {
             network: r.try_get::<Option<String>, _>("network").unwrap_or(None),
             role: r.try_get::<Option<String>, _>("role").unwrap_or(None),
             last_seen_at: r.try_get::<Option<String>, _>("last_seen_at").unwrap_or(None),
+            claude_link: crate::link::stored(&caps),
         }
     })
     .collect();

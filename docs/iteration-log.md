@@ -963,3 +963,17 @@ B 的第二部分。近 14 天逐条核对发现：装上自动续跑后网络�
 测试：`capped_limit`（代理 403 封顶 3、普通网络不封顶、不超过用户上限）、`waits_for_machine`（只有离线机器才等）、`node_online`（本机恒在线、在线/离线/不存在）、`rearm` 的选取（取各工作区最新一轮、跳过已处理 / 成功收尾 / 不可续跑的）；core-types 补 OAuth 吊销→未登录、session limit→额度、代理 403→网络、普通 403→未登录，两个分类器都测。
 
 验证：`cargo fmt --check`、`cargo clippy -p blazar-hub -p blazar-core-types --all-targets -- -D warnings`、`cargo test -p blazar-core-types`、`cargo test -p blazar-hub`。真实的「重启后重新挂上续跑」没在本机 hub 上跑过。
+
+## b45 · 机器页显示每台机器到 Claude API 的链路
+
+B 的第三部分。出网络故障时要能一眼看出是机器、组网还是代理。对应第 2 条（直接能用）和第 5 条（细节里见品质）。
+
+- **探测**（`crates/hub/src/link.rs`）：在那台机器上（本机就本地）按它自己的代理环境，连 5 次 `https://api.anthropic.com/v1/models`，记每次的 HTTP 码和耗时；有代理的先 `curl` 一下代理本身。解析（`parse`，纯函数、单独测）得出：链路（直连 / 经代理 host:port，凭据不进标签）、延迟（成功样本的中位数）、丢包（失败数 / 5），再分档成 正常 / 较慢(>2s) / 不稳定(有丢包) / 代理不通 / 连不上 API / 机器连不上 / 未测——代理连得上但出不去就归「连不上 API」而不是怪代理，SSH 都连不上就归「机器连不上」。结果存进 `nodes.capabilities.claude_link`，进快照给前端。
+- **机器页表格**：新增「Claude API」列，一个状态点加最能说明问题的数字（正常/较慢看延迟、不稳定看丢包）；没有链路数据的机器整列不显示。
+- **机器详情**：新增「Claude API 链路」一组，列状态、链路、延迟、丢包、说明、最近检测，带「重新检测」按钮；进入页面自动测一次。「高级…」里列这台机器最近几次失败（时间 + 一句话原因）。
+- **什么时候测**：有会话在跑的机器每 5 分钟扫一次（`sweep`）；一出网络 / 繁忙 / 未登录失败就立刻测一次那台机器（`check_after_failure`，接在 `failures::record` 后）；其余机器在打开详情页时测。
+- 接口 `POST /api/nodes/{name}/claude-link` 返回链路结果和最近失败。
+
+测试：hub 测 `parse`（正常取中位延迟、较慢、按丢包判不稳定、代理不通 vs 连不上 API、机器连不上、没 curl 算未测、状态到色调）；web 测 `claude_link`（表格那格的文案、丢包只在有丢包时显示）。
+
+截图（临时 hub，演示数据，不放进仓库）：`target/shots/link/`：b1-table-light / b1-table-dark（五台机器五种链路状态）、b2-detail-light（某台「连不上 API」的详情）。真实链路探测没在真机上跑过（不碰真实远端）。

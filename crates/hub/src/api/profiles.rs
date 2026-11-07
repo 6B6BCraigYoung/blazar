@@ -4,6 +4,37 @@ pub(crate) fn yes() -> bool {
     true
 }
 
+pub async fn check_claude_link(
+    State(st): State<Shared>,
+    Path(name): Path<String>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let link = crate::link::check(&st, &name).await;
+    let recent = recent_link_failures(&st, &name).await;
+    Ok(Json(serde_json::json!({
+        "link": serde_json::to_value(link).unwrap_or_default(),
+        "recent": recent,
+    })))
+}
+
+async fn recent_link_failures(st: &Shared, node: &str) -> Vec<serde_json::Value> {
+    sqlx::query_as::<_, (String, Option<String>, String)>(
+        "SELECT s.created_at, s.failure_cause, w.name
+         FROM sessions s JOIN workspaces w ON w.id = s.workspace_id JOIN nodes n ON n.id = w.node_id
+         WHERE n.name = ?1 AND s.status = 'failed'
+           AND s.failure_cause IN ('network', 'busy', 'login', 'quota', 'node')
+         ORDER BY s.created_at DESC LIMIT 3",
+    )
+    .bind(node)
+    .fetch_all(st.db.pool())
+    .await
+    .unwrap_or_default()
+    .into_iter()
+    .map(|(at, cause, workspace)| {
+        serde_json::json!({ "at": at, "cause": cause.unwrap_or_default(), "workspace": workspace })
+    })
+    .collect()
+}
+
 pub async fn probe_node(
     State(st): State<Shared>,
     Path(name): Path<String>,

@@ -85,6 +85,67 @@ pub struct NodeView {
     pub role: Option<String>,
     #[serde(default)]
     pub last_seen_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub claude_link: Option<ClaudeLink>,
+}
+
+/// How a machine is reaching the Claude API, so the machines page can tell at a glance whether
+/// a stall is the machine, the mesh/proxy, or the API egress.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ClaudeLink {
+    pub state: ClaudeLinkState,
+    pub route: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latency_ms: Option<u32>,
+    #[serde(default)]
+    pub loss: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checked_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ClaudeLinkState {
+    Ok,
+    Slow,
+    Degraded,
+    ProxyDown,
+    EgressDown,
+    MachineDown,
+    Unknown,
+}
+
+impl ClaudeLinkState {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Ok => "ok",
+            Self::Slow => "slow",
+            Self::Degraded => "degraded",
+            Self::ProxyDown => "proxy_down",
+            Self::EgressDown => "egress_down",
+            Self::MachineDown => "machine_down",
+            Self::Unknown => "unknown",
+        }
+    }
+
+    /// 小圆点的色调，和机器状态点用同一套。
+    #[must_use]
+    pub const fn tone(self) -> &'static str {
+        match self {
+            Self::Ok => "ok",
+            Self::Slow | Self::Degraded => "attention",
+            Self::ProxyDown | Self::EgressDown | Self::MachineDown => "bad",
+            Self::Unknown => "other",
+        }
+    }
+
+    #[must_use]
+    pub const fn healthy(self) -> bool {
+        matches!(self, Self::Ok | Self::Slow)
+    }
 }
 
 impl NodeView {

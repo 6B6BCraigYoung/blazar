@@ -58,6 +58,10 @@ pub fn build_router(st: Arc<AppState>) -> Router {
             post(agents::duplicate),
         )
         .route("/api/nodes/{name}/probe", post(api::probe_node))
+        .route(
+            "/api/nodes/{name}/claude-link",
+            post(api::check_claude_link),
+        )
         .route("/api/nodes/{name}/agents", get(api::node_agents))
         .route("/api/nodes/{name}/browse", get(api::browse_node))
         .route("/api/nodes/{name}/mkdir", post(api::mkdir_node))

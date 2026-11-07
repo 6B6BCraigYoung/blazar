@@ -109,6 +109,7 @@ pub(super) fn MachineTable(
     let menu = RwSignal::new(None::<MenuAt>);
     // 每一行都没有地址时整列不显示。
     let with_addr = Memo::new(move |_| nodes.with(|l| l.iter().any(|n| addr_of(n).is_some())));
+    let with_link = Memo::new(move |_| nodes.with(|l| l.iter().any(|n| n.claude_link.is_some())));
     view! {
         <div class="machines">
             <table>
@@ -119,17 +120,18 @@ pub(super) fn MachineTable(
                         {move || with_addr.get().then(|| view! { <th>"地址"</th> })}
                         <th>"连接"</th>
                         <th class="num">"工作区"</th>
+                        {move || with_link.get().then(|| view! { <th>"Claude API"</th> })}
                         <th>"状态"</th>
                     </tr>
                 </thead>
                 <tbody>
                     {move || {
-                        let addr = with_addr.get();
+                        let (addr, link) = (with_addr.get(), with_link.get());
                         nodes
                             .get()
                             .into_iter()
                             .enumerate()
-                            .map(|(i, n)| row_view(i, n, addr, menu, on_confirm))
+                            .map(|(i, n)| row_view(i, n, addr, link, menu, on_confirm))
                             .collect_view()
                     }}
                 </tbody>
@@ -146,10 +148,27 @@ pub(super) fn MachineTable(
     }
 }
 
+fn link_cell(
+    with_link: bool,
+    link: Option<blazar_core_types::api::ClaudeLink>,
+) -> Option<impl IntoView> {
+    with_link.then(|| {
+        let inner = link.map(|l| {
+            let text = crate::claude_link::cell(&l);
+            view! {
+                <span class="dot" data-tone=l.state.tone() aria-hidden="true"></span>
+                <span>{text}</span>
+            }
+        });
+        view! { <td class="node-api">{inner}</td> }
+    })
+}
+
 fn row_view(
     i: usize,
     n: NodeView,
     with_addr: bool,
+    with_link: bool,
     menu: RwSignal<Option<MenuAt>>,
     on_confirm: Callback<String>,
 ) -> impl IntoView {
@@ -211,6 +230,7 @@ fn row_view(
             {addr}
             <td class="node-link">{connection(&n)}</td>
             <td class="node-ws num">{n.workspace_count}</td>
+            {link_cell(with_link, n.claude_link.clone())}
             <td class="node-state" data-state=state.tone()>
                 <span class="node-state-text">{state_text(state, &n)}</span>
                 {slow.then(|| view! { <span class="node-slow">"较慢"</span> })}

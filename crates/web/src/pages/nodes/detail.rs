@@ -95,6 +95,39 @@ fn hw_facts(c: &Value) -> HwFacts {
     }
 }
 
+fn recent_failures(resp: Option<Result<Value, String>>) -> Option<impl IntoView> {
+    let items = resp
+        .and_then(Result::ok)
+        .and_then(|v| v["recent"].as_array().cloned())
+        .unwrap_or_default();
+    let items = StoredValue::new(items);
+    (!items.get_value().is_empty()).then(move || {
+        view! {
+            <PrefAdvanced title="最近失败">
+                {move || {
+                    items
+                        .get_value()
+                        .into_iter()
+                        .map(|f| {
+                            let cause = crate::claude_link::cause_label(
+                                f["cause"].as_str().unwrap_or(""),
+                            );
+                            let ws = f["workspace"].as_str().unwrap_or("").to_owned();
+                            let at = f["at"].as_str().map(crate::fmt::ago).unwrap_or_default();
+                            let label = if ws.is_empty() { cause.to_owned() } else { ws };
+                            view! {
+                                <PrefRow label=label detail=at>
+                                    <span class="pref-text">{cause}</span>
+                                </PrefRow>
+                            }
+                        })
+                        .collect_view()
+                }}
+            </PrefAdvanced>
+        }
+    })
+}
+
 fn orphan_state(l: &Value) -> String {
     let dirty = l["dirty"].as_u64().unwrap_or(0);
     if dirty > 0 {
@@ -128,6 +161,29 @@ fn NodeDetail(name: String) -> impl IntoView {
     let scanning = RwSignal::new(false);
     let listing_left = RwSignal::new(false);
     let sweeping = RwSignal::new(false);
+    let link_resp = RwSignal::new(None::<Result<Value, String>>);
+    let checking_link = RwSignal::new(false);
+    let check_link = move || {
+        let Some(n) = nm.try_get_value() else {
+            return;
+        };
+        if checking_link.try_get_untracked().unwrap_or(true) {
+            return;
+        }
+        checking_link.set(true);
+        spawn_local(async move {
+            let r = api::send::<Value>(
+                "POST",
+                &format!("/api/nodes/{}/claude-link", api::enc(&n)),
+                &json!({}),
+            )
+            .await
+            .map_err(|e| e.to_string());
+            let _ = link_resp.try_set(Some(r));
+            checking_link.try_set(false);
+            app.load_state();
+        });
+    };
     let probe = move || {
         if probing.get_untracked() {
             return;
@@ -300,6 +356,7 @@ fn NodeDetail(name: String) -> impl IntoView {
         if online() && !probed.get_untracked() {
             probed.set(true);
             probe();
+            check_link();
         }
     });
     crate::refocus::on_refocus(move || {
@@ -523,6 +580,107 @@ fn NodeDetail(name: String) -> impl IntoView {
                                         lead="检查失败"
                                         message=e.to_string()
                                         retry=Callback::new(move |()| probe())
+                                    />
+                                }
+                            })
+                    }}
+                </PrefGroup>
+                <PrefGroup
+                    title="Claude API 链路"
+                    note="这台机器怎么连到 Claude API，出问题时能看出是机器、组网还是出口。"
+                    trailing=move || view! { <Checking busy=checking_link /> }
+                >
+                    {move || {
+                        let Some(cl) = node.with(|n| n.as_ref().and_then(|n| n.claude_link.clone()))
+                        else {
+                            return view! {
+                                <PrefRow
+                                    label="还没测过"
+                                    detail="进入页面会自动检测一次。"
+                                >
+                                    {offline_note}
+                                    <button
+                                        type="button"
+                                        class="btn"
+                                        disabled=move || !online() || checking_link.get()
+                                        on:click=move |_| check_link()
+                                    >
+                                        "重新检测"
+                                    </button>
+                                </PrefRow>
+                            }
+                                .into_any();
+                        };
+                        let checked_at = cl
+                            .checked_at
+                            .as_deref()
+                            .map(crate::fmt::ago)
+                            .filter(|t| !t.is_empty());
+                        view! {
+                            <PrefRow label="状态">
+                                <span
+                                    class="dot"
+                                    data-tone=cl.state.tone()
+                                    aria-hidden="true"
+                                ></span>
+                                <span class="pref-text">{crate::claude_link::label(cl.state)}</span>
+                            </PrefRow>
+                            <PrefRow label="链路">
+                                <span class="pref-text">{cl.route.clone()}</span>
+                            </PrefRow>
+                            <PrefRow label="延迟">
+                                <span class="pref-text">
+                                    {crate::claude_link::latency_text(cl.latency_ms)
+                                        .unwrap_or_else(|| "—".into())}
+                                </span>
+                            </PrefRow>
+                            {crate::claude_link::loss_text(cl.loss)
+                                .map(|t| {
+                                    view! {
+                                        <PrefRow label="丢包">
+                                            <span class="pref-text">{t}</span>
+                                        </PrefRow>
+                                    }
+                                })}
+                            {cl
+                                .detail
+                                .clone()
+                                .map(|d| {
+                                    view! {
+                                        <PrefRow label="说明">
+                                            <span class="pref-text" class:bad=!cl.state.healthy()>
+                                                {d}
+                                            </span>
+                                        </PrefRow>
+                                    }
+                                })}
+                            <PrefRow label="最近检测">
+                                <span class="pref-text">
+                                    {checked_at.unwrap_or_else(|| "—".into())}
+                                </span>
+                                <button
+                                    type="button"
+                                    class="btn small"
+                                    disabled=move || !online() || checking_link.get()
+                                    on:click=move |_| check_link()
+                                >
+                                    "重新检测"
+                                </button>
+                            </PrefRow>
+                            {move || recent_failures(link_resp.get())}
+                        }
+                            .into_any()
+                    }}
+                    {move || {
+                        link_resp
+                            .get()
+                            .and_then(Result::err)
+                            .map(|e| {
+                                view! {
+                                    <InlineError
+                                        lead="检测失败"
+                                        message=e
+                                        retry=Callback::new(move |()| check_link())
                                     />
                                 }
                             })

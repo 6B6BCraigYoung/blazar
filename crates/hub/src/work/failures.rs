@@ -31,7 +31,7 @@ fn online(node: &str, status: &str) -> bool {
     node == "local" || status == "online"
 }
 
-pub async fn record(st: &AppState, sid: blazar_core_types::SessionId) -> Option<FailureCause> {
+pub async fn record(st: &Shared, sid: blazar_core_types::SessionId) -> Option<FailureCause> {
     let row = sqlx::query(
         "SELECT n.name AS node, n.status FROM sessions s
          JOIN workspaces w ON w.id = s.workspace_id JOIN nodes n ON n.id = w.node_id
@@ -51,6 +51,14 @@ pub async fn record(st: &AppState, sid: blazar_core_types::SessionId) -> Option<
         .bind(cause.as_str())
         .execute(st.db.pool())
         .await;
+    // A reach-the-API failure: refresh the machine's link reading so the machines page shows
+    // whether it was the machine, the mesh/proxy, or the egress — without waiting for the sweep.
+    if matches!(
+        cause,
+        FailureCause::Network | FailureCause::Busy | FailureCause::Login
+    ) {
+        crate::link::check_after_failure(st, &node);
+    }
     Some(cause)
 }
 

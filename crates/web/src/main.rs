@@ -15,6 +15,8 @@ mod bot_words;
 mod card_link;
 #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code, unused_imports))]
 mod chat_model;
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+mod claude_link;
 #[cfg(target_arch = "wasm32")]
 mod client_log;
 #[cfg(target_arch = "wasm32")]
