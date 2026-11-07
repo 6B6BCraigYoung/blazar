@@ -62,7 +62,110 @@ impl Chat {
 
     pub fn model_sel(self, rt: &str) -> ModelSel {
         self.model_rev.track();
-        storage::load(&format!("blazar.model.{rt}")).unwrap_or_default()
+        let own = self.own_sel(rt).map(|s| s.layer());
+        let profile = self
+            .profile()
+            .filter(|p| p.runtime == rt)
+            .map(|p| (p.model, p.thinking_level));
+        let (model, effort) = self.choices.with(|c| {
+            crate::model_pick::layered(&[
+                own.as_ref(),
+                profile.as_ref(),
+                c.workspace.get(rt).map(ModelSel::layer).as_ref(),
+                c.global.get(rt).map(ModelSel::layer).as_ref(),
+            ])
+        });
+        ModelSel { model, effort }
+    }
+
+    /// What this conversation itself asks for, leaving the rest to the hub. `None` while a
+    /// conversation's choices are still loading.
+    pub fn own_sel(self, rt: &str) -> Option<ModelSel> {
+        match self.view.get() {
+            Some(t) => self.choices.with(|c| {
+                (c.of.as_ref() == Some(&t))
+                    .then(|| c.thread.get(rt).cloned())
+                    .flatten()
+            }),
+            None => self.fresh_pick.with(|p| p.get(rt).cloned()),
+        }
+    }
+
+    pub fn workspace_default(self, rt: &str) -> Option<ModelSel> {
+        self.choices.with(|c| c.workspace.get(rt).cloned())
+    }
+
+    pub fn load_choices(self) {
+        let ws = self.ws_id();
+        let view = self.view.get_untracked();
+        let q = view
+            .as_deref()
+            .map(|t| format!("?thread={}", api::enc(t)))
+            .unwrap_or_default();
+        self.spawn(async move {
+            let Ok(v) = api::get::<Value>(&format!("/api/workspaces/{}/models{q}", api::enc(&ws))).await
+            else {
+                return;
+            };
+            let Ok(mut c) = serde_json::from_value::<super::Choices>(v) else {
+                return;
+            };
+            if self.view.get_untracked() != view {
+                return;
+            }
+            c.of = view;
+            for rt in ["claude", "codex"] {
+                let key = format!("blazar.model.{rt}");
+                let Some(old) = storage::load::<ModelSel>(&key) else {
+                    continue;
+                };
+                storage::remove(&key);
+                if c.global.contains_key(rt) || (old.model.is_none() && old.effort.is_none()) {
+                    continue;
+                }
+                let body = json!({ "scope": "global", "runtime": rt, "model": old.model, "effort": old.effort });
+                if api::send::<Value>("PUT", &format!("/api/workspaces/{}/models", api::enc(&ws)), &body)
+                    .await
+                    .is_ok()
+                {
+                    c.global.insert(rt.to_owned(), old);
+                }
+            }
+            let _ = self.choices.try_set(c);
+        });
+    }
+
+    fn save_choice(self, scope: &'static str, rt: &str, v: &ModelSel) {
+        let ws = self.ws_id();
+        let body = json!({
+            "scope": scope,
+            "thread": self.view.get_untracked(),
+            "runtime": rt,
+            "model": v.model,
+            "effort": v.effort,
+        });
+        self.spawn(async move {
+            if let Err(e) = api::send::<Value>(
+                "PUT",
+                &format!("/api/workspaces/{}/models", api::enc(&ws)),
+                &body,
+            )
+            .await
+            {
+                crate::components::toast::toast_error_en("Couldn't save the model choice", &e);
+            }
+        });
+    }
+
+    /// New conversations in this workspace start with `v`.
+    pub fn set_workspace_default(self, rt: &str, v: &ModelSel) {
+        self.choices.update(|c| {
+            c.workspace.insert(rt.to_owned(), v.clone());
+        });
+        self.save_choice("workspace", rt, v);
+        crate::components::toast::toast(
+            "New conversations in this workspace will start with this model",
+        );
     }
 
     pub fn running_model(self) -> Option<String> {
@@ -87,9 +190,25 @@ impl Chat {
         (!name.is_empty()).then(|| name.to_owned())
     }
 
+    /// Changes the model of this conversation only; a new conversation keeps the pick until its
+    /// first message.
     pub fn set_model_sel(self, rt: &str, v: &ModelSel) {
         let prev = self.model_sel(rt);
-        storage::save(&format!("blazar.model.{rt}"), v);
+        match self.view.get_untracked() {
+            Some(t) => {
+                self.choices.update(|c| {
+                    if c.of.as_ref() != Some(&t) {
+                        c.of = Some(t.clone());
+                        c.thread.clear();
+                    }
+                    c.thread.insert(rt.to_owned(), v.clone());
+                });
+                self.save_choice("thread", rt, v);
+            }
+            None => self.fresh_pick.update(|p| {
+                p.insert(rt.to_owned(), v.clone());
+            }),
+        }
         self.model_rev.update(|n| *n += 1);
         if prev.model != v.model {
             self.live(

@@ -52,6 +52,16 @@ pub fn ChatPane(
         }
     });
     chat.load_catalogs();
+    Effect::new(move |prev: Option<Option<String>>| {
+        let view = chat.view.get();
+        if prev.as_ref().is_some_and(|p| *p != view) {
+            chat.fresh_pick.set(std::collections::HashMap::new());
+        }
+        if ready.get() {
+            chat.load_choices();
+        }
+        view
+    });
     let keys = window_event_listener(leptos::ev::keydown, move |e| {
         match crate::shortcuts::action(&e) {
             Some("newchat") => {

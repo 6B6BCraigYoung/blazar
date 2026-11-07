@@ -879,3 +879,20 @@ Blazar 的后台小活本来就不用 Codex，所以不需要额外的 `CODEX_HO
 截图（临时 hub，演示数据，不放进仓库）：`target/shots/code/`：1-closed（页头只有「代码 2」）、2-open（默认展开文件树，标签里有「更改 2」）、3-collapsed（收起后左上角的展开按钮）、4-changes（更改标签）。改前是 `target/shots/files/after-*.png`。
 
 验证：`cargo fmt --check`、`leptosfmt --check crates/web/src`、`cargo clippy --workspace --all-targets -- -D warnings`、wasm 的 clippy、`cargo test --workspace`、`node --test crates/web/tests/navigation.mjs`。
+
+## b39 · 模型和思考强度跟着对话走
+
+迭代清单第 3 项。用户：在中控台切一次模型，所有工作区都跟着换；派活也没法指定模型。选了方案 A（全记在 hub）。对应第 2 条（直接能用：换了模型只影响眼前这个对话）和第 6 条（对用户负责：选择不会悄悄跑到别处）。
+
+- **分层**：一轮用什么模型和强度，按「这次请求 → 这个对话 → 智能体档案 → 工作区默认 → 全局默认 → 机器上的运行时配置 → CLI 默认」逐项取，模型和强度各自往下找。空字符串表示明确选了「Default」，不再往下找。
+- **存在 hub**：迁移 0048 新增 `model_choices`（scope + runtime）。scope 是 `global`、`ws:<工作区>`、`thread:<对话>`。每一轮跑完都把实际用的模型记在对话上，下一轮接着用；以前的对话没有记录时，取它最近一轮请求里的模型。删工作区时一起清掉。
+- **接口**：`GET/PUT /api/workspaces/{id}/models`（对话、工作区、全局），`GET/PUT /api/model-defaults`（设置页用）。对话只能改本工作区里的。
+- **对话底栏的选择器**：点模型只改这个对话，新对话里的选择在发第一条消息前只留在这个页面；菜单底部加「Set as workspace default」，写明新对话会用什么；已经是默认时显示「Workspace default ✓」。菜单放得下全部选项，不再要滚动。浏览器只发这个对话自己的选择，其余交给 hub 补，避免对话的选择还没读到时把别的默认当成新选择发出去。
+- **设置 › 对话与运行**：新增「默认模型」，Claude Code 和 Codex 各一个模型和强度。以前存在浏览器里的选择，第一次打开时迁成全局默认。
+- **派活**：fleet 的 `send_prompt` 加 `model`、`effort`，不填按续接的对话、目标工作区默认、全局默认的顺序取。
+
+测试：hub 测分层顺序（各层只补上层没给的、档案在对话之下工作区之上、明确的 Default 不往下找）、对话没记录时取最近一轮、参数校验和清除、对话必须属于本工作区、删工作区清记录，以及走真实启动路径：没指定模型时用工作区默认并带上 `--model`、`--effort`，工作区默认之后再改，已有对话仍沿用自己的。mcp 测 `send_prompt` 带模型；web 测分层取值。
+
+截图（临时 hub，演示数据，不放进仓库）：`target/shots/model/`：1-picker（对话里选了 Fable，底部「Set as workspace default」）、2-new-chat（新对话用工作区默认）、3-settings（默认模型）。手动核对过：对话 A 改成 Haiku 后，同工作区的新对话仍是工作区默认 Fable，另一个工作区的对话仍是 Default，回到对话 A 还是 Haiku。
+
+验证：`cargo fmt --check`、`leptosfmt --check crates/web/src`、`cargo clippy --workspace --all-targets -- -D warnings`、wasm 的 clippy、`cargo test --workspace`、`node --test crates/web/tests/navigation.mjs`。

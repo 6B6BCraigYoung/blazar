@@ -283,6 +283,7 @@ fn effort_row(chat: Chat) -> impl IntoView {
             let label = s
                 .effort
                 .as_deref()
+                .filter(|e| !e.is_empty())
                 .map_or_else(|| "Default".to_owned(), eff_label);
             view! {
                 <div class="cp-eff">
@@ -304,11 +305,13 @@ fn effort_row(chat: Chat) -> impl IntoView {
                                         on:click=move |ev| {
                                             ev.stop_propagation();
                                             let mut s = chat.model_sel(&rt);
-                                            s.effort = if s.effort.as_deref() == Some(e.as_str()) {
-                                                None
-                                            } else {
-                                                Some(e.clone())
-                                            };
+                                            s.effort = Some(
+                                                if s.effort.as_deref() == Some(e.as_str()) {
+                                                    String::new()
+                                                } else {
+                                                    e.clone()
+                                                },
+                                            );
                                             chat.set_model_sel(&rt, &s);
                                         }
                                     ></button>
@@ -371,7 +374,10 @@ pub(super) fn model_pop(chat: Chat, pop: RwSignal<Option<Pop>>) -> impl IntoView
             let now = chat.default_model_now(&rt)?;
             let running = chat
                 .running_model()
-                .filter(|m| !m.is_empty() && sel.model.is_none() && !chat.fresh.get())
+                .filter(|m| {
+                    !m.is_empty() && sel.model.as_deref().is_none_or(str::is_empty)
+                        && !chat.fresh.get()
+                })
                 .map(|m| super::presentation::model_name(&m))
                 .filter(|m| !m.starts_with(now.as_str()) && !now.starts_with(m.as_str()))?;
             Some(
@@ -409,15 +415,19 @@ pub(super) fn model_pop(chat: Chat, pop: RwSignal<Option<Pop>>) -> impl IntoView
                         on,
                         move || {
                             let mut next = chat.model_sel(&rt);
-                            next.model = Some(id.clone()).filter(|x| !x.is_empty());
+                            next.model = Some(id.clone());
                             let effs = chat
                                 .models_for(&rt)
                                 .into_iter()
                                 .find(|x| x.id == id)
                                 .map(|x| x.efforts)
                                 .unwrap_or_default();
-                            if next.effort.as_ref().is_some_and(|e| !effs.contains(e)) {
-                                next.effort = None;
+                            if next
+                                .effort
+                                .as_ref()
+                                .is_some_and(|e| !e.is_empty() && !effs.contains(e))
+                            {
+                                next.effort = Some(String::new());
                             }
                             chat.set_model_sel(
                                 &rt,
@@ -433,6 +443,7 @@ pub(super) fn model_pop(chat: Chat, pop: RwSignal<Option<Pop>>) -> impl IntoView
                 .collect_view()
         }}
         {effort_row(chat)}
+        {workspace_default_row(chat, pop)}
         {(chat.runtime() == "claude")
             .then(|| {
                 view! {
@@ -447,6 +458,62 @@ pub(super) fn model_pop(chat: Chat, pop: RwSignal<Option<Pop>>) -> impl IntoView
                     </button>
                 }
             })}
+    }
+}
+
+/// Makes this conversation's model what new conversations in the workspace start with.
+fn workspace_default_row(chat: Chat, pop: RwSignal<Option<Pop>>) -> impl IntoView {
+    move || {
+        let rt = chat.runtime();
+        let sel = chat.model_sel(&rt);
+        let name = |s: &ModelSel| {
+            let list = chat.models_for(&rt);
+            let id = s.model.clone().unwrap_or_default();
+            let model = list
+                .iter()
+                .find(|m| m.id == id)
+                .map(|m| {
+                    m.label
+                        .replace(" (recommended)", "")
+                        .replace(" (Recommended)", "")
+                })
+                .filter(|n| !n.is_empty())
+                .unwrap_or_else(|| "Default".to_owned());
+            match s.effort.as_deref().filter(|e| !e.is_empty()) {
+                Some(e) => format!("{model} · {}", eff_label(e)),
+                None => model,
+            }
+        };
+        let current = chat.workspace_default(&rt);
+        let same = current.as_ref().is_some_and(|d| {
+            d.model.clone().unwrap_or_default() == sel.model.clone().unwrap_or_default()
+                && d.effort.clone().unwrap_or_default() == sel.effort.clone().unwrap_or_default()
+        });
+        let detail = match &current {
+            Some(d) if same => format!("New conversations here start with {}", name(d)),
+            Some(d) => format!(
+                "Now {} · new conversations here will start with {}",
+                name(d),
+                name(&sel)
+            ),
+            None => format!("New conversations here will start with {}", name(&sel)),
+        };
+        view! {
+            <button
+                class="cp-row cp-default"
+                disabled=same
+                on:click=move |_| {
+                    chat.set_workspace_default(&chat.runtime(), &chat.model_sel(&chat.runtime()));
+                    pop.set(None);
+                }
+            >
+                <span class="cp-t">
+                    <b>{if same { "Workspace default" } else { "Set as workspace default" }}</b>
+                    <span>{detail}</span>
+                </span>
+                {same.then(|| view! { <span class="cp-ok">"✓"</span> })}
+            </button>
+        }
     }
 }
 

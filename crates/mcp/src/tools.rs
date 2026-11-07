@@ -199,6 +199,8 @@ pub const TOOLS: &[Tool] = &[
                     "workspace_id": s("string", "工作区 id"),
                     "text": s("string", "给 agent 的指令"),
                     "agent": s("string", "claude / codex 等；默认 claude"),
+                    "model": s("string", "用哪个模型；不填就按续接的对话上一轮、目标工作区默认、全局默认的顺序取"),
+                    "effort": s("string", "思考强度 low / medium / high / xhigh / max；不填同上"),
                     "resume": { "type": "boolean", "description": "是否续接上一轮上下文" },
                     "permission_mode": s("string", "auto / acceptEdits / default / bypassPermissions / plan；不填就沿用派活的会话自己的模式"),
                     "wait_secs": { "type": "integer",
@@ -1070,6 +1072,19 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(body.unwrap()["replaces"], "c1");
+    }
+
+    #[test]
+    fn send_prompt_can_name_the_model() {
+        let (m, url, body) = (find("send_prompt").unwrap().build)(&json!({
+            "workspace_id": "w 1", "text": "go", "model": "opus", "effort": "high"
+        }))
+        .unwrap();
+        assert_eq!((m, url.as_str()), ("POST", "/api/workspaces/w%201/prompt"));
+        let body = body.unwrap();
+        assert_eq!(body["model"], "opus");
+        assert_eq!(body["effort"], "high");
+        assert!(body.get("workspace_id").is_none());
     }
 
     #[test]

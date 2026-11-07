@@ -86,6 +86,9 @@ pub struct Chat {
     pub prefs: RwSignal<Prefs>,
     pub model_rev: RwSignal<u32>,
     pub model_live: RwSignal<Option<(String, String)>>,
+    pub choices: RwSignal<Choices>,
+    /// Picks made in a new conversation before its first message gives it a home on the hub.
+    pub fresh_pick: RwSignal<HashMap<String, ModelSel>>,
     pub acc_rev: RwSignal<u32>,
     pub busy: RwSignal<u32>,
 
@@ -186,6 +189,8 @@ impl Chat {
             prefs: RwSignal::new(storage::load("blazar.prefs.claude").unwrap_or_default()),
             model_rev: RwSignal::new(0),
             model_live: RwSignal::new(None),
+            choices: RwSignal::new(Choices::default()),
+            fresh_pick: RwSignal::new(HashMap::new()),
             acc_rev: RwSignal::new(0),
             busy: RwSignal::new(0),
             agents: RwSignal::new(Vec::new()),

@@ -164,11 +164,11 @@ impl Chat {
         let agent = self.agent.get_untracked();
         let sel = {
             let rt = rt.clone();
-            untrack(move || self.model_sel(&rt))
+            untrack(move || self.own_sel(&rt)).unwrap_or_default()
         };
         let mut o = serde_json::Map::new();
         o.insert("resume".into(), json!(!self.fresh.get_untracked()));
-        o.insert("model".into(), json!(sel.model.filter(|m| !m.is_empty())));
+        o.insert("model".into(), json!(sel.model));
         o.insert("effort".into(), json!(sel.effort));
         let perm = untrack(move || self.effective_mode()).map(|m| m.0);
         o.insert("permission_mode".into(), json!(perm));

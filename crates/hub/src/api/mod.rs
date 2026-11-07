@@ -124,6 +124,7 @@ mod context;
 mod denials;
 mod hooks;
 mod lifecycle;
+pub(crate) mod model_choice;
 mod node_hubs;
 mod nodes;
 mod profiles;
@@ -146,6 +147,9 @@ pub use context::*;
 pub use denials::*;
 pub use hooks::*;
 pub use lifecycle::*;
+pub use model_choice::{
+    get_model_choices, get_model_defaults, put_model_choice, put_model_default,
+};
 pub use node_hubs::*;
 pub use nodes::*;
 pub use profiles::*;

@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashMap;
 
 pub const CONTINUE_TEXT: &str = crate::failure::SWITCHED;
 pub const ACC_RUNTIMES: [&str; 2] = ["claude", "codex"];
@@ -68,6 +69,10 @@ pub struct Profile {
     pub description: Option<String>,
     #[serde(default)]
     pub starters: Vec<Starter>,
+    #[serde(default)]
+    pub model: Option<String>,
+    #[serde(default)]
+    pub thinking_level: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -145,6 +150,26 @@ pub struct ModelSel {
     pub model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effort: Option<String>,
+}
+
+impl ModelSel {
+    pub fn layer(&self) -> crate::model_pick::Layer {
+        (self.model.clone(), self.effort.clone())
+    }
+}
+
+/// The model choices kept on the hub for this workspace: global and workspace defaults, and the
+/// open conversation's own (`of` says which conversation that layer belongs to).
+#[derive(Debug, Clone, PartialEq, Default, Deserialize)]
+pub struct Choices {
+    #[serde(default)]
+    pub global: HashMap<String, ModelSel>,
+    #[serde(default)]
+    pub workspace: HashMap<String, ModelSel>,
+    #[serde(default)]
+    pub thread: HashMap<String, ModelSel>,
+    #[serde(skip)]
+    pub of: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

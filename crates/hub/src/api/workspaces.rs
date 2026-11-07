@@ -344,6 +344,7 @@ pub async fn delete_workspace(
     let _guard = st.quiesce(workspace).map_err(ApiError::bad_request)?;
     stop_sessions_of(&st, workspace).await?;
     close_terminals(&st, &id).await;
+    super::model_choice::forget_workspace(&st, &id).await;
     sqlx::query("DELETE FROM workspaces WHERE id = ?1")
         .bind(&id)
         .execute(st.db.pool())

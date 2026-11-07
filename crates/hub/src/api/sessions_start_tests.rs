@@ -462,3 +462,63 @@ async fn a_new_turn_leaves_the_conversations_cards_open() {
     .unwrap();
     assert_eq!(open, 1);
 }
+
+#[tokio::test]
+async fn turns_take_the_workspace_default_and_conversations_keep_what_they_ran_with() {
+    let (_dir, st, ws, fake) = fixture().await;
+    let pick = |m: &str, e: Option<&str>| super::model_choice::Choice {
+        model: Some(m.into()),
+        effort: e.map(str::to_owned),
+    };
+    super::model_choice::put(
+        &st,
+        super::model_choice::GLOBAL,
+        "claude",
+        &pick("global-model", None),
+    )
+    .await
+    .unwrap();
+    super::model_choice::put(
+        &st,
+        &super::model_choice::ws_scope(&ws.to_string()),
+        "claude",
+        &pick("ws-model", Some("high")),
+    )
+    .await
+    .unwrap();
+    let out = prompt_fake(st.clone(), ws, fake.clone(), "claude")
+        .await
+        .unwrap_or_else(|error| panic!("{}", error.message()))
+        .0;
+    let exec = launched_command(&fake).replace('\'', "");
+    assert!(exec.contains("--model ws-model"), "{exec}");
+    assert!(exec.contains("--effort high"), "{exec}");
+    let thread = out["thread_id"].as_str().unwrap().to_owned();
+    assert_eq!(
+        super::model_choice::thread_layer(&st, &thread).await["claude"],
+        pick("ws-model", Some("high")),
+        "the turn leaves what it ran with on its conversation"
+    );
+    super::model_choice::put(
+        &st,
+        &super::model_choice::ws_scope(&ws.to_string()),
+        "claude",
+        &pick("newer-default", None),
+    )
+    .await
+    .unwrap();
+    let chosen = super::model_choice::for_turn(
+        &st,
+        &ws.to_string(),
+        Some(&thread),
+        "claude",
+        Default::default(),
+        Default::default(),
+    )
+    .await;
+    assert_eq!(
+        chosen,
+        pick("ws-model", Some("high")),
+        "the conversation keeps its model"
+    );
+}

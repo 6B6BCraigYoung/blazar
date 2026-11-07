@@ -31,6 +31,10 @@ pub fn build_router(st: Arc<AppState>) -> Router {
         .route("/api/agents", get(api::list_agents))
         .route("/api/runtimes", get(api::runtimes))
         .route("/api/runtimes/{id}/models", get(api::runtime_models))
+        .route(
+            "/api/model-defaults",
+            get(api::get_model_defaults).put(api::put_model_default),
+        )
         .route("/api/runtimes/{id}/install", post(remote_cli::install_here))
         .route("/api/runtimes/claude/catalog", get(catalog::claude_catalog))
         .route(
@@ -313,6 +317,10 @@ pub fn build_router(st: Arc<AppState>) -> Router {
         .route("/api/workspaces/{id}/history", get(api::workspace_history))
         .route("/api/workspaces/{id}/glance", get(api::workspace_glance))
         .route("/api/workspaces/{id}/prompt", post(api::prompt))
+        .route(
+            "/api/workspaces/{id}/models",
+            get(api::get_model_choices).put(api::put_model_choice),
+        )
         .route("/api/workspaces/{id}/context", get(api::get_context))
         .route("/api/workspaces/{id}/context/{kind}", put(api::put_context))
         .route("/api/sessions/{id}/events", get(api::session_events))

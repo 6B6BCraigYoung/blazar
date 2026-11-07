@@ -235,3 +235,4 @@ code.pref-item-title { font: var(--font-size-label-readable) var(--font-mono); c
 .theme-pane .dot { left: 38px; bottom: 14px; width: 26px; height: 8px; border-radius: var(--radius-pill); background: #5e5ce6; }
 .theme-name { font-size: var(--font-size-label); color: var(--fg-2); }
 .theme-tile[aria-checked="true"] .theme-name { color: var(--fg); font-weight: var(--font-weight-medium); }
+.settings-pair { display: inline-flex; gap: var(--space-md); }

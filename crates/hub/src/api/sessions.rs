@@ -437,11 +437,31 @@ async fn prompt_inner(
         )));
     }
 
-    let want_model = req
-        .model
-        .clone()
-        .filter(|m| !m.trim().is_empty())
-        .or_else(|| profile.as_ref().and_then(|p| p.model.clone()));
+    let continuing = req
+        .resume
+        .then(|| {
+            req.resume_session
+                .clone()
+                .filter(|t| !t.is_empty())
+                .or_else(|| prior.as_ref().map(|p| p.0.clone()))
+        })
+        .flatten();
+    let chosen = super::model_choice::for_turn(
+        &st,
+        &id,
+        continuing.as_deref(),
+        agent_id,
+        super::model_choice::Choice {
+            model: req.model.clone(),
+            effort: req.effort.clone(),
+        },
+        super::model_choice::Choice {
+            model: profile.as_ref().and_then(|p| p.model.clone()),
+            effort: profile.as_ref().and_then(|p| p.thinking_level.clone()),
+        },
+    )
+    .await;
+    let want_model = chosen.model.clone().filter(|m| !m.trim().is_empty());
     let account = crate::accounts::resolve(
         &st,
         agent_id,
@@ -515,6 +535,7 @@ async fn prompt_inner(
     .bind(&stored_request)
     .execute(st.db.pool())
     .await?;
+    super::model_choice::remember_turn(&st, &thread_id, agent_id, &chosen).await;
 
     let mut attempted: Option<crate::run::Ctx> = None;
     let result: ApiResult<Json<serde_json::Value>> = async {
@@ -585,14 +606,13 @@ async fn prompt_inner(
         spec.disallowed_tools = req.disallowed_tools;
         spec.permission_mode = req.permission_mode;
 
-        spec.model = req.model.filter(|m| {
-            !m.is_empty()
-                && m.len() <= 80
-                && m.chars()
-                    .all(|c| c.is_ascii_alphanumeric() || "-_.:[]/".contains(c))
-        });
-        spec.effort = req
+        spec.model = chosen
+            .model
+            .clone()
+            .filter(|m| !m.is_empty() && super::model_choice::valid_model(m));
+        spec.effort = chosen
             .effort
+            .clone()
             .filter(|e| blazar_runtime::cli_runtime::EFFORTS.contains(&e.as_str()));
         spec.images = req.images.clone();
         spec.output_style = req

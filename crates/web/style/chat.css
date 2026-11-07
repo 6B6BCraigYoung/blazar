@@ -441,3 +441,6 @@
 .cc-latest { position: absolute; bottom: var(--space-lg); padding: var(--space-xs) var(--space-lg); border: 0; border-radius: var(--radius-pill); background: var(--bg-panel); box-shadow: var(--shadow-card); color: var(--fg-2); font-size: var(--font-size-label-readable); cursor: pointer; white-space: nowrap; }
 .cc-latest:hover { color: var(--fg); box-shadow: var(--shadow-card-hover); }
 .cc-latest:focus-visible { outline: var(--focus-ring); }
+.cb-pop[data-kind="model"] { max-height: min(560px, calc(100vh - 160px)); }
+.cp-row.cp-default:disabled { cursor: default; opacity: 1; }
+.cp-row.cp-default:disabled:hover { background: transparent; }

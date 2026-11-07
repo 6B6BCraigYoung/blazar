@@ -803,7 +803,10 @@ pub fn Composer(
     view! {
         <div class="composer">
             <Show when=move || pop.get().is_some()>
-                <div class="cb-pop">
+                <div
+                    class="cb-pop"
+                    data-kind=move || (pop.get() == Some(Pop::Model)).then_some("model")
+                >
                     {move || match pop.get() {
                         Some(Pop::Slash) => slash_pop(slash_items(), sel, run_slash).into_any(),
                         Some(Pop::Files) => {
