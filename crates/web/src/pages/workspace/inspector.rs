@@ -14,6 +14,7 @@ use crate::components::empty::{Action, Blank};
 use crate::components::icon;
 
 const ICON_MAX: &str = r#"<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 2.5h4v4M6.5 13.5h-4v-4M13.5 2.5 9 7M2.5 13.5 7 9"/></svg>"#;
+const ICON_SIDEBAR: &str = r#"<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"><rect x="2" y="2.5" width="12" height="11" rx="2"/><path d="M6 2.5v11"/></svg>"#;
 const ICON_RESTORE: &str = r#"<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M13 7H9V3M3 9h4v4M9 7l4.5-4.5M7 9l-4.5 4.5"/></svg>"#;
 
 #[component]
@@ -81,22 +82,31 @@ pub fn Inspector(
     };
     // 预览有没有东西可看（开发服务在跑或有预览地址），由预览栏报上来。
     let preview_live = RwSignal::new(false);
-    // 只开着「更改」、又没有打开的文件和预览时，不要标签行：放大和关闭挪进差异栏。
-    let bare = Signal::derive(move || {
-        lay().tab == Tab::Changes && files.open_tabs.with(Vec::is_empty) && !preview_live.get()
-    });
-    // 「更改」的入口只有页头那一个按钮，标签里不再放第二个。
+    let changed = move || diff.files.with(Vec::len);
     view! {
-        <Show when=move || !bare.get()>
-            <div class="rhead insp-head">
-                <div class="rtabs" role="tablist" aria-label="右侧面板">
-                    {tab(Tab::Editor, "编辑器")}
-                    {tab(Tab::Preview, "预览")}
-                </div>
-                <span class="grow"></span>
-                <PanelButtons state />
+        <div class="rhead insp-head">
+            <div class="rtabs" role="tablist" aria-label="右侧面板">
+                {tab(Tab::Editor, "编辑器")}
+                <button
+                    type="button"
+                    class="rtab"
+                    role="tab"
+                    aria-selected=on(Tab::Changes)
+                    data-active=on(Tab::Changes)
+                    title=crate::shortcuts::titled("更改", "diff")
+                    on:click=move |_| state.open_changes()
+                >
+                    "更改"
+                    {move || {
+                        let n = changed();
+                        (n > 0).then(|| view! { <span class="rtab-n">{n}</span> })
+                    }}
+                </button>
+                {tab(Tab::Preview, "预览")}
             </div>
-        </Show>
+            <span class="grow"></span>
+            <PanelButtons state />
+        </div>
         <div class="insp-body">
             <div
                 class="ipane ed"
@@ -115,6 +125,13 @@ pub fn Inspector(
                             inner_html=super::ICON_REFRESH
                             on:click=move |_| tree.rev.update(|n| *n += 1)
                         ></button>
+                        <button
+                            class="laybtn"
+                            aria-label="收起文件树"
+                            title=crate::shortcuts::titled("收起文件树", "explorer")
+                            inner_html=ICON_SIDEBAR
+                            on:click=move |_| state.close_files()
+                        ></button>
                     </div>
                     <FileTree
                         root=tree.root
@@ -127,7 +144,19 @@ pub fn Inspector(
                 </aside>
                 <Splitter edge=Edge::Files state />
                 <div class="ed-main">
-                    <Tabs files />
+                    <div class="ed-top">
+                        <Show when=move || !tree_on()>
+                            <button
+                                type="button"
+                                class="laybtn ed-unfold"
+                                aria-label="展开文件树"
+                                title=crate::shortcuts::titled("展开文件树", "explorer")
+                                inner_html=ICON_SIDEBAR
+                                on:click=move |_| state.open_files()
+                            ></button>
+                        </Show>
+                        <Tabs files />
+                    </div>
                     <EdBar files preview=md_preview />
                     <div class="editor-stack">
                         <div class="editor-host" node_ref=host aria-label="代码编辑器"></div>
@@ -140,7 +169,7 @@ pub fn Inspector(
                 </div>
             </div>
             <div class="ipane col" data-active=on(Tab::Changes)>
-                <DiffBar d=diff git collapsed draft state bare />
+                <DiffBar d=diff git collapsed draft state />
                 <GitLine git draft />
                 <DiffView ws=ws.clone() d=diff files collapsed />
             </div>

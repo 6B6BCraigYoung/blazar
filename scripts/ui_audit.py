@@ -1205,12 +1205,12 @@ def dismiss():
 CLOSE_FILE = {"action": "click", "selector": "[aria-label=\"关闭 src/atlas/routes/users.py\"]", "optional": True}
 RESTORE = {"action": "click", "selector": "button[aria-label=\"还原右侧面板\"]", "optional": True}
 CLOSE_INSPECTOR = {"action": "click", "selector": "button[aria-label=\"关闭右侧面板\"]", "optional": True}
-OPEN_FILES = {"action": "click", "selector": ".ws-head button[aria-label=\"文件\"][aria-pressed=\"false\"]", "optional": True}
+OPEN_FILES = {"action": "click", "selector": ".ws-head button.ws-code[aria-pressed=\"false\"]", "optional": True}
 EDITOR_TAB = {"action": "click", "selector": ".ws-insp .rtabs .rtab:first-child", "optional": True}
-CLOSE_FILES = {"action": "click", "selector": ".ws-head button[aria-label=\"文件\"][aria-pressed=\"true\"]", "optional": True}
+CLOSE_FILES = {"action": "click", "selector": "button[aria-label=\"收起文件树\"]", "optional": True}
 CLOSE_TERM = {"action": "click", "selector": "button[aria-label=\"收起终端\"]", "optional": True}
 PREVIEW_KEY = {"action": "key", "key": "P", "code": "KeyP", "meta": True, "shift": True, "selector": "body"}
-CHANGES = {"action": "click", "selector": "button.ws-changes"}
+CHANGES = {"action": "key", "key": "D", "code": "KeyD", "meta": True, "shift": True, "selector": "body"}
 
 
 def calm(*after):

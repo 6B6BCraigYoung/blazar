@@ -294,16 +294,12 @@ pub fn WsHead(
             .and_then(|p| app.workspace(&p))
     };
     let kids = Memo::new(move |_| app.children_of(&wid.get_value()).len());
-    let changes_on = move || {
-        let l = lay();
-        l.inspect && l.tab == Tab::Changes
-    };
     let kids_label = Signal::derive(move || match kids.get() {
         0 => "添加子工作区…".to_owned(),
         n if kids_open.get() => format!("收起子工作区（{n}）"),
         n => format!("显示子工作区（{n}）"),
     });
-    // 文件、编辑器有页头按钮，更改有「更改」按钮：菜单里只放别处没有入口的。
+    // 代码面板（编辑器、更改）有页头按钮：菜单里只放别处没有入口的。
     let groups = vec![
         vec![
             item("终端", Some("panel"), move || state.toggle_term()),
@@ -378,28 +374,27 @@ pub fn WsHead(
             <span class="grow"></span>
             <button
                 type="button"
-                class="btn small ws-files"
-                aria-pressed=move || lay().files_shown().to_string()
-                title=crate::shortcuts::titled("文件", "explorer")
+                class="btn small ws-code"
+                aria-pressed=move || lay().inspect.to_string()
+                title=move || match changed() {
+                    0 => crate::shortcuts::titled("代码", "chat"),
+                    n => {
+                        crate::shortcuts::titled(
+                            &format!("代码 · {n} 个文件有改动"),
+                            "chat",
+                        )
+                    }
+                }
                 on:mousedown=|e: leptos::ev::MouseEvent| e.prevent_default()
-                on:click=move |_| state.toggle_files()
-            >
-                "文件"
-            </button>
-            <button
-                type="button"
-                class="btn small ws-changes"
-                aria-pressed=move || changes_on().to_string()
-                title=crate::shortcuts::titled("更改", "diff")
                 on:click=move |_| {
-                    if changes_on() {
+                    if lay().inspect {
                         state.close();
                     } else {
-                        state.open_changes();
+                        state.open_code();
                     }
                 }
             >
-                "更改"
+                "代码"
                 {move || {
                     let n = changed();
                     (n > 0).then(|| view! { <span class="n">{n}</span> })

@@ -119,9 +119,9 @@ button { font: inherit; color: inherit; }
 .ws-head .grow { flex: 1; }
 .ws-status { all: unset; flex: 0 0 auto; display: inline-flex; align-items: center; gap: var(--space-sm); padding: var(--space-2xs) var(--space-md); margin-left: calc(var(--space-2xs) * -1); border-radius: var(--radius-pill); font-size: var(--font-size-label); color: var(--status-fg); cursor: pointer; white-space: nowrap; }
 .ws-status:hover { background: var(--bg-hover); }
-.ws-files, .ws-changes { flex: 0 0 auto; padding: 0 var(--space-md); display: inline-flex; align-items: center; justify-content: center; gap: var(--space-xs); }
-.ws-changes .n { color: var(--fg-3); font-variant-numeric: tabular-nums; }
-.ws-files[aria-pressed="true"], .ws-changes[aria-pressed="true"] { background: var(--bg-selected); }
+.ws-code { flex: 0 0 auto; padding: 0 var(--space-md); display: inline-flex; align-items: center; justify-content: center; gap: var(--space-xs); }
+.ws-code .n { color: var(--fg-3); font-variant-numeric: tabular-nums; }
+.ws-code[aria-pressed="true"] { background: var(--bg-selected); }
 .ws-menu { min-width: 200px; }
 .ws-menu button { display: flex; align-items: center; gap: var(--space-xl); }
 .ws-menu button span { flex: 1; }
@@ -202,6 +202,10 @@ body.drag-y, body.drag-y * { cursor: row-resize !important; user-select: none; }
 .rtab { all: unset; cursor: pointer; font-size: var(--font-size-label); color: var(--fg-3); display: flex; align-items: center; border-bottom: 1px solid transparent; }
 .rtab:hover { color: var(--fg); }
 .rtab[data-active="true"] { color: var(--fg); font-weight: var(--font-weight-medium); border-bottom: 2px solid var(--accent); padding-top: 2px; }
+.rtab .rtab-n { margin-left: var(--space-xs); font-weight: var(--font-weight-regular); color: var(--fg-3); font-variant-numeric: tabular-nums; }
+.ed-top { display: flex; align-items: center; flex: 0 0 auto; background: var(--bg-tabbar); border-bottom: 1px solid var(--line); }
+.ed-top > .tabbar { flex: 1 1 auto; min-width: 0; border-bottom: 0; }
+.ed-unfold { flex: 0 0 auto; margin-left: var(--space-sm); }
 .todo-pane { padding: var(--space-section); color: var(--fg-3); font-size: var(--font-size-label); }
 
 .tree-filter { margin: var(--space-md) var(--space-md) var(--space-xs); height: 28px; padding: 0 var(--space-control) 0 var(--search-inset); border: 0; border-radius: var(--r-md); background: var(--search-bg) var(--search-icon) 8px center / 14px 14px no-repeat; color: var(--fg); font: var(--font-size-label) var(--font-sans); outline: none; }

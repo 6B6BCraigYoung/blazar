@@ -309,7 +309,7 @@ def edit(fault, tag):
     draft, line = f"Draft {tag}", f"Unsaved edit {tag}. "
     step({"action": "type", "selector": ".cc-box .prompt", "value": draft})
     if not ui({"action": "wait", "selector": ".editor-host textarea", "timeout_ms": 1500}).get("found"):
-        step({"action": "click", "text": "文件"})
+        step({"action": "key", "key": "b", "code": "KeyB", "meta": True, "selector": "body"})
     step({"action": "click", "text": fname, "selector": ".ed-files button"})
     time.sleep(1.5)
     step({"action": "type", "selector": ".editor-host textarea", "value": line})

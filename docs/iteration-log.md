@@ -865,3 +865,17 @@ Blazar 的后台小活本来就不用 Codex，所以不需要额外的 `CODEX_HO
 截图（临时 hub，演示数据，不放进仓库）：`target/shots/files/` 里的 before-closed、before-open、after-closed、after-open。
 
 验证：`cargo fmt --check`、`leptosfmt --check crates/web/src`、`cargo clippy --workspace --all-targets -- -D warnings`、wasm 的 clippy、`cargo test --workspace`、`node --test crates/web/tests/navigation.mjs`。
+
+## b38 · 「文件」「更改」合并成「代码」
+
+用户：「文件和更改合并，打开后默认能看到文件夹，里面可以再收起」，按钮名在三个候选里选了「代码」。对应第 1 条（少即是多：页头右边只留一个入口）和第 4 条（一致：编辑器、更改、预览都在同一排标签里）。
+
+- 页头右边只剩「代码」和「⋯」。按钮上带有改动的文件数（没有改动不显示），悬停写明「N 个文件有改动」和快捷键 ⌥⌘B；面板开着时再点就关掉。
+- 点「代码」打开右侧面板：默认在编辑器，左边文件树展开；每次从这里打开都是展开的。
+- 面板顶部标签变成「编辑器 · 更改 N · 预览」，「更改」从页头挪进来。原来只开着「更改」时隐藏标签行、把放大和关闭挪进差异栏的做法去掉了，标签行一直在。
+- 文件树标题行加「收起文件树」按钮；收起后编辑器左上角出现「展开文件树」按钮。⌘B（显示 / 隐藏文件）、⇧⌘D（打开更改）不变，对话里点改动仍然直接到「更改」。
+- `scripts/ui_audit.py` 和 `scripts/faults/faults.py` 里点旧按钮的步骤跟着改：打开文件树点「代码」或按 ⌘B，打开更改按 ⇧⌘D，收起文件树点新按钮。
+
+截图（临时 hub，演示数据，不放进仓库）：`target/shots/code/`：1-closed（页头只有「代码 2」）、2-open（默认展开文件树，标签里有「更改 2」）、3-collapsed（收起后左上角的展开按钮）、4-changes（更改标签）。改前是 `target/shots/files/after-*.png`。
+
+验证：`cargo fmt --check`、`leptosfmt --check crates/web/src`、`cargo clippy --workspace --all-targets -- -D warnings`、wasm 的 clippy、`cargo test --workspace`、`node --test crates/web/tests/navigation.mjs`。

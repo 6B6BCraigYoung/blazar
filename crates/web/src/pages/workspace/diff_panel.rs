@@ -373,9 +373,6 @@ pub fn DiffBar(
     collapsed: RwSignal<HashSet<String>>,
     draft: RwSignal<Option<String>>,
     state: LayoutState,
-    /// 右侧面板没有标签行时（只开着「更改」），放大和关闭按钮挪到这一栏的最右边。
-    #[prop(into)]
-    bare: Signal<bool>,
 ) -> impl IntoView {
     let empty = move || d.files.with(Vec::is_empty);
     let all_folded = move || !empty() && collapsed.with(HashSet::len) >= d.files.with(Vec::len);
@@ -635,9 +632,6 @@ pub fn DiffBar(
                 <GitMenuItems git close=close_more />
             </BarMenu>
             <NextButton git />
-            <Show when=move || bare.get()>
-                <super::inspector::PanelButtons state />
-            </Show>
         </div>
     }
 }

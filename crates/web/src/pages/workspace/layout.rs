@@ -122,6 +122,19 @@ impl LayoutState {
         });
     }
 
+    /// The 代码 button: the right panel on the editor with the file tree out.
+    pub fn open_code(self) {
+        self.change(|l| {
+            l.inspect = true;
+            l.tab = Tab::Editor;
+            l.files = true;
+        });
+    }
+
+    pub fn open_files(self) {
+        self.change(|l| l.files = true);
+    }
+
     pub fn open_changes(self) {
         self.open(Tab::Changes);
     }
