@@ -1005,3 +1005,16 @@ B 的第三部分。出网络故障时要能一眼看出是机器、组网还是
 测试：hub 测 `voided_decision`（进程消失算打断，用户停下或有退出码算会话结束）和启动补写（只补一次、用户停下的记会话结束、已有结果的不补、还在跑的不动）；web 测审批落定成被打断以后不再挂着；core-types 测 `agent_vanished`（区分进程消失和智能体报错）。CLI 的事件列表也补上了这种结果。
 
 验证：`cargo fmt --check`、`leptosfmt --check crates/web/src`、`cargo clippy --workspace --all-targets -- -D warnings`、wasm 的 clippy、`cargo test --workspace`（1105 个全过）、两个 node 测试。
+
+## b48 · 加载对话历史不再让 SQLite 排序写临时文件
+
+「排查卡顿」里查写盘。macOS 11-03、11-05、11-07 三份 blazar-desktop 的磁盘写入诊断（`/Library/Logs/DiagnosticReports/*.diag`，其中 11-05 那份是 20 小时写了 8.6 GB），自带的抽样调用栈里最重的都是 `sqlite3VdbeSorterWrite → vdbeSorterFlushPMA → pwrite`：SQLite 在给一条大查询排序，内存放不下就溢出到临时文件。提交 WAL 和检查点只占少数样本。对应第 6 条（对用户负责）。
+
+- **是哪条查询**：网页切到一段对话时拉的历史（`workspace_history`）。它把这段对话所有会话的事件连同全部 payload 一起取出，再按会话开始时间、序号排序，没有 LIMIT。events 的主键是 (session_id, seq)，跨会话排序用不上它，查询计划里是 `USE TEMP B-TREE`。比如打开 UniPI-sim 最大的那段对话，库里要排 46 MB，数据库连接的缓存只有约 8 MB，排序就溢出到磁盘。
+- **改法**：先按开始时间取出这段对话的会话，再逐个用主键顺序取事件。顺序和原来一样，但不再需要临时表排序。在真实库上只读测过：同一段对话从 0.13～0.15 秒降到 0.05 秒，内存从 24 MB 降到 13 MB。
+- **和卡顿的关系**：单次只要 0.15 秒左右，查询也跑在 sqlx 的工作线程上，不在原生主线程，所以不像是 23:05、23:42 卡住的原因。卡顿要等 b46 的取证。
+- **还没做的**：派活后等回复的轮询（`chat.rs` 的 `wait`），会被总线上的任何事件唤醒，每次都对整个工作区的事件跑 `json_extract` 再排序取最新一条。它不会写盘（带 LIMIT 1，只取最前面一条），但在大工作区上费 CPU，留作下一步。
+
+测试：历史接口新增「会话按开始时间排、会话内按序号、rewound 按会话标、按 parent 只取子代理」，原有的两条历史测试照常通过。
+
+验证：`cargo fmt --check`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace`（1106 个全过）。

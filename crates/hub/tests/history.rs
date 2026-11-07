@@ -199,3 +199,48 @@ async fn subagent_results_and_thinking_are_elided_until_their_task_is_asked_for(
             .all(|r| r["elided"] != true && r["parent"] == "task1")
     );
 }
+
+#[tokio::test]
+async fn history_keeps_sessions_in_start_order_with_rewound_marked_per_session() {
+    let (app, pool, _dir) = setup().await;
+    sqlx::query("UPDATE sessions SET rewound_at = '2026-10-19T02:00:00Z' WHERE id = 's1'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    insert(
+        &pool,
+        &[
+            ("s2", 1, r#"{"type":"user_message","text":"later"}"#, None),
+            ("s1", 2, r#"{"type":"assistant_message","text":"b"}"#, None),
+            ("s1", 1, r#"{"type":"user_message","text":"first"}"#, None),
+            (
+                "s2",
+                2,
+                r#"{"type":"assistant_message","text":"c"}"#,
+                Some("t1"),
+            ),
+        ],
+    )
+    .await;
+    let rows = get(&app, "/api/workspaces/w/history?session=s1").await;
+    let order: Vec<(String, i64)> = rows
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| {
+            (
+                r["session_id"].as_str().unwrap().to_owned(),
+                r["seq"].as_i64().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        order,
+        [("s1", 1), ("s1", 2), ("s2", 1), ("s2", 2)].map(|(s, n)| (s.to_owned(), n))
+    );
+    assert_eq!(rows[0]["rewound"], true);
+    assert_eq!(rows[2]["rewound"], false);
+    let sub = get(&app, "/api/workspaces/w/history?session=s1&parent=t1").await;
+    assert_eq!(sub.as_array().unwrap().len(), 1);
+    assert_eq!(sub[0]["session_id"], "s2");
+}

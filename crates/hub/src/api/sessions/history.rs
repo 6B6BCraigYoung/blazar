@@ -131,37 +131,41 @@ pub async fn workspace_history(
 ) -> ApiResult<Response> {
     let one = q.session.filter(|s| !s.is_empty());
     let parent = q.parent.filter(|p| !p.is_empty());
-    let events: Vec<StoredEvent> = sqlx::query(
-        "SELECT e.seq, e.ts, e.payload, e.session_id, e.parent_tool_id, s.rewound_at
-         FROM events e JOIN sessions s ON s.id = e.session_id
-         WHERE s.workspace_id = ?1 AND (?2 IS NULL OR COALESCE(s.thread_id, s.id) = ?2)
-           AND (?3 IS NULL OR e.parent_tool_id = ?3)
-         ORDER BY s.created_at, e.seq",
+    let sessions: Vec<(String, Option<String>)> = sqlx::query_as(
+        "SELECT id, rewound_at FROM sessions
+         WHERE workspace_id = ?1 AND (?2 IS NULL OR COALESCE(thread_id, id) = ?2)
+         ORDER BY created_at, id",
     )
     .bind(&id)
     .bind(one)
-    .bind(&parent)
     .fetch_all(st.db.pool())
-    .await?
-    .into_iter()
-    .filter_map(|r| {
-        Some(StoredEvent {
-            seq: r.try_get::<i64, _>("seq").unwrap_or(0),
-            ts: r.try_get::<String, _>("ts").unwrap_or_default(),
-            session_id: r.try_get::<String, _>("session_id").unwrap_or_default(),
-            parent: r
-                .try_get::<Option<String>, _>("parent_tool_id")
-                .ok()
-                .flatten(),
-            rewound: r
-                .try_get::<Option<String>, _>("rewound_at")
-                .ok()
-                .flatten()
-                .is_some(),
-            payload: r.try_get("payload").ok()?,
-        })
-    })
-    .collect();
+    .await?;
+    let mut events: Vec<StoredEvent> = Vec::new();
+    for (sid, rewound_at) in sessions {
+        let rewound = rewound_at.is_some();
+        let rows = sqlx::query(
+            "SELECT seq, ts, payload, parent_tool_id FROM events
+             WHERE session_id = ?1 AND (?2 IS NULL OR parent_tool_id = ?2)
+             ORDER BY seq",
+        )
+        .bind(&sid)
+        .bind(&parent)
+        .fetch_all(st.db.pool())
+        .await?;
+        events.extend(rows.into_iter().filter_map(|r| {
+            Some(StoredEvent {
+                seq: r.try_get::<i64, _>("seq").unwrap_or(0),
+                ts: r.try_get::<String, _>("ts").unwrap_or_default(),
+                session_id: sid.clone(),
+                parent: r
+                    .try_get::<Option<String>, _>("parent_tool_id")
+                    .ok()
+                    .flatten(),
+                rewound,
+                payload: r.try_get("payload").ok()?,
+            })
+        }));
+    }
 
     let paged = q.limit.is_some() || q.after.is_some() || q.mode.is_some();
     if paged {
