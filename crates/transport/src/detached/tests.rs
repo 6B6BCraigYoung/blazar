@@ -204,6 +204,54 @@ fn a_shifted_boot_clock_does_not_lose_a_live_run() {
 }
 
 #[test]
+fn a_start_stamp_does_not_depend_on_the_caller_locale() {
+    let script = format!(
+        "{IDENTITY_FNS}\nA=$(LANG=zh_CN.UTF-8 LC_ALL=zh_CN.UTF-8 start_of $$)\nB=$(env -u LANG -u LC_ALL -u LC_TIME bash -c \"$(declare -f start_of); start_of $$\")\n[ \"$A\" = \"$B\" ] && echo same || echo \"differ: $A | $B\""
+    );
+    let out = std::process::Command::new("bash")
+        .arg("-c")
+        .arg(script)
+        .output()
+        .unwrap();
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "same");
+}
+
+#[test]
+fn a_run_stamped_under_another_locale_is_still_recognised_but_not_a_reused_pid() {
+    let dir = tempfile::tempdir().unwrap();
+    let script = format!(
+        "{IDENTITY_FNS}\ncd {}\nS=$(start_of $$)\necho \"$S\"\n\
+         case $S in *_*) ;; *) echo plain; exit 0 ;; esac\n\
+         set -- $(printf '%s' \"$S\" | tr '_' ' ')\n\
+         printf '%s %s %s\\n' $$ \"$(boot_of)\" \"六_11月/_$3_$4_$5_\" > pid\n\
+         alive && echo alive || echo lost\n\
+         printf '%s %s %s\\n' $$ \"$(boot_of)\" \"六_11月/_$3_00:00:01_$5_\" > pid\n\
+         alive && echo alive || echo lost",
+        dir.path().display()
+    );
+    let out = std::process::Command::new("bash")
+        .arg("-c")
+        .arg(script)
+        .output()
+        .unwrap();
+    let out = String::from_utf8_lossy(&out.stdout);
+    let lines: Vec<&str> = out.lines().collect();
+    if lines.get(1) == Some(&"plain") {
+        return;
+    }
+    assert_eq!(
+        lines.get(1),
+        Some(&"alive"),
+        "换了语言环境写下的启动时间，同一个进程仍要认得出: {out}"
+    );
+    assert_eq!(
+        lines.get(2),
+        Some(&"lost"),
+        "启动时刻对不上的是被复用的 pid，不能认成原来的进程: {out}"
+    );
+}
+
+#[test]
 fn cmd_sh_execs_the_agent_so_signals_reach_it() {
     let c = render_cmd(
         &ExecSpec::new("claude")
