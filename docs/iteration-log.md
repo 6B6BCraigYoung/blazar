@@ -907,3 +907,12 @@ Blazar 的后台小活本来就不用 Codex，所以不需要额外的 `CODEX_HO
 - **验证**：同样的复现方式连续离开中控台 4 次（去工作区 3 次、去接入的软件 1 次）都不再崩溃；再用调试构建把这几天改过的页面走一遍，没有任何报错。
 
 验证：`cargo fmt --check`、`leptosfmt --check crates/web/src`、`cargo clippy --workspace --all-targets -- -D warnings`、wasm 的 clippy、`cargo test --workspace`、`node --test crates/web/tests/navigation.mjs`。
+
+## b41 · 正式版前端崩溃日志带代码位置
+
+用户选的。b40 那次日志只写了「访问了已销毁的值」，要另外搭调试构建才查到是哪一行。对应第 5 条（细节里见品质）。
+
+- 新增 `.cargo/config.toml`，只给 wasm32 目标加 `--cfg leptos_debuginfo`。trunk、CI 和 wasm 的 clippy 都会读到它，原生构建不受影响。
+- 效果：响应式的值记下自己在哪里创建，崩溃信息变成「At 某文件:行, you tried to access a reactive value which was defined at 某文件:行」，直接进 `logs/web.log`；DOM 调用失败时控制台多一条警告。不加额外的运行时检查，代价只是前端包变大。
+
+验证：wasm 的 clippy 通过；包大小和崩溃文案在打包后核对，见下一条安装记录。
