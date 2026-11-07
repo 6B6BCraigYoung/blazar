@@ -423,6 +423,12 @@
           "markdownDescription": "Show the shortcuts the page uses on the native menu."
         },
         {
+          "description": "Show or hide the menu bar icon, and tell the page when launch left it out because it froze the app.",
+          "type": "string",
+          "const": "menubar",
+          "markdownDescription": "Show or hide the menu bar icon, and tell the page when launch left it out because it froze the app."
+        },
+        {
           "description": "Forward a preview port the remote hub handed out to this computer.",
           "type": "string",
           "const": "remote-forward",

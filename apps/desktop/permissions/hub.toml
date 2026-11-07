@@ -37,3 +37,8 @@ commands.allow = ["set_menu_shortcuts"]
 identifier = "app-update"
 description = "Check for a signed update of the app, install it and restart."
 commands.allow = ["update_ready", "install_update"]
+
+[[permission]]
+identifier = "menubar"
+description = "Show or hide the menu bar icon, and tell the page when launch left it out because it froze the app."
+commands.allow = ["menubar", "set_menubar", "menubar_noticed"]

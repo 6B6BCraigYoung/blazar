@@ -38,6 +38,7 @@ pub fn PrefRow(
     #[prop(optional, into)] detail: Option<String>,
     #[prop(optional, into)] for_id: Option<String>,
     #[prop(optional, into)] enabled: Option<Signal<bool>>,
+    #[prop(optional, into)] notice: Option<Signal<Option<String>>>,
     #[prop(optional)] children: Option<Children>,
 ) -> impl IntoView {
     let off = move || enabled.is_some_and(|e| !e.get());
@@ -47,6 +48,10 @@ pub fn PrefRow(
             <label class="pref-label" for=for_id>
                 <span class="pref-row-title">{label}</span>
                 {detail.map(|d| view! { <span class="pref-row-detail">{d}</span> })}
+                {notice
+                    .map(|n| {
+                        move || n.get().map(|t| view! { <span class="pref-row-notice">{t}</span> })
+                    })}
             </label>
             <div class="pref-control">{children.map(|c| c())}</div>
         </div>

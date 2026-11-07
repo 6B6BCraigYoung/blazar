@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use blazar_core_types::keymap;
 use blazar_hub::accounts::MenuProvider;
@@ -16,9 +16,19 @@ const TRAY_ICON: &[u8] = include_bytes!("../icons/tray-36.rgba");
 
 const LOCAL_HUB: &str = "hub-local";
 
+pub const TRAY_ID: &str = "blazar";
+
+const TRAY_ACCOUNT: &str = "tray-account";
+
 const REPO: &str = "https://github.com/6B6BCraigYoung/blazar";
 
-struct AccountMenu(Vec<Submenu<Wry>>);
+struct AccountMenu(Mutex<Vec<Submenu<Wry>>>);
+
+fn account_menus(app: &AppHandle) -> Vec<Submenu<Wry>> {
+    app.try_state::<AccountMenu>()
+        .map(|m| m.0.lock().unwrap_or_else(PoisonError::into_inner).clone())
+        .unwrap_or_default()
+}
 
 /// Menu items that carry a shortcut, by keymap action, so a changed binding can be put on
 /// the item it belongs to.
@@ -52,33 +62,33 @@ pub fn install(
 ) -> tauri::Result<()> {
     let account = Submenu::with_id(app, "account", "账号", true)?;
     app.manage(MenuKeys::default());
-    let menu = Menu::with_items(
-        app,
-        &[
-            &app_menu(app, hub.remote().is_some())?,
-            &file_menu(app)?,
-            &edit_menu(app)?,
-            &view_menu(app)?,
-            &go_menu(app)?,
-            &account,
-            &window_menu(app)?,
-            &help_menu(app)?,
-        ],
-    )?;
-    app.set_menu(menu)?;
-    let mut accounts = vec![account];
+    {
+        let _stage = crate::watchdog::mark(crate::watchdog::Stage::Menu);
+        let menu = Menu::with_items(
+            app,
+            &[
+                &app_menu(app, hub.remote().is_some())?,
+                &file_menu(app)?,
+                &edit_menu(app)?,
+                &view_menu(app)?,
+                &go_menu(app)?,
+                &account,
+                &window_menu(app)?,
+                &help_menu(app)?,
+            ],
+        )?;
+        app.set_menu(menu)?;
+    }
+    app.manage(AccountMenu(Mutex::new(vec![account])));
     if with_tray {
-        let tray_account = Submenu::with_id(app, "tray-account", "账号", true)?;
-        match tray(app, &tray_account) {
+        match show_tray(app) {
             Ok(()) => tracing::info!(
-                present = app.tray_by_id("blazar").is_some(),
+                present = app.tray_by_id(TRAY_ID).is_some(),
                 "菜单栏图标已创建"
             ),
             Err(e) => tracing::warn!("菜单栏图标创建失败：{e}"),
         }
-        accounts.push(tray_account);
     }
-    app.manage(AccountMenu(accounts));
 
     let handle = app.clone();
     let watched = hub.clone();
@@ -151,6 +161,41 @@ pub fn install(
     Ok(())
 }
 
+pub fn show_tray(app: &AppHandle) -> tauri::Result<()> {
+    if app.tray_by_id(TRAY_ID).is_some() {
+        return Ok(());
+    }
+    let account = Submenu::with_id(app, TRAY_ACCOUNT, "账号", true)?;
+    crate::menubar::trying();
+    crate::watchdog::tray_begins();
+    if let Err(e) = tray(app, &account) {
+        crate::watchdog::tray_dropped();
+        crate::menubar::settled();
+        return Err(e);
+    }
+    crate::watchdog::tray_built();
+    if let Some(menus) = app.try_state::<AccountMenu>() {
+        menus
+            .0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(account);
+    }
+    Ok(())
+}
+
+pub fn hide_tray(app: &AppHandle) {
+    crate::watchdog::tray_dropped();
+    drop(app.remove_tray_by_id(TRAY_ID));
+    if let Some(menus) = app.try_state::<AccountMenu>() {
+        menus
+            .0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .retain(|m| m.id().as_ref() != TRAY_ACCOUNT);
+    }
+}
+
 fn tray(app: &AppHandle, account: &Submenu<Wry>) -> tauri::Result<()> {
     let menu = Menu::with_items(
         app,
@@ -171,7 +216,7 @@ fn tray(app: &AppHandle, account: &Submenu<Wry>) -> tauri::Result<()> {
             &item(app, "quit", "退出 Blazar", Some("CmdOrCtrl+Q"))?,
         ],
     )?;
-    TrayIconBuilder::with_id("blazar")
+    TrayIconBuilder::with_id(TRAY_ID)
         .icon(Image::new(TRAY_ICON, 36, 36))
         .icon_as_template(true)
         .tooltip("Blazar")
@@ -365,8 +410,9 @@ fn runtime_name(provider: &str) -> &str {
 }
 
 fn fill_accounts(app: &AppHandle, global: &bool, providers: &[MenuProvider]) -> tauri::Result<()> {
-    for menu in &app.state::<AccountMenu>().0 {
-        fill_account_menu(app, menu, *global, providers)?;
+    let _stage = crate::watchdog::mark(crate::watchdog::Stage::AccountMenu);
+    for menu in account_menus(app) {
+        fill_account_menu(app, &menu, *global, providers)?;
     }
     Ok(())
 }

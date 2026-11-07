@@ -55,6 +55,8 @@ mod md;
 #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 mod media_kind;
 #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+mod menubar_notice;
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 mod model_pick;
 #[cfg(target_arch = "wasm32")]
 mod monaco;

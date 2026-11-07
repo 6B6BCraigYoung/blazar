@@ -18,10 +18,12 @@ mod forward;
 mod hub_mode;
 mod link;
 mod menu;
+mod menubar;
 mod profile;
 mod remote;
 mod snapshot;
 mod updater;
+mod watchdog;
 
 const BUNDLED_PAGE: &str = "index.html";
 
@@ -136,9 +138,14 @@ fn run() -> Result<()> {
             commands::set_menu_shortcuts,
             updater::update_ready,
             updater::install_update,
+            menubar::menubar,
+            menubar::set_menubar,
+            menubar::menubar_noticed,
         ])
         .setup(move |app| {
             let hub = setup_hub;
+            let data = profile::data_dir().ok();
+            watchdog::start(app.handle().clone(), data.clone());
             let geo = window_geometry::load();
             let dev = dev_instance();
             let size = dev
@@ -204,7 +211,10 @@ fn run() -> Result<()> {
             if dev {
                 b = b.background_throttling(BackgroundThrottlingPolicy::Disabled);
             }
-            let win = b.build()?;
+            let win = {
+                let _stage = watchdog::mark(watchdog::Stage::Window);
+                b.build()?
+            };
             let _ = badge_tx.send(win.clone());
             let w2 = win.clone();
             let focus_hub = hub.clone();
@@ -240,6 +250,7 @@ fn run() -> Result<()> {
                 .permission("downloads")
                 .permission("clipboard-image")
                 .permission("menu-keys")
+                .permission("menubar")
                 .permission("app-update");
             let page = if hub.remote().is_some() {
                 page.permission("remote-forward")
@@ -253,7 +264,8 @@ fn run() -> Result<()> {
             })?;
             app.manage(hub.clone());
             app.manage(Arc::new(download::Downloads::default()));
-            menu::install(app.handle(), hub, rt_handle.clone(), !dev)?;
+            let tray = !dev && menubar::at_launch(data.as_deref());
+            menu::install(app.handle(), hub, rt_handle.clone(), tray)?;
             Ok(())
         })
         .build(tauri::generate_context!())
@@ -264,6 +276,7 @@ fn run() -> Result<()> {
             QUITTING.store(true, std::sync::atomic::Ordering::SeqCst);
         }
         if let tauri::RunEvent::Exit = &event {
+            menubar::on_exit();
             hub.shutdown();
             if RESTART.load(std::sync::atomic::Ordering::SeqCst) {
                 restart();

@@ -153,6 +153,8 @@ select.settings-input, .dlg select, .card.pad select { appearance: none; -webkit
 .pref-label { display: flex; flex-direction: column; gap: var(--space-2xs); min-width: 0; flex: 1 1 auto; }
 .pref-row-title { color: var(--fg); }
 .pref-row-detail { color: var(--fg-3); font-size: var(--font-size-label); overflow-wrap: anywhere; }
+.pref-row-notice { display: flex; align-items: baseline; gap: var(--space-sm); margin-top: var(--space-2xs); color: var(--fg-2); font-size: var(--font-size-label); line-height: var(--line-height-compact); }
+.pref-row-notice::before { content: ""; flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--status-attention); transform: translateY(-1px); }
 .pref-control { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-md); flex: 0 0 auto; max-width: 60%; }
 .pref-control > * { flex-shrink: 0; white-space: nowrap; }
 .pref-control > :is(.pref-text, .pref-stack, .settings-checks, code) { flex-shrink: 1; min-width: 0; white-space: normal; }
