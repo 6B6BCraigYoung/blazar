@@ -1980,7 +1980,7 @@ pub fn Log(chat: Chat, tick: RwSignal<u32>, log_h: RwSignal<f64>) -> impl IntoVi
                 .map(|t| t.head.clone())
         });
         gloo_timers::callback::Timeout::new(60, move || {
-            let Some(log) = el.get_untracked() else {
+            let Some(log) = el.try_get_untracked().flatten() else {
                 return;
             };
             let by_tool = (!tool.is_empty())

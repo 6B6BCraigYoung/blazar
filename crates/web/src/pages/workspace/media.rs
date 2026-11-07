@@ -226,21 +226,24 @@ fn ImageView(src: String, dims: RwSignal<Option<(u32, u32)>>) -> impl IntoView {
     let failed = RwSignal::new(false);
     let size_of = move || {
         stage
-            .get_untracked()
+            .try_get_untracked()
+            .flatten()
             .map(|s| (f64::from(s.client_width()), f64::from(s.client_height())))
     };
     let place = move |s: f64| {
-        let (Some((sw, sh)), Some((w, h))) = (size_of(), natural.get_untracked()) else {
+        let (Some((sw, sh)), Some((w, h))) = (size_of(), natural.try_get_untracked().flatten())
+        else {
             return;
         };
-        scale.set(s);
-        pos.set(((sw - w * s) / 2.0, (sh - h * s) / 2.0));
+        let _ = scale.try_set(s);
+        let _ = pos.try_set(((sw - w * s) / 2.0, (sh - h * s) / 2.0));
     };
     let fit_now = move || {
-        let (Some((sw, sh)), Some((w, h))) = (size_of(), natural.get_untracked()) else {
+        let (Some((sw, sh)), Some((w, h))) = (size_of(), natural.try_get_untracked().flatten())
+        else {
             return;
         };
-        fit.set(true);
+        let _ = fit.try_set(true);
         let room = |v: f64| (v - FIT_MARGIN * 2.0).max(1.0);
         place((room(sw) / w).min(room(sh) / h).min(1.0));
     };

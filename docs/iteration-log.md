@@ -896,3 +896,14 @@ Blazar 的后台小活本来就不用 Codex，所以不需要额外的 `CODEX_HO
 截图（临时 hub，演示数据，不放进仓库）：`target/shots/model/`：1-picker（对话里选了 Fable，底部「Set as workspace default」）、2-new-chat（新对话用工作区默认）、3-settings（默认模型）。手动核对过：对话 A 改成 Haiku 后，同工作区的新对话仍是工作区默认 Fable，另一个工作区的对话仍是 Default，回到对话 A 还是 Haiku。
 
 验证：`cargo fmt --check`、`leptosfmt --check crates/web/src`、`cargo clippy --workspace --all-targets -- -D warnings`、wasm 的 clippy、`cargo test --workspace`、`node --test crates/web/tests/navigation.mjs`。
+
+## b40 · 离开中控台时前端崩溃
+
+用户在新版装好后选了先修这个。11-07 一天的前端日志里有 22 次同样的崩溃（`Tried to access a reactive value that has already been disposed`，位置都在 `get_untracked`），全部发生在离开中控台的那一下（18 次去工作区页，其余去某个工作区或「接入的软件」），旧版也有。对应第 5 条（细节里见品质）。
+
+- **原因**：对话底栏会在内容或尺寸变化后，到下一帧再挤一挤按钮（`composer/fit.rs`），那一帧里用 `get_untracked` 读底栏的节点。中控台的对话一直在更新底栏（用量、状态），离开中控台时常有一帧还没跑；这一帧落在页面已经拆掉之后，读到已销毁的节点就崩溃。
+- **复现**：用带调试断言的构建（`CARGO_PROFILE_WASM_DEBUG_ASSERTIONS=true trunk build`）在临时 hub 里，往中控台底栏塞一个节点、同一刻点「工作区」，稳定复现，报错写明 `fit.rs:31:31` 读了在 `composer.rs:240:15` 定义、已经销毁的值，和用户日志里的崩溃位置一致。
+- **修复**：那一帧改用 `try_get_untracked`，页面拆掉就什么都不做。顺手把同类的两处也改成 `try_`：点卡片跳到提问处的定时器、图片查看页的尺寸回调。全量查过一遍下一帧、定时器和观察者里的读法，其余都已经是 `try_`。
+- **验证**：同样的复现方式连续离开中控台 4 次（去工作区 3 次、去接入的软件 1 次）都不再崩溃；再用调试构建把这几天改过的页面走一遍，没有任何报错。
+
+验证：`cargo fmt --check`、`leptosfmt --check crates/web/src`、`cargo clippy --workspace --all-targets -- -D warnings`、wasm 的 clippy、`cargo test --workspace`、`node --test crates/web/tests/navigation.mjs`。

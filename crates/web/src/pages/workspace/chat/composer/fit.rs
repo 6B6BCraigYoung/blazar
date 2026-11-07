@@ -27,8 +27,10 @@ fn fit(bar: &web_sys::Element) {
 }
 
 pub fn keep_fitting(bar: NodeRef<html::Div>) {
+    // The frame can land after the composer is gone (leaving the console while its bar is
+    // still updating), so the node is read with `try_`.
     let run = move || {
-        if let Some(el) = bar.get_untracked() {
+        if let Some(el) = bar.try_get_untracked().flatten() {
             fit(&el);
         }
     };
