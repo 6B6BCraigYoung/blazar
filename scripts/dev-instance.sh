@@ -2,9 +2,9 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-SRC="$ROOT/target/release/bundle/macos/Blazar.app"
+SRC="$ROOT/target/bundle.noindex/Blazar.app"
 PROFILE="${BLAZAR_DEV_PROFILE:-dev}"
-DEV="$ROOT/target/dev-instance/$PROFILE/Blazar Dev.app"
+DEV="$ROOT/target/dev-instance.noindex/$PROFILE/Blazar Dev.app"
 BIN="$DEV/Contents/MacOS/blazar-desktop"
 DATA="${BLAZAR_DEV_HOME:-$HOME}/Library/Application Support/ai.blazar.Blazar/profiles/$PROFILE"
 LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
@@ -99,7 +99,7 @@ shot() {
     return 0
   fi
   echo "界面驱动没有截到图，改用 screencapture：$(jq -r '.error // empty' <<<"$reply" 2>/dev/null || echo "$reply")" >&2
-  local out="$ROOT/target/dev-instance/$PROFILE/${name:-shot.png}"
+  local out="$ROOT/target/dev-instance.noindex/$PROFILE/${name:-shot.png}"
   id=$(swift - "$p" <<'EOF'
 import CoreGraphics
 let pid = Int(CommandLine.arguments[1]) ?? 0

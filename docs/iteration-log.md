@@ -1060,3 +1060,20 @@ B 的第三部分。出网络故障时要能一眼看出是机器、组网还是
 - 菜单栏图标建好后看门狗确认没卡（`menubar.json` 清成 `{"enabled": true}`），重开后没有卡顿记录。
 - 当天还发生过两次装机以外的重开：08:49（今早冻住 1 小时 53 分后用户手动重开，那个实例是从终端用 `open` 打开的，带 LANG），以及 10:16（之前没有卡顿记录）。
 - 那 8 个被误判成「进程没了」的旧 claude 进程（约 1.35 GB 内存）还在。用户同意结束它们，但被自动模式的安全检查拦下了，已发卡片请用户处理。
+
+## b51 · 装机只留一个藏起来的回滚副本，搜索里只剩 /Applications 那一份
+
+用户在中控台选了「删掉 3 个暂存副本和开发实例，以后装机只留一个回滚副本，放在搜不到的地方」。之前每次打包、装机都会在构建目录、`target/install` 和开发实例目录里各留一份 Blazar.app，启动台和 Spotlight 里能搜到好几个 Blazar。对应第 1 条（少即是多）。
+
+- 现有副本：中控台已经把两份暂存副本和开发实例移进废纸篓，a94a7aa 那份挪进了 `backups/rollback.noindex/`；我把剩下三份（`target/install` 里的 02864b3、构建输出、11-01 的 0.1.1 旧备份）注销后移进废纸篓（`blazar-copies-11081036`）。现在 Spotlight 按 bundle id 只搜得到 `/Applications/Blazar.app`。11-01 那份旧数据库备份是数据，不是副本，没动。
+- `scripts/package-macos.sh`：打完、签好名后，立刻把 .app 挪进 `target/bundle.noindex/`（Spotlight 不进 `.noindex` 目录），构建输出里不留会被搜到的 .app。
+- 新增 `scripts/install-macos.sh`，把以前散在会话里的装机步骤固定下来：
+  - 先把自己脱离成独立的进程会话再干活，就算发起装机的会话被重启的 Blazar 带走，也会走完；进度写在 `target/install.log`。
+  - 有远端智能体在跑就拒绝装。
+  - 在线备份数据库。
+  - 把 `/Applications` 里旧的那份挪进 `backups/rollback.noindex/Blazar-<构建号>.app`，作为唯一的回滚副本，更早的回滚副本移进废纸篓。
+  - 换上新版、校验签名，删掉 `target/` 里的暂存副本（别处的路径不碰）。
+  - 用干净环境重开，确认新进程起来了。
+- `scripts/dev-instance.sh` 和 `scripts/faults/faults.py`：开发实例改放到 `target/dev-instance.noindex/`。
+
+验证：三个脚本 `bash -n` 通过，`faults.py` 能解析。还没在真实装机里跑过，下次装机用它。

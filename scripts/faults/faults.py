@@ -46,7 +46,7 @@ def repo(path, files):
 def prepare(_args):
     if pid():
         die("开发实例还在运行，先 faults.py stop")
-    src = REPO / "target/dev-instance/dev/Blazar Dev.app"
+    src = REPO / "target/dev-instance.noindex/dev/Blazar Dev.app"
     if not src.exists():
         die("先用 scripts/dev-instance.sh build 构建开发实例")
     shutil.rmtree(APP.parent, ignore_errors=True)

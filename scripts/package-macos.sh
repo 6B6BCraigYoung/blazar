@@ -17,5 +17,11 @@ fi
 cargo build --bins --release --features tauri/custom-protocol
 cargo tauri bundle --bundles "${BLAZAR_BUNDLES:-app,dmg}"
 ../../scripts/local-signing.sh sign ../../target/release/bundle/macos/Blazar.app
+OUT=../../target/bundle.noindex
+mkdir -p "$OUT"
+rm -rf "$OUT/Blazar.app"
+mv ../../target/release/bundle/macos/Blazar.app "$OUT/Blazar.app"
+/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
+  -u ../../target/release/bundle/macos/Blazar.app 2>/dev/null || true
 echo
-ls -d ../../target/release/bundle/macos/*.app ../../target/release/bundle/dmg/*.dmg 2>/dev/null || true
+ls -d "$OUT"/*.app ../../target/release/bundle/dmg/*.dmg 2>/dev/null || true
