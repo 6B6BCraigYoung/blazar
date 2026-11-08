@@ -85,6 +85,11 @@ impl Prefs {
         }
     }
 
+    pub fn hung_later(&mut self, now: u64, secs: u64) {
+        self.trying.get_or_insert(now);
+        self.stuck_secs = Some(self.stuck_secs.map_or(secs, |s| s.max(secs)));
+    }
+
     pub fn settled(&mut self) {
         self.trying = None;
         self.stuck_secs = None;
@@ -185,6 +190,11 @@ pub fn trying() {
 
 pub fn settled() {
     with(Prefs::settled);
+}
+
+pub fn hung_later(secs: u64) {
+    let at = now();
+    with(|p| p.hung_later(at, secs));
 }
 
 pub fn stuck(secs: u64) {
@@ -329,6 +339,21 @@ mod tests {
                 stuck_secs: Some(12)
             }
         );
+    }
+
+    #[test]
+    fn an_icon_that_hangs_long_after_it_was_built_is_skipped_next_launch() {
+        let dir = tempfile::tempdir().unwrap();
+        update(dir.path(), |p| p.begin(1));
+        update(dir.path(), Prefs::settled);
+        update(dir.path(), |p| p.hung_later(1_700_000_000, 6));
+        update(dir.path(), |p| p.hung_later(1_700_000_030, 66));
+        update(dir.path(), |p| p.hung_later(1_700_000_060, 3));
+        update(dir.path(), Prefs::exiting);
+        assert!(!at_launch(Some(dir.path())), "运行中卡在图标上，下次也跳过");
+        let notice = load(dir.path()).notice().cloned().unwrap();
+        assert_eq!(notice.at, 1_700_000_000, "记第一次卡住的时间");
+        assert_eq!(notice.stuck_secs, Some(66), "记卡得最久的那次");
     }
 
     #[test]

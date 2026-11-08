@@ -1,7 +1,7 @@
 pub fn notice(stuck_secs: Option<u64>) -> String {
     match stuck_secs.filter(|s| *s > 0) {
         Some(secs) => format!(
-            "上次启动时菜单栏没有响应，Blazar 卡住了{}，所以这次没有显示菜单栏图标。可以随时在这里重新打开。",
+            "上次运行时菜单栏没有响应，Blazar 卡住了{}，所以这次没有显示菜单栏图标。可以随时在这里重新打开。",
             span(secs)
         ),
         None => "上次启动时菜单栏图标没建完，Blazar 没能正常打开，所以这次没有显示菜单栏图标。可以随时在这里重新打开。".to_owned(),

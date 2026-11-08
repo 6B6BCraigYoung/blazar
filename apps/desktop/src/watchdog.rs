@@ -1,5 +1,5 @@
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -11,6 +11,10 @@ pub const STUCK: Duration = Duration::from_secs(3);
 const SETTLE: Duration = Duration::from_secs(2);
 const REPORT_EVERY: Duration = Duration::from_secs(30);
 const KEEP_SAMPLES: usize = 4;
+const RELAUNCH_AFTER: Duration = Duration::from_secs(60);
+const TRAY_FRAMES: [&str; 3] = ["NSSceneStatusItem", "NSStatusItem", "NSStatusBar"];
+
+static TRAY_HANG: AtomicBool = AtomicBool::new(false);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Stage {
@@ -254,11 +258,12 @@ fn watch(app: &AppHandle, dir: Option<&Path>) {
                     waited.as_secs(),
                     stage.label()
                 );
+                TRAY_HANG.store(false, Ordering::SeqCst);
                 if stage == Stage::Tray {
                     tray().stalled = true;
                     crate::menubar::stuck(waited.as_secs());
                 }
-                sample(dir);
+                sample(dir, waited);
             }
             Seen::StillStuck { waited, stage } => {
                 tracing::warn!(
@@ -267,8 +272,17 @@ fn watch(app: &AppHandle, dir: Option<&Path>) {
                     waited.as_secs(),
                     stage.label()
                 );
+                let by_tray = TRAY_HANG.load(Ordering::SeqCst);
                 if stage == Stage::Tray {
                     crate::menubar::stuck(waited.as_secs());
+                } else if by_tray {
+                    crate::menubar::hung_later(waited.as_secs());
+                }
+                if (stage == Stage::Tray || by_tray)
+                    && waited >= RELAUNCH_AFTER
+                    && !crate::dev_instance()
+                {
+                    relaunch(waited);
                 }
             }
             Seen::Recovered { stuck, stage } => {
@@ -280,6 +294,8 @@ fn watch(app: &AppHandle, dir: Option<&Path>) {
                 );
                 if stage == Stage::Tray {
                     crate::menubar::stuck(stuck.as_secs());
+                } else if TRAY_HANG.swap(false, Ordering::SeqCst) {
+                    crate::menubar::hung_later(stuck.as_secs());
                 }
             }
         }
@@ -311,8 +327,62 @@ fn watch(app: &AppHandle, dir: Option<&Path>) {
     }
 }
 
+/// 主线程卡在菜单栏图标上时不会自己恢复（系统不回话），只能重开。
+/// 下次启动已记成不建图标；等这个进程退出再起新的，免得两个实例抢 hub 端口。
+#[cfg(unix)]
+fn relaunch(waited: Duration) {
+    let Ok(exe) = std::env::current_exe() else {
+        return;
+    };
+    tracing::warn!(
+        "主线程卡在菜单栏图标上 {} 秒，不会自己恢复，重开 Blazar（这次不建菜单栏图标）",
+        waited.as_secs()
+    );
+    let spawned = std::process::Command::new("/bin/sh")
+        .args([
+            "-c",
+            "while kill -0 \"$1\" 2>/dev/null; do sleep 0.2; done; exec \"$2\"",
+            "blazar-relaunch",
+        ])
+        .arg(std::process::id().to_string())
+        .arg(exe)
+        .env_remove(crate::hub_mode::URL_ENV)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
+    match spawned {
+        Ok(_) => std::process::exit(0),
+        Err(e) => tracing::warn!("重开失败，只能手动退出再打开：{e}"),
+    }
+}
+
+#[cfg(not(unix))]
+fn relaunch(waited: Duration) {
+    let _ = waited;
+}
+
+/// sample 输出里每个线程的第一行是四个空格加样本数，栈帧行带 `+`。
+fn thread_header(line: &str) -> bool {
+    let rest = line.trim_start_matches(' ');
+    line.len() - rest.len() <= 4 && rest.starts_with(|c: char| c.is_ascii_digit())
+}
+
+/// sample 输出里主线程那一段有没有菜单栏图标的帧。
+fn tray_in_main_stack(text: &str) -> bool {
+    let mut lines = text
+        .lines()
+        .skip_while(|l| !l.contains("com.apple.main-thread"));
+    if lines.next().is_none() {
+        return false;
+    }
+    lines
+        .take_while(|l| !l.trim().is_empty() && !thread_header(l))
+        .any(|l| TRAY_FRAMES.iter().any(|f| l.contains(f)))
+}
+
 #[cfg(target_os = "macos")]
-fn sample(dir: Option<&Path>) {
+fn sample(dir: Option<&Path>, waited: Duration) {
     let Some(logs) = dir.map(|d| d.join("logs")) else {
         return;
     };
@@ -335,6 +405,12 @@ fn sample(dir: Option<&Path>) {
             match ran {
                 Ok(s) if s.success() => {
                     tracing::warn!("主线程卡住时的调用栈存到了 {}", path.display());
+                    let text = std::fs::read_to_string(&path).unwrap_or_default();
+                    if stage() != Stage::Tray && tray_in_main_stack(&text) {
+                        TRAY_HANG.store(true, Ordering::SeqCst);
+                        crate::menubar::hung_later(waited.as_secs() + 3);
+                        tracing::warn!("主线程卡在菜单栏图标上，下次启动不建菜单栏图标");
+                    }
                 }
                 Ok(s) => tracing::warn!("没取到主线程卡住时的调用栈：sample {s}"),
                 Err(e) => tracing::warn!("没取到主线程卡住时的调用栈：{e}"),
@@ -346,8 +422,8 @@ fn sample(dir: Option<&Path>) {
 }
 
 #[cfg(not(target_os = "macos"))]
-fn sample(dir: Option<&Path>) {
-    let _ = dir;
+fn sample(dir: Option<&Path>, waited: Duration) {
+    let _ = (dir, waited);
 }
 
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
@@ -491,6 +567,15 @@ mod tests {
         assert_eq!(stage(), Stage::Tray);
         release_tray_stage();
         assert_eq!(stage(), Stage::Idle);
+    }
+
+    #[test]
+    fn only_a_main_thread_stuck_in_the_status_item_counts_as_the_tray() {
+        let tray = "Call graph:\n    2077 Thread_1   DispatchQueue_1: com.apple.main-thread  (serial)\n    + 2077 start  (in dyld)\n    +   2077 -[NSSceneStatusItem _requestScene]  (in AppKit)\n    +     2077 kevent_id\n    2077 Thread_2: tokio-rt-worker\n    + 2077 thread_start\n";
+        assert!(tray_in_main_stack(tray));
+        let elsewhere = "Call graph:\n    10 Thread_1   DispatchQueue_1: com.apple.main-thread  (serial)\n    + 10 start  (in dyld)\n    +   10 sqlite3_step\n    10 Thread_2: worker\n    +   10 -[NSStatusItem button]  (in AppKit)\n";
+        assert!(!tray_in_main_stack(elsewhere), "别的线程碰到图标不算");
+        assert!(!tray_in_main_stack("no threads here"));
     }
 
     #[test]
