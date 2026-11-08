@@ -1108,3 +1108,14 @@ B 的第三部分。出网络故障时要能一眼看出是机器、组网还是
 10:16 起这个实例没有再记到超过 3 秒的卡顿。用户说的「很慢」具体指什么还没确认，这次没碰。
 
 验证：`cargo fmt --check`、`leptosfmt --check crates/web/src`、`cargo clippy --workspace --all-targets -- -D warnings`、wasm 的 clippy、`cargo test --workspace`（1129 个全过）、两个 node 测试。
+
+## 11-08 第三次装到本机（cf4b8a0：含 b52 和 b53）
+
+用户先选了「等 XiePhysics 这一轮跑完就装」；那一轮结束后 XiePhysics 马上又开了新一轮（FR3 + 真实 2F-85 连杆），再发卡片问，用户选「现在就装，趁这一轮刚开始」。18:45 用 `scripts/install-macos.sh` 装上，这是这个脚本第一次在真实装机里跑。
+
+- 脚本走完了全程：在线备份数据库（`blazar.sqlite.bak-20261108-184509`）；更早的回滚副本（a94a7aa 那份）移进废纸篓；`/Applications` 里的 02864b3 挪成 `backups/rollback.noindex/Blazar-20261108.022438.app`，是唯一的回滚副本；换上构建 20261108.104323；删掉暂存副本；用干净环境重开，新进程 pid 92134。Spotlight 按 bundle id 只搜得到 `/Applications/Blazar.app`。
+- 重开后 hub 1 秒内就绪，还是原来的端口。在跑的两个会话（我这一轮、XiePhysics 新开的那一轮）都重新附着上了，状态仍是 running。
+- 菜单栏：日志是「菜单栏图标没开（设置里可以打开），启动时不建」。`menubar.json` 还是旧版写下的 `{"enabled": true}`，没有 `chosen`，按新规矩算没手动打开过，所以不建。
+- 看门狗线程在新进程里（1 秒抽样能看到 `blazar-main-watchdog`），重开后没有卡顿记录。
+- 启动扫描没有动作、收件箱没有新汇报：昨天剩下的 6 个旧 claude 进程在装机前已经不在了（用户自己结束的），所以这次没能在真实场景里看到「接回 / 结束」。
+- 重开后日志里有两条警告，都和这次改动无关：组网定时刷新找不到 `easytier-cli`（11-07 起每次启动都有）；paper 工作区一次文件传输报「不是一个文件」。
