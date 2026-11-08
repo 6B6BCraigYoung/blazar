@@ -1038,3 +1038,15 @@ B 的第三部分。出网络故障时要能一眼看出是机器、组网还是
 测试：同一进程在中文和默认环境下取到的启动时间相同；按别的区域设置写下的启动时间仍能认出进程，时刻对不上的判成不是同一个进程。
 
 验证：`cargo fmt --check`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace`（1108 个全过）。还没装机：装机要重启，等用户点头。
+
+## b50 · 运行中卡在菜单栏图标也认得出，并自动不带图标重开
+
+11-08 06:56 Blazar 又冻住了，一直到用户 08:49 手动重开，冻了 1 小时 53 分。这次看门狗记下了全过程，还存了调用栈（`logs/hang-1794092184.txt`）：主线程 2077 个样本全部停在「CFRunLoop 定时器 → `NSSceneStatusItem _requestScene` → `FBSScene activateWithCompletion` → `dispatch_async_and_wait`」。也就是 AppKit 在运行中为菜单栏图标重新申请场景，系统菜单栏一直不回话。这和 11-07 20:35 是同一处，只是发生在运行中，不在建图标那一刻，所以 b42 按阶段判断的自动跳过没有触发，重开后图标又建起来了。对应第 2 条（直接能用）。
+
+- `7a075ba`（用户开的另一个助手写的，我只改了提交说明，去掉署名行、缩短标题）：读卡住时的抽样，主线程停在 `NSSceneStatusItem` / `NSStatusItem` / `NSStatusBar` 里，就记下「运行中卡在图标上」（`hung_later`），下次启动不建图标，设置里的提示改成「上次运行时菜单栏没有响应…」；卡住超过 60 秒，就起一个等本进程退出的小脚本，然后退出，由脚本重新打开 Blazar。
+- 我在检查时补了三处：
+  - 重开时不再用 `exit(0)` 退出。主线程正卡在 `dispatch_async_and_wait` 里，退出时跑的清理回调可能也要等主线程，进程就退不掉，重开脚本会一直等下去。改成直接用 `/bin/kill -KILL` 结束自己（不会弹崩溃窗口），结束不掉才退回 `exit(0)`。数据库是 WAL 模式，被强制结束不会坏；剩下的隧道由新版回收（b43）。
+  - 按比例判断：图标那几帧要占主线程样本的 80% 以上才算卡在图标上。健康进程里主线程也会偶尔落一两个样本在 `_requestScene` 上（装完后抽样见过 1/667），不加门槛的话，别的原因卡住时可能被误判、关掉菜单栏图标。
+  - 测试：卡死的样本照真实 hang 文件的格式截了一段，健康的样本照 1/667 造了一段，另外测了读样本数能穿过 `+ ! : |` 这些树状符号。
+
+验证：`cargo fmt --check`、`leptosfmt --check crates/web/src`、`cargo clippy --workspace --all-targets -- -D warnings`、wasm 的 clippy、`cargo test --workspace`（1113 个全过）、两个 node 测试。

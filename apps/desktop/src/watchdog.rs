@@ -327,8 +327,6 @@ fn watch(app: &AppHandle, dir: Option<&Path>) {
     }
 }
 
-/// 主线程卡在菜单栏图标上时不会自己恢复（系统不回话），只能重开。
-/// 下次启动已记成不建图标；等这个进程退出再起新的，免得两个实例抢 hub 端口。
 #[cfg(unix)]
 fn relaunch(waited: Duration) {
     let Ok(exe) = std::env::current_exe() else {
@@ -338,13 +336,14 @@ fn relaunch(waited: Duration) {
         "主线程卡在菜单栏图标上 {} 秒，不会自己恢复，重开 Blazar（这次不建菜单栏图标）",
         waited.as_secs()
     );
+    let me = std::process::id().to_string();
     let spawned = std::process::Command::new("/bin/sh")
         .args([
             "-c",
             "while kill -0 \"$1\" 2>/dev/null; do sleep 0.2; done; exec \"$2\"",
             "blazar-relaunch",
         ])
-        .arg(std::process::id().to_string())
+        .arg(&me)
         .arg(exe)
         .env_remove(crate::hub_mode::URL_ENV)
         .stdin(std::process::Stdio::null())
@@ -352,7 +351,12 @@ fn relaunch(waited: Duration) {
         .stderr(std::process::Stdio::null())
         .spawn();
     match spawned {
-        Ok(_) => std::process::exit(0),
+        Ok(_) => {
+            let _ = std::process::Command::new("/bin/kill")
+                .args(["-KILL", me.as_str()])
+                .status();
+            std::process::exit(0);
+        }
         Err(e) => tracing::warn!("重开失败，只能手动退出再打开：{e}"),
     }
 }
@@ -362,23 +366,31 @@ fn relaunch(waited: Duration) {
     let _ = waited;
 }
 
-/// sample 输出里每个线程的第一行是四个空格加样本数，栈帧行带 `+`。
 fn thread_header(line: &str) -> bool {
     let rest = line.trim_start_matches(' ');
     line.len() - rest.len() <= 4 && rest.starts_with(|c: char| c.is_ascii_digit())
 }
 
-/// sample 输出里主线程那一段有没有菜单栏图标的帧。
+fn leading_count(line: &str) -> Option<u64> {
+    let rest = line.trim_start_matches([' ', '+', '!', ':', '|']);
+    let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+    digits.parse().ok()
+}
+
 fn tray_in_main_stack(text: &str) -> bool {
     let mut lines = text
         .lines()
         .skip_while(|l| !l.contains("com.apple.main-thread"));
-    if lines.next().is_none() {
+    let Some(total) = lines.next().and_then(leading_count).filter(|t| *t > 0) else {
         return false;
-    }
-    lines
+    };
+    let held = lines
         .take_while(|l| !l.trim().is_empty() && !thread_header(l))
-        .any(|l| TRAY_FRAMES.iter().any(|f| l.contains(f)))
+        .filter(|l| TRAY_FRAMES.iter().any(|f| l.contains(f)))
+        .filter_map(leading_count)
+        .max()
+        .unwrap_or(0);
+    held * 5 >= total * 4
 }
 
 #[cfg(target_os = "macos")]
@@ -576,6 +588,56 @@ mod tests {
         let elsewhere = "Call graph:\n    10 Thread_1   DispatchQueue_1: com.apple.main-thread  (serial)\n    + 10 start  (in dyld)\n    +   10 sqlite3_step\n    10 Thread_2: worker\n    +   10 -[NSStatusItem button]  (in AppKit)\n";
         assert!(!tray_in_main_stack(elsewhere), "别的线程碰到图标不算");
         assert!(!tray_in_main_stack("no threads here"));
+    }
+
+    const HUNG: &str = "Call graph:
+    2077 Thread_18862341   DispatchQueue_1: com.apple.main-thread  (serial)
+    + 2077 start  (in dyld) + 6652  [0x187854d7c]
+    +   2077 -[NSApplication run]  (in AppKit) + 396  [0x19178a920]
+    +     2077 __CFRunLoopDoTimer  (in CoreFoundation) + 1084  [0x18bb075a4]
+    +       2077 __34-[NSSceneStatusItem _requestScene]_block_invoke.17  (in AppKit) + 40  [0x191dd942c]
+    +         2077 -[NSSceneStatusItem _requestScene]  (in AppKit) + 576  [0x191dd8d18]
+    +           2077 _dispatch_async_and_wait_f  (in libdispatch.dylib) + 104  [0x18c8aefec]
+    2077 Thread_18862348: tokio-rt-worker
+    + 2077 start_wqthread  (in libsystem_pthread.dylib) + 8  [0x1878e0b9c]
+";
+
+    const HEALTHY: &str = "Call graph:
+    667 Thread_18862341   DispatchQueue_1: com.apple.main-thread  (serial)
+    + 667 start  (in dyld) + 6652  [0x187854d7c]
+    +   667 -[NSApplication run]  (in AppKit) + 396  [0x19178a920]
+    +   ! 666 _DPSNextEvent  (in AppKit) + 576  [0x19179759c]
+    +   ! : 645 mach_msg2_trap  (in libsystem_kernel.dylib) + 8  [0x1878e3c20]
+    +   ! 1 __34-[NSSceneStatusItem _requestScene]_block_invoke.17  (in AppKit) + 40  [0x191dd942c]
+    +   !   1 -[NSSceneStatusItem _requestScene]  (in AppKit) + 576  [0x191dd8d18]
+    667 Thread_18862348: tokio-rt-worker
+    + 667 start_wqthread  (in libsystem_pthread.dylib) + 8  [0x1878e0b9c]
+";
+
+    #[test]
+    fn a_main_thread_parked_in_the_status_item_is_blamed_on_the_icon() {
+        assert!(tray_in_main_stack(HUNG));
+    }
+
+    #[test]
+    fn a_passing_status_item_call_is_not_blamed_for_some_other_stall() {
+        assert!(
+            !tray_in_main_stack(HEALTHY),
+            "健康时主线程也会偶尔落一两个样本在这里"
+        );
+    }
+
+    #[test]
+    fn sample_counts_are_read_through_the_tree_glyphs() {
+        assert_eq!(
+            leading_count("    2077 Thread_18862341   DispatchQueue_1: com.apple.main-thread"),
+            Some(2077)
+        );
+        assert_eq!(leading_count("    +   ! : 645 mach_msg2_trap"), Some(645));
+        assert_eq!(leading_count("    + : | 945 __CFRunLoopRun"), Some(945));
+        assert_eq!(leading_count("Call graph:"), None);
+        assert!(thread_header("    667 Thread_1: worker"));
+        assert!(!thread_header("    + 667 start"));
     }
 
     #[test]
