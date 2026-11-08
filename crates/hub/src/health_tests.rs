@@ -5,6 +5,7 @@ use blazar_core_types::{SessionId, WorkspaceId};
 use serde_json::{Value, json};
 
 use super::*;
+use std::time::Instant;
 
 async fn state() -> Shared {
     let st = AppState::with_services(
@@ -390,4 +391,51 @@ async fn a_run_that_cannot_be_resumed_is_reported_once_however_often_the_machine
     assert_eq!(cards.len(), 1, "{cards:?}");
     assert!(cards[0].ends_with("gpu-x 回来了，没能自动继续"));
     assert_eq!(notices(&st, sid).await.len(), 1);
+}
+
+#[tokio::test]
+async fn offline_only_when_status_says_so() {
+    let st = state().await;
+    add_node(&st, "gpu-a", "offline").await;
+    add_node(&st, "gpu-b", "online").await;
+    assert!(is_offline(&st, "gpu-a").await);
+    assert!(!is_offline(&st, "gpu-b").await);
+    assert!(!is_offline(&st, "local").await);
+    assert!(!is_offline(&st, "no-such-node").await);
+}
+
+#[test]
+fn recheck_is_rate_limited_per_node() {
+    let h = HealthState::default();
+    let t0 = Instant::now();
+    assert!(h.should_recheck("gpu-a", t0));
+    assert!(!h.should_recheck("gpu-a", t0 + Duration::from_secs(3)));
+    assert!(h.should_recheck("gpu-b", t0 + Duration::from_secs(3)));
+    assert!(h.should_recheck("gpu-a", t0 + RECHECK_EVERY));
+}
+
+/// 机器已判离线：浏览文件的请求立刻拿到「机器连不上」，不去等 SSH 超时。
+#[tokio::test]
+async fn browsing_an_offline_node_fails_fast() {
+    use axum::response::IntoResponse;
+    let st = state().await;
+    add_node(&st, "gpu-a.invalid", "offline").await;
+    let (ws, _) = failed_on(&st, "gpu-a.invalid").await;
+    // 这次不真的去补测。
+    assert!(st.health.should_recheck("gpu-a.invalid", Instant::now()));
+    let started = Instant::now();
+    let err = crate::api::locate_live(&st, &ws.to_string())
+        .await
+        .expect_err("离线机器要直接报错");
+    assert!(started.elapsed() < Duration::from_secs(1));
+    let resp = crate::api::ApiError::from(err).into_response();
+    assert_eq!(resp.status(), axum::http::StatusCode::SERVICE_UNAVAILABLE);
+    let body = axum::body::to_bytes(resp.into_body(), 1 << 16)
+        .await
+        .unwrap();
+    let text = String::from_utf8_lossy(&body);
+    assert!(text.contains("机器连不上"), "{text}");
+
+    mark_online(&st, "gpu-a.invalid").await;
+    assert!(crate::api::locate_live(&st, &ws.to_string()).await.is_ok());
 }

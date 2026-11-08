@@ -127,6 +127,8 @@ fn Workspace(id: String) -> impl IntoView {
     let tid = id.clone();
     let tree = LocalResource::new(move || {
         bus.workspaces.track();
+        // 机器掉线又连回来时重新拉一次，不用手动刷新。
+        bus.nodes.track();
         tree_rev.track();
         let id = tid.clone();
         async move { api::get::<Tree>(&format!("/api/workspaces/{id}/tree")).await }
@@ -154,6 +156,7 @@ fn Workspace(id: String) -> impl IntoView {
     });
     let tree_reload = Signal::derive(move || {
         bus.workspaces.track();
+        bus.nodes.track();
         tree_rev.get()
     });
     let expanded_once = StoredValue::new(false);

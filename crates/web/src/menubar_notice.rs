@@ -1,7 +1,7 @@
 pub fn notice(stuck_secs: Option<u64>) -> String {
     match stuck_secs.filter(|s| *s > 0) {
         Some(secs) => format!(
-            "上次运行时菜单栏没有响应，Blazar 卡住了{}，所以这次没有显示菜单栏图标。可以随时在这里重新打开。",
+            "菜单栏没有响应，Blazar 卡住了{}，所以关掉了菜单栏图标，免得再卡住。可以随时在这里重新打开。",
             span(secs)
         ),
         None => "上次启动时菜单栏图标没建完，Blazar 没能正常打开，所以这次没有显示菜单栏图标。可以随时在这里重新打开。".to_owned(),
@@ -29,6 +29,7 @@ mod tests {
         assert!(notice(Some(89)).contains("卡住了约 1 分钟，"));
         assert!(notice(Some(5400)).contains("卡住了约 2 小时，"));
         assert!(notice(Some(1440)).ends_with("可以随时在这里重新打开。"));
+        assert!(notice(Some(8)).contains("关掉了菜单栏图标"));
     }
 
     #[test]

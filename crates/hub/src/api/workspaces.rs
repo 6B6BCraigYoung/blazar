@@ -379,6 +379,17 @@ pub(crate) async fn locate(st: &AppState, id: &str) -> anyhow::Result<(String, S
     Ok((row.try_get("node")?, row.try_get("path")?))
 }
 
+/// 和 [`locate`] 一样，但机器已判离线时直接报 [`super::NodeOffline`]，
+/// 并在后台补测一次；给浏览文件这类“等不起 SSH 超时”的请求用。
+pub(crate) async fn locate_live(st: &Shared, id: &str) -> anyhow::Result<(String, String)> {
+    let (node, path) = locate(st, id).await?;
+    if crate::health::is_offline(st, &node).await {
+        crate::health::recheck_soon(st, &node);
+        return Err(super::NodeOffline(node).into());
+    }
+    Ok((node, path))
+}
+
 pub async fn local_roots(st: &AppState) -> anyhow::Result<Vec<String>> {
     let rows = sqlx::query(
         "SELECT w.path FROM workspaces w
@@ -567,7 +578,7 @@ pub async fn workspace_tree(
     State(st): State<Shared>,
     Path(id): Path<String>,
 ) -> ApiResult<Json<serde_json::Value>> {
-    let (node, path) = locate(&st, &id).await?;
+    let (node, path) = locate_live(&st, &id).await?;
     let (entries, stat) = vfs_for(&st, &node, &path).tree_with_stat(None).await?;
 
     let truncated = entries.len() >= blazar_vfs::MAX_TREE_ENTRIES;
@@ -602,7 +613,7 @@ pub async fn workspace_file(
     Path(id): Path<String>,
     Query(q): Query<FileQuery>,
 ) -> ApiResult<Json<blazar_vfs::FileContent>> {
-    let (node, path) = locate(&st, &id).await?;
+    let (node, path) = locate_live(&st, &id).await?;
     Ok(Json(vfs_for(&st, &node, &path).read(&q.path).await?))
 }
 
@@ -617,7 +628,7 @@ pub async fn workspace_ls(
     Path(id): Path<String>,
     Query(q): Query<DirQuery>,
 ) -> ApiResult<Json<blazar_vfs::DirItems>> {
-    let (node, path) = locate(&st, &id).await?;
+    let (node, path) = locate_live(&st, &id).await?;
     Ok(Json(vfs_for(&st, &node, &path).list_dir(&q.path).await?))
 }
 
@@ -883,7 +894,7 @@ pub async fn workspace_diff(
     Path(id): Path<String>,
     Query(q): Query<DiffQuery>,
 ) -> ApiResult<Json<serde_json::Value>> {
-    let (node, path) = locate(&st, &id).await?;
+    let (node, path) = locate_live(&st, &id).await?;
     let vfs = vfs_for(&st, &node, &path);
 
     let branch = q.base.as_deref().map(str::trim).filter(|b| {

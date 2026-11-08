@@ -4,7 +4,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, Weak};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use blazar_core_types::SessionId;
 use blazar_transport::{ExecSpec, NodeTransport, SshTransport};
@@ -26,11 +26,15 @@ pub const OFFLINE_AFTER: u32 = 2;
 /// 同时探测几台机器。
 pub const PARALLEL: usize = 8;
 
+/// 离线机器被页面请求时，最快多久补测一次（免得每个请求都去等 SSH 超时）。
+pub const RECHECK_EVERY: Duration = Duration::from_secs(10);
+
 #[derive(Default)]
 pub struct HealthState {
     stopping: AtomicBool,
     reconnecting: Mutex<HashMap<SessionId, String>>,
     resuming: Mutex<HashSet<SessionId>>,
+    rechecked: Mutex<HashMap<String, Instant>>,
 }
 
 /// 持有期间同一个会话不会再被“机器回来了”续跑一次。
@@ -79,6 +83,20 @@ impl HealthState {
             .lock()
             .ok()
             .and_then(|m| m.get(&sid).cloned())
+    }
+
+    /// 离线机器这次该不该补测：距上次补测不到 [`RECHECK_EVERY`] 就不测。
+    pub fn should_recheck(&self, node: &str, now: Instant) -> bool {
+        let Ok(mut m) = self.rechecked.lock() else {
+            return false;
+        };
+        match m.get(node) {
+            Some(at) if now.saturating_duration_since(*at) < RECHECK_EVERY => false,
+            _ => {
+                m.insert(node.to_owned(), now);
+                true
+            }
+        }
     }
 
     /// 占住这个会话的续跑；已经有人在续跑时返回 None。
@@ -207,6 +225,35 @@ pub async fn mark_offline(st: &Shared, name: &str) -> bool {
         st.emit(ServerEvent::NodesChanged);
     }
     changed
+}
+
+/// 机器当前被判离线（`local` 永远不算）。
+pub async fn is_offline(st: &AppState, node: &str) -> bool {
+    if node == "local" {
+        return false;
+    }
+    sqlx::query_scalar::<_, String>("SELECT status FROM nodes WHERE name = ?1")
+        .bind(node)
+        .fetch_optional(st.db.pool())
+        .await
+        .ok()
+        .flatten()
+        .is_some_and(|s| s == "offline")
+}
+
+/// 页面要用一台已判离线的机器：后台补测一次（限频），通了就立刻改回在线，
+/// 不用等下一轮定时探测。
+pub fn recheck_soon(st: &Shared, node: &str) {
+    if st.health.stopping() || !st.health.should_recheck(node, Instant::now()) {
+        return;
+    }
+    let st = st.clone();
+    let node = node.to_owned();
+    tokio::spawn(async move {
+        if reachable(node.clone(), PROBE_TIMEOUT).await && !st.health.stopping() {
+            mark_online(&st, &node).await;
+        }
+    });
 }
 
 /// 轻量探测：经复用的 SSH 连接跑一次 `true`，`limit` 内没回来就算不通。

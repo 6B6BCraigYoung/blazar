@@ -40,6 +40,22 @@ impl std::fmt::Display for NotFound {
 
 impl std::error::Error for NotFound {}
 
+/// 工作区所在机器已被判离线：不再去等 SSH 超时，直接告诉页面。
+#[derive(Debug)]
+pub(crate) struct NodeOffline(pub(crate) String);
+
+impl std::fmt::Display for NodeOffline {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "机器连不上：{} 现在离线，连回来后会自动恢复",
+            self.0
+        )
+    }
+}
+
+impl std::error::Error for NodeOffline {}
+
 impl ApiError {
     pub(crate) fn bad_request(message: impl Into<String>) -> Self {
         Self(anyhow::Error::new(InvalidRequest(message.into(), None)))
@@ -75,6 +91,13 @@ impl IntoResponse for ApiError {
             return (
                 StatusCode::NOT_FOUND,
                 Json(serde_json::json!({ "error": missing.0 })),
+            )
+                .into_response();
+        }
+        if let Some(offline) = self.0.downcast_ref::<NodeOffline>() {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({ "error": offline.to_string() })),
             )
                 .into_response();
         }

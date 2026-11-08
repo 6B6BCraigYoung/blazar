@@ -13,8 +13,11 @@ const REPORT_EVERY: Duration = Duration::from_secs(30);
 const KEEP_SAMPLES: usize = 4;
 const RELAUNCH_AFTER: Duration = Duration::from_secs(60);
 const TRAY_FRAMES: [&str; 3] = ["NSSceneStatusItem", "NSStatusItem", "NSStatusBar"];
+const TRAY_MIN_SAMPLES: u64 = 10;
 
 static TRAY_HANG: AtomicBool = AtomicBool::new(false);
+
+static IN_STALL: AtomicBool = AtomicBool::new(false);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Stage {
@@ -259,11 +262,12 @@ fn watch(app: &AppHandle, dir: Option<&Path>) {
                     stage.label()
                 );
                 TRAY_HANG.store(false, Ordering::SeqCst);
+                IN_STALL.store(true, Ordering::SeqCst);
                 if stage == Stage::Tray {
                     tray().stalled = true;
                     crate::menubar::stuck(waited.as_secs());
                 }
-                sample(dir, waited);
+                sample(app, dir, waited);
             }
             Seen::StillStuck { waited, stage } => {
                 tracing::warn!(
@@ -292,10 +296,11 @@ fn watch(app: &AppHandle, dir: Option<&Path>) {
                     stuck.as_secs(),
                     stage.label()
                 );
+                IN_STALL.store(false, Ordering::SeqCst);
                 if stage == Stage::Tray {
                     crate::menubar::stuck(stuck.as_secs());
-                } else if TRAY_HANG.swap(false, Ordering::SeqCst) {
-                    crate::menubar::hung_later(stuck.as_secs());
+                } else {
+                    drop_hung_tray(app, stuck.as_secs());
                 }
             }
         }
@@ -309,7 +314,8 @@ fn watch(app: &AppHandle, dir: Option<&Path>) {
                 }
                 Settle::Stalled => {
                     tray_dropped();
-                    tracing::warn!("这次建菜单栏图标时主线程卡住过，下次启动不建菜单栏图标");
+                    tracing::warn!("这次建菜单栏图标时主线程卡住过");
+                    turn_off_tray(app, 0);
                 }
             }
         }
@@ -324,6 +330,23 @@ fn watch(app: &AppHandle, dir: Option<&Path>) {
             }
         }
         std::thread::sleep(TICK);
+    }
+}
+
+fn drop_hung_tray(app: &AppHandle, secs: u64) {
+    if TRAY_HANG.swap(false, Ordering::SeqCst) {
+        turn_off_tray(app, secs);
+    }
+}
+
+fn turn_off_tray(app: &AppHandle, secs: u64) {
+    crate::menubar::hung_now(secs);
+    let handle = app.clone();
+    match app.run_on_main_thread(move || crate::menu::hide_tray(&handle)) {
+        Ok(()) => {
+            tracing::warn!("主线程卡在菜单栏图标上，恢复后关掉了菜单栏图标，设置里会说明原因")
+        }
+        Err(e) => tracing::warn!("菜单栏图标没关掉：{e}"),
     }
 }
 
@@ -390,14 +413,15 @@ fn tray_in_main_stack(text: &str) -> bool {
         .filter_map(leading_count)
         .max()
         .unwrap_or(0);
-    held * 5 >= total * 4
+    held >= TRAY_MIN_SAMPLES && held * 10 >= total
 }
 
 #[cfg(target_os = "macos")]
-fn sample(dir: Option<&Path>, waited: Duration) {
+fn sample(app: &AppHandle, dir: Option<&Path>, waited: Duration) {
     let Some(logs) = dir.map(|d| d.join("logs")) else {
         return;
     };
+    let app = app.clone();
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs());
@@ -421,7 +445,10 @@ fn sample(dir: Option<&Path>, waited: Duration) {
                     if stage() != Stage::Tray && tray_in_main_stack(&text) {
                         TRAY_HANG.store(true, Ordering::SeqCst);
                         crate::menubar::hung_later(waited.as_secs() + 3);
-                        tracing::warn!("主线程卡在菜单栏图标上，下次启动不建菜单栏图标");
+                        tracing::warn!("主线程卡在菜单栏图标上");
+                        if !IN_STALL.load(Ordering::SeqCst) {
+                            drop_hung_tray(&app, waited.as_secs() + 3);
+                        }
                     }
                 }
                 Ok(s) => tracing::warn!("没取到主线程卡住时的调用栈：sample {s}"),
@@ -434,8 +461,8 @@ fn sample(dir: Option<&Path>, waited: Duration) {
 }
 
 #[cfg(not(target_os = "macos"))]
-fn sample(dir: Option<&Path>, waited: Duration) {
-    let _ = (dir, waited);
+fn sample(app: &AppHandle, dir: Option<&Path>, waited: Duration) {
+    let _ = (app, dir, waited);
 }
 
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
@@ -624,6 +651,27 @@ mod tests {
         assert!(
             !tray_in_main_stack(HEALTHY),
             "健康时主线程也会偶尔落一两个样本在这里"
+        );
+    }
+
+    const CAUGHT_LATE: &str = "Call graph:
+    2140 Thread_18862341   DispatchQueue_1: com.apple.main-thread  (serial)
+    + 2140 start  (in dyld) + 6652  [0x187854d7c]
+    +   2140 -[NSApplication run]  (in AppKit) + 396  [0x19178a920]
+    +   ! 1610 _DPSNextEvent  (in AppKit) + 576  [0x19179759c]
+    +   ! : 1610 mach_msg2_trap  (in libsystem_kernel.dylib) + 8  [0x1878e3c20]
+    +   ! 530 __CFRunLoopDoTimer  (in CoreFoundation) + 1084  [0x18bb075a4]
+    +   !   530 __34-[NSSceneStatusItem _requestScene]_block_invoke.17  (in AppKit) + 40  [0x191dd942c]
+    +   !     530 -[NSSceneStatusItem _requestScene]  (in AppKit) + 576  [0x191dd8d18]
+    2140 Thread_18862348: tokio-rt-worker
+    + 2140 start_wqthread  (in libsystem_pthread.dylib) + 8  [0x1878e0b9c]
+";
+
+    #[test]
+    fn a_stall_in_the_status_item_caught_near_its_end_still_counts() {
+        assert!(
+            tray_in_main_stack(CAUGHT_LATE),
+            "抽样开始时已经卡了 3 秒，剩下的四分之一停在图标上也要认出来"
         );
     }
 

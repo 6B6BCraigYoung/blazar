@@ -14,8 +14,10 @@ static LOCK: Mutex<()> = Mutex::new(());
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Prefs {
-    #[serde(default = "shown_by_default")]
+    #[serde(default = "not_turned_off")]
     pub enabled: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub chosen: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trying: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -40,14 +42,20 @@ pub enum Launch {
     Skip { stuck_secs: Option<u64> },
 }
 
-fn shown_by_default() -> bool {
+fn not_turned_off() -> bool {
     true
+}
+
+#[must_use]
+pub fn shown_by_default() -> bool {
+    !cfg!(target_os = "macos")
 }
 
 impl Default for Prefs {
     fn default() -> Self {
         Self {
             enabled: true,
+            chosen: false,
             trying: None,
             stuck_secs: None,
             skipped: None,
@@ -56,6 +64,11 @@ impl Default for Prefs {
 }
 
 impl Prefs {
+    #[must_use]
+    pub fn on(&self) -> bool {
+        self.enabled && (self.chosen || shown_by_default())
+    }
+
     pub fn launch(&mut self) -> Launch {
         if let Some(at) = self.trying.take() {
             let stuck_secs = self.stuck_secs.take();
@@ -67,11 +80,7 @@ impl Prefs {
             });
             return Launch::Skip { stuck_secs };
         }
-        if self.enabled {
-            Launch::Show
-        } else {
-            Launch::Off
-        }
+        if self.on() { Launch::Show } else { Launch::Off }
     }
 
     pub fn begin(&mut self, now: u64) {
@@ -90,6 +99,17 @@ impl Prefs {
         self.stuck_secs = Some(self.stuck_secs.map_or(secs, |s| s.max(secs)));
     }
 
+    pub fn hung_now(&mut self, at: u64, secs: u64) {
+        let at = self.trying.take().unwrap_or(at);
+        let longest = self.stuck_secs.take().map_or(secs, |s| s.max(secs));
+        self.enabled = false;
+        self.skipped = Some(Skipped {
+            at,
+            stuck_secs: (longest > 0).then_some(longest),
+            noticed: false,
+        });
+    }
+
     pub fn settled(&mut self) {
         self.trying = None;
         self.stuck_secs = None;
@@ -103,6 +123,7 @@ impl Prefs {
 
     pub fn set_enabled(&mut self, on: bool) {
         self.enabled = on;
+        self.chosen = true;
         self.settled();
         if on {
             self.skipped = None;
@@ -162,7 +183,7 @@ pub fn at_launch(dir: Option<&Path>) -> bool {
     match update(dir, Prefs::launch) {
         Launch::Show => true,
         Launch::Off => {
-            tracing::info!("菜单栏图标在设置里关掉了，启动时不建");
+            tracing::info!("菜单栏图标没开（设置里可以打开），启动时不建");
             false
         }
         Launch::Skip {
@@ -201,6 +222,11 @@ pub fn stuck(secs: u64) {
     with(|p| p.stuck(secs));
 }
 
+pub fn hung_now(secs: u64) {
+    let at = now();
+    with(|p| p.hung_now(at, secs));
+}
+
 pub fn on_exit() {
     if !crate::dev_instance() {
         with(Prefs::exiting);
@@ -210,7 +236,7 @@ pub fn on_exit() {
 fn view(app: &AppHandle, prefs: &Prefs) -> Value {
     json!({
         "available": true,
-        "enabled": prefs.enabled,
+        "enabled": prefs.on(),
         "shown": app.tray_by_id(crate::menu::TRAY_ID).is_some(),
         "notice": prefs.notice().map(|s| json!({ "at": s.at, "stuck_secs": s.stuck_secs })),
     })
@@ -264,16 +290,46 @@ pub fn menubar_noticed() -> Result<(), String> {
 mod tests {
     use super::*;
 
+    fn chosen_on() -> Prefs {
+        let mut p = Prefs::default();
+        p.set_enabled(true);
+        p
+    }
+
     #[test]
-    fn a_missing_or_broken_file_means_the_icon_is_shown() {
+    fn a_missing_or_broken_file_follows_the_platform_default() {
         let dir = tempfile::tempdir().unwrap();
         assert_eq!(load(dir.path()), Prefs::default());
         std::fs::write(dir.path().join(FILE), "{not json").unwrap();
         assert_eq!(load(dir.path()), Prefs::default());
         std::fs::write(dir.path().join(FILE), "{}").unwrap();
-        assert!(load(dir.path()).enabled);
-        assert!(at_launch(Some(dir.path())));
+        assert_eq!(load(dir.path()).on(), shown_by_default());
+        assert_eq!(at_launch(Some(dir.path())), shown_by_default());
         assert!(at_launch(None));
+    }
+
+    #[test]
+    fn on_macos_the_icon_stays_off_until_it_is_turned_on_by_hand() {
+        assert_eq!(shown_by_default(), !cfg!(target_os = "macos"));
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join(FILE), r#"{"enabled": true}"#).unwrap();
+        assert_eq!(
+            at_launch(Some(dir.path())),
+            shown_by_default(),
+            "旧版留下的 enabled 不算手动打开过"
+        );
+        update(dir.path(), |p| p.set_enabled(true));
+        assert!(at_launch(Some(dir.path())), "在设置里打开过就照办");
+        assert_eq!(
+            serde_json::from_str::<Value>(&std::fs::read_to_string(dir.path().join(FILE)).unwrap())
+                .unwrap(),
+            json!({ "enabled": true, "chosen": true })
+        );
+        update(dir.path(), |p| p.hung_now(1, 5));
+        assert!(
+            !at_launch(Some(dir.path())),
+            "手动打开过、后来卡住了，照样关掉"
+        );
     }
 
     #[test]
@@ -316,7 +372,7 @@ mod tests {
         p.launch();
         assert!(p.notice().is_some());
         p.set_enabled(true);
-        assert!(p.enabled);
+        assert!(p.on());
         assert!(p.skipped.is_none());
         assert!(p.notice().is_none());
         assert_eq!(p.launch(), Launch::Show);
@@ -324,12 +380,12 @@ mod tests {
 
     #[test]
     fn a_clean_quit_right_after_launch_is_not_a_stall_but_a_quit_during_one_is() {
-        let mut quick = Prefs::default();
+        let mut quick = chosen_on();
         quick.begin(1);
         quick.exiting();
         assert_eq!(quick.launch(), Launch::Show);
 
-        let mut stalled = Prefs::default();
+        let mut stalled = chosen_on();
         stalled.begin(1);
         stalled.stuck(12);
         stalled.exiting();
@@ -357,6 +413,46 @@ mod tests {
     }
 
     #[test]
+    fn an_icon_that_hangs_while_running_is_turned_off_at_once_and_stays_off() {
+        let dir = tempfile::tempdir().unwrap();
+        update(dir.path(), |p| p.begin(1));
+        update(dir.path(), Prefs::settled);
+        update(dir.path(), |p| p.hung_later(1_700_000_000, 6));
+        update(dir.path(), |p| p.hung_now(1_700_000_009, 9));
+        let after = load(dir.path());
+        assert!(!after.enabled, "恢复后立刻关掉，并记住关闭");
+        assert_eq!(after.trying, None);
+        assert_eq!(after.stuck_secs, None);
+        let notice = after.notice().cloned().unwrap();
+        assert_eq!(notice.at, 1_700_000_000, "记第一次发现卡住的时间");
+        assert_eq!(notice.stuck_secs, Some(9));
+        assert!(
+            !at_launch(Some(dir.path())),
+            "下次启动也不建，直到在设置里打开"
+        );
+        assert!(
+            load(dir.path()).notice().is_some(),
+            "启动不会把还没看过的说明吞掉"
+        );
+        update(dir.path(), Prefs::noticed);
+        assert!(load(dir.path()).notice().is_none(), "原因只提示一次");
+    }
+
+    #[test]
+    fn a_stall_while_building_is_turned_off_with_the_time_it_took() {
+        let mut p = Prefs::default();
+        p.begin(7);
+        p.stuck(12);
+        p.hung_now(20, 0);
+        assert!(!p.enabled);
+        assert_eq!(
+            p.notice().map(|s| (s.at, s.stuck_secs)),
+            Some((7, Some(12)))
+        );
+        assert_eq!(p.launch(), Launch::Off);
+    }
+
+    #[test]
     fn stuck_time_only_counts_while_the_icon_is_being_built() {
         let mut p = Prefs::default();
         p.stuck(30);
@@ -370,13 +466,13 @@ mod tests {
     #[test]
     fn the_file_round_trips_and_stays_small() {
         let dir = tempfile::tempdir().unwrap();
-        update(dir.path(), |p| p.set_enabled(true));
+        update(dir.path(), Prefs::settled);
         assert!(!dir.path().join(FILE).exists(), "没改动就不写文件");
         update(dir.path(), |p| p.set_enabled(false));
         let text = std::fs::read_to_string(dir.path().join(FILE)).unwrap();
         assert_eq!(
             serde_json::from_str::<Value>(&text).unwrap(),
-            json!({ "enabled": false })
+            json!({ "enabled": false, "chosen": true })
         );
     }
 }

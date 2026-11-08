@@ -36,7 +36,7 @@ pub async fn search(
         .collect();
 
     let rows = sqlx::query(
-        "SELECT w.id, w.name, w.path, n.name AS node, p.name AS project
+        "SELECT w.id, w.name, w.path, n.name AS node, n.status AS status, p.name AS project
          FROM workspaces w JOIN nodes n ON n.id = w.node_id
          LEFT JOIN projects p ON p.id = w.project_id",
     )
@@ -53,6 +53,22 @@ pub async fn search(
         let path: String = r.try_get("path")?;
         let node: String = r.try_get("node")?;
         let project: Option<String> = r.try_get("project")?;
+        let status: Option<String> = r.try_get("status").unwrap_or(None);
+        if node != "local" && status.as_deref() == Some("offline") {
+            crate::health::recheck_soon(&st, &node);
+            let error = super::NodeOffline(node.clone()).to_string();
+            tasks.push(tokio::spawn(async move {
+                SearchGroup {
+                    workspace_id: id,
+                    workspace: name,
+                    node,
+                    project,
+                    hits: Vec::new(),
+                    error: Some(error),
+                }
+            }));
+            continue;
+        }
         let vfs = vfs_for(&st, &node, &path);
         let query = q.q.clone();
 

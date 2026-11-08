@@ -111,7 +111,7 @@ pub async fn workspace_raw(
     let Some((ctype, class)) = media_type(&q.path) else {
         return (StatusCode::UNSUPPORTED_MEDIA_TYPE, "这种文件不能直接预览").into_response();
     };
-    let (node, root) = match locate(&st, &id).await {
+    let (node, root) = match locate_live(&st, &id).await {
         Ok(v) => v,
         Err(e) => return ApiError(e).into_response(),
     };
