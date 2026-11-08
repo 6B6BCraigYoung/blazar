@@ -7,6 +7,7 @@ pub mod chat;
 pub mod checkpoint;
 pub mod codex_proxy;
 pub mod global_login;
+pub mod leftover;
 pub mod proxy;
 pub mod remote_cli;
 pub mod resume;

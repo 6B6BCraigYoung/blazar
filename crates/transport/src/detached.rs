@@ -24,6 +24,7 @@ alive() {
   case $S in *_*) ;; *) [ "$(boot_of)" = "$B" ] || return 1 ;; esac
   NOW_S=$(start_of "$P")
   [ "$NOW_S" = "$S" ] && return 0
+  ps -o command= -p "$P" 2>/dev/null | grep -qF "/${PWD##*/}/run.sh" && return 0
   case $S in *_*) ;; *) return 1 ;; esac
   WAS_C=$(clock_of "$S")
   [ -n "$WAS_C" ] && [ "$(clock_of "$NOW_S")" = "$WAS_C" ]

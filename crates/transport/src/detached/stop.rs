@@ -31,7 +31,7 @@ echo '进程还在运行，无法确认已经停止' >&2; exit 15"#
             self.signal(pid, false, &local_signal).await?;
         }
         let mut status = self.wait_stopped(initial).await?;
-        if let StopStatus::Alive(pid) = status {
+        if let StopStatus::Alive(pid) | StopStatus::Waiting(pid) = status {
             self.signal(pid, true, &local_signal).await?;
             status = self.wait_stopped(status).await?;
         }
@@ -69,7 +69,7 @@ if [ -n "$LIVE" ]; then
   [ "$PG" = "$P" ] || {{ echo '运行进程组身份不匹配' >&2; exit 15; }}
   echo "alive=$P"
 elif printf '%s\n' "$TABLE" | awk -v p="$P" '$2 == p && $3 !~ /^Z/ {{found=1}} END {{exit !found}}'; then
-  echo waiting
+  echo "waiting=$P"
 else
   echo stopped
 fi"#
@@ -102,6 +102,7 @@ fi"#
         match self.stop_status().await? {
             StopStatus::Stopped => return Ok(()),
             StopStatus::Alive(current) if current == pid => {}
+            StopStatus::Waiting(current) if current == pid && force => {}
             _ => return Err(stop_error("运行身份已变化，请重新确认进程状态后重试")),
         }
         match self.transport.kind() {
@@ -114,9 +115,12 @@ fi"#
                 };
                 let body = format!(
                     r#"{IDENTITY_FNS}
-alive || {{ echo '运行身份已变化' >&2; exit 15; }}
-read -r P B S < pid
+read -r P B S < pid || exit 15
 [ "$P" = '{pid}' ] || exit 15
+if ! alive; then
+  [ '{force}' = true ] || {{ echo '运行身份已变化' >&2; exit 15; }}
+  ps -eo pid=,stat= | awk -v p="$P" '$1 == p && $2 !~ /^Z/ {{found=1}} END {{exit found}}' || {{ echo '运行身份已变化' >&2; exit 15; }}
+fi
 {command}"#
                 );
                 self.transport
@@ -132,7 +136,7 @@ read -r P B S < pid
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum StopStatus {
     Alive(i32),
-    Waiting,
+    Waiting(i32),
     Stopped,
 }
 
@@ -146,13 +150,17 @@ pub(super) fn stop_error(message: impl Into<String>) -> TransportError {
 fn parse_stop_status(raw: &str) -> Result<StopStatus> {
     match raw {
         "stopped" => Ok(StopStatus::Stopped),
-        "waiting" => Ok(StopStatus::Waiting),
-        _ => raw
-            .strip_prefix("alive=")
-            .and_then(|value| value.parse::<i32>().ok())
-            .filter(|pid| *pid > 1)
-            .map(StopStatus::Alive)
-            .ok_or_else(|| stop_error("无法确认运行进程组状态")),
+        _ => {
+            let parsed = |prefix: &str| {
+                raw.strip_prefix(prefix)
+                    .and_then(|value| value.parse::<i32>().ok())
+                    .filter(|pid| *pid > 1)
+            };
+            parsed("alive=")
+                .map(StopStatus::Alive)
+                .or_else(|| parsed("waiting=").map(StopStatus::Waiting))
+                .ok_or_else(|| stop_error("无法确认运行进程组状态"))
+        }
     }
 }
 
@@ -404,6 +412,11 @@ mod tests {
             parse_stop_status("alive=12345").unwrap(),
             StopStatus::Alive(12345)
         );
+        assert_eq!(
+            parse_stop_status("waiting=12345").unwrap(),
+            StopStatus::Waiting(12345)
+        );
+        assert!(parse_stop_status("waiting").is_err());
     }
 
     #[tokio::test]
@@ -446,6 +459,60 @@ mod tests {
             let _ = self.0.kill();
             let _ = self.0.wait();
         }
+    }
+
+    #[cfg(unix)]
+    fn running(pid: &str) -> bool {
+        let out = std::process::Command::new("ps")
+            .args(["-o", "stat=", "-p", pid])
+            .output()
+            .unwrap();
+        let stat = String::from_utf8_lossy(&out.stdout);
+        let stat = stat.trim();
+        !stat.is_empty() && !stat.starts_with('Z')
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn what_is_left_of_the_group_is_killed_once_its_leader_is_gone() {
+        use std::io::BufRead;
+        use std::os::unix::process::CommandExt;
+        let root = tempfile::tempdir().unwrap();
+        let mut leader = std::process::Command::new("bash")
+            .arg("-c")
+            .arg("trap '' TERM; sleep 30 >/dev/null 2>&1 & echo $!")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .process_group(0)
+            .spawn()
+            .unwrap();
+        let group = leader.id();
+        let mut member = String::new();
+        std::io::BufReader::new(leader.stdout.take().unwrap())
+            .read_line(&mut member)
+            .unwrap();
+        let member = member.trim().to_owned();
+        leader.wait().unwrap();
+        assert!(running(&member), "留下来的组员应该还活着");
+        std::fs::write(
+            root.path().join("pid"),
+            format!("{group} fixture fixture\n"),
+        )
+        .unwrap();
+        std::fs::write(root.path().join("out.jsonl"), "").unwrap();
+        let run = DetachedRun::attach(local(), root.path().display().to_string(), rid("group"));
+        let probe = run.probe().await.unwrap();
+        let stopped = run.hard_kill().await;
+        let left = running(&member);
+        if left {
+            let _ = std::process::Command::new("kill")
+                .args(["-KILL", &member])
+                .status();
+        }
+        assert!(matches!(probe, RunState::Lost { .. }), "{probe:?}");
+        assert!(stopped.is_ok(), "{stopped:?}");
+        assert!(!left, "领头进程没了，组里剩下的进程也要一起结束");
+        assert!(root.path().join("exit.code").exists());
     }
 
     #[cfg(unix)]

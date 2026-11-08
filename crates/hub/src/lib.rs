@@ -24,7 +24,7 @@ mod skills;
 pub mod transfer;
 mod work;
 pub use agent::{
-    accounts, agents, auto_resume, brief, catalog, chat, checkpoint, codex_proxy, proxy,
+    accounts, agents, auto_resume, brief, catalog, chat, checkpoint, codex_proxy, leftover, proxy,
     remote_cli, resume, run, titles,
 };
 pub use skills::{library, skillhub};
@@ -108,7 +108,11 @@ pub async fn build_state_with_services(
 
     fleet::restore(&st).await;
     services.spawn(fleet::reopen_tunnels(st.clone()));
-    services.spawn(run::reattach_all(st.clone()));
+    let rejoin = st.clone();
+    services.spawn(async move {
+        run::reattach_all(rejoin.clone()).await;
+        leftover::sweep(rejoin).await;
+    });
     services.spawn(proxy::restore(st.clone()));
     services.spawn(auto_resume::rearm(st.clone()));
     let settle = st.clone();

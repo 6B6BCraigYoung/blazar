@@ -565,6 +565,7 @@ pub async fn supervise(
     };
     let remote = ctx.node != "local";
     let mut backoff = 1u64;
+    let mut lost_before = false;
     loop {
         match ctx.live.run.follow(offset).await {
             Ok(mut stream) => loop {
@@ -605,10 +606,19 @@ pub async fn supervise(
         let terminal = match probe_link(&ctx).await {
             Ok(state) => {
                 link_back(&ctx.st, ctx.sid);
+                let lost = matches!(state, RunState::Lost { .. });
+                let confirmed = std::mem::replace(&mut lost_before, lost) && lost;
                 match state {
                     RunState::Alive { .. } => None,
                     RunState::Exited { code, size } => Some((Some(code), size)),
-                    RunState::Lost { size } => Some((None, size)),
+                    RunState::Lost { .. } if !confirmed => {
+                        tracing::info!(target: "blazar::run", "{} 的进程这次没认出来，稍后再核实一次", ctx.sid);
+                        None
+                    }
+                    RunState::Lost { size } => {
+                        abandon(&ctx).await;
+                        Some((None, size))
+                    }
                     RunState::Missing => Some((None, offset)),
                 }
             }
@@ -637,6 +647,18 @@ pub async fn supervise(
         backoff = (backoff * 2).min(30);
     }
 }
+
+async fn abandon(ctx: &Ctx) {
+    match tokio::time::timeout(ABANDON_TIMEOUT, ctx.live.run.hard_kill()).await {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => {
+            tracing::info!(target: "blazar::run", "{} 认不出进程，没有清理它的进程组: {e}", ctx.sid);
+        }
+        Err(_) => tracing::warn!(target: "blazar::run", "{} 清理进程组超时", ctx.sid),
+    }
+}
+
+const ABANDON_TIMEOUT: Duration = Duration::from_secs(20);
 
 /// 最后一轮已经正常收尾、之后也没有新消息：进程随后怎么退出的（hub 重启、被杀）
 /// 都不算这段会话失败，否则重试会把干完的活整段回卷。
@@ -1393,118 +1415,158 @@ pub async fn reattach_all(st: Shared) {
         let (Ok(sid_u), Ok(ws_u)) = (sid.parse(), ws.parse()) else {
             continue;
         };
-        let (sid, ws) = (SessionId(sid_u), WorkspaceId(ws_u));
-        let t = st.transport(&node);
-        let Some(runtime) = CliRuntime::by_id(t.clone(), &agent) else {
+        rejoin(
+            &st,
+            Rejoin {
+                sid: SessionId(sid_u),
+                ws: WorkspaceId(ws_u),
+                node,
+                dir,
+                offset: u64::try_from(off).unwrap_or(0),
+                agent,
+            },
+            false,
+        )
+        .await;
+    }
+}
+
+pub(crate) struct Rejoin {
+    pub sid: SessionId,
+    pub ws: WorkspaceId,
+    pub node: String,
+    pub dir: String,
+    pub offset: u64,
+    pub agent: String,
+}
+
+const LAST_EVENT: &str =
+    "SELECT payload FROM events WHERE session_id = ?1 ORDER BY seq DESC LIMIT 1";
+
+const LAST_TURN_MARK: &str = "SELECT payload FROM events WHERE session_id = ?1
+       AND (payload LIKE '{\"type\":\"finished\"%' OR payload LIKE '{\"type\":\"user_message\"%')
+       AND payload NOT LIKE '{\"type\":\"finished\",\"status\":\"failed\",\"message\":\"agent process is gone%'
+     ORDER BY seq DESC LIMIT 1";
+
+pub(crate) async fn rejoin(st: &Shared, r: Rejoin, adopted: bool) -> bool {
+    let Rejoin {
+        sid,
+        ws,
+        node,
+        dir,
+        offset: off,
+        agent,
+    } = r;
+    let t = st.transport(&node);
+    let Some(runtime) = CliRuntime::by_id(t.clone(), &agent) else {
+        return false;
+    };
+    let run = DetachedRun::attach(t, dir, sid.to_string());
+    let next_seq = st.db.max_seq(sid).await.unwrap_or(0) + 1;
+    let mut recovered = AppTurn {
+        enabled: runtime.app_server(),
+        ..AppTurn::default()
+    };
+    if recovered.enabled {
+        for line in run.drain(0).await.unwrap_or_default().lines() {
+            apply_ids(&mut recovered, &blazar_runtime::codex_app::ids(line));
+        }
+    }
+
+    let count = |pat: &'static str| {
+        let st = st.clone();
+        async move {
+            sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM events WHERE session_id = ?1 AND payload LIKE ?2",
+            )
+            .bind(sid.to_string())
+            .bind(pat)
+            .fetch_one(st.db.pool())
+            .await
+            .unwrap_or(0)
+        }
+    };
+    let users = count(r#"{"type":"user_message"%"#).await;
+
+    let slash = count(r#"{"type":"user_message","text":"/%"#).await;
+    let consumed = count(r#"{"type":"input_consumed"%"#).await;
+    let mut bg = std::collections::HashSet::new();
+    for p in sqlx::query_scalar::<_, String>(
+        "SELECT payload FROM events WHERE session_id = ?1
+           AND payload LIKE '{\"type\":\"background_task\"%' ORDER BY seq",
+    )
+    .bind(sid.to_string())
+    .fetch_all(st.db.pool())
+    .await
+    .unwrap_or_default()
+    {
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(&p) else {
             continue;
         };
-        let run = DetachedRun::attach(t, dir, sid.to_string());
-        let next_seq = st.db.max_seq(sid).await.unwrap_or(0) + 1;
-        let mut recovered = AppTurn {
-            enabled: runtime.app_server(),
-            ..AppTurn::default()
-        };
-        if recovered.enabled {
-            for line in run.drain(0).await.unwrap_or_default().lines() {
-                apply_ids(&mut recovered, &blazar_runtime::codex_app::ids(line));
+        if let (Some(id), Some(status)) = (v["task_id"].as_str(), v["status"].as_str()) {
+            if bg_alive(status) {
+                bg.insert(id.to_owned());
+            } else {
+                bg.remove(id);
             }
         }
-
-        let count = |pat: &'static str| {
-            let st = st.clone();
-            async move {
-                sqlx::query_scalar::<_, i64>(
-                    "SELECT COUNT(*) FROM events WHERE session_id = ?1 AND payload LIKE ?2",
-                )
-                .bind(sid.to_string())
-                .bind(pat)
-                .fetch_one(st.db.pool())
-                .await
-                .unwrap_or(0)
-            }
-        };
-        let users = count(r#"{"type":"user_message"%"#).await;
-
-        let slash = count(r#"{"type":"user_message","text":"/%"#).await;
-        let consumed = count(r#"{"type":"input_consumed"%"#).await;
-        let mut bg = std::collections::HashSet::new();
-        for p in sqlx::query_scalar::<_, String>(
-            "SELECT payload FROM events WHERE session_id = ?1
-               AND payload LIKE '{\"type\":\"background_task\"%' ORDER BY seq",
-        )
-        .bind(sid.to_string())
-        .fetch_all(st.db.pool())
-        .await
-        .unwrap_or_default()
-        {
-            let Ok(v) = serde_json::from_str::<serde_json::Value>(&p) else {
-                continue;
-            };
-            if let (Some(id), Some(status)) = (v["task_id"].as_str(), v["status"].as_str()) {
-                if bg_alive(status) {
-                    bg.insert(id.to_owned());
-                } else {
-                    bg.remove(id);
-                }
-            }
-        }
-        let live = Arc::new(Live {
-            interactive: runtime.interactive(),
-            run,
-            state: Mutex::new(LiveState {
-                next_seq,
-                pending_user: u32::try_from((users - slash - consumed).max(0)).unwrap_or(0),
-                unreplayed: Vec::new(),
-                user_no: u32::try_from(users).unwrap_or(0),
-                eof_sent: false,
-                interrupt_requested: false,
-                interrupted_at: None,
-                bg,
-                idle: false,
-                app: recovered,
-            }),
-        });
-        let hook = blazar_hooks::HookContext {
-            workspace: ws.to_string(),
-            node: node.clone(),
-            cwd: String::new(),
-            session_id: sid.to_string(),
-            tool_name: None,
-            extra: Default::default(),
-        };
-        let ctx = Ctx {
-            st: st.clone(),
-            sid,
-            ws,
-            node,
-            live: live.clone(),
-            runtime: Arc::new(runtime),
-            hook,
-        };
-        register(ctx, u64::try_from(off).unwrap_or(0), None).await;
-
-        let last_finished = sqlx::query_scalar::<_, String>(
-            "SELECT payload FROM events WHERE session_id = ?1 ORDER BY seq DESC LIMIT 1",
-        )
-        .bind(sid.to_string())
-        .fetch_optional(st.db.pool())
-        .await
-        .ok()
-        .flatten()
-        .is_some_and(|p| p.starts_with(r#"{"type":"finished""#));
-        if last_finished && live.interactive {
-            let mut s = live.state.lock().await;
-            s.pending_user = 0;
-            if !s.eof_sent {
-                if !s.bg.is_empty() {
-                    s.idle = true;
-                } else if live.run.eof().await.is_ok() {
-                    s.eof_sent = true;
-                }
-            }
-        }
-        tracing::info!(target: "blazar::run", "已重新附着会话 {sid}（偏移 {off}）");
     }
+    let live = Arc::new(Live {
+        interactive: runtime.interactive(),
+        run,
+        state: Mutex::new(LiveState {
+            next_seq,
+            pending_user: u32::try_from((users - slash - consumed).max(0)).unwrap_or(0),
+            unreplayed: Vec::new(),
+            user_no: u32::try_from(users).unwrap_or(0),
+            eof_sent: false,
+            interrupt_requested: false,
+            interrupted_at: None,
+            bg,
+            idle: false,
+            app: recovered,
+        }),
+    });
+    let hook = blazar_hooks::HookContext {
+        workspace: ws.to_string(),
+        node: node.clone(),
+        cwd: String::new(),
+        session_id: sid.to_string(),
+        tool_name: None,
+        extra: Default::default(),
+    };
+    let ctx = Ctx {
+        st: st.clone(),
+        sid,
+        ws,
+        node,
+        live: live.clone(),
+        runtime: Arc::new(runtime),
+        hook,
+    };
+    register(ctx, off, None).await;
+
+    let last_finished =
+        sqlx::query_scalar::<_, String>(if adopted { LAST_TURN_MARK } else { LAST_EVENT })
+            .bind(sid.to_string())
+            .fetch_optional(st.db.pool())
+            .await
+            .ok()
+            .flatten()
+            .is_some_and(|p| p.starts_with(r#"{"type":"finished""#));
+    if last_finished && live.interactive {
+        let mut s = live.state.lock().await;
+        s.pending_user = 0;
+        if !s.eof_sent {
+            if !s.bg.is_empty() {
+                s.idle = true;
+            } else if live.run.eof().await.is_ok() {
+                s.eof_sent = true;
+            }
+        }
+    }
+    tracing::info!(target: "blazar::run", "已重新附着会话 {sid}（偏移 {off}）");
+    true
 }
 
 #[must_use]

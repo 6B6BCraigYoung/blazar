@@ -252,6 +252,53 @@ fn a_run_stamped_under_another_locale_is_still_recognised_but_not_a_reused_pid()
 }
 
 #[test]
+fn a_live_wrapper_is_known_by_its_run_script_even_when_its_start_stamp_drifted() {
+    let dir = tempfile::tempdir().unwrap();
+    let run = dir.path().join("0f0e0d0c-run");
+    std::fs::create_dir(&run).unwrap();
+    std::fs::write(run.join("run.sh"), "sleep 30\n").unwrap();
+    let mut wrapper = std::process::Command::new("bash")
+        .arg(run.join("run.sh"))
+        .spawn()
+        .unwrap();
+    let mut stranger = std::process::Command::new("sleep")
+        .arg("30")
+        .spawn()
+        .unwrap();
+    let script = format!(
+        "{IDENTITY_FNS}\ncd {}\n\
+         printf '%s %s %s\\n' {} \"$(boot_of)\" \"Mon_Jan_1_00:00:00_2001_\" > pid\n\
+         alive && echo alive || echo lost\n\
+         printf '%s %s %s\\n' {} \"$(boot_of)\" \"Mon_Jan_1_00:00:00_2001_\" > pid\n\
+         alive && echo alive || echo lost",
+        run.display(),
+        wrapper.id(),
+        stranger.id()
+    );
+    let out = std::process::Command::new("bash")
+        .arg("-c")
+        .arg(script)
+        .output()
+        .unwrap();
+    let _ = wrapper.kill();
+    let _ = stranger.kill();
+    let _ = wrapper.wait();
+    let _ = stranger.wait();
+    let out = String::from_utf8_lossy(&out.stdout);
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(
+        lines.first(),
+        Some(&"alive"),
+        "命令行里带着本 run 的 run.sh，就是这个 run 的进程: {out}"
+    );
+    assert_eq!(
+        lines.get(1),
+        Some(&"lost"),
+        "别的进程复用了 pid、启动时间又对不上，不能认成这个 run: {out}"
+    );
+}
+
+#[test]
 fn cmd_sh_execs_the_agent_so_signals_reach_it() {
     let c = render_cmd(
         &ExecSpec::new("claude")

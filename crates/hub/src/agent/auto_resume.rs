@@ -163,7 +163,7 @@ async fn still_waiting(st: &Shared, sid: SessionId) -> bool {
         > 0
 }
 
-async fn note(st: &Shared, sid: SessionId, ws: &str, message: String) {
+pub(crate) async fn note(st: &Shared, sid: SessionId, ws: &str, message: String) {
     let Ok(id) = ws.parse().map(WorkspaceId) else {
         return;
     };
@@ -186,7 +186,7 @@ async fn note(st: &Shared, sid: SessionId, ws: &str, message: String) {
 }
 
 /// 工作区的显示名和所在机器。
-async fn place(st: &Shared, ws: &str) -> (String, String) {
+pub(crate) async fn place(st: &Shared, ws: &str) -> (String, String) {
     sqlx::query_as::<_, (String, String)>(
         "SELECT w.name, n.name FROM workspaces w JOIN nodes n ON n.id = w.node_id WHERE w.id = ?1",
     )
@@ -324,6 +324,10 @@ pub async fn on_run_finished(st: Shared, sid: SessionId, status: &'static str) {
         }
         if !back_up(&st, &node).await {
             continue;
+        }
+        if crate::leftover::take_back(&st, &f.ws, &f.thread).await {
+            tracing::info!(target: "blazar::auto_resume", "{sid} 这条对话的智能体其实还在运行，已接回，不再另开一轮");
+            return;
         }
         let Ok(parsed) =
             serde_json::from_value::<PromptRequest>(continue_request(req.clone(), &f.thread))

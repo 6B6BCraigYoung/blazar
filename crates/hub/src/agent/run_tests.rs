@@ -13,6 +13,8 @@ struct FakeTransport {
     drain_nonzero: AtomicBool,
     append_failed: AtomicBool,
     inputs: std::sync::Mutex<Vec<(String, String)>>,
+    probes: std::sync::Mutex<std::collections::VecDeque<&'static str>>,
+    group_cleared: AtomicBool,
 }
 
 impl NodeTransport for FakeTransport {
@@ -37,7 +39,18 @@ impl NodeTransport for FakeTransport {
         Box::pin(async move {
             let script = spec.args.last().unwrap();
             let stdout = if script.contains("echo \"size=") {
-                format!("size={}\nexited=0\n", self.log.len())
+                let next = self
+                    .probes
+                    .lock()
+                    .unwrap()
+                    .pop_front()
+                    .unwrap_or("exited=0");
+                format!("size={}\n{next}\n", self.log.len())
+            } else if script.contains("TABLE=$(ps") {
+                self.group_cleared.store(true, Ordering::SeqCst);
+                "stopped".into()
+            } else if script.contains("137 > exit.code.tmp") {
+                String::new()
             } else if script.contains("tail -c +") {
                 if self.drain_failed.load(Ordering::SeqCst) {
                     return Err(TransportError::Command {
@@ -138,6 +151,8 @@ async fn fixture(log: String) -> (tempfile::TempDir, Ctx, Arc<FakeTransport>) {
         drain_nonzero: AtomicBool::new(false),
         append_failed: AtomicBool::new(false),
         inputs: std::sync::Mutex::new(Vec::new()),
+        probes: std::sync::Mutex::new(std::collections::VecDeque::new()),
+        group_cleared: AtomicBool::new(false),
     });
     let live = Arc::new(Live {
         run: DetachedRun::attach(
@@ -260,6 +275,42 @@ async fn a_failed_last_turn_marks_the_run_failed_even_when_the_cli_exits_cleanly
         .await
         .unwrap();
     assert_eq!(session_state(&ctx).await.0, "failed");
+}
+
+#[tokio::test]
+async fn one_unrecognised_probe_does_not_end_a_run_that_is_still_going() {
+    let (_dir, ctx, transport) = fixture(format!("{FINISHED}\n")).await;
+    transport
+        .probes
+        .lock()
+        .unwrap()
+        .extend(["lost", "alive", "exited=0"]);
+    tokio::time::timeout(Duration::from_secs(10), supervise(ctx.clone(), 0, None))
+        .await
+        .unwrap();
+    assert_eq!(session_state(&ctx).await.0, "done");
+    assert!(!transport.group_cleared.load(Ordering::SeqCst));
+    assert!(transport.removed.load(Ordering::SeqCst));
+}
+
+#[tokio::test]
+async fn a_run_lost_twice_in_a_row_is_given_up_after_its_group_is_cleared() {
+    let (_dir, ctx, transport) = fixture(String::new()).await;
+    transport.probes.lock().unwrap().extend(["lost", "lost"]);
+    tokio::time::timeout(Duration::from_secs(10), supervise(ctx.clone(), 0, None))
+        .await
+        .unwrap();
+    assert_eq!(session_state(&ctx).await.0, "failed");
+    assert!(transport.group_cleared.load(Ordering::SeqCst));
+    assert!(
+        crate::failures::last_message(&ctx.st, &ctx.sid.to_string())
+            .await
+            .starts_with("agent process is gone")
+    );
+    assert!(
+        !transport.removed.load(Ordering::SeqCst),
+        "放弃的运行留着目录以便排查"
+    );
 }
 
 #[tokio::test]

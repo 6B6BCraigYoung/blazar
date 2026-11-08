@@ -519,6 +519,14 @@ async fn prompt_inner(
             .or(named_thread)
             .unwrap_or_else(|| session_id.to_string()),
     };
+    if thread_id != session_id.to_string()
+        && let Err(why) = crate::leftover::clear(&st, &id, &thread_id).await
+    {
+        return Ok(Json(serde_json::json!({
+            "admitted": false,
+            "reason": why,
+        })));
+    }
     sqlx::query(
         "INSERT INTO sessions (id, workspace_id, runtime_kind, status, created_at, agent_profile, thread_id,
                                account_id, account_auto, request)
