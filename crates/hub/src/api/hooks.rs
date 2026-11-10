@@ -195,23 +195,15 @@ pub async fn runtime_models(
         && let Some(cat) = crate::catalog::claude(&st, false).await
         && let Some(list) = cat["models"].as_array().filter(|l| !l.is_empty())
     {
-        let models: Vec<serde_json::Value> = list
-            .iter()
-            .map(|m| {
-                let v = m["value"].as_str().unwrap_or_default();
-                serde_json::json!({
-
-                    "id": if v == "default" { "" } else { v },
-                    "label": m["displayName"].as_str().unwrap_or(v),
-                    "desc": m["description"].as_str().unwrap_or_default(),
-                    "efforts": m.get("supportedEffortLevels").cloned().unwrap_or(serde_json::json!([])),
-                })
-            })
-            .collect();
+        let models = crate::model_list::rows(list);
         return Json(serde_json::json!({ "runtime": id, "models": models, "source": "cli" }));
     }
+    Json(fixed_models(&id))
+}
+
+pub fn fixed_models(id: &str) -> serde_json::Value {
     let claude_efforts = ["low", "medium", "high", "xhigh", "max"];
-    let models: Vec<serde_json::Value> = match id.as_str() {
+    let models: Vec<serde_json::Value> = match id {
         "claude" => [
             ("", "Default", "Use the default model (currently Opus)"),
             ("opus", "Opus", "For everyday and complex work"),
@@ -263,7 +255,7 @@ pub async fn runtime_models(
         }
         _ => vec![serde_json::json!({ "id": "", "label": "Default", "desc": "", "efforts": [] })],
     };
-    Json(serde_json::json!({ "runtime": id, "models": models }))
+    serde_json::json!({ "runtime": id, "models": models })
 }
 
 pub async fn runtimes(State(st): State<Shared>) -> ApiResult<Json<serde_json::Value>> {

@@ -48,6 +48,11 @@ pub async fn probe_node(
             .collect()
     };
     let h = st.transport(&name).health_with(&env).await?;
+    if name != "local"
+        && let Ok(found) = blazar_runtime::discover(&st.transport(&name)).await
+    {
+        crate::remote_cli::store_agents(&st, &name, &found).await;
+    }
     Ok(Json(record_probe(&st, &name, &h, &env).await?))
 }
 

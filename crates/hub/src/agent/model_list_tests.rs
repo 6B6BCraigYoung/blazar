@@ -1,0 +1,226 @@
+use super::*;
+
+fn secs(n: u64) -> Duration {
+    Duration::from_secs(n)
+}
+
+#[test]
+fn a_menu_open_rechecks_the_version_and_an_old_list_is_fetched_again() {
+    assert_eq!(step(None, false), Step::Fetch);
+    assert_eq!(step(None, true), Step::Fetch);
+    assert_eq!(step(Some((secs(5), secs(5))), false), Step::Cached);
+    assert_eq!(step(Some((secs(5), secs(5))), true), Step::Check);
+    assert_eq!(
+        step(Some((secs(600), RECHECK_AFTER)), false),
+        Step::Check,
+        "隔一阵子没核对版本，后台取列表时也核对一次"
+    );
+    assert_eq!(
+        step(Some((REFETCH_AFTER, secs(1))), true),
+        Step::Fetch,
+        "版本没变但列表太旧，打开菜单时整份重取"
+    );
+    assert_eq!(step(Some((REFETCH_AFTER, secs(1))), false), Step::Cached);
+}
+
+#[test]
+fn versions_compare_by_number_not_by_text() {
+    assert!(same_version(Some("2.1.321"), Some("2.1.321 (Claude Code)")));
+    assert!(!same_version(Some("2.1.302"), Some("2.1.321")));
+    assert!(!same_version(None, Some("2.1.321")));
+    assert!(!same_version(Some("garbage"), Some("garbage")));
+}
+
+const INIT: &str = r#"{"type":"control_response","response":{"subtype":"success","request_id":"blazar-models","response":{"models":[{"value":"default","displayName":"Default (recommended)","description":"Use the default model (currently Opus 5.5) · $4/$20 per Mtok","supportedEffortLevels":["low","high"]},{"value":"fable","displayName":"Fable","description":"Fable 5.2 · Most capable for your hardest and longest-running tasks · $8/$40 per Mtok"}],"account":{"email":"someone@example.com","organization":"Org"},"pid":42}}}"#;
+
+#[test]
+fn the_answer_keeps_only_the_models_and_the_cli_version() {
+    let other = r#"{"type":"control_response","response":{"request_id":"someone-else","response":{"models":[{"value":"x"}]}}}"#;
+    let out = format!("noise\n{VERSION_MARK} 2.1.321 (Claude Code)\n{other}\n{INIT}\n");
+    let probe = parse(&out);
+    assert_eq!(probe.version.as_deref(), Some("2.1.321"));
+    let list = rows(&probe.models.unwrap());
+    assert_eq!(list.len(), 2, "别人的应答不算");
+    assert_eq!(list[0]["id"], "", "default 记成空，表示交给命令行的默认");
+    assert_eq!(list[0]["efforts"], json!(["low", "high"]));
+    assert_eq!(list[1]["id"], "fable");
+    assert_eq!(list[1]["label"], "Fable");
+    assert!(list[1]["desc"].as_str().unwrap().starts_with("Fable 5.2"));
+    let text = serde_json::to_string(&list).unwrap();
+    assert!(
+        !text.contains("someone@example.com") && !text.contains("Org"),
+        "账号信息不能经 API 流出: {text}"
+    );
+}
+
+#[test]
+fn secrets_travel_on_stdin_and_never_in_the_command() {
+    let mut env = RunEnv::default();
+    env.vars
+        .insert("CLAUDE_CODE_OAUTH_TOKEN".into(), "sekret-proxy-key".into());
+    env.vars
+        .insert("CLAUDE_CONFIG_DIR".into(), "/acct dir/it's".into());
+    env.vars.insert("BAD KEY".into(), "x".into());
+    env.files.insert(
+        "TOKEN_FROM_FILE".into(),
+        "/acct dir/.blazar-oauth-token".into(),
+    );
+    env.unset = vec!["ANTHROPIC_API_KEY".into(), "X;rm".into()];
+    let block = env_block(&env);
+    assert!(block.contains("unset ANTHROPIC_API_KEY\n"));
+    assert!(!block.contains("X;rm"), "{block}");
+    assert!(!block.contains("BAD KEY"), "{block}");
+    assert!(block.contains("export CLAUDE_CONFIG_DIR='/acct dir/it'\\''s'\n"));
+    assert!(block.contains(
+        "export TOKEN_FROM_FILE=\"$(cat -- '/acct dir/.blazar-oauth-token' 2>/dev/null)\"\n"
+    ));
+    let cmd = script("/opt/claude bin/claude");
+    assert!(!cmd.contains("sekret"), "令牌不能出现在命令行里");
+    assert!(cmd.contains("P='/opt/claude bin/claude'"));
+    let input = payload(&env);
+    assert!(!input.contains("sekret"), "令牌只以编码后的形式走标准输入");
+    let mut lines = input.lines();
+    let decoded = base64::engine::general_purpose::STANDARD
+        .decode(lines.next().unwrap())
+        .unwrap();
+    assert_eq!(String::from_utf8(decoded).unwrap(), block);
+    let init: Value = serde_json::from_str(lines.next().unwrap()).unwrap();
+    assert_eq!(init["request"]["subtype"], "initialize");
+    assert_eq!(init["request_id"], REQUEST_ID);
+}
+
+struct Fake {
+    dir: tempfile::TempDir,
+}
+
+impl Fake {
+    fn new(version: &str) -> Self {
+        let dir = tempfile::tempdir().unwrap();
+        let fake = Self { dir };
+        fake.set_version(version);
+        let body = r#"#!/bin/sh
+if [ "$1" = "--version" ]; then cat "$(dirname "$0")/version"; exit 0; fi
+echo run >> "$(dirname "$0")/runs"
+IFS= read -r line
+case "$CLAUDE_CODE_OAUTH_TOKEN" in sekret) tok=yes ;; *) tok=no ;; esac
+printf '{"type":"control_response","response":{"request_id":"blazar-models","response":{"models":[{"value":"default","displayName":"Default","description":"dir=%s token=%s"},{"value":"fable","displayName":"Fable","description":"Fable %s"}]}}}\n' "$CLAUDE_CONFIG_DIR" "$tok" "$(cat "$(dirname "$0")/version")"
+"#;
+        let path = fake.program();
+        std::fs::write(&path, body).unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        fake
+    }
+
+    fn program(&self) -> String {
+        self.dir.path().join("claude").display().to_string()
+    }
+
+    fn set_version(&self, v: &str) {
+        std::fs::write(
+            self.dir.path().join("version"),
+            format!("{v} (Claude Code)\n"),
+        )
+        .unwrap();
+    }
+
+    fn runs(&self) -> usize {
+        std::fs::read_to_string(self.dir.path().join("runs"))
+            .map(|t| t.lines().count())
+            .unwrap_or(0)
+    }
+}
+
+async fn hub() -> Shared {
+    let db = blazar_db::Db::open_in_memory().await.unwrap();
+    crate::state::AppState::with_services(
+        db,
+        "local".into(),
+        None,
+        crate::mesh::MeshCtx::new(None, std::env::temp_dir().join("blazar-model-list-tests")),
+        crate::services::Services::Isolated,
+    )
+}
+
+#[tokio::test]
+async fn the_cli_runs_in_the_account_environment_without_the_token_leaking() {
+    let st = hub().await;
+    let fake = Fake::new("2.1.321");
+    let token = fake.dir.path().join("token");
+    std::fs::write(&token, "sekret").unwrap();
+    let mut env = RunEnv::default();
+    env.vars
+        .insert("CLAUDE_CONFIG_DIR".into(), "/accounts/max".into());
+    env.files.insert(
+        "CLAUDE_CODE_OAUTH_TOKEN".into(),
+        token.display().to_string(),
+    );
+    let (version, models) = fetch(&st, "local", &fake.program(), &env).await.unwrap();
+    assert_eq!(version.as_deref(), Some("2.1.321"));
+    let list = rows(&models);
+    assert_eq!(
+        list[0]["desc"], "dir=/accounts/max token=yes",
+        "要用下一轮真正会用的账号环境去问命令行"
+    );
+    assert!(!serde_json::to_string(&list).unwrap().contains("sekret"));
+}
+
+#[tokio::test]
+async fn a_missing_cli_is_said_plainly() {
+    let st = hub().await;
+    let dir = tempfile::tempdir().unwrap();
+    let missing = dir.path().join("no-claude-here").display().to_string();
+    let err = fetch(&st, "local", &missing, &RunEnv::default())
+        .await
+        .unwrap_err();
+    assert_eq!(err.0, "Claude Code isn't installed on this computer");
+}
+
+#[tokio::test]
+async fn the_list_is_reused_until_the_cli_version_changes() {
+    let st = hub().await;
+    let fake = Fake::new("2.1.319");
+    sqlx::query(
+        "INSERT INTO nodes (id, name, transport, status, created_at) VALUES ('n-local', 'local', 'local', 'online', '0')",
+    )
+    .execute(st.db.pool())
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO agent_configs (id, agent_id, program_path, created_at, updated_at) VALUES ('c1', 'claude', ?1, '0', '0')",
+    )
+    .bind(fake.program())
+    .execute(st.db.pool())
+    .await
+    .unwrap();
+    let ws = "w1";
+    let first = claude_for(&st, ws, "local", None, None, false).await;
+    assert_eq!(first["cli_version"], "2.1.319");
+    assert_eq!(first["models"][1]["desc"], "Fable 2.1.319 (Claude Code)");
+    assert_eq!(first["error"], Value::Null);
+    let again = claude_for(&st, ws, "local", None, None, false).await;
+    assert_eq!(again["models"], first["models"]);
+    let reopened = claude_for(&st, ws, "local", None, None, true).await;
+    assert_eq!(reopened["models"], first["models"]);
+    assert_eq!(
+        fake.runs(),
+        1,
+        "版本没变，打开菜单只核对版本，不重新起命令行"
+    );
+    fake.set_version("2.1.321");
+    let updated = claude_for(&st, ws, "local", None, None, true).await;
+    assert_eq!(updated["cli_version"], "2.1.321");
+    assert_eq!(updated["models"][1]["desc"], "Fable 2.1.321 (Claude Code)");
+    assert_eq!(fake.runs(), 2, "版本一变就作废缓存，重取列表");
+    std::fs::remove_file(fake.program()).unwrap();
+    let broken = claude_for(&st, ws, "local", None, None, true).await;
+    assert_eq!(
+        broken["models"], updated["models"],
+        "取不到时退回上一次的结果"
+    );
+    assert_eq!(broken["stale"], true);
+    assert!(
+        broken["error"].as_str().unwrap().contains("this computer"),
+        "{broken}"
+    );
+}

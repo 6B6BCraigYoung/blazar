@@ -711,11 +711,7 @@ pub fn Composer(
             .find(|x| x.id == s.model.clone().unwrap_or_default())
             .or_else(|| list.first());
         let name = m
-            .map(|m| {
-                m.label
-                    .replace(" (recommended)", "")
-                    .replace(" (Recommended)", "")
-            })
+            .map(|m| crate::model_pick::short_name(&m.label, &m.desc))
             .filter(|n| !n.is_empty() && n != "Default")
             .unwrap_or_else(|| "Default".to_owned());
         let same_runtime = chat.view.get().is_none_or(|id| {

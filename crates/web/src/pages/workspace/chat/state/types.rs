@@ -96,6 +96,20 @@ pub struct ModelInfo {
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Deserialize)]
+pub struct ModelList {
+    #[serde(default)]
+    pub models: Vec<ModelInfo>,
+    #[serde(default)]
+    pub error: Option<String>,
+    #[serde(default)]
+    pub stale: bool,
+    #[serde(default)]
+    pub node: Option<String>,
+    #[serde(default)]
+    pub cli_version: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Deserialize)]
 pub struct CliCommand {
     pub name: String,
     #[serde(default)]

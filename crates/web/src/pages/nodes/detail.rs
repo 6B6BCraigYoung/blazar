@@ -199,6 +199,13 @@ fn NodeDetail(name: String) -> impl IntoView {
             )
             .await
             .map_err(|e| e.to_string());
+            if let Ok(caps) = &r
+                && let Some(list) = caps["agents"].as_array()
+                && agents.try_with_untracked(Option::is_none).unwrap_or(false)
+                && !scanning.try_get_untracked().unwrap_or(true)
+            {
+                let _ = agents.try_set(Some(Ok((list.clone(), Value::Null))));
+            }
             let _ = hw.try_set(Some(r));
             probing.try_set(false);
             app.load_state();

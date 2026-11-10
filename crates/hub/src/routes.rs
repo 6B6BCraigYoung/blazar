@@ -5,8 +5,8 @@ use axum::routing::{delete, get, post, put};
 
 use super::{
     AppState, accounts, agents, analytics, api, asset, auth, autopilot, bots, catalog, chat,
-    checkpoint, failures, git, inbox, library, mesh, office, remote_cli, review, rules, scripts,
-    sims, skillhub, snippets, tasks, titles, v2_redirect, web,
+    checkpoint, failures, git, inbox, library, mesh, model_list, office, remote_cli, review, rules,
+    scripts, sims, skillhub, snippets, tasks, titles, v2_redirect, web,
 };
 
 pub fn build_router(st: Arc<AppState>) -> Router {
@@ -324,6 +324,10 @@ pub fn build_router(st: Arc<AppState>) -> Router {
         .route(
             "/api/workspaces/{id}/models",
             get(api::get_model_choices).put(api::put_model_choice),
+        )
+        .route(
+            "/api/workspaces/{id}/model-list",
+            get(model_list::workspace_models),
         )
         .route("/api/workspaces/{id}/context", get(api::get_context))
         .route("/api/workspaces/{id}/context/{kind}", put(api::put_context))

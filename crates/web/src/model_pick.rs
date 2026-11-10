@@ -17,9 +17,94 @@ pub fn layered(layers: &[Option<&Layer>]) -> Layer {
     (model, effort)
 }
 
+pub fn plain_desc(desc: &str) -> String {
+    desc.split(" · ")
+        .filter(|part| !is_price(part))
+        .collect::<Vec<_>>()
+        .join(" · ")
+}
+
+fn is_price(part: &str) -> bool {
+    let p = part.trim();
+    p.starts_with('$') && p.to_ascii_lowercase().ends_with(" per mtok")
+}
+
+pub fn short_name(label: &str, desc: &str) -> String {
+    let label = label
+        .replace(" (recommended)", "")
+        .replace(" (Recommended)", "");
+    let first = desc.split(" · ").next().unwrap_or_default().trim();
+    let versioned = first
+        .strip_prefix(label.as_str())
+        .and_then(|rest| rest.strip_prefix(' '))
+        .is_some_and(|rest| {
+            let number = rest.split(' ').next().unwrap_or_default();
+            number.starts_with(|c: char| c.is_ascii_digit())
+                && number.chars().all(|c| c.is_ascii_digit() || c == '.')
+                && rest[number.len()..]
+                    .trim()
+                    .strip_prefix('[')
+                    .is_none_or(|tail| tail.ends_with(']'))
+        });
+    if versioned { first.to_owned() } else { label }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn subscription_prices_are_dropped_and_the_rest_is_kept_verbatim() {
+        assert_eq!(
+            plain_desc(
+                "Fable 5.2 · Most capable for your hardest and longest-running tasks · $8/$40 per Mtok"
+            ),
+            "Fable 5.2 · Most capable for your hardest and longest-running tasks"
+        );
+        assert_eq!(
+            plain_desc("Use the default model (currently Opus 5.5) · $4/$20 per Mtok"),
+            "Use the default model (currently Opus 5.5)"
+        );
+        assert_eq!(
+            plain_desc("Opus 5 · Best for everyday, complex tasks"),
+            "Opus 5 · Best for everyday, complex tasks"
+        );
+        assert_eq!(
+            plain_desc("Costs $5 per day · fast"),
+            "Costs $5 per day · fast"
+        );
+        assert_eq!(plain_desc(""), "");
+    }
+
+    #[test]
+    fn the_short_name_carries_the_version_the_cli_names() {
+        assert_eq!(
+            short_name("Fable", "Fable 5.2 · Most capable · $8/$40 per Mtok"),
+            "Fable 5.2"
+        );
+        assert_eq!(
+            short_name("Opus", "Opus 5.5 · For complex work"),
+            "Opus 5.5"
+        );
+        assert_eq!(
+            short_name("Fable", "Fable 5.1 [1m] · Long context"),
+            "Fable 5.1 [1m]"
+        );
+        assert_eq!(
+            short_name(
+                "Default (recommended)",
+                "Use the default model (currently Opus 5.5)"
+            ),
+            "Default"
+        );
+        assert_eq!(short_name("Fable 5.1", "Most capable"), "Fable 5.1");
+        assert_eq!(
+            short_name("Haiku", "Haiku is fastest for quick answers"),
+            "Haiku",
+            "描述只是以名字开头的一句话时不拿来当名字"
+        );
+        assert_eq!(short_name("Sonnet", ""), "Sonnet");
+    }
 
     fn l(m: Option<&str>, e: Option<&str>) -> Layer {
         (m.map(str::to_owned), e.map(str::to_owned))

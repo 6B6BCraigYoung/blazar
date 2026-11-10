@@ -5,8 +5,8 @@ use crate::api::{self, Account, Accounts};
 use crate::storage;
 
 use super::{
-    AgentInfo, Catalog, Chat, Mode, ModelInfo, ModelSel, Prefs, Profile, Snippet, default_mode,
-    modes_for,
+    ACC_RUNTIMES, AgentInfo, Catalog, Chat, Mode, ModelInfo, ModelList, ModelSel, Prefs, Profile,
+    Snippet, default_mode, modes_for,
 };
 
 impl Chat {
@@ -272,34 +272,93 @@ impl Chat {
         })
     }
 
-    pub fn models_for(self, rt: &str) -> Vec<ModelInfo> {
-        if let Some(m) = self.models.with(|m| m.get(rt).cloned()) {
-            return m;
+    fn model_account(self, rt: &str) -> Option<String> {
+        let agent = self.agent.get();
+        (agent.starts_with("r:") && ACC_RUNTIMES.contains(&rt))
+            .then(|| self.acc_sel())
+            .filter(|a| !a.is_empty())
+            .filter(|a| a == "auto" || self.account(a).is_none_or(|x| x.provider == rt))
+    }
+
+    fn model_key(self, rt: &str) -> String {
+        format!(
+            "{rt}\u{1f}{}\u{1f}{}\u{1f}{}\u{1f}{}",
+            self.view.get().unwrap_or_default(),
+            self.agent.get(),
+            self.model_account(rt).unwrap_or_default(),
+            self.remote()
+        )
+    }
+
+    pub fn model_list(self, rt: &str) -> Option<ModelList> {
+        let key = self.model_key(rt);
+        let found = self.models.with(|m| m.get(&key).cloned());
+        if found.is_none() {
+            self.load_models(rt, false);
         }
-        let rt = rt.to_owned();
-        self.models.update(|m| {
-            m.insert(
-                rt.clone(),
-                vec![ModelInfo {
-                    id: String::new(),
-                    label: "Default".into(),
-                    desc: String::new(),
-                    efforts: vec![],
-                }],
-            );
+        found
+    }
+
+    pub fn models_loading(self, rt: &str) -> bool {
+        let key = self.model_key(rt);
+        self.models_busy.with(|b| b.contains(&key))
+    }
+
+    pub fn models_for(self, rt: &str) -> Vec<ModelInfo> {
+        self.model_list(rt).map(|l| l.models).unwrap_or_default()
+    }
+
+    pub fn load_models(self, rt: &str, refresh: bool) {
+        let (key, thread, account, profile, remote) = untrack(move || {
+            (
+                self.model_key(rt),
+                self.view.get(),
+                self.model_account(rt),
+                self.agent.get().strip_prefix("p:").map(str::to_owned),
+                self.remote(),
+            )
         });
+        if untrack(|| self.models_busy.with(|b| b.contains(&key))) {
+            return;
+        }
+        self.models_busy.update(|b| {
+            b.insert(key.clone());
+        });
+        let mut q = vec![format!("runtime={}", api::enc(rt))];
+        if let Some(t) = thread {
+            q.push(format!("thread={}", api::enc(&t)));
+        }
+        if let Some(a) = account {
+            q.push(format!("account={}", api::enc(&a)));
+        }
+        if let Some(p) = profile {
+            q.push(format!("profile={}", api::enc(&p)));
+        }
+        q.push(format!("brain={}", if remote { "node" } else { "local" }));
+        if refresh {
+            q.push("refresh=true".into());
+        }
+        let url = format!(
+            "/api/workspaces/{}/model-list?{}",
+            api::enc(&self.ws_id()),
+            q.join("&")
+        );
         self.spawn(async move {
-            if let Ok(v) =
-                api::get::<Value>(&format!("/api/runtimes/{}/models", api::enc(&rt))).await
-                && let Ok(list) = serde_json::from_value::<Vec<ModelInfo>>(v["models"].clone())
-                && !list.is_empty()
-            {
-                let _ = self.models.try_update(|m| {
-                    m.insert(rt, list);
-                });
-            }
+            let got = api::get::<ModelList>(&url).await;
+            let _ = self.models_busy.try_update(|b| {
+                b.remove(&key);
+            });
+            let _ = self.models.try_update(|m| match got {
+                Ok(list) => {
+                    m.insert(key, list);
+                }
+                Err(e) => {
+                    let entry = m.entry(key).or_default();
+                    entry.stale = !entry.models.is_empty();
+                    entry.error = Some(format!("Couldn't load the model list: {e}"));
+                }
+            });
         });
-        Vec::new()
     }
 
     pub fn ctx_file(self) -> Option<String> {

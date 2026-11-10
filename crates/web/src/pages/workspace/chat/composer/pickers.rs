@@ -364,10 +364,47 @@ pub(super) fn mode_pop(chat: Chat, pop: RwSignal<Option<Pop>>) -> impl IntoView 
     }
 }
 
+fn model_source(chat: Chat) -> Option<String> {
+    let list = chat.model_list(&chat.runtime())?;
+    let version = list.cli_version?;
+    Some(match list.node.filter(|n| n != "local") {
+        Some(node) => format!(" · {node} · Claude Code {version}"),
+        None => format!(" · Claude Code {version}"),
+    })
+}
+
+fn list_note(chat: Chat) -> Option<impl IntoView> {
+    let rt = chat.runtime();
+    let list = chat.model_list(&rt);
+    let (title, detail) = match list {
+        None if chat.models_loading(&rt) => ("Loading models…".to_owned(), None),
+        None => return None,
+        Some(l) if l.models.is_empty() => ("Couldn't load models".to_owned(), l.error),
+        Some(l) if l.stale => (
+            "Couldn't refresh the model list".to_owned(),
+            l.error
+                .map(|e| format!("{e}. Showing the last list it gave")),
+        ),
+        Some(_) => return None,
+    };
+    Some(view! {
+        <div class="cp-row cp-note">
+            <span class="cp-t">
+                <b>{title}</b>
+                {detail.map(|d| view! { <span>{d}</span> })}
+            </span>
+        </div>
+    })
+}
+
 pub(super) fn model_pop(chat: Chat, pop: RwSignal<Option<Pop>>) -> impl IntoView {
     let rt = chat.runtime();
+    chat.load_models(&rt, true);
     view! {
-        <div class="cp-h">"Switch model"</div>
+        <div class="cp-h">
+            "Switch model" <span class="muted">{move || model_source(chat)}</span>
+        </div>
+        {move || list_note(chat)}
         {move || {
             let rt = chat.runtime();
             let sel = chat.model_sel(&rt);
@@ -408,9 +445,10 @@ pub(super) fn model_pop(chat: Chat, pop: RwSignal<Option<Pop>>) -> impl IntoView
                     let rt = rt.clone();
                     let id = m.id.clone();
                     let on = m.id == cur;
+                    let desc = crate::model_pick::plain_desc(&m.desc);
                     row_btn(
                         m.label.clone(),
-                        (!m.desc.is_empty()).then(|| m.desc.clone()),
+                        (!desc.is_empty()).then_some(desc),
                         None,
                         on,
                         move || {
@@ -472,11 +510,7 @@ fn workspace_default_row(chat: Chat, pop: RwSignal<Option<Pop>>) -> impl IntoVie
             let model = list
                 .iter()
                 .find(|m| m.id == id)
-                .map(|m| {
-                    m.label
-                        .replace(" (recommended)", "")
-                        .replace(" (Recommended)", "")
-                })
+                .map(|m| crate::model_pick::short_name(&m.label, &m.desc))
                 .filter(|n| !n.is_empty())
                 .unwrap_or_else(|| "Default".to_owned());
             match s.effort.as_deref().filter(|e| !e.is_empty()) {
