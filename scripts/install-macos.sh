@@ -81,17 +81,23 @@ if [ -n "$old" ]; then
   fi
 fi
 
-env -i HOME="$HOME" USER="$USER" LOGNAME="$USER" SHELL="$SHELL" TMPDIR="$TMPDIR" \
-  SSH_AUTH_SOCK="$(launchctl getenv SSH_AUTH_SOCK)" PATH=/usr/bin:/bin:/usr/sbin:/sbin \
-  open -a "$APP"
 new=""
-for _ in $(seq 1 30); do
-  new=$(pgrep -f "^$APP/Contents/MacOS/blazar-desktop$" | head -1 || true)
-  [ -n "$new" ] && [ "$new" != "$old" ] && break
-  sleep 0.5
+for attempt in 1 2 3 4 5; do
+  env -i HOME="$HOME" USER="$USER" LOGNAME="$USER" SHELL="$SHELL" TMPDIR="$TMPDIR" \
+    SSH_AUTH_SOCK="$(launchctl getenv SSH_AUTH_SOCK)" PATH=/usr/bin:/bin:/usr/sbin:/sbin \
+    open -a "$APP" || echo "open failed (attempt $attempt)"
+  for _ in $(seq 1 20); do
+    new=$(pgrep -f "^$APP/Contents/MacOS/blazar-desktop$" | head -1 || true)
+    if [ -n "$new" ] && [ "$new" != "$old" ]; then
+      break 2
+    fi
+    sleep 0.5
+  done
+  new=""
+  sleep 2
 done
 if [ -z "$new" ]; then
-  echo "Blazar did not come back up; open $APP yourself"
+  echo "Blazar did not come back up after 5 tries; open $APP yourself"
   exit 4
 fi
 echo "running: pid $new, started $(ps -o lstart= -p "$new")"

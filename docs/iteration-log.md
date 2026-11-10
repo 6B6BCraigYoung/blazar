@@ -1161,3 +1161,14 @@ B 的第三部分。出网络故障时要能一眼看出是机器、组网还是
 顺带看到：这个临时实例只用本机默认登录，Fable 那一行已经是 5.2，上午同样的干净环境还是 5.1。说明 CLI 给的列表跟它缓存的功能开关有关，开关会在后台刷新。这条线索留给「5090x2 为什么只给 Fable 5.1」的排查。
 
 验证：`cargo fmt --check`、`leptosfmt --check crates/web/src`、`cargo clippy --workspace --all-targets -- -D warnings`、wasm 的 clippy、`cargo test --workspace`（1138 个全过）、两个 node 测试。
+
+## 11-10 装到本机（db7078b：含 b54 型号菜单和 b55 菜单高度）；装机脚本重开失败时会重试
+
+用户在卡片上选了「等远端会话都停了再装」；11:07 查到只有本机这一轮在跑，就用 `scripts/install-macos.sh` 装上了构建 20261110.030517。包里除了 d236876（型号菜单），还有用户点名要修的 db7078b（新对话时菜单冲出窗口）。
+
+- 备份、回滚副本、换版、删暂存副本都照常完成（`blazar.sqlite.bak-20261110-110741`；回滚副本是上一版 `Blazar-20261108.104323.app`）。
+- **出了一个问题**：最后用干净环境 `open -a` 重开时，LaunchServices 报了 -600，新版没打开。脚本开着 `set -e`，`open` 一失败就直接退出了，既没重试，也没留下「没能打开」的提示，Blazar 就停在关闭状态。我在会话里用同样的命令重试一次就成功了（pid 40235，11:08:30），前后关了大约 35 秒。会话本身就在图形登录会话里（`launchctl managername` 是 Aqua），所以这次 -600 应该是刚换完 app、LaunchServices 还没准备好就去打开造成的，属于暂时性的失败。
+- 修：`open` 失败不再让脚本退出，最多试 5 次，每次失败都记一行；每次之后等 10 秒看新进程起没起来，起来了就停；5 次都不行才报「Blazar did not come back up after 5 tries」。
+- 重开后核对：启动环境里没有会话带来的变量；hub 1 秒内就绪，端口没变；这一轮重新附着上了；菜单栏图标按新默认没建；只有组网刷新那条原有的警告；Spotlight 只剩 `/Applications/Blazar.app`。
+
+验证：`bash -n scripts/install-macos.sh`。重试这段还没在真实装机里跑过，下次装机会走到。
