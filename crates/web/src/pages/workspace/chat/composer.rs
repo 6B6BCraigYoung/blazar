@@ -795,9 +795,22 @@ pub fn Composer(
         })
     });
     let failed_edit = RwSignal::new(None::<(u32, Value)>);
+    let shell = NodeRef::<html::Div>::new();
+    let room = RwSignal::new(None::<f64>);
+    Effect::new(move |_| {
+        if pop.get().is_some()
+            && let Some(el) = shell.get_untracked()
+        {
+            room.set(Some(room_above(&el)));
+        }
+    });
 
     view! {
-        <div class="composer">
+        <div
+            class="composer"
+            node_ref=shell
+            style=move || room.get().map(|r| format!("--pop-room: {r:.0}px"))
+        >
             <Show when=move || pop.get().is_some()>
                 <div
                     class="cb-pop"
@@ -1459,4 +1472,24 @@ pub fn Composer(
             </div>
         </div>
     }
+}
+
+fn room_above(el: &web_sys::Element) -> f64 {
+    let top = el.get_bounding_client_rect().top();
+    let window = web_sys::window();
+    let mut limit = 0.0;
+    let mut node = el.parent_element();
+    while let Some(p) = node {
+        let clips = window
+            .as_ref()
+            .and_then(|w| w.get_computed_style(&p).ok().flatten())
+            .and_then(|s| s.get_property_value("overflow-y").ok())
+            .is_some_and(|o| matches!(o.as_str(), "hidden" | "auto" | "scroll" | "clip"));
+        if clips {
+            limit = p.get_bounding_client_rect().top();
+            break;
+        }
+        node = p.parent_element();
+    }
+    (top - limit - 8.0).max(120.0)
 }

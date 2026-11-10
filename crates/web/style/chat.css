@@ -321,7 +321,7 @@
 .cb-send[data-mode="stop"] .i-send { display: none; }
 .cb-send[data-mode="stop"] .i-stop { display: block; }
 
-.cb-pop { position: absolute; left: var(--chat-pad); right: var(--chat-pad); bottom: calc(100% - 4px); z-index: var(--layer-composer-popover); max-height: 360px; overflow-y: auto; overscroll-behavior: contain; padding: var(--space-icon); border: 0; border-radius: var(--r-lg); background: var(--material-menu); -webkit-backdrop-filter: var(--blur-material); backdrop-filter: var(--blur-material); box-shadow: var(--shadow-composer-popover); }
+.cb-pop { position: absolute; left: var(--chat-pad); right: var(--chat-pad); bottom: calc(100% - 4px); z-index: var(--layer-composer-popover); max-height: min(360px, var(--pop-room, 360px)); overflow-y: auto; overscroll-behavior: contain; padding: var(--space-icon); border: 0; border-radius: var(--r-lg); background: var(--material-menu); -webkit-backdrop-filter: var(--blur-material); backdrop-filter: var(--blur-material); box-shadow: var(--shadow-composer-popover); }
 .cb-pop { animation: menuup var(--motion-base) var(--ease-enter); }
 .cp-h, .cp-sec { padding: var(--space-sm) var(--space-control) var(--space-xs); font-size: var(--font-size-caption); color: var(--fg-4); letter-spacing: var(--tracking-menu); }
 .cp-sec.flex { display: flex; }
@@ -443,6 +443,6 @@
 .cc-latest { position: absolute; bottom: var(--space-lg); padding: var(--space-xs) var(--space-lg); border: 0; border-radius: var(--radius-pill); background: var(--bg-panel); box-shadow: var(--shadow-card); color: var(--fg-2); font-size: var(--font-size-label-readable); cursor: pointer; white-space: nowrap; }
 .cc-latest:hover { color: var(--fg); box-shadow: var(--shadow-card-hover); }
 .cc-latest:focus-visible { outline: var(--focus-ring); }
-.cb-pop[data-kind="model"] { max-height: min(560px, calc(100vh - 160px)); }
+.cb-pop[data-kind="model"] { max-height: min(560px, calc(100vh - 160px), var(--pop-room, 560px)); }
 .cp-row.cp-default:disabled { cursor: default; opacity: 1; }
 .cp-row.cp-default:disabled:hover { background: transparent; }

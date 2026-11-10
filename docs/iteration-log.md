@@ -1149,3 +1149,15 @@ B 的第三部分。出网络故障时要能一眼看出是机器、组网还是
 - 智能体配置里设了默认型号时，「Default」实际跑的是那个型号，菜单还没标出来；正式环境里没设。
 
 验证：`cargo fmt --check`、`leptosfmt --check crates/web/src`、`cargo clippy --workspace --all-targets -- -D warnings`、wasm 的 clippy、`cargo test --workspace`（1138 个全过，新增 9 个：7 个 hub 测试用假 `claude` 验证账号环境确实传进去、令牌不外泄、版本没变只核对、版本一变就重取、取不到时退回旧结果；2 个网页测试覆盖去价格和带版本的型号名）、两个 node 测试。截图在 `target/shots/models-*.png`（不进仓库）。
+
+## b55 · 新对话时型号菜单不再冲出窗口顶端
+
+用户在卡片上选了「修：菜单不超出窗口，放不下就滚动」。新对话时输入框在页面中间，输入框上的弹出菜单往上展开，型号菜单最高 560 像素，窗口不够高时最上面几行会被页头挡住，「Default」那一行正好在顶上。对应第 2 条（直接能用）。
+
+- `composer.rs`：每次弹出菜单时量一次输入框上方实际能用的高度，从输入框往上找到第一个会裁切内容的容器（`overflow-y` 不是 visible 的那个），留 8 像素余量，至少留 120 像素，写进输入框的 CSS 变量 `--pop-room`。
+- `chat.css`：所有弹出菜单的最大高度再和 `--pop-room` 取小，型号菜单是 `min(560px, 100vh - 160px, --pop-room)`；放不下的部分照旧在菜单里滚动。
+- 实测（临时实例，1440×900，新对话打开型号菜单）：菜单顶端在 58 像素，页头底边在 46 像素；菜单高 308 像素可滚动，标题和「Default」都看得见。截图在 `target/shots/menu-fit-new-conversation.png`。
+
+顺带看到：这个临时实例只用本机默认登录，Fable 那一行已经是 5.2，上午同样的干净环境还是 5.1。说明 CLI 给的列表跟它缓存的功能开关有关，开关会在后台刷新。这条线索留给「5090x2 为什么只给 Fable 5.1」的排查。
+
+验证：`cargo fmt --check`、`leptosfmt --check crates/web/src`、`cargo clippy --workspace --all-targets -- -D warnings`、wasm 的 clippy、`cargo test --workspace`（1138 个全过）、两个 node 测试。
