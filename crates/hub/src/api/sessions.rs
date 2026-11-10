@@ -806,7 +806,7 @@ async fn prompt_inner(
         );
         sqlx::query(
             "UPDATE sessions SET run_dir = ?1, node = ?2, interactive = ?3,
-                    provider_session_id = COALESCE(?4, provider_session_id)
+                    provider_session_id = COALESCE(?4, provider_session_id), model_arg = ?6
              WHERE id = ?5",
         )
         .bind(&run.dir)
@@ -814,6 +814,7 @@ async fn prompt_inner(
         .bind(i64::from(interactive))
         .bind(new_pid.as_ref().map(|p| p.0.clone()))
         .bind(session_id.to_string())
+        .bind(spec.model.as_deref())
         .execute(st.db.pool())
         .await?;
 

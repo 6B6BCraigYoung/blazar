@@ -1182,3 +1182,18 @@ B 的第三部分。出网络故障时要能一眼看出是机器、组网还是
 - 真实请求（临时实例，全新的库，正式库没动）：工作区 5090x2:/tmp，按聊天面板的方式让命令行跑在机器上、经凭据代理、用 max20x 账号，型号写别名 `fable`，思考强度 low，内容「Reply with exactly: OK」。结果 `session_started` 的型号是 **`claude-fable-5-2`**，回复 OK，正常结束。用完结束了临时实例和它的隧道；远端运行目录已清，没有残留进程。
 - 结论：存的是别名的对话在远端也跑 5.2；但在远端菜单里点 Fable 那一行，存下的是写死的 `claude-fable-5-1[1m]`，反而会降到 5.1。菜单要怎么改，已发卡片问用户。
 - 顺带看到：装机换了新实例后，旧实例留下的反向隧道（转发到 58253）已经没人监听；下次有远端会话时，「隧道沿用原端口」那套回收逻辑会处理，这次没动。
+
+## b56 · 型号菜单里的 Fable/Opus/Sonnet/Haiku 一律用别名，写这台机器上次实际跑出的版本
+
+用户在卡片上选了「Fable/Opus/Sonnet/Haiku 一律用别名，每行写这台机器上次实际跑出的版本，没跑过就写『这台机器上最新的』」。起因是上一条查清的：5090x2 上命令行菜单里 Fable 写死成 `claude-fable-5-1[1m]`，点它会降到 5.1，而别名 `fable` 实际跑 5.2。对应第 2 条（直接能用）。
+
+- **系列行改成别名**（`model_list.rs` 的 `alias_rows`）：命令行列表里四个系列各自的第一行，不管它原来是别名还是写死的 id，都改成别名 `fable`/`opus`/`sonnet`/`haiku`，点下去存别名，由那台机器的命令行在开跑时解析。标题写系列名；描述的第一段写这台机器上次用这个别名实际跑出的版本，后面加「Last run on this machine」，没跑过就写「Newest Fable on this machine」，命令行原来那句说明接在后面。「Default」和同系列后面写死版本的行原样保留。
+- **「上次实际跑出」怎么来**（`last_runs`）：按机器查会话，取这台机器上用该别名发起、带 `session_started` 的最近一轮，读命令行报告的型号。为此新加迁移 `0049`，会话表多一列 `model_arg`，发起运行前把最终传给命令行的 `--model` 记下来；更早的会话没有这一列，就读当时请求里的 `model`（对话自己选过型号时会有）。只看 60 天内。
+- **只算当前这个命令行版本装上之后的运行**：核对版本时顺带读出命令行程序文件的修改时间（`readlink -f` 后 `stat`），早于它的运行不算，旧版本跑出的型号说明不了现在。按正式库算：5090x2 上 Fable 最近一次是 11-07 旧版本跑的 5.1，CLI 今天 09:24 才升到 2.1.321，所以写「这台机器上最新的」，不会误导成 5.1。
+- 网页：输入框上带版本的型号名只在版本号后面为空或是 `[1m]` 这类括号时才算，修掉了版本后面跟着别的字也被当成名字的问题。
+- 实测（临时实例，全新的库；照正式库补了 4 条「上次实际运行」，只有机器、别名、跑出的型号和时间，不含对话内容）：
+  - 本机：Fable 写「Fable 5.2 · Last run on this machine」；Opus 有勾，写「Newest Opus on this machine」，因为今天 09:20 装上新 CLI 后，还没有能认出别名的 Opus 运行。
+  - 5090x2：Opus 有勾，写「Opus 5.5 · Last run on this machine」；Fable 写「Newest Fable on this machine」。
+  - 截图在 `target/shots/models-alias-*.png`（不进仓库）。
+
+验证：`cargo fmt --check`、`leptosfmt --check crates/web/src`、`cargo clippy --workspace --all-targets -- -D warnings`、wasm 的 clippy、`cargo test --workspace`（1141 个全过；新增：型号 id 读成名字、系列行改别名并写上次实际跑出的版本、按机器和别名取最近一次运行且只算当前命令行装上之后的、版本行带装上时间）、两个 node 测试。

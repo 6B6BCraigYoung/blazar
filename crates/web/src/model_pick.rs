@@ -39,12 +39,10 @@ pub fn short_name(label: &str, desc: &str) -> String {
         .and_then(|rest| rest.strip_prefix(' '))
         .is_some_and(|rest| {
             let number = rest.split(' ').next().unwrap_or_default();
+            let tail = rest[number.len()..].trim();
             number.starts_with(|c: char| c.is_ascii_digit())
                 && number.chars().all(|c| c.is_ascii_digit() || c == '.')
-                && rest[number.len()..]
-                    .trim()
-                    .strip_prefix('[')
-                    .is_none_or(|tail| tail.ends_with(']'))
+                && (tail.is_empty() || (tail.starts_with('[') && tail.ends_with(']')))
         });
     if versioned { first.to_owned() } else { label }
 }
@@ -104,6 +102,18 @@ mod tests {
             "描述只是以名字开头的一句话时不拿来当名字"
         );
         assert_eq!(short_name("Sonnet", ""), "Sonnet");
+        assert_eq!(
+            short_name("Fable", "Fable 5.2 (preview) · Most capable"),
+            "Fable",
+            "版本号后面跟着别的字，就不拿来当名字"
+        );
+        assert_eq!(
+            short_name(
+                "Fable",
+                "Fable 5.2 · Last run on this machine · Most capable"
+            ),
+            "Fable 5.2"
+        );
     }
 
     fn l(m: Option<&str>, e: Option<&str>) -> Layer {

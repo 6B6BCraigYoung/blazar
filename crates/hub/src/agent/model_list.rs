@@ -22,9 +22,14 @@ const REQUEST_ID: &str = "blazar-models";
 
 const VERSION_MARK: &str = "__BLAZAR_CLI_VERSION__";
 
+const FAMILIES: [&str; 4] = ["fable", "opus", "sonnet", "haiku"];
+
+const LAST_RUN_DAYS: i64 = 60;
+
 #[derive(Clone, Debug)]
 struct Entry {
     version: Option<String>,
+    installed: Option<i64>,
     models: Vec<Value>,
     fetched_at: Instant,
     fetched_wall: String,
@@ -79,9 +84,92 @@ pub fn rows(list: &[Value]) -> Vec<Value> {
         .collect()
 }
 
+#[must_use]
+pub fn pretty_model(id: &str) -> Option<String> {
+    let rest = id.strip_prefix("claude-")?;
+    let (core, tag) = match rest.split_once('[') {
+        Some((core, tag)) => (core, Some(format!("[{tag}"))),
+        None => (rest, None),
+    };
+    let (family, version) = core.split_once('-')?;
+    if !FAMILIES.contains(&family)
+        || version.is_empty()
+        || !version.chars().all(|c| c.is_ascii_digit() || c == '-')
+    {
+        return None;
+    }
+    let mut name = format!("{} {}", titled(family), version.replace('-', "."));
+    if let Some(tag) = tag {
+        name.push(' ');
+        name.push_str(&tag);
+    }
+    Some(name)
+}
+
+fn titled(family: &str) -> String {
+    let mut chars = family.chars();
+    chars
+        .next()
+        .map(|c| c.to_ascii_uppercase().to_string() + chars.as_str())
+        .unwrap_or_default()
+}
+
+fn family_of(row: &Value) -> Option<&'static str> {
+    let id = row["id"].as_str().unwrap_or_default().to_ascii_lowercase();
+    let label = row["label"]
+        .as_str()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    FAMILIES.iter().copied().find(|f| {
+        id == *f
+            || id.starts_with(&format!("claude-{f}-"))
+            || label.split_whitespace().next() == Some(*f)
+    })
+}
+
+fn names_a_version(part: &str, family: &str) -> bool {
+    part.trim()
+        .to_ascii_lowercase()
+        .strip_prefix(family)
+        .map(str::trim_start)
+        .is_some_and(|rest| rest.starts_with(|c: char| c.is_ascii_digit()))
+}
+
+#[must_use]
+pub fn alias_rows(rows: Vec<Value>, last: &HashMap<String, String>) -> Vec<Value> {
+    let mut done: Vec<&'static str> = Vec::new();
+    rows.into_iter()
+        .map(|mut row| {
+            let Some(family) = family_of(&row).filter(|f| !done.contains(f)) else {
+                return row;
+            };
+            done.push(family);
+            let name = titled(family);
+            let desc = row["desc"].as_str().unwrap_or_default().to_owned();
+            let mut parts: Vec<&str> = desc.split(" · ").filter(|p| !p.trim().is_empty()).collect();
+            if parts.first().is_some_and(|p| names_a_version(p, family)) {
+                parts.remove(0);
+            }
+            let head = match last.get(family).and_then(|m| pretty_model(m)) {
+                Some(ran) => vec![ran, "Last run on this machine".to_owned()],
+                None => vec![format!("Newest {name} on this machine")],
+            };
+            let text: Vec<String> = head
+                .into_iter()
+                .chain(parts.into_iter().map(str::to_owned))
+                .collect();
+            row["id"] = json!(family);
+            row["label"] = json!(name);
+            row["desc"] = json!(text.join(" · "));
+            row
+        })
+        .collect()
+}
+
 #[derive(Debug, Default, PartialEq)]
 pub struct Probe {
     pub version: Option<String>,
+    pub installed: Option<i64>,
     pub models: Option<Vec<Value>>,
 }
 
@@ -89,9 +177,12 @@ pub struct Probe {
 pub fn parse(stdout: &str) -> Probe {
     let mut out = Probe::default();
     for line in stdout.lines() {
-        if let Some(v) = line.strip_prefix(VERSION_MARK) {
+        if let Some(rest) = line.strip_prefix(VERSION_MARK) {
+            let rest = rest.trim_start();
+            let (stamp, text) = rest.split_once(' ').unwrap_or((rest, ""));
+            out.installed = stamp.parse::<i64>().ok().filter(|t| *t > 0);
             out.version =
-                crate::remote_cli::parse_version(v).map(|(a, b, c)| format!("{a}.{b}.{c}"));
+                crate::remote_cli::parse_version(text).map(|(a, b, c)| format!("{a}.{b}.{c}"));
             continue;
         }
         let Ok(v) = serde_json::from_str::<Value>(line) else {
@@ -145,6 +236,17 @@ pub fn env_block(env: &RunEnv) -> String {
     s
 }
 
+fn version_line(program: &str) -> String {
+    format!(
+        r#"P={program}
+R=$(command -v "$P" 2>/dev/null)
+[ -n "$R" ] && R=$(readlink -f "$R" 2>/dev/null || printf '%s' "$R")
+M=$(stat -c %Y "$R" 2>/dev/null || stat -f %m "$R" 2>/dev/null || echo 0)
+printf '%s %s %s\n' '{VERSION_MARK}' "${{M:-0}}" "$("$P" --version 2>/dev/null | head -n 1)""#,
+        program = blazar_transport::shell_quote(program),
+    )
+}
+
 #[must_use]
 pub fn script(program: &str) -> String {
     format!(
@@ -152,14 +254,13 @@ pub fn script(program: &str) -> String {
 IFS= read -r B
 eval "$(printf '%s' "$B" | base64 --decode 2>/dev/null)" 2>/dev/null
 cd "$HOME" 2>/dev/null || cd /tmp
-P={program}
-printf '%s %s\n' '{VERSION_MARK}' "$("$P" --version 2>/dev/null | head -n 1)"
+{version}
 T=
 command -v timeout >/dev/null 2>&1 && T="timeout 30"
 exec $T "$P" -p --output-format stream-json --verbose --input-format stream-json --no-session-persistence 2>/dev/null
 "#,
         prelude = blazar_transport::PATH_PRELUDE,
-        program = blazar_transport::shell_quote(program),
+        version = version_line(program),
     )
 }
 
@@ -204,14 +305,14 @@ async fn exec(
     }
 }
 
-async fn version(st: &Shared, node: &str, program: &str) -> Option<String> {
+async fn version(st: &Shared, node: &str, program: &str) -> Option<Probe> {
     let script = format!(
-        "{}\nprintf '%s %s\\n' '{VERSION_MARK}' \"$({} --version 2>/dev/null | head -n 1)\"",
+        "{}\n{}",
         blazar_transport::PATH_PRELUDE,
-        blazar_transport::shell_quote(program),
+        version_line(program)
     );
     let out = exec(st, node, script, None, VERSION_TIMEOUT).await.ok()?;
-    parse(&out).version
+    Some(parse(&out)).filter(|p| p.version.is_some())
 }
 
 async fn fetch(
@@ -219,7 +320,7 @@ async fn fetch(
     node: &str,
     program: &str,
     env: &RunEnv,
-) -> Result<(Option<String>, Vec<Value>), (String, String)> {
+) -> Result<(Probe, Vec<Value>), (String, String)> {
     let out = exec(st, node, script(program), Some(payload(env)), FETCH_TIMEOUT)
         .await
         .map_err(|e| {
@@ -228,9 +329,9 @@ async fn fetch(
                 e,
             )
         })?;
-    let probe = parse(&out);
-    match probe.models.filter(|m| !m.is_empty()) {
-        Some(models) => Ok((probe.version, models)),
+    let mut probe = parse(&out);
+    match probe.models.take().filter(|m| !m.is_empty()) {
+        Some(models) => Ok((probe, models)),
         None if probe.version.is_none() => Err((
             format!("Claude Code isn't installed on {}", machine(node)),
             "no version line".to_owned(),
@@ -351,7 +452,44 @@ fn checked(key: &str) {
     }
 }
 
-fn answer(node: &str, env: &RunEnv, entry: &Entry, error: Option<String>) -> Value {
+pub async fn last_runs(st: &Shared, node: &str, installed: Option<i64>) -> HashMap<String, String> {
+    let window = chrono::Utc::now() - chrono::Duration::days(LAST_RUN_DAYS);
+    let since = installed
+        .and_then(|t| chrono::DateTime::from_timestamp(t, 0))
+        .map_or(window, |t| t.max(window))
+        .to_rfc3339();
+    sqlx::query_as::<_, (String, String)>(
+        "SELECT asked, model FROM (
+           SELECT x.asked, x.model,
+                  ROW_NUMBER() OVER (PARTITION BY x.asked ORDER BY x.created_at DESC) AS rn
+           FROM (
+             SELECT COALESCE(NULLIF(s.model_arg, ''),
+                             CASE WHEN json_valid(s.request) THEN json_extract(s.request, '$.model') END) AS asked,
+                    json_extract(e.payload, '$.model') AS model,
+                    s.created_at AS created_at
+             FROM sessions s JOIN events e ON e.session_id = s.id
+             WHERE COALESCE(s.node, 'local') = ?1 AND s.created_at > ?2
+               AND e.payload LIKE '{\"type\":\"session_started\"%'
+           ) x
+           WHERE x.asked IN ('fable', 'opus', 'sonnet', 'haiku') AND x.model IS NOT NULL
+         ) WHERE rn = 1",
+    )
+    .bind(node)
+    .bind(since)
+    .fetch_all(st.db.pool())
+    .await
+    .unwrap_or_default()
+    .into_iter()
+    .collect()
+}
+
+fn answer(
+    node: &str,
+    env: &RunEnv,
+    entry: &Entry,
+    error: Option<String>,
+    last: &HashMap<String, String>,
+) -> Value {
     json!({
         "runtime": "claude",
         "source": "cli",
@@ -359,7 +497,7 @@ fn answer(node: &str, env: &RunEnv, entry: &Entry, error: Option<String>) -> Val
         "account": env.account,
         "cli_version": entry.version,
         "fetched_at": entry.fetched_wall,
-        "models": rows(&entry.models),
+        "models": alias_rows(rows(&entry.models), last),
         "stale": error.is_some(),
         "error": error,
     })
@@ -407,6 +545,12 @@ async fn note_version(st: &Shared, node: &str, version: &str) {
     }
 }
 
+enum Outcome {
+    Fresh(Entry),
+    Stale(Entry, String),
+    Failed(String),
+}
+
 async fn refetch(
     st: &Shared,
     node: &str,
@@ -414,30 +558,73 @@ async fn refetch(
     env: &RunEnv,
     key: &str,
     before: Option<Entry>,
-) -> Value {
+) -> Outcome {
     match fetch(st, node, program, env).await {
-        Ok((version, models)) => {
+        Ok((probe, models)) => {
             let now = Instant::now();
             let entry = Entry {
-                version: version.clone(),
+                version: probe.version.clone(),
+                installed: probe.installed,
                 models,
                 fetched_at: now,
                 fetched_wall: chrono::Utc::now().to_rfc3339(),
                 checked_at: now,
             };
             keep(key, entry.clone());
-            if let Some(v) = &version {
+            if let Some(v) = &probe.version {
                 note_version(st, node, v).await;
             }
-            answer(node, env, &entry, None)
+            Outcome::Fresh(entry)
         }
         Err((shown, detail)) => {
             tracing::warn!(target: "blazar::models", "{node} 上取型号列表失败：{shown}（{detail}）");
             match before {
-                Some(entry) => answer(node, env, &entry, Some(shown)),
-                None => failed(node, env.account.clone(), &shown),
+                Some(entry) => Outcome::Stale(entry, shown),
+                None => Outcome::Failed(shown),
             }
         }
+    }
+}
+
+async fn settle(
+    st: &Shared,
+    node: &str,
+    program: &str,
+    env: &RunEnv,
+    key: &str,
+    refresh: bool,
+) -> Outcome {
+    let before = cached(key);
+    let now = Instant::now();
+    let plan = step(
+        before.as_ref().map(|c| {
+            (
+                now.saturating_duration_since(c.fetched_at),
+                now.saturating_duration_since(c.checked_at),
+            )
+        }),
+        refresh,
+    );
+    match (plan, before) {
+        (Step::Cached, Some(entry)) => Outcome::Fresh(entry),
+        (Step::Check, Some(entry)) => match version(st, node, program).await {
+            Some(probe) if same_version(entry.version.as_deref(), probe.version.as_deref()) => {
+                checked(key);
+                if let Some(v) = &probe.version {
+                    note_version(st, node, v).await;
+                }
+                Outcome::Fresh(entry)
+            }
+            Some(_) => refetch(st, node, program, env, key, Some(entry)).await,
+            None => Outcome::Stale(
+                entry,
+                format!(
+                    "Couldn't check the Claude Code version on {}",
+                    machine(node)
+                ),
+            ),
+        },
+        (_, before) => refetch(st, node, program, env, key, before).await,
     }
 }
 
@@ -462,38 +649,13 @@ pub async fn claude_for(
     );
     let held = gate(&key);
     let _held = held.lock().await;
-    let before = cached(&key);
-    let now = Instant::now();
-    let plan = step(
-        before.as_ref().map(|c| {
-            (
-                now.saturating_duration_since(c.fetched_at),
-                now.saturating_duration_since(c.checked_at),
-            )
-        }),
-        refresh,
-    );
-    match (plan, before) {
-        (Step::Cached, Some(entry)) => answer(run_node, &env, &entry, None),
-        (Step::Check, Some(entry)) => match version(st, run_node, &program).await {
-            Some(v) if same_version(entry.version.as_deref(), Some(&v)) => {
-                checked(&key);
-                note_version(st, run_node, &v).await;
-                answer(run_node, &env, &entry, None)
-            }
-            Some(_) => refetch(st, run_node, &program, &env, &key, Some(entry)).await,
-            None => answer(
-                run_node,
-                &env,
-                &entry,
-                Some(format!(
-                    "Couldn't check the Claude Code version on {}",
-                    machine(run_node)
-                )),
-            ),
-        },
-        (_, before) => refetch(st, run_node, &program, &env, &key, before).await,
-    }
+    let (entry, error) = match settle(st, run_node, &program, &env, &key, refresh).await {
+        Outcome::Fresh(entry) => (entry, None),
+        Outcome::Stale(entry, error) => (entry, Some(error)),
+        Outcome::Failed(error) => return failed(run_node, env.account.clone(), &error),
+    };
+    let last = last_runs(st, run_node, entry.installed).await;
+    answer(run_node, &env, &entry, error, &last)
 }
 
 #[derive(Debug, Default, Deserialize)]
