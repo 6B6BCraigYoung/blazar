@@ -13,12 +13,13 @@ use serde_json::json;
 use crate::api::Shared;
 use crate::state::ServerEvent;
 
+use super::endpoint::{EndpointInput, PRESETS, reach, valid_endpoint, valid_key};
 use super::probe::{check, shell};
 use super::quota::{can_query_quota, refresh_quota};
 use super::selection::{model_blocks, running_of, score, windows_of};
 use super::{
-    Account, PROVIDERS, TOKEN_FILE, all, default_home, fail, get, mode_key, mode_of, prepare_dir,
-    root,
+    Account, Endpoint, KEY_FILE, PROVIDERS, TOKEN_FILE, all, default_home, fail, get, mode_key,
+    mode_of, prepare_dir, root,
 };
 
 const QUOTA_FRESH_MINUTES: i64 = 5;
@@ -64,6 +65,7 @@ pub async fn list(State(st): State<Shared>) -> Response {
         "accounts": accounts,
         "modes": modes,
         "root": root(&st).display().to_string(),
+        "endpoint_presets": PRESETS,
     }))
     .into_response()
 }
@@ -76,6 +78,10 @@ pub struct NewAccount {
     pub token: Option<String>,
     #[serde(default)]
     pub token_file: Option<String>,
+    #[serde(default)]
+    pub endpoint: Option<EndpointInput>,
+    #[serde(default)]
+    pub key: Option<String>,
 }
 
 fn valid_token_file(s: &str) -> Result<PathBuf, String> {
@@ -158,6 +164,9 @@ pub async fn create(State(st): State<Shared>, Json(req): Json<NewAccount>) -> Re
         Ok(l) => l,
         Err(e) => return fail(StatusCode::BAD_REQUEST, e),
     };
+    if let Some(input) = &req.endpoint {
+        return create_endpoint(&st, &req, label, input).await;
+    }
     let token = match req.token.as_deref().filter(|t| !t.trim().is_empty()) {
         None => None,
         Some(_) if req.provider != "claude" => {
@@ -238,6 +247,120 @@ pub async fn create(State(st): State<Shared>, Json(req): Json<NewAccount>) -> Re
     Json(a).into_response()
 }
 
+async fn create_endpoint(
+    st: &Shared,
+    req: &NewAccount,
+    label: String,
+    input: &EndpointInput,
+) -> Response {
+    if req.provider != "claude" {
+        return fail(StatusCode::BAD_REQUEST, "只有 Claude Code 能接自定义接口");
+    }
+    if req.token.as_deref().is_some_and(|t| !t.trim().is_empty())
+        || req
+            .token_file
+            .as_deref()
+            .is_some_and(|t| !t.trim().is_empty())
+    {
+        return fail(StatusCode::BAD_REQUEST, "自定义接口只要密钥，不用 token");
+    }
+    let endpoint = match valid_endpoint(input) {
+        Ok(e) => e,
+        Err(e) => return fail(StatusCode::BAD_REQUEST, e),
+    };
+    let key = match valid_key(req.key.as_deref().unwrap_or_default()) {
+        Ok(k) => k,
+        Err(e) => return fail(StatusCode::BAD_REQUEST, e),
+    };
+    let reached = reach(&endpoint, &key).await;
+    if reached.status == "logged_out" {
+        return fail(
+            StatusCode::BAD_REQUEST,
+            reached.error.unwrap_or_else(|| "密钥无效".into()),
+        );
+    }
+    let id = uuid::Uuid::now_v7().to_string();
+    let dir = root(st).join("claude").join(&id);
+    let shared = st.services.local(|| default_home("claude")).flatten();
+    let d = dir.clone();
+    let made = tokio::task::spawn_blocking(move || {
+        prepare_dir("claude", &d, shared.as_deref())?;
+        write_token(&d.join(KEY_FILE), &key)
+    })
+    .await;
+    if let Err(e) = made
+        .map_err(|e| e.to_string())
+        .and_then(|r| r.map_err(|e| e.to_string()))
+    {
+        let _ = std::fs::remove_dir_all(&dir);
+        return fail(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("创建账号目录失败: {e}"),
+        );
+    }
+    let res = sqlx::query(
+        "INSERT INTO accounts (id, provider, display_name, auth_mode, status, config_dir, created_at,
+                               checked_at, endpoint)
+         VALUES (?1, 'claude', ?2, 'endpoint', ?3, ?4, ?5, ?5, ?6)",
+    )
+    .bind(&id)
+    .bind(&label)
+    .bind(&reached.status)
+    .bind(dir.display().to_string())
+    .bind(Utc::now().to_rfc3339())
+    .bind(serde_json::to_string(&endpoint).unwrap_or_default())
+    .execute(st.db.pool())
+    .await;
+    if let Err(e) = res {
+        let _ = std::fs::remove_dir_all(&dir);
+        return fail(StatusCode::INTERNAL_SERVER_ERROR, e.to_string());
+    }
+    st.emit(ServerEvent::AccountsChanged);
+    get(st, &id).await.map_or_else(
+        || fail(StatusCode::INTERNAL_SERVER_ERROR, "账号写入后读不回来"),
+        |a| Json(a).into_response(),
+    )
+}
+
+async fn set_endpoint_key(st: &Shared, a: &Account, e: &Endpoint, raw: &str) -> Response {
+    let key = match valid_key(raw) {
+        Ok(k) => k,
+        Err(e) => return fail(StatusCode::BAD_REQUEST, e),
+    };
+    let Some(dir) = a.config_dir.clone().map(PathBuf::from) else {
+        return fail(StatusCode::CONFLICT, "这个账号没有目录");
+    };
+    let reached = reach(e, &key).await;
+    if reached.status == "logged_out" {
+        return fail(
+            StatusCode::BAD_REQUEST,
+            reached.error.unwrap_or_else(|| "密钥无效".into()),
+        );
+    }
+    let path = dir.join(KEY_FILE);
+    match tokio::task::spawn_blocking(move || write_token(&path, &key)).await {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => {
+            return fail(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("保存密钥失败: {e}"),
+            );
+        }
+        Err(e) => return fail(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    }
+    let _ = sqlx::query("UPDATE accounts SET status = ?2, checked_at = ?3 WHERE id = ?1")
+        .bind(&a.id)
+        .bind(&reached.status)
+        .bind(Utc::now().to_rfc3339())
+        .execute(st.db.pool())
+        .await;
+    st.emit(ServerEvent::AccountsChanged);
+    get(st, &a.id).await.map_or_else(
+        || fail(StatusCode::NOT_FOUND, "没有这个账号"),
+        |a| Json(a).into_response(),
+    )
+}
+
 #[derive(Deserialize)]
 pub struct NewToken {
     pub token: String,
@@ -251,6 +374,12 @@ pub async fn set_token(
     let Some(a) = get(&st, &id).await else {
         return fail(StatusCode::NOT_FOUND, "没有这个账号");
     };
+    if a.kind == "endpoint" {
+        let Some(e) = a.endpoint.clone() else {
+            return fail(StatusCode::CONFLICT, "账号的接口配置不全");
+        };
+        return set_endpoint_key(&st, &a, &e, &req.token).await;
+    }
     if a.provider != "claude" {
         return fail(StatusCode::CONFLICT, "只有 Claude Code 账号能用长期 token");
     }

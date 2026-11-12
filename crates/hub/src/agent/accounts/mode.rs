@@ -159,6 +159,9 @@ async fn sync_global(st: &Shared, provider: &str, mode: &str) -> Result<(), Stri
     } else {
         get(st, mode).await.filter(|a| !a.builtin)
     };
+    if target.as_ref().is_some_and(|a| a.kind == "endpoint") {
+        return Err("自定义接口账号只在 Blazar 里用，终端保持原来的登录".into());
+    }
     let prev = global_current(st, provider).await;
     if prev.as_ref().map(|a| &a.id) == target.as_ref().map(|a| &a.id) {
         return Ok(());

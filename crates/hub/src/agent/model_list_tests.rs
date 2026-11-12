@@ -368,3 +368,82 @@ async fn the_last_run_of_each_alias_is_read_per_machine() {
         "只看这台机器、按别名发起、60 天内最近的一次；旧会话没有 model_arg 时读当时的请求"
     );
 }
+
+async fn endpoint_account(st: &Shared, dir: &std::path::Path) -> String {
+    let id = "endpoint-ds".to_owned();
+    std::fs::write(
+        dir.join(crate::accounts::KEY_FILE),
+        "sk-sekret-endpoint-key",
+    )
+    .unwrap();
+    let endpoint = serde_json::json!({
+        "base_url": "https://api.deepseek.com/anthropic",
+        "models": ["deepseek-v4-pro", "deepseek-flash"],
+        "default_model": "deepseek-v4-pro",
+        "small_model": "deepseek-flash",
+        "preset": "deepseek",
+    });
+    sqlx::query(
+        "INSERT INTO accounts (id, provider, display_name, auth_mode, status, config_dir, created_at, endpoint)
+         VALUES (?1, 'claude', 'DeepSeek', 'endpoint', 'ok', ?2, '0', ?3)",
+    )
+    .bind(&id)
+    .bind(dir.display().to_string())
+    .bind(endpoint.to_string())
+    .execute(st.db.pool())
+    .await
+    .unwrap();
+    id
+}
+
+#[tokio::test]
+async fn an_endpoint_account_lists_its_own_models_without_asking_the_cli() {
+    let st = hub().await;
+    let dir = tempfile::tempdir().unwrap();
+    let id = endpoint_account(&st, dir.path()).await;
+    let v = claude_for(&st, "ws", "local", None, Some(&id), false).await;
+    assert_eq!(v["source"], "endpoint");
+    assert_eq!(v["endpoint"], "api.deepseek.com");
+    assert_eq!(v["account"], id.as_str());
+    let ids: Vec<&str> = v["models"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|m| m["id"].as_str())
+        .collect();
+    assert_eq!(ids, vec!["", "deepseek-v4-pro", "deepseek-flash"]);
+    assert!(!v.to_string().contains("sk-sekret"), "密钥不能出现在回复里");
+
+    let remote = claude_for(&st, "ws", "gpu-box", None, Some(&id), false).await;
+    assert!(
+        remote["error"]
+            .as_str()
+            .is_some_and(|e| e.contains("custom endpoint")),
+        "{remote}"
+    );
+}
+
+#[tokio::test]
+async fn an_endpoint_account_is_never_picked_by_auto_balance() {
+    let st = hub().await;
+    let dir = tempfile::tempdir().unwrap();
+    let id = endpoint_account(&st, dir.path()).await;
+    let auto = crate::accounts::resolve(&st, "claude", "local", Some("auto"), None, None, &[])
+        .await
+        .unwrap();
+    assert_ne!(auto.map(|c| c.id), Some(id.clone()));
+    let picked = crate::accounts::resolve(&st, "claude", "local", Some(&id), None, None, &[])
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        picked.token_file.as_ref().map(|(k, _)| k.as_str()),
+        Some("ANTHROPIC_AUTH_TOKEN")
+    );
+    assert_eq!(
+        picked.token_file.map(|(_, p)| p),
+        Some(dir.path().join(crate::accounts::KEY_FILE))
+    );
+    assert!(picked.endpoint.is_some());
+    assert!(!picked.proxy);
+}

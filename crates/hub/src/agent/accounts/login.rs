@@ -183,6 +183,12 @@ pub async fn login_ws(
             "这个账号用的是长期 token，需要时更换 token 即可",
         );
     }
+    if a.kind == "endpoint" {
+        return fail(
+            StatusCode::CONFLICT,
+            "这个账号用的是自定义接口的密钥，需要时更换密钥即可",
+        );
+    }
     let cmd = match a.provider.as_str() {
         "claude" => "auth login",
         _ => "login",

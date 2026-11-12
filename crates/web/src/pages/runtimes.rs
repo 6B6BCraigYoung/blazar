@@ -37,8 +37,13 @@ pub fn check_is_stale(a: &Account) -> bool {
 }
 
 pub fn account_status(a: &Account) -> (&'static str, Tone) {
+    let endpoint = a.kind == "endpoint";
     if a.disabled {
         ("已停用", Tone::Other)
+    } else if endpoint && a.status == "logged_out" {
+        ("密钥无效", Tone::Attention)
+    } else if endpoint && a.status == "ok" && !check_is_stale(a) {
+        ("可用", Tone::Other)
     } else if a.status == "logged_out" && a.checked_at.is_some() {
         ("登录已失效", Tone::Attention)
     } else if a.status == "logged_out" {
@@ -56,6 +61,12 @@ pub fn account_status_hint(a: &Account) -> String {
         .as_deref()
         .map(|t| format!("上次检查：{}", crate::fmt::ago(t)));
     match (a.status.as_str(), check_is_stale(a), checked) {
+        ("logged_out", _, Some(c)) if a.kind == "endpoint" => {
+            format!("接口不认这个密钥，更换密钥后才能用。{c}")
+        }
+        ("ok", false, Some(c)) if a.kind == "endpoint" => {
+            format!("{c}。按量计费，不参与自动分摊")
+        }
         ("logged_out", _, Some(c)) => format!("凭据已经失效，重新登录后才会进入轮换。{c}"),
         ("ok", true, Some(c)) => format!("{c}，超过 1 小时的结果不再当真，用之前会重新检查"),
         ("ok", false, Some(c)) if a.kind == "token" => format!("{c}。token 失效后会提示重新配置"),
@@ -277,7 +288,16 @@ pub fn AccountsSection(
             form.get()
                 .map(|f| {
                     view! {
-                        <AccountForm f provider=provider.clone() on_close=move || form.set(None) />
+                        <AccountForm
+                            f
+                            provider=provider.clone()
+                            presets=accounts
+                                .get_untracked()
+                                .and_then(Result::ok)
+                                .map(|a| a.endpoint_presets)
+                                .unwrap_or_default()
+                            on_close=move || form.set(None)
+                        />
                     }
                 })
         }}

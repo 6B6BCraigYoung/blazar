@@ -266,6 +266,43 @@ pub struct Account {
     pub config_dir: Option<String>,
     #[serde(default)]
     pub model_blocks: Vec<ModelBlock>,
+    #[serde(default)]
+    pub endpoint: Option<AccountEndpoint>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Deserialize)]
+pub struct AccountEndpoint {
+    pub base_url: String,
+    #[serde(default)]
+    pub models: Vec<String>,
+    #[serde(default)]
+    pub default_model: String,
+    #[serde(default)]
+    pub preset: Option<String>,
+}
+
+impl AccountEndpoint {
+    pub fn host(&self) -> String {
+        let rest = self
+            .base_url
+            .split_once("://")
+            .map_or(self.base_url.as_str(), |(_, r)| r);
+        rest.split(['/', '?', '#'])
+            .next()
+            .unwrap_or(rest)
+            .to_owned()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Deserialize)]
+pub struct EndpointPreset {
+    pub id: String,
+    pub label: String,
+    pub base_url: String,
+    #[serde(default)]
+    pub models: Vec<String>,
+    #[serde(default)]
+    pub default_model: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -288,6 +325,8 @@ pub struct Accounts {
     pub modes: std::collections::HashMap<String, String>,
     #[serde(default)]
     pub root: String,
+    #[serde(default)]
+    pub endpoint_presets: Vec<EndpointPreset>,
 }
 
 impl Accounts {

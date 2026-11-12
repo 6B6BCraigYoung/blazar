@@ -47,9 +47,28 @@ pub fn short_name(label: &str, desc: &str) -> String {
     if versioned { first.to_owned() } else { label }
 }
 
+pub fn split_models(s: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for m in s.split([',', '，', '、', ' ', '\n', '\t']).map(str::trim) {
+        if !m.is_empty() && !out.iter().any(|x| x == m) {
+            out.push(m.to_owned());
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn model_lists_split_on_any_separator() {
+        assert_eq!(
+            split_models("deepseek-v4-pro, deepseek-flash，deepseek-flash、 glm-5\n"),
+            vec!["deepseek-v4-pro", "deepseek-flash", "glm-5"]
+        );
+        assert!(split_models(" , ").is_empty());
+    }
 
     #[test]
     fn subscription_prices_are_dropped_and_the_rest_is_kept_verbatim() {

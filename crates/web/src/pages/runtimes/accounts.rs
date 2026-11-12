@@ -61,6 +61,17 @@ fn status(a: &Account) -> impl IntoView + use<> {
 }
 
 pub(crate) fn quota(a: &Account) -> AnyView {
+    if a.kind == "endpoint" {
+        return view! {
+            <span
+                class="muted small"
+                title="自定义接口按用量计费，不参与自动分摊"
+            >
+                "按量计费"
+            </span>
+        }
+        .into_any();
+    }
     if a.windows.is_empty() {
         let hint = if a.kind == "token" || a.provider == "codex" {
             "还没查过 —— 「⋯」里点「刷新额度」"
@@ -119,6 +130,7 @@ pub(super) fn AccountRow(
     });
     let usable = a.usable();
     let tok = a.kind == "token";
+    let ep = a.kind == "endpoint";
     let title = [
         a.email.clone().unwrap_or_else(|| {
             if a.builtin {
@@ -135,7 +147,9 @@ pub(super) fn AccountRow(
             .clone()
             .map(|p| plan_label(&p).to_owned())
             .unwrap_or_default(),
-        if a.linked.is_some() {
+        if ep {
+            "自定义接口".into()
+        } else if a.linked.is_some() {
             "引用别处的长期 token".into()
         } else if tok {
             "长期 token".into()
@@ -207,7 +221,7 @@ pub(super) fn AccountRow(
                     let a = a_menu.get_value();
                     match act {
                         "login" => login(&a),
-                        "token" => form.set(Some(Form::Token(a))),
+                        "token" | "key" => form.set(Some(Form::Token(a))),
                         "plan" => form.set(Some(Form::Plan(a))),
                         _ => {
                             busy.set(true);
@@ -216,6 +230,25 @@ pub(super) fn AccountRow(
                                     match act {
                                         "quota" => {
                                             api::refresh_quota(&a.id).await?;
+                                        }
+                                        "check" => {
+                                            let r = api::send::<
+                                                Account,
+                                            >(
+                                                    "POST",
+                                                    &format!("/api/accounts/{}/check", api::enc(&a.id)),
+                                                    &json!({}),
+                                                )
+                                                .await?;
+                                            toast(
+                                                match r.status.as_str() {
+                                                    "ok" => format!("「{}」能连上", r.label),
+                                                    "logged_out" => {
+                                                        format!("「{}」的密钥被拒绝了", r.label)
+                                                    }
+                                                    _ => format!("「{}」暂时连不上接口", r.label),
+                                                },
+                                            );
                                         }
                                         "rename" => {
                                             let Some(n) = dialog::prompt(
@@ -230,7 +263,9 @@ pub(super) fn AccountRow(
                                             patch(&a, json!({ "disabled": !a.disabled })).await?;
                                         }
                                         "delete" => {
-                                            let how = if a.kind == "token" {
+                                            let how = if a.kind == "endpoint" {
+                                                "会删掉保存的密钥和它的配置目录。密钥本身在服务商那边仍然有效，不用了请到服务商后台删除。"
+                                            } else if a.kind == "token" {
                                                 "会删掉保存的 token 和它的配置目录。token 本身在 Anthropic 那边仍然有效，不用了请到 claude.ai 的设置里吊销。"
                                             } else {
                                                 "会先让 CLI 退出登录，再删掉它的配置目录。"
@@ -277,7 +312,11 @@ pub(super) fn AccountRow(
     };
     let blocks = a.model_blocks.clone();
     let aid = a.id.clone();
-    let email = a.email.clone().filter(|e| !e.is_empty());
+    let email = a
+        .endpoint
+        .as_ref()
+        .map(|e| format!("{} · {}", e.host(), e.default_model))
+        .or_else(|| a.email.clone().filter(|e| !e.is_empty()));
     let signed_out = !a.disabled && a.status == "logged_out";
     let expired = signed_out && a.checked_at.is_some();
     let a_login = a.clone();
@@ -285,7 +324,7 @@ pub(super) fn AccountRow(
         if busy.get_untracked() {
             return;
         }
-        if a_login.kind == "token" {
+        if a_login.kind == "token" || a_login.kind == "endpoint" {
             form.set(Some(Form::Token(a_login.clone())));
         } else {
             login(&a_login);
@@ -366,7 +405,13 @@ pub(super) fn AccountRow(
                     .then(|| {
                         view! {
                             <button class="btn small" disabled=move || busy.get() on:click=sign_in>
-                                {if expired { "重新登录" } else { "登录…" }}
+                                {if ep {
+                                    "更换密钥"
+                                } else if expired {
+                                    "重新登录"
+                                } else {
+                                    "登录…"
+                                }}
                             </button>
                         }
                     })}
@@ -412,7 +457,7 @@ pub(super) fn AccountRow(
                                 }
                             }
                         >
-                            {(!tok)
+                            {(!tok && !ep)
                                 .then(|| item(
                                     if a.status == "ok" { "重新登录" } else { "登录" },
                                     false,
@@ -420,7 +465,9 @@ pub(super) fn AccountRow(
                                 ))}
                             {(tok || a.provider == "codex")
                                 .then(|| item("刷新额度", false, "quota"))}
-                            {(a.provider == "claude")
+                            {ep.then(|| item("检查连接", false, "check"))}
+                            {ep.then(|| item("更换密钥", false, "key"))}
+                            {(a.provider == "claude" && !ep)
                                 .then(|| item(
                                     if tok { "更换 token" } else { "改用长期 token" },
                                     false,

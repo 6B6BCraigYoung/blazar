@@ -77,8 +77,12 @@ const QUOTA: &[&str] = &[
     "billing",
     "credits",
     "extra usage",
+    "insufficient balance",
+    "insufficient_balance",
+    "payment required",
     "额度",
     "限流",
+    "余额不足",
 ];
 
 const BUSY: &[&str] = &[
@@ -223,7 +227,7 @@ impl FailureCause {
             Self::Node
         } else if has_any(&t, LOGIN) || has_code(&t, "401") || has_code(&t, "403") {
             Self::Login
-        } else if has_any(&t, QUOTA) || has_code(&t, "429") {
+        } else if has_any(&t, QUOTA) || has_code(&t, "429") || has_code(&t, "402") {
             Self::Quota
         } else if has_any(&t, BUSY) || ["529", "503", "502", "500"].iter().any(|c| has_code(&t, c))
         {
@@ -336,6 +340,8 @@ mod tests {
             "billing_error",
             "You've hit your session limit · resets 9:40pm (Asia/Taipei)",
             "You've reached your Fable limit. Switch to another model, or manage usage",
+            r#"API Error: 402 {"error":{"message":"Insufficient Balance","type":"unknown_error","param":null,"code":"invalid_request_error"}}"#,
+            "API Error: 402 Payment Required",
         ] {
             assert_eq!(of(m), FailureCause::Quota, "{m}");
         }
@@ -355,6 +361,12 @@ mod tests {
         );
         assert_eq!(
             crate::FailureClass::classify("You've hit your session limit"),
+            crate::FailureClass::QuotaLimit
+        );
+        assert_eq!(
+            crate::FailureClass::classify(
+                r#"API Error: 402 {"error":{"message":"Insufficient Balance","type":"unknown_error"}}"#
+            ),
             crate::FailureClass::QuotaLimit
         );
     }

@@ -537,7 +537,10 @@ impl FailureClass {
             "429",
             "usage limit",
             "session limit",
+            "insufficient balance",
+            "payment required",
             "限流",
+            "余额不足",
         ]) {
             Self::QuotaLimit
         } else if has(&[

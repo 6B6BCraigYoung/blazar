@@ -212,6 +212,7 @@ pub struct RunEnv {
     pub files: BTreeMap<String, String>,
     pub unset: Vec<String>,
     pub account: Option<String>,
+    pub endpoint: Option<crate::accounts::Endpoint>,
 }
 
 #[must_use]
@@ -389,6 +390,7 @@ async fn env_for(
     };
     if let Some(c) = &chosen {
         env.account = Some(c.id.clone());
+        env.endpoint = c.endpoint.clone();
         if let Some((k, v)) = &c.env {
             env.vars.entry(k.clone()).or_insert_with(|| v.clone());
         }
@@ -500,6 +502,24 @@ fn answer(
         "models": alias_rows(rows(&entry.models), last),
         "stale": error.is_some(),
         "error": error,
+    })
+}
+
+#[must_use]
+pub fn endpoint_answer(
+    node: &str,
+    account: Option<String>,
+    e: &crate::accounts::Endpoint,
+) -> Value {
+    json!({
+        "runtime": "claude",
+        "source": "endpoint",
+        "node": node,
+        "account": account,
+        "endpoint": e.host(),
+        "models": crate::accounts::endpoint::rows(e),
+        "stale": false,
+        "error": null,
     })
 }
 
@@ -643,6 +663,9 @@ pub async fn claude_for(
         Ok(env) => env,
         Err(e) => return failed(run_node, None, &e),
     };
+    if let Some(e) = &env.endpoint {
+        return endpoint_answer(run_node, env.account.clone(), e);
+    }
     let key = format!(
         "{run_node}\u{1f}{}\u{1f}{program}",
         env.account.clone().unwrap_or_default()

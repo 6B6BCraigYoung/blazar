@@ -107,6 +107,8 @@ pub struct ModelList {
     pub node: Option<String>,
     #[serde(default)]
     pub cli_version: Option<String>,
+    #[serde(default)]
+    pub endpoint: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Deserialize)]

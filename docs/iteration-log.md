@@ -1208,3 +1208,29 @@ B 的第三部分。出网络故障时要能一眼看出是机器、组网还是
   - hub 1 秒内就绪，端口没变；这一轮重新附着上了；菜单栏图标按默认没建；
   - 只有组网刷新那条原有的警告；Spotlight 只剩 `/Applications/Blazar.app`。
 - 回滚提醒：旧程序不认识迁移 49，会拒绝打开数据库；要退回 20261110.030517，得同时换回上面那份数据库备份，装机之后新增的数据会丢。
+
+## b57 · Claude Code 接 DeepSeek 等兼容接口（第一步：本机能用）
+
+用户选了「Claude Code 走 DeepSeek，出方案」，看完方案选「按方案全做，分三步」。这是第一步：账号、运行、型号菜单、选号，只在本机跑。第二步是远端经凭据代理，第三步是费用和余额。
+
+- **新账号类型「自定义接口」**（迁移 `0050`，账号表加 `endpoint` 列，存地址、型号列表、默认型号、小型号、预设）：「账号与额度」里给 Claude Code 添加账号时，接入方式多一项「自定义接口（DeepSeek 等兼容接口）」。DeepSeek 预设好地址 `https://api.deepseek.com/anthropic`、型号 `deepseek-v4-pro`（默认）和 `deepseek-flash`；也能填别的 Anthropic 兼容接口（要 https，本机地址可以用 http；末尾多写的 `/v1`、`/v1/messages` 会去掉）。「测试」按钮先连一次接口，DeepSeek 查它的型号列表，别的接口查 `/v1/models`；返回 401/403 就判为密钥无效，创建和更换密钥时直接拒收。测试结果那一行一直占着位置，出结果时对话框不变高。
+- **密钥只放在账号目录里**：存成 `.blazar-endpoint-key`（0600），数据库、日志、接口返回里都没有；启动脚本用 `$(cat -- 文件)` 在运行时读进 `ANTHROPIC_AUTH_TOKEN`。
+- **运行**：设 `ANTHROPIC_BASE_URL` 和 `API_TIMEOUT_MS`；fable、opus、sonnet 三个别名都指向这一轮的型号，haiku 指向小型号（DeepSeek 是 flash）；清掉 OAuth token、API key 和 Bedrock/Vertex 开关。对话选的型号不在这个接口里（比如全局默认的 opus），就换成它的默认型号，思考强度和 fast 模式不带；`model_arg` 记的是换过之后的型号。反过来，用 Claude 账号时，对话里留着的只有自定义接口才有的型号（比如 deepseek-flash）不会带给 Anthropic。
+- **选号**：自动分摊从不选它；远端机器这一步还不能用，会直说原因。全局登录同步跳过它，终端保持原来的登录。
+- **同一对话跨接口时改走交接**：DeepSeek 返回的思考块签名是一串 UUID，带去 Anthropic 会被当成签名不对。所以前一轮和这一轮一个用 Claude、一个用自定义接口（或者换了接口地址）时，不续接命令行会话，按换助手的方式开新会话，前面的对话用文字回顾带上。两个 Claude 账号之间照常续接。
+- **型号菜单**：用这个账号时只列接口的型号，标题写接口地址，不去问命令行。账号菜单里它那一行写接口地址，远端工作区里写「Runs on this Mac only」。
+- **失败归类**：DeepSeek 的「Insufficient Balance」（402）和「余额不足」归为额度问题。
+- **实测时查出并修掉**：方案里本来要设 `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`，实测发现它会关掉 Auto 权限模式的安全检查，Bash、WebSearch 全被拒（「Auto mode is unavailable: its safety check does not run for this session」），只剩读文件。去掉之后安全检查经 DeepSeek 正常跑。命令行对照：带这个开关 Bash 被拒，不带就执行。单元测试锁住「不能有这个开关」。
+
+实测（临时实例：隔离的 HOME、全新的库，正式库和正式 app 没动；用的是用户给的那把有余额的 DeepSeek 密钥）：
+
+- 添加账号，测试显示「能连上 · 接口提供 deepseek-flash、deepseek-v4-pro」；错密钥返回 401，被拒收。
+- 对话：读文件、Bash（输出 42）、WebSearch（搜到 Rust 1.96.1 并给出来源）都正常；`session_started` 的型号是 deepseek-v4-pro，DeepSeek 返回思考块。
+- 图片：DeepSeek 的兼容接口不支持，图被换成「不支持」的占位，模型自己说看不了，这一轮不报错。
+- 扫了临时实例的全部 26 个文件，密钥只出现在账号目录的密钥文件里。
+- 花费：今天全部测试一共 0.80 元；输入框按 Claude 价格估的是 1.60 美元，第三步改成只显示用量。
+- 截图在 `target/shots/endpoint-step1-*.png`（不进仓库）。
+
+验证：`cargo fmt --check`、`leptosfmt --check crates/web/src`、`cargo clippy --workspace --all-targets -- -D warnings`、wasm 的 clippy、`cargo test --workspace`（1156 个全过；新增：地址和密钥校验、预设、型号换算、运行环境、型号菜单、连通判断、自动分摊不选它、密钥不出现在回复里、启动脚本、跨接口交接、Claude 账号不带接口型号）、node 测试。
+
+还没做：远端（第二步）；费用只显示用量、DeepSeek 余额（第三步）；图片要不要在输入框提示，已发卡片问用户。

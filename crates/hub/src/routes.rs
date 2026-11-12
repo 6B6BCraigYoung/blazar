@@ -342,6 +342,10 @@ pub fn build_router(st: Arc<AppState>) -> Router {
         )
         .route("/api/accounts/check", post(accounts::check_all))
         .route("/api/accounts/quota", post(accounts::quota_all))
+        .route(
+            "/api/accounts/endpoint-test",
+            post(accounts::endpoint::test),
+        )
         .route("/api/sims", get(sims::list))
         .route("/api/sims/{sw}/scan", post(sims::scan))
         .route("/api/sims/{sw}/path/{node}", put(sims::set_path))

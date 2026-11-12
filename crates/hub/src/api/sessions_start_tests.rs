@@ -522,3 +522,135 @@ async fn turns_take_the_workspace_default_and_conversations_keep_what_they_ran_w
         "the conversation keeps its model"
     );
 }
+
+async fn endpoint_account(st: &Shared, dir: &std::path::Path) -> (String, std::path::PathBuf) {
+    let home = dir.join("accounts/claude/ds");
+    std::fs::create_dir_all(&home).unwrap();
+    let key = home.join(crate::accounts::KEY_FILE);
+    std::fs::write(&key, "sk-endpoint-secret-0001").unwrap();
+    let endpoint = serde_json::json!({
+        "base_url": "https://api.deepseek.com/anthropic",
+        "models": ["deepseek-v4-pro", "deepseek-flash"],
+        "default_model": "deepseek-v4-pro",
+        "small_model": "deepseek-flash",
+        "preset": "deepseek",
+    });
+    sqlx::query(
+        "INSERT INTO accounts (id, provider, display_name, auth_mode, status, config_dir, created_at, endpoint)
+         VALUES ('ds', 'claude', 'DeepSeek', 'endpoint', 'ok', ?1, '0', ?2)",
+    )
+    .bind(home.display().to_string())
+    .bind(endpoint.to_string())
+    .execute(st.db.pool())
+    .await
+    .unwrap();
+    ("ds".into(), key)
+}
+
+fn exec_line(fake: &FakeTransport) -> String {
+    launched_command(fake)
+        .replace('\'', "")
+        .lines()
+        .find(|l| l.starts_with("exec "))
+        .unwrap_or_default()
+        .to_owned()
+}
+
+#[tokio::test]
+async fn an_endpoint_turn_runs_its_own_model_with_the_key_read_from_disk() {
+    let (dir, st, ws, fake) = fixture().await;
+    let (id, key) = endpoint_account(&st, dir.path()).await;
+    let req = serde_json::from_value(serde_json::json!({
+        "text": "hi", "agent": "claude", "account": id, "model": "opus", "effort": "high",
+    }))
+    .unwrap();
+    let transport = fake.clone();
+    let _ = prompt_using(st.clone(), ws.to_string(), req, move |_| transport.clone())
+        .await
+        .unwrap_or_else(|error| panic!("{}", error.message()));
+    let cmd = launched_command(&fake);
+    assert!(
+        cmd.contains("export ANTHROPIC_BASE_URL='https://api.deepseek.com/anthropic'"),
+        "{cmd}"
+    );
+    assert!(
+        cmd.contains(&format!(
+            "export ANTHROPIC_AUTH_TOKEN=\"$(cat -- '{}')\"",
+            key.display()
+        )),
+        "{cmd}"
+    );
+    assert!(cmd.contains("export ANTHROPIC_DEFAULT_HAIKU_MODEL='deepseek-flash'"));
+    assert!(cmd.contains("unset CLAUDE_CODE_OAUTH_TOKEN"));
+    assert!(
+        !cmd.contains("sk-endpoint-secret"),
+        "密钥原文不能进启动脚本"
+    );
+    let exec = exec_line(&fake);
+    assert!(exec.contains("--model deepseek-v4-pro"), "{exec}");
+    assert!(!exec.contains("--effort"), "{exec}");
+    let model_arg: Option<String> = sqlx::query_scalar("SELECT model_arg FROM sessions")
+        .fetch_one(st.db.pool())
+        .await
+        .unwrap();
+    assert_eq!(model_arg.as_deref(), Some("deepseek-v4-pro"));
+}
+
+#[tokio::test]
+async fn moving_a_conversation_between_endpoint_and_claude_hands_it_over() {
+    let (dir, st, ws, fake) = fixture().await;
+    let (id, _) = endpoint_account(&st, dir.path()).await;
+    resumable_prior(&st, ws).await;
+    sqlx::query("UPDATE sessions SET account_id = ?1")
+        .bind(&id)
+        .execute(st.db.pool())
+        .await
+        .unwrap();
+    let req = serde_json::from_value(serde_json::json!({
+        "text": "继续", "agent": "claude", "resume": true, "account": "claude-default",
+    }))
+    .unwrap();
+    let transport = fake.clone();
+    let _ = prompt_using(st.clone(), ws.to_string(), req, move |_| transport.clone())
+        .await
+        .unwrap_or_else(|error| panic!("{}", error.message()));
+    let exec = exec_line(&fake);
+    assert!(
+        !exec.contains("--resume"),
+        "DeepSeek 的思考块不能带去 Anthropic：{exec}"
+    );
+
+    let (_dir2, st2, ws2, fake2) = fixture().await;
+    resumable_prior(&st2, ws2).await;
+    let req = serde_json::from_value(serde_json::json!({
+        "text": "继续", "agent": "claude", "resume": true,
+    }))
+    .unwrap();
+    let transport = fake2.clone();
+    let _ = prompt_using(st2.clone(), ws2.to_string(), req, move |_| {
+        transport.clone()
+    })
+    .await
+    .unwrap_or_else(|error| panic!("{}", error.message()));
+    assert!(
+        exec_line(&fake2).contains("--resume p1"),
+        "同一类账号照常续接"
+    );
+}
+
+#[tokio::test]
+async fn an_endpoint_model_is_not_sent_to_a_claude_account() {
+    let (dir, st, ws, fake) = fixture().await;
+    endpoint_account(&st, dir.path()).await;
+    let req = serde_json::from_value(serde_json::json!({
+        "text": "hi", "agent": "claude", "account": "claude-default", "model": "deepseek-flash",
+    }))
+    .unwrap();
+    let transport = fake.clone();
+    let _ = prompt_using(st.clone(), ws.to_string(), req, move |_| transport.clone())
+        .await
+        .unwrap_or_else(|error| panic!("{}", error.message()));
+    let exec = exec_line(&fake);
+    assert!(!exec.contains("deepseek-flash"), "{exec}");
+    assert!(!launched_command(&fake).contains("api.deepseek.com"));
+}

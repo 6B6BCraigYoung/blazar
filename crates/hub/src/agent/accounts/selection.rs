@@ -8,7 +8,7 @@ use sqlx::Row;
 
 use crate::api::Shared;
 
-use super::{Account, TOKEN_ENV, all, default_id, env_key, get, mode_of};
+use super::{Account, Endpoint, all, default_id, env_key, get, mode_of};
 
 pub const DEFAULT_THRESHOLD: f64 = 0.85;
 
@@ -183,6 +183,8 @@ pub struct Chosen {
     pub auto: bool,
 
     pub proxy: bool,
+
+    pub endpoint: Option<Endpoint>,
 }
 
 impl From<&Account> for Chosen {
@@ -190,9 +192,10 @@ impl From<&Account> for Chosen {
         Self {
             id: a.id.clone(),
             env: a.env(),
-            token_file: a.token_file().map(|p| (TOKEN_ENV.to_owned(), p)),
+            token_file: a.secret_file(),
             auto: false,
             proxy: false,
+            endpoint: a.endpoint.clone().filter(|_| a.kind == "endpoint"),
         }
     }
 }
@@ -257,6 +260,10 @@ pub async fn resolve(
         return Ok(chosen);
     }
     match chosen {
+        Some(c) if c.endpoint.is_some() => Err(format!(
+            "\"{}\" uses a custom endpoint, which only runs on this Mac for now. Pick a long-lived token account for {run_node}",
+            get(st, &c.id).await.map(|a| a.label).unwrap_or(c.id)
+        )),
         Some(c) if c.token_file.is_some() => Ok(Some(Chosen {
             env: None,
             token_file: None,
@@ -311,7 +318,10 @@ async fn pick(
                 .await
                 .into_iter()
                 .filter(|a| {
-                    a.usable() && !exclude.contains(&a.id) && (!remote || a.kind == "token")
+                    a.usable()
+                        && a.kind != "endpoint"
+                        && !exclude.contains(&a.id)
+                        && (!remote || a.kind == "token")
                 })
                 .map(|a| Candidate {
                     score: windows.get(&a.id).map_or(0.0, |w| score(w, now)),

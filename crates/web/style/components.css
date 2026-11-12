@@ -123,6 +123,9 @@
 .chk.block input { margin-top: var(--space-label); }
 .browse-bar { display: flex; gap: var(--space-sm); }
 .dlg .field[hidden] { display: none; }
+.dlg .field + .muted.small { margin-top: var(--space-sm); }
+.dlg .reach-line { height: 18px; margin-top: var(--space-sm); line-height: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dlg .reach-line[data-tone="bad"] { color: var(--err-fg); }
 .new-ws-picked { display: flex; align-items: center; gap: var(--space-md); min-height: 30px; padding: 0 var(--space-control); border: var(--field-border); border-radius: var(--r-md); background: var(--bg-canvas); color: var(--fg); font-size: var(--font-size-label-readable); overflow-wrap: anywhere; }
 .new-ws-picked .grow { flex: 1; min-width: 0; }
 .new-ws-more { margin-top: var(--space-lg); }

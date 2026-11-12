@@ -366,6 +366,9 @@ pub(super) fn mode_pop(chat: Chat, pop: RwSignal<Option<Pop>>) -> impl IntoView 
 
 fn model_source(chat: Chat) -> Option<String> {
     let list = chat.model_list(&chat.runtime())?;
+    if let Some(host) = list.endpoint {
+        return Some(format!(" · {host}"));
+    }
     let version = list.cli_version?;
     Some(match list.node.filter(|n| n != "local") {
         Some(node) => format!(" · {node} · Claude Code {version}"),
@@ -635,7 +638,12 @@ pub(super) fn agent_pop(chat: Chat, pop: RwSignal<Option<Pop>>) -> impl IntoView
             None
         };
         let spread_on = current && on_id.is_none();
-        let spread = (list.iter().filter(|a| a.usable()).count() > 1).then(|| {
+        let spread = (list
+            .iter()
+            .filter(|a| a.usable() && a.kind != "endpoint")
+            .count()
+            > 1)
+        .then(|| {
             view! {
                 <button
                     class="cp-row cp-sub"
@@ -654,16 +662,22 @@ pub(super) fn agent_pop(chat: Chat, pop: RwSignal<Option<Pop>>) -> impl IntoView
             .map(|a| {
                 let away = remote && claude && a.kind != "token";
                 let off = !a.usable() || away;
-                let note = if away {
+                let note = if away && a.kind == "endpoint" {
+                    "Runs on this Mac only".to_owned()
+                } else if away {
                     "Remote needs a setup token".to_owned()
                 } else if off {
                     if a.disabled {
                         "Disabled".to_owned()
                     } else if a.kind == "token" {
                         "Token expired".to_owned()
+                    } else if a.kind == "endpoint" {
+                        "Key rejected".to_owned()
                     } else {
                         "Logged out".to_owned()
                     }
+                } else if let Some(e) = &a.endpoint {
+                    e.host()
                 } else {
                     usage_note(a.windows.iter().map(|w| (w.name.as_str(), w.utilization)))
                 };

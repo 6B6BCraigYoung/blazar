@@ -478,6 +478,19 @@ async fn prompt_inner(
     )
     .await
     .map_err(|e| ApiError(anyhow::anyhow!(e)))?;
+    let crossed = match prior.as_ref().filter(|_| !switched) {
+        Some(p) => {
+            crate::accounts::endpoint::base_of(&st, p.3.as_deref()).await
+                != account
+                    .as_ref()
+                    .and_then(|a| a.endpoint.as_ref())
+                    .map(|e| e.base_url.clone())
+        }
+        None => false,
+    };
+    let switched = switched || crossed;
+    let resume_id = resume_id.filter(|_| !crossed);
+    let resume_at = resume_at.filter(|_| !crossed);
     let proxy_env = match account.as_ref().filter(|a| a.proxy) {
         Some(a) => {
             let port = crate::proxy::ensure_tunnel(&st, &run_node)
@@ -717,6 +730,23 @@ async fn prompt_inner(
                 Some(i) => format!("{i}\n\n{brief}"),
                 None => brief,
             });
+        }
+        match account.as_ref().and_then(|a| a.endpoint.as_ref()) {
+            Some(e) => {
+                let model = crate::accounts::endpoint::model_for(e, spec.model.as_deref());
+                crate::accounts::endpoint::apply(&mut spec.env, &mut spec.env_unset, e, &model);
+                spec.model = Some(model);
+                spec.effort = None;
+                spec.fast_mode = None;
+            }
+            None if agent_id == "claude" => {
+                if let Some(m) = spec.model.clone()
+                    && crate::accounts::endpoint::endpoint_only(&st, &m).await
+                {
+                    spec.model = None;
+                }
+            }
+            None => {}
         }
         if let Some((k, v)) = account.as_ref().and_then(|a| a.env.clone()) {
             spec.env.entry(k).or_insert(v);

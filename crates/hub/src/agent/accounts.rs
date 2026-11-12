@@ -9,6 +9,7 @@ use sqlx::Row;
 
 use crate::api::Shared;
 
+pub mod endpoint;
 mod failover;
 mod login;
 mod manage;
@@ -17,6 +18,7 @@ mod probe;
 mod quota;
 pub mod selection;
 
+pub use endpoint::{Endpoint, KEY_FILE};
 pub use failover::{
     CONTINUE_TEXT, model_only_limit, note_failure, note_rate_limit, on_run_finished, retry_request,
 };
@@ -164,6 +166,8 @@ pub struct Account {
     pub kind: String,
 
     pub linked: Option<String>,
+
+    pub endpoint: Option<Endpoint>,
 }
 
 impl Account {
@@ -185,6 +189,15 @@ impl Account {
             })
             .flatten()
     }
+
+    fn secret_file(&self) -> Option<(String, PathBuf)> {
+        let dir = PathBuf::from(self.config_dir.as_ref()?);
+        match self.kind.as_str() {
+            "token" => Some((TOKEN_ENV.to_owned(), dir.join(TOKEN_FILE))),
+            "endpoint" => Some((endpoint::KEY_ENV.to_owned(), dir.join(KEY_FILE))),
+            _ => None,
+        }
+    }
 }
 
 fn linked_from(dir: &str) -> Option<String> {
@@ -197,9 +210,17 @@ fn from_row(r: &sqlx::sqlite::SqliteRow) -> Account {
     let config_dir: Option<String> = r.try_get("config_dir").ok().flatten();
     let kind = match r.try_get::<String, _>("auth_mode").as_deref() {
         Ok("token") => "token",
+        Ok("endpoint") => "endpoint",
         _ => "login",
     };
+    let endpoint = r
+        .try_get::<Option<String>, _>("endpoint")
+        .ok()
+        .flatten()
+        .filter(|_| kind == "endpoint")
+        .and_then(|raw| serde_json::from_str::<Endpoint>(&raw).ok());
     Account {
+        endpoint,
         linked: config_dir
             .as_deref()
             .filter(|_| kind == "token")

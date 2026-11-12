@@ -219,6 +219,17 @@ async fn check_as(st: &Shared, a: &Account, just_signed_in: bool) -> Option<Acco
     if st.services == crate::services::Services::Isolated {
         return None;
     }
+    if a.kind == "endpoint" {
+        let r = super::endpoint::probe(a).await;
+        let _ = sqlx::query("UPDATE accounts SET status = ?2, checked_at = ?3 WHERE id = ?1")
+            .bind(&a.id)
+            .bind(&r.status)
+            .bind(Utc::now().to_rfc3339())
+            .execute(st.db.pool())
+            .await;
+        st.emit(ServerEvent::AccountsChanged);
+        return get(st, &a.id).await;
+    }
     let p = probe(a).await;
     if p.logged_in == Some(true)
         && a.status == "logged_out"
@@ -309,6 +320,7 @@ attributes:
             builtin: false,
             kind: "token".into(),
             linked: None,
+            endpoint: None,
         };
         assert_eq!(credentials_changed_at(&a).await, None);
         let before = Utc::now() - chrono::Duration::seconds(5);

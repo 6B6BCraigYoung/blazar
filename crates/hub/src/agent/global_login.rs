@@ -303,6 +303,9 @@ fn claude_target(
                 b["oauthAccount"].clone(),
             ))
         }
+        Some(a) if a.kind == "endpoint" => {
+            Err("自定义接口账号只在 Blazar 里用，终端保持原来的登录".into())
+        }
         Some(a) if a.kind == "token" => {
             let dir = a.config_dir.as_deref().ok_or("这个账号没有目录")?;
             let tok = std::fs::read_to_string(Path::new(dir).join(TOKEN_FILE))
@@ -430,6 +433,7 @@ mod tests {
             builtin: false,
             kind: kind.into(),
             linked: None,
+            endpoint: None,
         }
     }
 
