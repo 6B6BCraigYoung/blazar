@@ -218,7 +218,8 @@ fn from_row(r: &sqlx::sqlite::SqliteRow) -> Account {
         .ok()
         .flatten()
         .filter(|_| kind == "endpoint")
-        .and_then(|raw| serde_json::from_str::<Endpoint>(&raw).ok());
+        .and_then(|raw| serde_json::from_str::<Endpoint>(&raw).ok())
+        .map(endpoint::settled);
     Account {
         endpoint,
         linked: config_dir

@@ -770,11 +770,8 @@ async fn prompt_inner(
                 spec.env.extend(remote.env);
                 spec.extra_args.extend(remote.args);
             } else {
-                spec.env
-                    .insert("ANTHROPIC_BASE_URL".into(), format!("http://127.0.0.1:{port}"));
-                spec.env.insert("CLAUDE_CODE_OAUTH_TOKEN".into(), secret);
-                spec.env.remove("ANTHROPIC_API_KEY");
-                spec.env.remove("ANTHROPIC_AUTH_TOKEN");
+                let endpoint = account.as_ref().is_some_and(|a| a.endpoint.is_some());
+                crate::proxy::point_at_proxy(&mut spec.env, port, secret, endpoint);
             }
             crate::proxy::bypass_loopback(&mut spec.env);
         }

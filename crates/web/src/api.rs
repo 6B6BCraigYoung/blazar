@@ -279,6 +279,12 @@ pub struct AccountEndpoint {
     pub default_model: String,
     #[serde(default)]
     pub preset: Option<String>,
+    #[serde(default = "sees_images")]
+    pub images: bool,
+}
+
+const fn sees_images() -> bool {
+    true
 }
 
 impl AccountEndpoint {

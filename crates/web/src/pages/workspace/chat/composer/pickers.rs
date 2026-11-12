@@ -200,9 +200,12 @@ pub(super) fn plus_pop(
     file_in: NodeRef<html::Input>,
 ) -> impl IntoView {
     let cur = chat.files.current.get_untracked();
+    let blocked = untrack(move || chat.image_block());
+    let off = blocked.is_some();
     view! {
         <button
             class="cp-row"
+            disabled=off
             on:click=move |_| {
                 pop.set(None);
                 if let Some(i) = file_in.get_untracked() {
@@ -214,7 +217,7 @@ pub(super) fn plus_pop(
             <span class="cp-t">
                 <b>"Attach file…"</b>
             </span>
-            <span class="cp-r">"or paste / drop"</span>
+            <span class="cp-r">{blocked.unwrap_or_else(|| "or paste / drop".to_owned())}</span>
         </button>
         <button
             class="cp-row"
@@ -660,11 +663,9 @@ pub(super) fn agent_pop(chat: Chat, pop: RwSignal<Option<Pop>>) -> impl IntoView
         let rows = list
             .into_iter()
             .map(|a| {
-                let away = remote && claude && a.kind != "token";
+                let away = remote && claude && a.kind != "token" && a.kind != "endpoint";
                 let off = !a.usable() || away;
-                let note = if away && a.kind == "endpoint" {
-                    "Runs on this Mac only".to_owned()
-                } else if away {
+                let note = if away {
                     "Remote needs a setup token".to_owned()
                 } else if off {
                     if a.disabled {

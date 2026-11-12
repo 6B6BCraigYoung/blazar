@@ -391,6 +391,9 @@ async fn env_for(
     if let Some(c) = &chosen {
         env.account = Some(c.id.clone());
         env.endpoint = c.endpoint.clone();
+        if env.endpoint.is_some() {
+            return Ok(env);
+        }
         if let Some((k, v)) = &c.env {
             env.vars.entry(k.clone()).or_insert_with(|| v.clone());
         }
@@ -408,13 +411,7 @@ async fn env_for(
     if let Some(c) = chosen.filter(|c| c.proxy) {
         let port = crate::proxy::ensure_tunnel(st, run_node).await?;
         let secret = crate::proxy::secret(st, &c.id).await?;
-        env.vars.insert(
-            "ANTHROPIC_BASE_URL".into(),
-            format!("http://127.0.0.1:{port}"),
-        );
-        env.vars.insert("CLAUDE_CODE_OAUTH_TOKEN".into(), secret);
-        env.vars.remove("ANTHROPIC_API_KEY");
-        env.vars.remove("ANTHROPIC_AUTH_TOKEN");
+        crate::proxy::point_at_proxy(&mut env.vars, port, secret, false);
         crate::proxy::bypass_loopback(&mut env.vars);
     }
     Ok(env)

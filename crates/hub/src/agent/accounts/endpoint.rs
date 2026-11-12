@@ -37,6 +37,12 @@ pub struct Endpoint {
     pub small_model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preset: Option<String>,
+    #[serde(default = "sees_images")]
+    pub images: bool,
+}
+
+const fn sees_images() -> bool {
+    true
 }
 
 impl Endpoint {
@@ -57,6 +63,7 @@ pub struct Preset {
     pub models: &'static [&'static str],
     pub default_model: &'static str,
     pub small_model: &'static str,
+    pub images: bool,
     #[serde(skip)]
     pub models_url: &'static str,
 }
@@ -68,11 +75,20 @@ pub const PRESETS: &[Preset] = &[Preset {
     models: &["deepseek-v4-pro", "deepseek-flash"],
     default_model: "deepseek-v4-pro",
     small_model: "deepseek-flash",
+    images: false,
     models_url: "https://api.deepseek.com/models",
 }];
 
 fn preset(id: Option<&str>) -> Option<&'static Preset> {
     PRESETS.iter().find(|p| Some(p.id) == id)
+}
+
+#[must_use]
+pub fn settled(mut e: Endpoint) -> Endpoint {
+    if let Some(p) = preset(e.preset.as_deref()) {
+        e.images = p.images;
+    }
+    e
 }
 
 #[derive(Debug, Default, Clone, Deserialize)]
@@ -171,6 +187,7 @@ pub fn valid_endpoint(input: &EndpointInput) -> Result<Endpoint, String> {
             .map(|p| p.small_model.to_owned())
             .filter(|s| models.contains(s)),
         preset: preset.map(|p| p.id.to_owned()),
+        images: preset.is_none_or(|p| p.images),
         base_url,
         models,
         default_model,

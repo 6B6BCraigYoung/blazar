@@ -265,6 +265,14 @@ impl Chat {
         }
     }
 
+    pub fn image_block(self) -> Option<String> {
+        let id = self.current_account(&self.runtime())?;
+        let a = self.account(&id)?;
+        a.endpoint
+            .filter(|e| !e.images)
+            .map(|_| format!("{} can't read images", a.label))
+    }
+
     pub fn account(self, id: &str) -> Option<Account> {
         self.accounts.with(|a| {
             a.as_ref()

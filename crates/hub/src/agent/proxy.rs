@@ -57,6 +57,26 @@ pub fn parse_net_env(env_dump: &str) -> NetEnv {
     out
 }
 
+pub fn point_at_proxy(
+    env: &mut std::collections::BTreeMap<String, String>,
+    port: u16,
+    secret: String,
+    endpoint: bool,
+) {
+    let (keep, drop) = if endpoint {
+        ("ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN")
+    } else {
+        ("CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_AUTH_TOKEN")
+    };
+    env.insert(
+        "ANTHROPIC_BASE_URL".into(),
+        format!("http://127.0.0.1:{port}"),
+    );
+    env.insert(keep.into(), secret);
+    env.remove("ANTHROPIC_API_KEY");
+    env.remove(drop);
+}
+
 pub fn bypass_loopback(env: &mut std::collections::BTreeMap<String, String>) {
     let mut list: Vec<String> = ["NO_PROXY", "no_proxy"]
         .iter()
@@ -266,22 +286,36 @@ fn deny(status: StatusCode, msg: &str) -> Response {
         .into_response()
 }
 
-async fn token_for(st: &Shared, key: &[u8], presented: &str) -> Option<String> {
-    let rows: Vec<(String, String)> = sqlx::query_as(
-        "SELECT id, config_dir FROM accounts
-         WHERE provider = 'claude' AND auth_mode = 'token' AND disabled = 0 AND config_dir IS NOT NULL",
+struct Upstream {
+    token: String,
+    base: String,
+}
+
+async fn upstream_for(st: &Shared, key: &[u8], presented: &str) -> Option<Upstream> {
+    let rows: Vec<(String, String, String, Option<String>)> = sqlx::query_as(
+        "SELECT id, config_dir, auth_mode, endpoint FROM accounts
+         WHERE provider = 'claude' AND auth_mode IN ('token', 'endpoint') AND disabled = 0
+           AND config_dir IS NOT NULL",
     )
     .fetch_all(st.db.pool())
     .await
     .ok()?;
-    let (_, dir) = rows
+    let (_, dir, mode, endpoint) = rows
         .into_iter()
-        .find(|(id, _)| secret_for(key, id) == presented)?;
-    let path = PathBuf::from(dir).join(crate::accounts::TOKEN_FILE);
-    tokio::fs::read_to_string(path)
+        .find(|(id, ..)| secret_for(key, id) == presented)?;
+    let (file, base) = match mode.as_str() {
+        "endpoint" => {
+            let e: crate::accounts::Endpoint = serde_json::from_str(endpoint.as_deref()?).ok()?;
+            (crate::accounts::KEY_FILE, e.base_url)
+        }
+        _ => (crate::accounts::TOKEN_FILE, UPSTREAM.to_owned()),
+    };
+    let token = tokio::fs::read_to_string(PathBuf::from(dir).join(file))
         .await
-        .ok()
-        .map(|t| t.trim().to_owned())
+        .ok()?
+        .trim()
+        .to_owned();
+    Some(Upstream { token, base })
 }
 
 fn proxy_boxed(st: &Shared) -> futures::future::BoxFuture<'_, Result<Arc<Proxy>, String>> {
@@ -305,16 +339,21 @@ async fn forward(State(st): State<Shared>, req: Request) -> Response {
         .and_then(|v| v.strip_prefix("Bearer "))
         .unwrap_or_default()
         .to_owned();
-    let Some(token) = token_for(&st, &p.key, &presented).await else {
+    let Some(up) = upstream_for(&st, &p.key, &presented).await else {
         return deny(
             StatusCode::UNAUTHORIZED,
             "Blazar does not recognize this account key (the account may have been deleted or disabled)",
         );
     };
     let url = format!(
-        "{UPSTREAM}{}",
+        "{}{}",
+        up.base,
         req.uri().path_and_query().map_or("/", |x| x.as_str())
     );
+    let host = reqwest::Url::parse(&up.base)
+        .ok()
+        .and_then(|u| u.host_str().map(str::to_owned))
+        .unwrap_or_default();
     let method = req.method().clone();
     let mut headers = req.headers().clone();
     for h in [
@@ -335,7 +374,7 @@ async fn forward(State(st): State<Shared>, req: Request) -> Response {
         .client
         .request(method, &url)
         .headers(headers)
-        .bearer_auth(token)
+        .bearer_auth(up.token)
         .body(body)
         .send()
         .await;
@@ -345,7 +384,7 @@ async fn forward(State(st): State<Shared>, req: Request) -> Response {
             return (
                 StatusCode::BAD_GATEWAY,
                 axum::Json(json!({ "type": "error", "error": { "type": "api_error",
-                    "message": format!("Blazar could not reach Anthropic: {e}") } })),
+                    "message": format!("Blazar could not reach {host}: {e}") } })),
             )
                 .into_response();
         }
@@ -564,7 +603,8 @@ async fn needs_tunnel(st: &Shared, node: &str) -> bool {
 pub async fn restore(st: Shared) {
     let nodes: Vec<String> = sqlx::query_scalar(
         "SELECT DISTINCT s.node FROM sessions s JOIN accounts a ON a.id = s.account_id
-         WHERE s.status = 'running' AND s.node IS NOT NULL AND s.node != 'local' AND (a.auth_mode = 'token' OR a.provider = 'codex')",
+         WHERE s.status = 'running' AND s.node IS NOT NULL AND s.node != 'local'
+           AND (a.auth_mode IN ('token', 'endpoint') OR a.provider = 'codex')",
     )
     .fetch_all(st.db.pool())
     .await
@@ -691,6 +731,117 @@ mod tests {
         assert!(!probe_says_up("404"));
         assert!(!probe_says_up("502"));
         assert!(probe_script(5090).contains("command -v curl"));
+    }
+
+    #[test]
+    fn endpoint_accounts_get_the_stand_in_as_an_auth_token() {
+        let start = || {
+            std::collections::BTreeMap::from([
+                ("ANTHROPIC_AUTH_TOKEN".to_owned(), "x".to_owned()),
+                ("CLAUDE_CODE_OAUTH_TOKEN".to_owned(), "y".to_owned()),
+                ("ANTHROPIC_API_KEY".to_owned(), "z".to_owned()),
+            ])
+        };
+        let mut env = start();
+        point_at_proxy(&mut env, 4000, "blz-1".into(), true);
+        assert_eq!(env["ANTHROPIC_BASE_URL"], "http://127.0.0.1:4000");
+        assert_eq!(env["ANTHROPIC_AUTH_TOKEN"], "blz-1");
+        assert!(!env.contains_key("CLAUDE_CODE_OAUTH_TOKEN"));
+        assert!(!env.contains_key("ANTHROPIC_API_KEY"));
+        let mut env = start();
+        point_at_proxy(&mut env, 4000, "blz-2".into(), false);
+        assert_eq!(env["CLAUDE_CODE_OAUTH_TOKEN"], "blz-2");
+        assert!(!env.contains_key("ANTHROPIC_AUTH_TOKEN"));
+    }
+
+    #[tokio::test]
+    async fn an_endpoint_account_is_forwarded_to_its_own_address_with_the_real_key() {
+        let seen = Arc::new(std::sync::Mutex::new(Vec::<(String, String)>::new()));
+        let log = seen.clone();
+        let upstream = Router::new().fallback(move |req: Request| {
+            let log = log.clone();
+            async move {
+                let auth = req
+                    .headers()
+                    .get("authorization")
+                    .and_then(|v| v.to_str().ok())
+                    .unwrap_or_default()
+                    .to_owned();
+                let path = req
+                    .uri()
+                    .path_and_query()
+                    .map(|p| p.as_str().to_owned())
+                    .unwrap_or_default();
+                log.lock().unwrap().push((path, auth));
+                axum::Json(json!({ "type": "message", "ok": true }))
+            }
+        });
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move { axum::serve(listener, upstream).await });
+
+        let root = tempfile::tempdir().unwrap();
+        let st = crate::state::AppState::with_services(
+            blazar_db::Db::open_in_memory().await.unwrap(),
+            "local".into(),
+            None,
+            crate::mesh::MeshCtx::new(None, root.path().join("mesh")),
+            crate::services::Services::Isolated,
+        );
+        let dir = root.path().join("account");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join(crate::accounts::KEY_FILE),
+            "sk-real-endpoint-key\n",
+        )
+        .unwrap();
+        let endpoint = json!({
+            "base_url": format!("http://127.0.0.1:{port}/anthropic"),
+            "models": ["m"],
+            "default_model": "m",
+        });
+        sqlx::query(
+            "INSERT INTO accounts (id, provider, display_name, auth_mode, status, config_dir, created_at, endpoint)
+             VALUES ('ep', 'claude', 'gateway', 'endpoint', 'ok', ?1, '0', ?2)",
+        )
+        .bind(dir.display().to_string())
+        .bind(endpoint.to_string())
+        .execute(st.db.pool())
+        .await
+        .unwrap();
+        let stand_in = secret(&st, "ep").await.unwrap();
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri("/v1/messages?beta=true")
+            .header("authorization", format!("Bearer {stand_in}"))
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"model":"m"}"#))
+            .unwrap();
+        let res = forward(State(st.clone()), req).await;
+        assert_eq!(res.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(res.into_body(), 1 << 16)
+            .await
+            .unwrap();
+        assert!(String::from_utf8_lossy(&body).contains("\"ok\":true"));
+        assert_eq!(
+            seen.lock().unwrap().clone(),
+            vec![(
+                "/anthropic/v1/messages?beta=true".to_owned(),
+                "Bearer sk-real-endpoint-key".to_owned()
+            )],
+            "远端只拿到替身，真密钥在本机换上"
+        );
+        let stranger = axum::http::Request::builder()
+            .uri("/v1/messages")
+            .header("authorization", "Bearer blz-not-a-real-stand-in")
+            .body(Body::empty())
+            .unwrap();
+        assert_eq!(
+            forward(State(st), stranger).await.status(),
+            StatusCode::UNAUTHORIZED
+        );
     }
 
     #[test]

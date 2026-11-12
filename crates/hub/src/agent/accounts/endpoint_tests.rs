@@ -59,6 +59,20 @@ fn the_deepseek_preset_brings_its_small_model() {
     assert_eq!(e.small_model.as_deref(), Some("deepseek-flash"));
     assert_eq!(e.preset.as_deref(), Some("deepseek"));
     assert_eq!(e.host(), "api.deepseek.com");
+    assert!(!e.images, "DeepSeek 的兼容接口看不了图");
+}
+
+#[test]
+fn a_known_preset_decides_whether_images_go_through() {
+    let stored: Endpoint = serde_json::from_value(json!({
+        "base_url": "https://api.deepseek.com/anthropic",
+        "models": ["deepseek-v4-pro"],
+        "default_model": "deepseek-v4-pro",
+        "preset": "deepseek",
+    }))
+    .unwrap();
+    assert!(stored.images, "旧记录没有这一项时默认能看图");
+    assert!(!settled(stored).images, "已知预设以 Blazar 自带的为准");
 }
 
 #[test]
@@ -73,6 +87,7 @@ fn a_preset_only_sticks_to_its_own_address() {
     assert_eq!(e.models, vec!["glm-5".to_owned()], "去空格、去重");
     assert_eq!(e.preset, None);
     assert_eq!(e.small_model, None);
+    assert!(e.images, "不认识的接口不拦图片");
 }
 
 #[test]

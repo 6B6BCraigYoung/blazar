@@ -480,6 +480,10 @@ pub fn Composer(
     };
 
     let add_image = move |f: web_sys::File| {
+        if let Some(why) = untrack(|| chat.image_block()) {
+            toast(why);
+            return;
+        }
         let t = f.type_();
         if !["image/png", "image/jpeg", "image/gif", "image/webp"].contains(&t.as_str()) {
             toast("Only PNG, JPEG, GIF and WebP images are supported");

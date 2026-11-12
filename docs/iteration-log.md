@@ -1234,3 +1234,23 @@ B 的第三部分。出网络故障时要能一眼看出是机器、组网还是
 验证：`cargo fmt --check`、`leptosfmt --check crates/web/src`、`cargo clippy --workspace --all-targets -- -D warnings`、wasm 的 clippy、`cargo test --workspace`（1156 个全过；新增：地址和密钥校验、预设、型号换算、运行环境、型号菜单、连通判断、自动分摊不选它、密钥不出现在回复里、启动脚本、跨接口交接、Claude 账号不带接口型号）、node 测试。
 
 还没做：远端（第二步）；费用只显示用量、DeepSeek 余额（第三步）；图片要不要在输入框提示，已发卡片问用户。
+
+## b58 · DeepSeek 等兼容接口（第二步：远端经凭据代理）；用 DeepSeek 时不让加图
+
+用户选了「继续做第二步（远端），三步都做完再装」和「用 DeepSeek 时加图按钮置灰，并写明它看不了图」。
+
+- **远端经凭据代理**：在远端机器上跑 Claude Code 时，自定义接口账号和长期 token 账号一样走凭据代理。远端拿到的是 `blz-` 开头的替身（每个账号一个）：`ANTHROPIC_AUTH_TOKEN` 是替身，`ANTHROPIC_BASE_URL` 指向反向隧道。代理按替身认出账号，换上本机账号目录里的真密钥，转发到这个接口自己的地址，不再只能发往 Anthropic；转发失败时提示里写接口的主机名。型号映射和本机一样。
+- **型号菜单**：远端也直接列接口的型号，不为了查菜单去开隧道。
+- **重启恢复**：Blazar 重启时，正在跑的远端会话如果用的是自定义接口账号，隧道也会恢复。
+- **输入框**：远端工作区的账号菜单里可以选自定义接口账号了。用 DeepSeek 账号时，「+」菜单里的「Attach file…」置灰，右边写「DeepSeek can't read images」；粘贴、拖进来的图也不收，弹同样的提示。能不能看图记在接口配置里：DeepSeek 预设为不能，其他接口默认能（不拦）；已知预设以 Blazar 自带的为准，读账号时覆盖存下的值，以后 DeepSeek 支持图片了，升级 Blazar 就跟上。
+
+实测（临时实例，全新的库；工作区是在 5090x2 上新建的 `/tmp/bz-ds-remote`，没碰真实项目；当时正式库里 5090x2 上没有会话在跑）：
+
+- 远端型号菜单写「5090x2 · api.deepseek.com」，只列 DeepSeek 的型号。
+- 让命令行跑在 5090x2 上：Bash 跑 `hostname` 得到 `user`（和直接 ssh 上去看到的一致），读远端文件正常，型号 deepseek-v4-pro（请求里写的是 opus，换成了默认型号）。第二轮用 Auto 模式续接同一个会话，安全检查经代理放行，Bash 输出 `x86_64`。
+- 远端启动脚本：替身密钥、隧道地址、型号映射都对。扫了远端 1613 个文件（`~/.claude`、`~/.claude.json`、`~/.blazar/runs`、测试目录），真密钥一次都没出现。
+- 用 DeepSeek 时加图按钮置灰；模拟粘贴一张图，没收，弹出「DeepSeek can't read images」。
+- 测完停了临时实例。它开的反向隧道成了孤儿进程（父进程变成 1），按命令行核对后只结束了这一条；正式 Blazar 的两条隧道没动，5090x2 上正式那条照常在监听。
+- 截图在 `target/shots/endpoint-step2-*.png`（不进仓库）。
+
+验证：`cargo fmt --check`、`leptosfmt --check crates/web/src`、`cargo clippy --workspace --all-targets -- -D warnings`、wasm 的 clippy、`cargo test --workspace`（1159 个全过；新增：代理按替身转发到接口地址并换上真密钥、冒充的替身被拒、远端环境用 `ANTHROPIC_AUTH_TOKEN`、远端选号走代理、远端型号菜单不开隧道、已知预设决定能不能看图）、node 测试。

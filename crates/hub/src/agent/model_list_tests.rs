@@ -415,11 +415,11 @@ async fn an_endpoint_account_lists_its_own_models_without_asking_the_cli() {
     assert!(!v.to_string().contains("sk-sekret"), "密钥不能出现在回复里");
 
     let remote = claude_for(&st, "ws", "gpu-box", None, Some(&id), false).await;
-    assert!(
-        remote["error"]
-            .as_str()
-            .is_some_and(|e| e.contains("custom endpoint")),
-        "{remote}"
+    assert_eq!(remote["source"], "endpoint", "{remote}");
+    assert_eq!(remote["node"], "gpu-box");
+    assert_eq!(
+        remote["models"], v["models"],
+        "远端也只列接口的型号，不为此开隧道"
     );
 }
 
@@ -446,4 +446,11 @@ async fn an_endpoint_account_is_never_picked_by_auto_balance() {
     );
     assert!(picked.endpoint.is_some());
     assert!(!picked.proxy);
+    let remote = crate::accounts::resolve(&st, "claude", "gpu-box", Some(&id), None, None, &[])
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(remote.proxy, "远端经凭据代理，真密钥留在本机");
+    assert!(remote.token_file.is_none() && remote.env.is_none());
+    assert!(remote.endpoint.is_some());
 }

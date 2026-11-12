@@ -260,10 +260,6 @@ pub async fn resolve(
         return Ok(chosen);
     }
     match chosen {
-        Some(c) if c.endpoint.is_some() => Err(format!(
-            "\"{}\" uses a custom endpoint, which only runs on this Mac for now. Pick a long-lived token account for {run_node}",
-            get(st, &c.id).await.map(|a| a.label).unwrap_or(c.id)
-        )),
         Some(c) if c.token_file.is_some() => Ok(Some(Chosen {
             env: None,
             token_file: None,
