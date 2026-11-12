@@ -145,6 +145,16 @@ pub async fn on_run_finished(st: Shared, sid: blazar_core_types::SessionId, stat
             }
         });
     }
+    if let Ok(Some(Some(acc))) =
+        sqlx::query_scalar::<_, Option<String>>("SELECT account_id FROM sessions WHERE id = ?1")
+            .bind(sid.to_string())
+            .fetch_optional(st.db.pool())
+            .await
+        && let Some(a) = get(&st, &acc).await.filter(|a| a.kind == "endpoint")
+    {
+        let st = st.clone();
+        tokio::spawn(async move { super::endpoint::refresh_balance(&st, &a).await });
+    }
     if status != "failed" {
         return;
     }

@@ -192,3 +192,35 @@ fn endpoint_answers_are_judged_by_status() {
     assert_eq!(odd.status, "unknown");
     assert!(odd.error.unwrap().contains("502"));
 }
+
+#[test]
+fn deepseek_balances_are_read_from_their_api() {
+    let ok = parse_balance(
+        &json!({ "is_available": true, "balance_infos": [
+            { "currency": "CNY", "total_balance": "702.00", "granted_balance": "0.00", "topped_up_balance": "702.00" }
+        ] }),
+        "t",
+    )
+    .unwrap();
+    assert_eq!(
+        (ok.currency.as_str(), ok.total.as_str(), ok.available),
+        ("CNY", "702.00", true)
+    );
+    let mixed = parse_balance(
+        &json!({ "is_available": true, "balance_infos": [
+            { "currency": "USD", "total_balance": "0.00" },
+            { "currency": "CNY", "total_balance": "5.20" }
+        ] }),
+        "t",
+    )
+    .unwrap();
+    assert_eq!(mixed.currency, "CNY", "有余额的那种货币优先");
+    let owed = parse_balance(
+        &json!({ "is_available": false, "balance_infos": [{ "currency": "CNY", "total_balance": "-0.15" }] }),
+        "t",
+    )
+    .unwrap();
+    assert!(!owed.available);
+    assert_eq!(owed.total, "-0.15");
+    assert!(parse_balance(&json!({ "error": "x" }), "t").is_none());
+}

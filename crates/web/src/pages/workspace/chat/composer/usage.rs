@@ -10,6 +10,7 @@ pub(super) struct Usage {
     pub used: Option<u64>,
     pub window: u64,
     pub cost: f64,
+    pub tokens: (u64, u64),
 }
 
 impl Usage {
@@ -27,8 +28,13 @@ impl Usage {
             (_, Some(r)) if r >= LOW_AT => format!("Context low · {}%", percent(r)),
             (_, Some(r)) => format!("{}% context", percent(r)),
             (Some(used), None) => format!("{} context", short(used)),
+            (None, None) if self.spent() > 0 => format!("{} tokens", short(self.spent())),
             (None, None) => "Context".to_owned(),
         }
+    }
+
+    fn spent(self) -> u64 {
+        self.tokens.0 + self.tokens.1
     }
 
     pub fn cost_label(self) -> String {
@@ -45,6 +51,11 @@ impl Usage {
                 format!("{} of {} tokens in context", short(used), short(w))
             }
             (Some(used), _) => format!("{} tokens in context", short(used)),
+            (None, _) if self.spent() > 0 => format!(
+                "{} input · {} output tokens in this conversation",
+                short(self.tokens.0),
+                short(self.tokens.1)
+            ),
             (None, _) => "Context size shows after the next reply".to_owned(),
         };
         if self.cost > 0.0 {
@@ -80,11 +91,12 @@ pub(super) fn context_usage(chat: Chat) -> Option<Usage> {
     if chat.fresh.get() || chat.view.get().is_none() {
         return None;
     }
-    let (context, cost) = chat.transcript.with(|t| (t.context, t.cost));
-    (context.is_some() || cost > 0.0).then(|| Usage {
+    let (context, cost, tokens) = chat.transcript.with(|t| (t.context, t.cost, t.tokens));
+    (context.is_some() || cost > 0.0 || tokens != (0, 0)).then(|| Usage {
         used: context.map(|c| c.0),
         window: context.map_or(0, |c| c.1),
         cost,
+        tokens,
     })
 }
 

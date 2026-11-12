@@ -678,7 +678,10 @@ pub(super) fn agent_pop(chat: Chat, pop: RwSignal<Option<Pop>>) -> impl IntoView
                         "Logged out".to_owned()
                     }
                 } else if let Some(e) = &a.endpoint {
-                    e.host()
+                    match &a.balance {
+                        Some(b) => format!("{} · {} left", e.host(), b.money()),
+                        None => e.host(),
+                    }
                 } else {
                     usage_note(a.windows.iter().map(|w| (w.name.as_str(), w.utilization)))
                 };

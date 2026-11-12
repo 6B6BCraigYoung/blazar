@@ -291,6 +291,7 @@ pub struct Transcript {
     pub rate: Vec<RateLimitWindow>,
     pub context: Option<(u64, u64)>,
     pub cost: f64,
+    pub tokens: (u64, u64),
     pub model: Option<String>,
 
     pub last_session: Option<String>,

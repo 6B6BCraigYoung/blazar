@@ -62,15 +62,39 @@ fn status(a: &Account) -> impl IntoView + use<> {
 
 pub(crate) fn quota(a: &Account) -> AnyView {
     if a.kind == "endpoint" {
-        return view! {
-            <span
-                class="muted small"
-                title="自定义接口按用量计费，不参与自动分摊"
-            >
-                "按量计费"
-            </span>
-        }
-        .into_any();
+        return match &a.balance {
+            Some(b) if b.short() => view! {
+                <span
+                    class="status"
+                    data-tone="attention"
+                    title=format!("{}查询，充值后才能继续用", fmt::ago(&b.checked_at))
+                >
+                    {format!("余额不足 · {}", b.money())}
+                </span>
+            }
+            .into_any(),
+            Some(b) => view! {
+                <span
+                    class="muted small"
+                    title=format!(
+                        "账户余额，{}查询；按量计费，不参与自动分摊",
+                        fmt::ago(&b.checked_at),
+                    )
+                >
+                    {format!("余额 {}", b.money())}
+                </span>
+            }
+            .into_any(),
+            None => view! {
+                <span
+                    class="muted small"
+                    title="自定义接口按用量计费，不参与自动分摊"
+                >
+                    "按量计费"
+                </span>
+            }
+            .into_any(),
+        };
     }
     if a.windows.is_empty() {
         let hint = if a.kind == "token" || a.provider == "codex" {

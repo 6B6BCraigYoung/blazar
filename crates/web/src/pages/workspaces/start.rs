@@ -14,7 +14,7 @@ use crate::pages::runtimes::{active_account, install_here, login, runtime_status
 #[derive(Clone, PartialEq)]
 enum LineAction {
     Link(&'static str, String),
-    Login(api::Account, &'static str),
+    Login(Box<api::Account>, &'static str),
     Install(String),
 }
 
@@ -46,7 +46,7 @@ fn runtime_line(r: &api::Runtime, accounts: Option<&api::Accounts>) -> RuntimeLi
             .map(|v| format!(" {v}"))
             .unwrap_or_default()
     );
-    if status == "已登录" {
+    if matches!(status, "已登录" | "可用") {
         return RuntimeLine {
             ready: true,
             text: name,
@@ -57,8 +57,11 @@ fn runtime_line(r: &api::Runtime, accounts: Option<&api::Accounts>) -> RuntimeLi
     // Installed but not signed in (never, or the login lapsed) is the one thing left to do
     // on this step, so it gets the primary button that opens the login dialog directly.
     let action = match account {
-        Some(a) if status == "未登录" && a.kind != "token" => LineAction::Login(a, "登录…"),
-        Some(a) if a.kind != "token" => LineAction::Login(a, "重新登录"),
+        Some(a) if matches!(a.kind.as_str(), "token" | "endpoint") => {
+            LineAction::Link("设置", href)
+        }
+        Some(a) if status == "未登录" => LineAction::Login(Box::new(a), "登录…"),
+        Some(a) => LineAction::Login(Box::new(a), "重新登录"),
         _ => LineAction::Link("设置", href),
     };
     RuntimeLine {

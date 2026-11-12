@@ -66,6 +66,8 @@ pub struct Preset {
     pub images: bool,
     #[serde(skip)]
     pub models_url: &'static str,
+    #[serde(skip)]
+    pub balance_url: &'static str,
 }
 
 pub const PRESETS: &[Preset] = &[Preset {
@@ -77,6 +79,7 @@ pub const PRESETS: &[Preset] = &[Preset {
     small_model: "deepseek-flash",
     images: false,
     models_url: "https://api.deepseek.com/models",
+    balance_url: "https://api.deepseek.com/user/balance",
 }];
 
 fn preset(id: Option<&str>) -> Option<&'static Preset> {
@@ -200,6 +203,18 @@ pub fn model_for(e: &Endpoint, requested: Option<&str>) -> String {
         .map(str::trim)
         .filter(|m| e.models.iter().any(|x| x == m))
         .map_or_else(|| e.default_model.clone(), str::to_owned)
+}
+
+pub async fn unpriced(st: &crate::api::Shared, sid: blazar_core_types::SessionId) -> bool {
+    sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM sessions s JOIN accounts a ON a.id = s.account_id
+         WHERE s.id = ?1 AND a.auth_mode = 'endpoint'",
+    )
+    .bind(sid.to_string())
+    .fetch_one(st.db.pool())
+    .await
+    .unwrap_or(0)
+        > 0
 }
 
 pub async fn base_of(st: &crate::api::Shared, account: Option<&str>) -> Option<String> {
@@ -377,6 +392,89 @@ pub(super) async fn probe(a: &Account) -> Reach {
             models: Vec::new(),
             error: Some("没找到保存的密钥".into()),
         },
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Balance {
+    pub currency: String,
+    pub total: String,
+    pub available: bool,
+    pub checked_at: String,
+}
+
+#[must_use]
+pub fn parse_balance(v: &Value, at: &str) -> Option<Balance> {
+    let infos = v["balance_infos"].as_array()?;
+    let funded = |i: &&Value| {
+        i["total_balance"]
+            .as_str()
+            .and_then(|t| t.parse::<f64>().ok())
+            .is_some_and(|t| t > 0.0)
+    };
+    let info = infos.iter().find(funded).or_else(|| infos.first())?;
+    Some(Balance {
+        currency: info["currency"].as_str()?.to_owned(),
+        total: info["total_balance"].as_str()?.to_owned(),
+        available: v["is_available"].as_bool().unwrap_or(true),
+        checked_at: at.to_owned(),
+    })
+}
+
+fn balance_key(id: &str) -> String {
+    format!("accounts.balance.{id}")
+}
+
+pub(super) async fn balance_of(st: &crate::api::Shared, id: &str) -> Option<Balance> {
+    serde_json::from_value(crate::office::kv_get(st, &balance_key(id)).await).ok()
+}
+
+pub(super) async fn forget_balance(st: &crate::api::Shared, id: &str) {
+    let _ = sqlx::query("DELETE FROM kv_settings WHERE key = ?1")
+        .bind(balance_key(id))
+        .execute(st.db.pool())
+        .await;
+}
+
+pub async fn refresh_balance(st: &crate::api::Shared, a: &Account) {
+    let Some(p) = a
+        .endpoint
+        .as_ref()
+        .and_then(|e| preset(e.preset.as_deref()))
+        .filter(|p| !p.balance_url.is_empty())
+    else {
+        return;
+    };
+    let Some((_, path)) = a.secret_file() else {
+        return;
+    };
+    let Ok(key) = tokio::fs::read_to_string(&path).await else {
+        return;
+    };
+    let Ok(client) = crate::remote_cli::http() else {
+        return;
+    };
+    let Ok(r) = client
+        .get(p.balance_url)
+        .bearer_auth(key.trim())
+        .timeout(CHECK_TIMEOUT)
+        .send()
+        .await
+    else {
+        return;
+    };
+    if !r.status().is_success() {
+        return;
+    }
+    let body = r
+        .bytes()
+        .await
+        .ok()
+        .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+        .unwrap_or_default();
+    if let Some(b) = parse_balance(&body, &chrono::Utc::now().to_rfc3339()) {
+        let _ = crate::office::kv_put(st, &balance_key(&a.id), &serde_json::json!(b)).await;
+        st.emit(crate::state::ServerEvent::AccountsChanged);
     }
 }
 

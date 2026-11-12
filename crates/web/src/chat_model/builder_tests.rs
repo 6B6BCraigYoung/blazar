@@ -749,3 +749,43 @@ fn an_approval_cut_off_by_a_restart_stops_asking_and_says_so() {
         f.steps
     );
 }
+
+#[test]
+fn tokens_add_up_across_runs_like_the_cost() {
+    let rows = vec![
+        row("a", 1, 1000, json!({"type":"user_message","text":"hi"})),
+        row(
+            "a",
+            2,
+            1100,
+            json!({"type":"token_usage","input":100,"output":5,"cache_read":900}),
+        ),
+        row(
+            "a",
+            3,
+            1200,
+            json!({"type":"token_usage","input":120,"output":7,"cache_read":900}),
+        ),
+        row("b", 4, 2000, json!({"type":"user_message","text":"again"})),
+        row(
+            "b",
+            5,
+            2100,
+            json!({"type":"token_usage","input":0,"output":0}),
+        ),
+        row(
+            "b",
+            6,
+            2200,
+            json!({"type":"token_usage","input":50,"output":3,"cache_creation":10}),
+        ),
+    ];
+    let t = build(&rows, "/w", false);
+    assert_eq!(
+        t.tokens,
+        (1020 + 60, 7 + 3),
+        "同一次运行取最新，不同运行相加，全零的不算"
+    );
+    assert!(t.cost.abs() < f64::EPSILON, "没有估价就不显示钱");
+    assert_eq!(t.context, None);
+}

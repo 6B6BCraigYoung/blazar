@@ -268,6 +268,32 @@ pub struct Account {
     pub model_blocks: Vec<ModelBlock>,
     #[serde(default)]
     pub endpoint: Option<AccountEndpoint>,
+    #[serde(default)]
+    pub balance: Option<AccountBalance>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Deserialize)]
+pub struct AccountBalance {
+    pub currency: String,
+    pub total: String,
+    #[serde(default)]
+    pub available: bool,
+    #[serde(default)]
+    pub checked_at: String,
+}
+
+impl AccountBalance {
+    pub fn money(&self) -> String {
+        match self.currency.as_str() {
+            "CNY" => format!("¥{}", self.total),
+            "USD" => format!("${}", self.total),
+            other => format!("{} {other}", self.total),
+        }
+    }
+
+    pub fn short(&self) -> bool {
+        !self.available || self.total.parse::<f64>().is_ok_and(|t| t <= 0.0)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Deserialize)]

@@ -227,6 +227,9 @@ async fn check_as(st: &Shared, a: &Account, just_signed_in: bool) -> Option<Acco
             .bind(Utc::now().to_rfc3339())
             .execute(st.db.pool())
             .await;
+        if r.status == "ok" {
+            super::endpoint::refresh_balance(st, a).await;
+        }
         st.emit(ServerEvent::AccountsChanged);
         return get(st, &a.id).await;
     }

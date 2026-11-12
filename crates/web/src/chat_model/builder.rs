@@ -146,6 +146,7 @@ struct Carry {
     refusals: HashMap<String, String>,
     context: Option<(u64, u64)>,
     costs: Vec<(String, f64)>,
+    tokens: Vec<(String, (u64, u64))>,
 }
 
 #[derive(Default)]
@@ -645,6 +646,13 @@ impl<'a> Builder<'a> {
                         None => self.carry.costs.push((r.session_id.clone(), cost)),
                     }
                 }
+                let spent = (u.input + u.cache_read + u.cache_creation, u.output);
+                if spent != (0, 0) {
+                    match self.carry.tokens.iter_mut().find(|t| t.0 == r.session_id) {
+                        Some(t) => t.1 = spent,
+                        None => self.carry.tokens.push((r.session_id.clone(), spent)),
+                    }
+                }
             }
             EntryKind::Progress {
                 message_id,
@@ -1013,6 +1021,10 @@ impl<'a> Builder<'a> {
             rate: carry.rate,
             context: carry.context,
             cost: carry.costs.iter().map(|c| c.1).sum(),
+            tokens: carry
+                .tokens
+                .iter()
+                .fold((0, 0), |a, t| (a.0 + t.1.0, a.1 + t.1.1)),
             model: Some(carry.model).filter(|m| !m.is_empty()),
             last_session: rows.last().map(|r| r.session_id.clone()),
             turn_tokens,

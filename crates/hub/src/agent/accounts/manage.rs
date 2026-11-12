@@ -46,6 +46,9 @@ pub async fn list(State(st): State<Shared>) -> Response {
         v["windows"] = json!(w.iter().filter(|x| x.live(now)).collect::<Vec<_>>());
         v["running"] = json!(running.get(&a.id).copied().unwrap_or(0));
         v["last_used_at"] = json!(last.get(&a.id));
+        if a.kind == "endpoint" {
+            v["balance"] = json!(super::endpoint::balance_of(&st, &a.id).await);
+        }
         v["model_blocks"] = json!(
             blocks
                 .get(&a.id)
@@ -316,10 +319,13 @@ async fn create_endpoint(
         return fail(StatusCode::INTERNAL_SERVER_ERROR, e.to_string());
     }
     st.emit(ServerEvent::AccountsChanged);
-    get(st, &id).await.map_or_else(
-        || fail(StatusCode::INTERNAL_SERVER_ERROR, "账号写入后读不回来"),
-        |a| Json(a).into_response(),
-    )
+    let Some(a) = get(st, &id).await else {
+        return fail(StatusCode::INTERNAL_SERVER_ERROR, "账号写入后读不回来");
+    };
+    if a.status == "ok" {
+        super::endpoint::refresh_balance(st, &a).await;
+    }
+    Json(a).into_response()
 }
 
 async fn set_endpoint_key(st: &Shared, a: &Account, e: &Endpoint, raw: &str) -> Response {
@@ -521,6 +527,7 @@ pub async fn remove(State(st): State<Shared>, Path(id): Path<String>) -> Respons
         .bind(&id)
         .execute(pool)
         .await;
+    super::endpoint::forget_balance(&st, &id).await;
     let _ = sqlx::query("DELETE FROM accounts WHERE id = ?1")
         .bind(&id)
         .execute(pool)

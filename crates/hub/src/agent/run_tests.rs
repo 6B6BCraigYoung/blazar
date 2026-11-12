@@ -904,3 +904,42 @@ async fn approvals_voided_by_an_older_build_get_their_resolution_once() {
         "还在跑的会话不动"
     );
 }
+
+const PRICED: &str = r#"{"type":"result","subtype":"success","is_error":false,"stop_reason":"end_turn","result":"done","total_cost_usd":0.1839295,"usage":{"input_tokens":4,"output_tokens":140}}"#;
+
+#[tokio::test]
+async fn endpoint_turns_keep_their_tokens_but_not_the_cli_price() {
+    for endpoint in [false, true] {
+        let (_dir, ctx, _) = fixture(String::new()).await;
+        if endpoint {
+            sqlx::query(
+                "INSERT INTO accounts (id, provider, display_name, auth_mode, status, config_dir, created_at, endpoint)
+                 VALUES ('ds', 'claude', 'DeepSeek', 'endpoint', 'ok', '/tmp/none', '0', '{}')",
+            )
+            .execute(ctx.st.db.pool())
+            .await
+            .unwrap();
+            sqlx::query("UPDATE sessions SET account_id = 'ds' WHERE id = ?1")
+                .bind(ctx.sid.to_string())
+                .execute(ctx.st.db.pool())
+                .await
+                .unwrap();
+        }
+        let mut p = progress();
+        process_line(&ctx, PRICED, 0, &mut p).await;
+        let all = sqlx::query_scalar::<_, String>(
+            "SELECT payload FROM events WHERE session_id = ?1 ORDER BY seq",
+        )
+        .bind(ctx.sid.to_string())
+        .fetch_all(ctx.st.db.pool())
+        .await
+        .unwrap()
+        .join("\n");
+        assert!(all.contains("\"output\":140"), "用量照记：{all}");
+        assert_eq!(
+            all.contains("cost_usd"),
+            !endpoint,
+            "命令行按 Claude 价格估的钱不能算到自定义接口头上：{all}"
+        );
+    }
+}

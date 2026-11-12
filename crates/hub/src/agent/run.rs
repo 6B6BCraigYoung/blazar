@@ -321,6 +321,23 @@ struct Progress {
     partial_at: Option<(u64, u32)>,
 }
 
+fn carries_cost(kind: &EntryKind) -> bool {
+    match kind {
+        EntryKind::TokenUsage(u) | EntryKind::Finished(Outcome::Success { usage: Some(u), .. }) => {
+            u.cost_usd.is_some()
+        }
+        _ => false,
+    }
+}
+
+fn drop_cost(kind: &mut EntryKind) {
+    if let EntryKind::TokenUsage(u) | EntryKind::Finished(Outcome::Success { usage: Some(u), .. }) =
+        kind
+    {
+        u.cost_usd = None;
+    }
+}
+
 async fn process_line(ctx: &Ctx, line: &str, at: u64, p: &mut Progress) -> Line {
     let next = at + line.len() as u64 + 1;
     let t = line.trim();
@@ -346,7 +363,14 @@ async fn process_line(ctx: &Ctx, line: &str, at: u64, p: &mut Progress) -> Line 
     if ctx.runtime.app_server() {
         drive_app(ctx, t).await;
     }
-    let parsed = ctx.runtime.parse_line(line);
+    let mut parsed = ctx.runtime.parse_line(line);
+    if parsed.iter().any(|(k, _)| carries_cost(k))
+        && crate::accounts::endpoint::unpriced(&ctx.st, ctx.sid).await
+    {
+        for (k, _) in &mut parsed {
+            drop_cost(k);
+        }
+    }
     let mut entries = Vec::with_capacity(parsed.len());
     let mut approvals = Vec::new();
     let mut state = ctx.live.state.lock().await;
