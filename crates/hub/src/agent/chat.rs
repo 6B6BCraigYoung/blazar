@@ -366,25 +366,35 @@ pub async fn on_run_finished(
     } else {
         "The previous turn did not finish normally, so this was not sent automatically"
     };
-    let r = sqlx::query(
+    let before = interrupted_at
+        .as_deref()
+        .filter(|_| status == "interrupted");
+    if let Some(t) = thread.as_deref()
+        && pause_thread(&st, ws, t, why, before).await
+    {
+        changed(&st, ws);
+    }
+    dispatch(st, ws, thread).await;
+}
+
+async fn pause_thread(
+    st: &Shared,
+    ws: WorkspaceId,
+    thread: &str,
+    why: &str,
+    before: Option<&str>,
+) -> bool {
+    sqlx::query(
         "UPDATE queued_messages SET held = ?2 WHERE workspace_id = ?1 AND held IS NULL
-           AND (?3 IS NULL OR created_at < ?3)",
+           AND COALESCE(thread_id, '') = ?3 AND (?4 IS NULL OR created_at < ?4)",
     )
     .bind(ws.to_string())
     .bind(why)
-    .bind(
-        interrupted_at
-            .as_deref()
-            .filter(|_| status == "interrupted"),
-    )
+    .bind(thread)
+    .bind(before)
     .execute(st.db.pool())
-    .await;
-    if r.is_ok_and(|r| r.rows_affected() > 0) {
-        changed(&st, ws);
-    }
-    if status == "interrupted" && interrupted_at.is_some() {
-        dispatch(st, ws, thread).await;
-    }
+    .await
+    .is_ok_and(|r| r.rows_affected() > 0)
 }
 
 #[derive(Deserialize, Default)]
@@ -869,6 +879,49 @@ mod queue_tests {
             .fetch_all(st.db.pool())
             .await
             .unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_failed_round_pauses_only_its_own_conversation() {
+        let (st, ws) = queued().await;
+        sqlx::query("UPDATE queued_messages SET thread_id = 'other' WHERE id = 'queued'")
+            .execute(st.db.pool())
+            .await
+            .unwrap();
+        for (id, thread, at) in [("mine", "failing", "1"), ("late", "cut", "9")] {
+            sqlx::query(
+                "INSERT INTO queued_messages (id, workspace_id, thread_id, request, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+            )
+            .bind(id)
+            .bind(ws.to_string())
+            .bind(thread)
+            .bind(json!({ "text": id }).to_string())
+            .bind(at)
+            .execute(st.db.pool())
+            .await
+            .unwrap();
+        }
+        assert!(
+            !pause_thread(&st, ws, "cut", "interrupted", Some("5")).await,
+            "打断之后才排进来的照常发"
+        );
+        assert!(pause_thread(&st, ws, "failing", "failed", None).await);
+        assert!(!pause_thread(&st, ws, "failing", "again", None).await);
+        let held: Vec<(String, Option<String>)> =
+            sqlx::query_as("SELECT id, held FROM queued_messages ORDER BY id")
+                .fetch_all(st.db.pool())
+                .await
+                .unwrap();
+        assert_eq!(
+            held,
+            vec![
+                ("late".to_owned(), None),
+                ("mine".to_owned(), Some("failed".to_owned())),
+                ("queued".to_owned(), None),
+            ],
+            "别的对话里排着的消息不受这段对话失败的影响；已暂停的不改原因"
+        );
     }
 
     #[tokio::test]

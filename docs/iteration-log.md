@@ -1287,3 +1287,15 @@ B 的第三部分。出网络故障时要能一眼看出是机器、组网还是
   - 只有组网刷新那条原有的警告；Spotlight 只剩 `/Applications/Blazar.app`；新进程的环境变量是干净的。
 - 旧实例留下的两条反向隧道还指着旧的代理端口，下次有远端会话时由「隧道沿用原端口」那套回收逻辑处理，这次没动。
 - 回滚提醒：旧程序不认识迁移 50，会拒绝打开数据库；要退回 20261110.034458，得同时换回上面那份数据库备份，装机之后新增的数据会丢。
+
+## b60 · 一段对话失败，只暂停它自己的排队消息；横条写明已暂停、能点进去
+
+起因：用户发来输入框截图，上方横条写着「1 queued in other conversations」。查正式库（只读）发现：XiePhysics 里有一条消息 11-12 08:22 排进队列（当时工作区正忙），09:15 另一段对话因「API Error: Request blocked before it reached Anthropic's API」失败，Blazar 把整个工作区的排队消息都暂停了，原因写「The previous turn did not finish normally」；之后那段对话又正常跑了几轮，可发送只挑没暂停的，这条就卡了一天多。横条只写「1 queued」，看不出已暂停，也点不进去。用户在卡片上选了「两处都改」。
+
+- **暂停只管失败的那段对话**（`chat.rs` 的 `on_run_finished`）：一轮失败或被打断时，只暂停同一段对话里排着的消息（被打断时仍只暂停打断之前排进来的），然后照常给工作区里别的对话发下一条。原来失败时不再发任何一条，现在别的对话不受影响。
+- **横条**：当前对话没有排队消息时，写「1 paused in another conversation」（或「1 queued」「1 paused, 2 queued in other conversations」），后面跟那条消息的开头，右边「Open」直接切到那段对话（优先切到暂停的那条）；当前对话自己也排着时，下面那行写「Also 1 paused in another conversation」并带「Open」。暂停时圆点用提醒色。文字拼法放在原生编译的 `queue_note.rs`，有单元测试。
+- 正式库里已经卡住的那条不会自动发（暂停是存下来的），要用户点进那段对话按「Send」或「Remove」。
+
+实测（临时实例，全新的库，照着这次的情况造了两段对话和一条被暂停的消息）：横条显示「1 paused in another conversation」和消息开头；点「Open」切到那段对话，显示「Paused」和「Send / Edit / Remove」；当前对话自己再排一条时，显示「Also 1 paused in another conversation」。截图在 `target/shots/queue-*.png`（不进仓库）。
+
+验证：`cargo fmt --check`、`leptosfmt --check crates/web/src`、`cargo clippy --workspace --all-targets -- -D warnings`、wasm 的 clippy、`cargo test --workspace`（1164 个全过；新增：失败只暂停自己那段对话、打断之后排进来的照常发、横条文字）、node 测试。

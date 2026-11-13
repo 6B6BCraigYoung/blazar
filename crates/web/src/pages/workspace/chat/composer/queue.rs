@@ -4,6 +4,7 @@ use serde_json::{Value, json};
 use crate::api;
 use crate::components::modal::Modal;
 use crate::components::status::InlineError;
+use crate::queue_note::others_note;
 
 use super::super::state::{Chat, Queued, edit_request};
 
@@ -13,10 +14,35 @@ pub(super) fn QueueBand(chat: Chat) -> impl IntoView {
         let view_id = chat.view.get();
         let q = chat.queue.get();
         let mine = q.iter().find(|x| x.thread_id == view_id).cloned();
-        let others = q.len() - usize::from(mine.is_some());
+        let elsewhere: Vec<Queued> = q
+            .iter()
+            .filter(|x| x.thread_id != view_id)
+            .cloned()
+            .collect();
+        let others = elsewhere.len();
         if mine.is_none() && others == 0 {
             return None;
         }
+        let paused = elsewhere.iter().filter(|x| x.held.is_some()).count();
+        let target = elsewhere
+            .iter()
+            .find(|x| x.held.is_some())
+            .or_else(|| elsewhere.first())
+            .cloned();
+        let open = target
+            .as_ref()
+            .and_then(|t| t.thread_id.clone())
+            .map(|thread| {
+                view! {
+                    <button
+                        class="linkbtn"
+                        title="Go to that conversation"
+                        on:click=move |_| chat.activate(Some(thread.clone()))
+                    >
+                        "Open"
+                    </button>
+                }
+            });
         let running = chat.running.get();
         Some(match mine {
             Some(m) => {
@@ -79,8 +105,10 @@ pub(super) fn QueueBand(chat: Chat) -> impl IntoView {
                         {(others > 0)
                             .then(|| {
                                 view! {
-                                    <div class="cq-o muted">
-                                        {format!("{others} more queued in other conversations")}
+                                    <div class="cq-h cq-o muted">
+                                        <span>{others_note(paused, others - paused, true)}</span>
+                                        <span class="grow"></span>
+                                        {open}
                                     </div>
                                 }
                             })}
@@ -88,14 +116,24 @@ pub(super) fn QueueBand(chat: Chat) -> impl IntoView {
                 }
                 .into_any()
             }
-            None => view! {
-                <div class="cb-band queue">
-                    <div class="cq-o muted">
-                        {format!("{others} queued in other conversations")}
+            None => {
+                let snippet = target
+                    .as_ref()
+                    .map(|t| t.text.trim().to_owned())
+                    .filter(|t| !t.is_empty());
+                view! {
+                    <div class="cb-band queue">
+                        <div class="cq-h">
+                            <span class="cq-dot" data-held=(paused > 0).to_string()></span>
+                            <b>{others_note(paused, others - paused, false)}</b>
+                            {snippet.map(|t| view! { <span class="muted cq-snip">{t}</span> })}
+                            <span class="grow"></span>
+                            {open}
+                        </div>
                     </div>
-                </div>
+                }
+                .into_any()
             }
-            .into_any(),
         })
     }
 }

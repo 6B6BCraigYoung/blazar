@@ -66,6 +66,8 @@ mod monaco;
 mod pages;
 #[cfg(any(target_arch = "wasm32", test))]
 mod palette_match;
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+mod queue_note;
 #[cfg(target_arch = "wasm32")]
 mod realtime;
 #[cfg(target_arch = "wasm32")]
