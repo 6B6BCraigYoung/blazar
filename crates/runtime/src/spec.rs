@@ -7,6 +7,8 @@ pub enum OutputFormat {
 
     CodexJsonl,
 
+    DroidStreamJson,
+
     PlainLines,
 }
 
@@ -220,6 +222,21 @@ pub const BUILTIN: &[AgentSpec] = &[
 
         interactive: false,
         end_of_options: false,
+    },
+    AgentSpec {
+        id: "droid",
+        label: "Factory Droid",
+        program: "droid",
+        headless_args: &["exec", "--output-format", "stream-json"],
+        prompt_positional: true,
+        prompt_flag: None,
+        resume: ResumeStyle::FlagSpace("--session-id"),
+        output: OutputFormat::DroidStreamJson,
+        model_flag: Some("--model"),
+        cwd_flag: None,
+
+        interactive: false,
+        end_of_options: true,
     },
     AgentSpec {
         id: "deepcode",

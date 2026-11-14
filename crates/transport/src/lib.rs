@@ -9,7 +9,9 @@ use serde::{Deserialize, Serialize};
 use tokio::process::Command;
 
 pub const PATH_PRELUDE: &str = r#"
-for d in "$HOME/.local/bin" "$HOME/.npm-global/bin" "$HOME/bin" \
+for d in /Applications/Factory.app/Contents/Resources/bin \
+         "$HOME/Applications/Factory.app/Contents/Resources/bin" \
+         "$HOME/.local/bin" "$HOME/.npm-global/bin" "$HOME/bin" \
          "$HOME/.bun/bin" "$HOME/.deno/bin" "$HOME/.cargo/bin" \
          /opt/homebrew/bin /usr/local/bin; do
   [ -d "$d" ] && case ":$PATH:" in *":$d:"*) ;; *) PATH="$d:$PATH";; esac

@@ -9,6 +9,7 @@ pub mod cli_runtime;
 pub mod codex;
 pub mod codex_app;
 pub mod discover;
+pub mod droid;
 pub mod spec;
 
 pub use cli_runtime::CliRuntime;

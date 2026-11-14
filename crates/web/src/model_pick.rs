@@ -47,6 +47,23 @@ pub fn short_name(label: &str, desc: &str) -> String {
     if versioned { first.to_owned() } else { label }
 }
 
+pub fn custom_model_name(id: &str) -> Option<String> {
+    let rest = id.strip_prefix("custom:")?;
+    if let Some((provider, model)) = rest.split_once('/') {
+        let provider = if provider == "chatgpt" {
+            "ChatGPT"
+        } else {
+            provider
+        };
+        return Some(format!("{model} · {provider}"));
+    }
+    let name = match rest.rsplit_once('-') {
+        Some((head, tail)) if !head.is_empty() && tail.chars().all(|c| c.is_ascii_digit()) => head,
+        _ => rest,
+    };
+    Some(name.replace('-', " "))
+}
+
 pub fn split_models(s: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for m in s.split([',', '，', '、', ' ', '\n', '\t']).map(str::trim) {
@@ -60,6 +77,23 @@ pub fn split_models(s: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn droid_custom_models_read_as_names() {
+        assert_eq!(
+            custom_model_name("custom:DeepSeek-Flash-0").as_deref(),
+            Some("DeepSeek Flash")
+        );
+        assert_eq!(
+            custom_model_name("custom:chatgpt/gpt-6-astra").as_deref(),
+            Some("gpt-6-astra · ChatGPT")
+        );
+        assert_eq!(
+            custom_model_name("custom:my-model").as_deref(),
+            Some("my model")
+        );
+        assert_eq!(custom_model_name("gpt-6.1-sol"), None);
+    }
 
     #[test]
     fn model_lists_split_on_any_separator() {

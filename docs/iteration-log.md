@@ -1317,3 +1317,29 @@ B 的第三部分。出网络故障时要能一眼看出是机器、组网还是
 - 装机脚本一路走完：在线备份数据库（`blazar.sqlite.bak-20261114-162213`），回滚副本换成上一版 `Blazar-20261112.045426.app`（更早那份进了废纸篓），换上新版，删掉暂存副本；新进程 pid 50812（16:22:15）。
 - 重开后核对：迁移仍是 50（这次没有新迁移）；hub 就绪、正在进行的会话重新附着上了；启动时检查了 4 个账号；只有组网刷新那条原有的警告；Spotlight 只剩 `/Applications/Blazar.app`。
 - 回滚：这次没有新迁移，换回 `Blazar-20261112.045426.app` 即可，数据库不用动。
+
+## b62 · 接入 Factory 的命令行 droid（按轮结构化，先只做本机）
+
+用户要接 Factory 的命令行，看完分析后选了「按轮结构化接入」「先只做本机」「Auto 对应 medium」。
+
+- **找得到**：droid 随 Factory 桌面版装在 `/Applications/Factory.app/Contents/Resources/bin/droid`，不在 PATH 上。探测脚本把这个目录（和 `~/Applications` 下的同名目录）加进 app 内命令行的查找位置；统一的 PATH 设置里也加上它，放在最低优先级，另外装了独立的 droid（`~/.local/bin`）时优先用那个。目录里只有 droid 一个程序，不会盖住别的命令。登录状态只看 `~/.factory/auth.v2.loginkeychain` 在不在、`FACTORY_API_KEY` 有没有设，不读内容。
+- **运行**：每轮跑一次 `droid exec --output-format stream-json`，提示词放在 `--` 后面作参数；同一段对话后面的轮用 `--session-id` 续接；Blazar 的指令用 `--append-system-prompt`；思考强度用 `--reasoning-effort`。权限模式对应：Read only（默认只读，不加参数）、Edit files（`--auto low`）、Spec（`--use-spec`）、Auto（`--auto medium`，默认）、Skip permissions（`--skip-permissions-unsafe`）。输入框里这几种模式按 droid 的说法写名字和说明（原来模式名是拿 id 去所有表里找，droid 和 Claude 的 id 一样，会显示成 Claude 的叫法，改成从当前运行时自己的表里取）。
+- **显示**：新写 `droid.rs` 解析它的事件流：`system/init` 开始会话（带会话 id、型号、工作目录），助手的 `message` 是回复（用户那条是回显，不再显示），`reasoning` 是思考（它会连发两次，重复的不显示），`tool_call`/`tool_result` 是工具调用和结果，`completion` 是本轮完成并带上用量（不记估价），`error` 是失败。工具按 `id` 配对（`toolId` 是工具类型），对不上时按先后顺序配给最早那个没配上的调用。失败时 droid 会先给一条说清原因的 `agent_loop` 错误，再给一条笼统的 `cli` 错误，本轮失败的说明用前一条。工具名换成 Blazar 已经会显示的：Execute→Bash、Create→Write、FetchUrl→WebFetch，Read/LS/Glob/Grep/Edit/MultiEdit 的参数也换成同样的字段，所以读文件、跑命令这些工具行和 Claude Code 一样。
+- **型号菜单**：标题写「Factory Droid 1.11.0」。清单从这台机器 `droid exec --help` 的型号列表里读，每个型号能选的思考强度也从里面读（只给 Blazar 认得的档位），按 droid 版本缓存，标了 Deprecated 的不列；排在最前面的是最近在这台机器上实际用过的型号（读 `~/.factory/sessions/*/*.settings.json` 里的 `model`）。自带 key 的模型写显示名，比如 `custom:DeepSeek-Flash-0` 写「DeepSeek Flash」，接 ChatGPT 的写「GPT-6 Astra · ChatGPT」；输入框底栏也一样。远端工作区里直接说「Factory Droid only runs on this Mac for now」。
+- **其他**：用 droid 时「+」菜单里加图置灰，写「Factory Droid can't take images here」；运行时图标用 Factory 官网的标志（取官网 favicon 里那条路径，按真实曲线的包围盒缩放到 24×24）。
+
+分析时查清的（看帮助用临时 HOME，因为连 `droid --help` 都会往 `~/.factory` 写缓存和遥测目录）：
+
+- 用户的 Factory 账号没有订阅，托管的型号都报「402 No active subscription found」；Factory 里接的 ChatGPT 提供方（`custom:chatgpt/gpt-6-astra`）当时报「Subscription Sharing usage limit」。
+- 用户选了「用 DeepSeek 的 key 临时配自定义模型来实测」：droid 的 `--settings` 能带一个只对这次运行生效的设置文件，里面的 `customModels` 写 `"apiKey": "${环境变量}"`，key 不进文件，也不需要 Factory 登录。DeepSeek 走 OpenAI 格式时，读完文件的第二步报「`reasoning_content` in the thinking mode must be passed back」，是 droid 和 DeepSeek 之间的问题；改走 DeepSeek 的 Anthropic 格式接口（`provider: anthropic`、`authMode: bearer`）就正常。
+
+实测（临时实例：隔离的 HOME、全新的库，key 放在临时 hub 进程的环境变量里；给 droid 配了 `--settings` 和默认型号 `custom:deepseek-flash`）：
+
+- 探测找到 droid 1.11.0；账号菜单里有 Factory Droid；型号菜单、权限模式菜单如上。
+- 发「读 note.txt」：启动命令是 `droid exec --output-format stream-json --model custom:deepseek-flash --auto medium --settings … -- <提示词>`；记下的事件依次是会话开始、Read 工具调用、结果「banana」、回复、用量、完成，退出码 0。再问「刚读了哪个文件」：带着 `--session-id` 续接，答「note.txt」。输入框底栏写「DeepSeek Flash · 48k tokens」。
+- 测完删掉了临时目录（含 key 副本）；之前用真实 HOME 探测时在用户 `~/.factory/sessions` 里留下的 4 个会话也删了。
+- 截图在 `target/shots/droid-*.png`（不进仓库）。
+
+验证：`cargo fmt --check`、`leptosfmt --check crates/web/src`、`cargo clippy --workspace --all-targets -- -D warnings`、wasm 的 clippy、`cargo test --workspace`（1175 个全过；新增：事件解析（用实测抓到的事件）、工具名和参数换算、按 id 配对和按顺序兜底、失败原因、用量、启动参数和权限档位、型号清单解析、最近用过的型号、自定义模型名）、node 测试。
+
+还没做：远端机器；中途插话和逐条批准（多轮协议那一档）；Blazar 的调度工具（MCP）没接给 droid。

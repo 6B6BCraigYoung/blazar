@@ -53,7 +53,9 @@ command -v gtimeout >/dev/null 2>&1 && T="gtimeout 8"
 # macOS：有些 CLI 只存在于 app bundle 里，PATH 里永远找不到
 BUNDLES="/Applications/ChatGPT.app/Contents/Resources
 /Applications/Codex.app/Contents/Resources
-$HOME/Applications/ChatGPT.app/Contents/Resources"
+$HOME/Applications/ChatGPT.app/Contents/Resources
+/Applications/Factory.app/Contents/Resources/bin
+$HOME/Applications/Factory.app/Contents/Resources/bin"
 
 resolve() {{
   p=$(command -v "$1" 2>/dev/null) && {{ echo "$p"; return 0; }}
@@ -92,6 +94,8 @@ fi
 [ -n "$XAI_API_KEY" ] && echo "AUTH|grok|1|XAI_API_KEY"
 [ -f "$HOME/.grok/auth.json" ] && echo "AUTH|grok|?|有 auth.json，是否仍有效要运行 grok 才知道"
 [ -f "$HOME/.deepcode/settings.json" ] && echo "AUTH|deepcode|?|有 settings.json（API key 写在里面，不读取）"
+[ -n "$FACTORY_API_KEY" ] && echo "AUTH|droid|1|FACTORY_API_KEY"
+[ -f "$HOME/.factory/auth.v2.loginkeychain" ] && echo "AUTH|droid|1|已登录 Factory"
 "#,
         prelude = PATH_PRELUDE,
         names = names.join(" "),

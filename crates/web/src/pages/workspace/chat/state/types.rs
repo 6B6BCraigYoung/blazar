@@ -261,6 +261,38 @@ pub const MODES_CLAUDE: [Mode; 5] = [
         "warn",
     ),
 ];
+pub const MODES_DROID: [Mode; 5] = [
+    (
+        "default",
+        "Read only",
+        "Droid can read files and run safe commands, but won't change anything",
+        "hand",
+    ),
+    (
+        "acceptEdits",
+        "Edit files",
+        "Droid can create and edit files, but won't install packages or use the network",
+        "code",
+    ),
+    (
+        "plan",
+        "Spec",
+        "Droid writes a spec before it changes anything",
+        "plan",
+    ),
+    (
+        "auto",
+        "Auto",
+        "Droid can edit, install packages, build, and commit locally. It won't push or use sudo",
+        "bolt",
+    ),
+    (
+        "bypassPermissions",
+        "Skip permissions",
+        "Droid will not check anything. Use with care.",
+        "warn",
+    ),
+];
 pub const MODES_CODEX: [Mode; 3] = [
     (
         "read-only",
@@ -282,14 +314,6 @@ pub const MODES_CODEX: [Mode; 3] = [
     ),
 ];
 
-pub fn mode_label(v: &str) -> &str {
-    MODES_CLAUDE
-        .iter()
-        .chain(MODES_CODEX.iter())
-        .find(|m| m.0 == v)
-        .map_or(v, |m| m.1)
-}
-
 pub fn default_mode(rt: &str) -> &'static str {
     match rt {
         "codex" => "workspace-write",
@@ -301,6 +325,7 @@ pub fn modes_for(rt: &str) -> &'static [Mode] {
     match rt {
         "claude" => &MODES_CLAUDE,
         "codex" => &MODES_CODEX,
+        "droid" => &MODES_DROID,
         _ => &[],
     }
 }

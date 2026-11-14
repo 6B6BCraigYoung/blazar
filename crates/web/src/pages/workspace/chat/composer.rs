@@ -16,7 +16,7 @@ use crate::failure::Failure;
 use crate::storage;
 
 use super::dock::Dock;
-use super::state::{ACC_RUNTIMES, Attach, Chat, mode_label};
+use super::state::{ACC_RUNTIMES, Attach, Chat};
 
 mod fit;
 mod pickers;
@@ -1405,7 +1405,7 @@ pub fn Composer(
                                             aria-label="Permission mode"
                                             title=format!(
                                                 "Permission mode: {}{from}\n{}\nShift+Tab to switch",
-                                                mode_label(m.0),
+                                                m.1,
                                                 m.2,
                                             )
                                             on:click=move |_| {
@@ -1419,7 +1419,7 @@ pub fn Composer(
                                             }
                                         >
                                             <span class="ic" inner_html=icon(m.3)></span>
-                                            <span class="cb-tx">{mode_label(m.0)}</span>
+                                            <span class="cb-tx">{m.1}</span>
                                         </button>
                                     }
                                 })

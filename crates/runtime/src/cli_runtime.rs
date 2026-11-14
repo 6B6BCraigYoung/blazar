@@ -15,6 +15,7 @@ pub struct CliRuntime {
     transport: Arc<dyn NodeTransport>,
     spec: &'static AgentSpec,
     program: String,
+    droid: std::sync::Mutex<crate::droid::Turn>,
 }
 
 fn briefing_of(session: &SessionSpec) -> String {
@@ -135,6 +136,7 @@ impl CliRuntime {
             transport,
             spec,
             program: spec.program.to_owned(),
+            droid: std::sync::Mutex::default(),
         }
     }
 
@@ -167,7 +169,8 @@ impl CliRuntime {
         let extra = self.extra_args(session);
 
         let briefing = briefing_of(session);
-        let prompt = if !briefing.is_empty() && !matches!(self.spec.id, "claude" | "codex" | "grok")
+        let prompt = if !briefing.is_empty()
+            && !matches!(self.spec.id, "claude" | "codex" | "grok" | "droid")
         {
             format!("{briefing}\n\n{}", session.prompt)
         } else {
@@ -209,6 +212,7 @@ impl CliRuntime {
                     extra.push("-s".into());
                     extra.push(mode.clone());
                 }
+                "droid" => extra.extend(droid_autonomy(mode).iter().map(|a| (*a).to_owned())),
                 _ => {}
             }
         }
@@ -304,6 +308,10 @@ impl CliRuntime {
                     extra.push("--rules".into());
                     extra.push(briefing.clone());
                 }
+                "droid" => {
+                    extra.push("--append-system-prompt".into());
+                    extra.push(briefing.clone());
+                }
                 _ => {}
             }
         }
@@ -316,6 +324,10 @@ impl CliRuntime {
                 "codex" => {
                     extra.push("-c".into());
                     extra.push(format!("model_reasoning_effort=\"{e}\""));
+                }
+                "droid" => {
+                    extra.push("--reasoning-effort".into());
+                    extra.push(e.to_owned());
                 }
                 _ => {}
             }
@@ -485,7 +497,28 @@ impl CliRuntime {
                 .map(|k| (k, None))
                 .collect();
         }
+        if self.spec.output == OutputFormat::DroidStreamJson {
+            let mut turn = self
+                .droid
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            return crate::droid::parse_line(&mut turn, line)
+                .into_iter()
+                .map(|k| (k, None))
+                .collect();
+        }
         parse_by_format(self.spec.output, line)
+    }
+}
+
+#[must_use]
+pub fn droid_autonomy(mode: &str) -> &'static [&'static str] {
+    match mode {
+        "acceptEdits" => &["--auto", "low"],
+        "auto" => &["--auto", "medium"],
+        "bypassPermissions" => &["--skip-permissions-unsafe"],
+        "plan" => &["--use-spec"],
+        _ => &[],
     }
 }
 
@@ -687,6 +720,12 @@ fn parse_by_format(format: OutputFormat, line: &str) -> Parsed {
             .into_iter()
             .map(|k| (k, None))
             .collect(),
+        OutputFormat::DroidStreamJson => {
+            crate::droid::parse_line(&mut crate::droid::Turn::default(), line)
+                .into_iter()
+                .map(|k| (k, None))
+                .collect()
+        }
         OutputFormat::PlainLines => {
             vec![(
                 EntryKind::AssistantMessage {
@@ -1349,5 +1388,49 @@ mod tests {
             serde_json::from_str(&approval_response_json("r1", false, None, "别碰它")).unwrap();
         assert_eq!(deny["response"]["response"]["behavior"], "deny");
         assert_eq!(deny["response"]["response"]["message"], "别碰它");
+    }
+
+    #[test]
+    fn droid_runs_one_exec_per_turn_with_its_own_flags() {
+        let mut s = SessionSpec::new("/repo", "-rf is just a word here");
+        s.model = Some("custom:chatgpt/gpt-6-astra".into());
+        s.permission_mode = Some("auto".into());
+        s.effort = Some("high".into());
+        s.instructions = Some("Keep answers short".into());
+        let plan = rt("droid").detached_plan(&s, Some(&ProviderSessionId("de735edc".into())), None);
+        assert_eq!(plan.spec.program, "droid");
+        assert_eq!(
+            plan.spec.args,
+            [
+                "exec",
+                "--output-format",
+                "stream-json",
+                "--model",
+                "custom:chatgpt/gpt-6-astra",
+                "--auto",
+                "medium",
+                "--append-system-prompt",
+                "Keep answers short",
+                "--reasoning-effort",
+                "high",
+                "--session-id",
+                "de735edc",
+                "--",
+                "-rf is just a word here",
+            ]
+        );
+        assert!(plan.first_input.is_none(), "提示词走参数，不走标准输入");
+        for (mode, flags) in [
+            ("default", &[][..]),
+            ("acceptEdits", &["--auto", "low"][..]),
+            ("plan", &["--use-spec"][..]),
+            ("bypassPermissions", &["--skip-permissions-unsafe"][..]),
+        ] {
+            s.permission_mode = Some(mode.into());
+            s.instructions = None;
+            s.effort = None;
+            let args = rt("droid").exec_spec(&s, None).args;
+            assert_eq!(&args[5..args.len() - 2], flags, "{mode}: {args:?}");
+        }
     }
 }

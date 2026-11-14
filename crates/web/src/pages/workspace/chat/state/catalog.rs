@@ -31,6 +31,12 @@ impl Chat {
         a.strip_prefix("r:").unwrap_or("claude").to_owned()
     }
 
+    pub fn runtime_label(self, rt: &str) -> String {
+        self.agents
+            .with(|l| l.iter().find(|x| x.id == rt).map(|x| x.label.clone()))
+            .unwrap_or_else(|| rt.to_owned())
+    }
+
     pub fn agent_label(self) -> String {
         let a = self.agent.get();
         if let Some(p) = self.profile() {
@@ -266,6 +272,9 @@ impl Chat {
     }
 
     pub fn image_block(self) -> Option<String> {
+        if self.runtime() == "droid" {
+            return Some("Factory Droid can't take images here".into());
+        }
         let id = self.current_account(&self.runtime())?;
         let a = self.account(&id)?;
         a.endpoint

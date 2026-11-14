@@ -5,7 +5,7 @@ use serde_json::json;
 use crate::components::status::EmptyState;
 use crate::components::toast::toast;
 
-use super::super::state::{ACC_RUNTIMES, Chat, ModelSel, mode_label};
+use super::super::state::{ACC_RUNTIMES, Chat, ModelSel};
 use super::presentation::{editor_url, eff_label, icon};
 use super::{Pop, SlashItem};
 
@@ -355,7 +355,7 @@ pub(super) fn mode_pop(chat: Chat, pop: RwSignal<Option<Pop>>) -> impl IntoView 
                     >
                         <span class="cp-ico" inner_html=icon(ic)></span>
                         <span class="cp-t">
-                            <b>{mode_label(v)}</b>
+                            <b>{t}</b>
                             <span>{format!("{t} · {d}")}</span>
                         </span>
                         {(Some(v) == cur).then(|| view! { <span class="cp-ok">"✓"</span> })}
@@ -368,14 +368,16 @@ pub(super) fn mode_pop(chat: Chat, pop: RwSignal<Option<Pop>>) -> impl IntoView 
 }
 
 fn model_source(chat: Chat) -> Option<String> {
-    let list = chat.model_list(&chat.runtime())?;
+    let rt = chat.runtime();
+    let list = chat.model_list(&rt)?;
     if let Some(host) = list.endpoint {
         return Some(format!(" · {host}"));
     }
     let version = list.cli_version?;
+    let program = chat.runtime_label(&rt);
     Some(match list.node.filter(|n| n != "local") {
-        Some(node) => format!(" · {node} · Claude Code {version}"),
-        None => format!(" · Claude Code {version}"),
+        Some(node) => format!(" · {node} · {program} {version}"),
+        None => format!(" · {program} {version}"),
     })
 }
 

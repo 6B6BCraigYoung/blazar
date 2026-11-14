@@ -44,6 +44,9 @@ const EFF_LABEL: [(&str, &str); 7] = [
 ];
 
 pub fn model_name(id: &str) -> String {
+    if let Some(name) = crate::model_pick::custom_model_name(id) {
+        return name;
+    }
     let (base, wide) = id.strip_suffix("[1m]").map_or((id, false), |b| (b, true));
     let Some(rest) = base.strip_prefix("claude-").or_else(|| {
         ["opus", "sonnet", "haiku", "fable"]
