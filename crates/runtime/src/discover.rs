@@ -60,10 +60,6 @@ resolve() {{
   echo "$BUNDLES" | while read -r b; do
     [ -x "$b/$1" ] && {{ echo "$b/$1"; return 0; }}
   done | head -1
-  # DeepSeek 的 dsh 装在 ~/.dsh 下、不一定有启动器：直接用 node 跑它的入口文件
-  if [ "$1" = dsh ] && [ -f "$HOME/.dsh/profiles/node_modules/@deepseek-ai/dsh/lib/bin.js" ] && command -v node >/dev/null 2>&1; then
-    echo "$HOME/.dsh/profiles/node_modules/@deepseek-ai/dsh/lib/bin.js"
-  fi
 }}
 
 for name in {names}; do
@@ -71,10 +67,7 @@ for name in {names}; do
   if [ -n "$p" ]; then
     echo "PATH|$name|$p"
     # 版本号取第一行第一个像版本的 token；超时兜底防止 CLI 卡住整次发现
-    case "$p" in
-      *.js) v=$($T node "$p" --version 2>/dev/null | head -1 | tr -d '\r') ;;
-      *)    v=$($T "$p" --version 2>/dev/null | head -1 | tr -d '\r') ;;
-    esac
+    v=$($T "$p" --version 2>/dev/null | head -1 | tr -d '\r')
     [ -n "$v" ] && echo "VER|$name|$v"
   fi
 done
@@ -99,8 +92,6 @@ fi
 [ -n "$XAI_API_KEY" ] && echo "AUTH|grok|1|XAI_API_KEY"
 [ -f "$HOME/.grok/auth.json" ] && echo "AUTH|grok|?|有 auth.json，是否仍有效要运行 grok 才知道"
 [ -f "$HOME/.deepcode/settings.json" ] && echo "AUTH|deepcode|?|有 settings.json（API key 写在里面，不读取）"
-[ -n "$DEEPSEEK_API_KEY" ] && echo "AUTH|dsh|1|DEEPSEEK_API_KEY"
-[ -f "$HOME/.dsh/.credentials.yaml" ] && echo "AUTH|dsh|?|有 .credentials.yaml，是否配了 DeepSeek 的 key 要运行 dsh 才知道"
 "#,
         prelude = PATH_PRELUDE,
         names = names.join(" "),

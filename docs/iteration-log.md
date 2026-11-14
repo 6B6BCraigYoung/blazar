@@ -1299,3 +1299,13 @@ B 的第三部分。出网络故障时要能一眼看出是机器、组网还是
 实测（临时实例，全新的库，照着这次的情况造了两段对话和一条被暂停的消息）：横条显示「1 paused in another conversation」和消息开头；点「Open」切到那段对话，显示「Paused」和「Send / Edit / Remove」；当前对话自己再排一条时，显示「Also 1 paused in another conversation」。截图在 `target/shots/queue-*.png`（不进仓库）。
 
 验证：`cargo fmt --check`、`leptosfmt --check crates/web/src`、`cargo clippy --workspace --all-targets -- -D warnings`、wasm 的 clippy、`cargo test --workspace`（1164 个全过；新增：失败只暂停自己那段对话、打断之后排进来的照常发、横条文字）、node 测试。
+
+## b61 · 去掉 DeepSeek dsh 运行时
+
+用户要删掉 DSH，再接 Factory 的命令行；先给了分析和方案，这一步不需要选择，先做。
+
+- DSH 只按纯文本显示、不能续接、没有型号参数；正式库里从没用过（会话 0、用它的智能体 0、型号选择 0）。
+- 删掉的地方：运行时清单里那一条；本机探测脚本里专为它找 `~/.dsh` 下入口文件、用 node 取版本号、按 `DEEPSEEK_API_KEY` 和 `.credentials.yaml` 判断登录的几行；会话启动时用 node 跑它入口文件的分支和 `dsh_entry`。
+- 保留：程序路径是 `.js` 文件时用 node 运行的通用处理（自己指定程序路径时还用得上）；同为 DeepSeek 的 Deep Code 用户没提，不动。
+
+验证：`cargo fmt --check`、`leptosfmt --check crates/web/src`、`cargo clippy --workspace --all-targets -- -D warnings`、wasm 的 clippy、`cargo test --workspace`（1164 个全过）、node 测试。

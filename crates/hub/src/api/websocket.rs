@@ -313,13 +313,6 @@ pub struct InputRequest {
     pub context_file: Option<String>,
 }
 
-pub(crate) fn dsh_entry() -> Option<String> {
-    let home = std::env::var_os("HOME")?;
-    let p =
-        std::path::Path::new(&home).join(".dsh/profiles/node_modules/@deepseek-ai/dsh/lib/bin.js");
-    p.is_file().then(|| p.display().to_string())
-}
-
 pub(crate) fn is_slash_command(text: &str) -> bool {
     text.trim_start()
         .strip_prefix('/')

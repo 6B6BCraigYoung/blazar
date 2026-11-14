@@ -797,11 +797,6 @@ async fn prompt_inner(
 
         if let Some(p) = cfg.as_ref().and_then(|c| c.program_path.clone()) {
             runtime = runtime.with_program(p);
-        } else if agent_id == "dsh"
-            && run_node == "local"
-            && let Some(js) = dsh_entry()
-        {
-            runtime = runtime.with_program(js);
         }
         let needs_install = cfg.as_ref().and_then(|c| c.program_path.as_ref()).is_none()
             && run_node != "local"

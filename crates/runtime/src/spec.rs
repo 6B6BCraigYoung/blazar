@@ -222,22 +222,6 @@ pub const BUILTIN: &[AgentSpec] = &[
         end_of_options: false,
     },
     AgentSpec {
-        id: "dsh",
-        label: "DeepSeek dsh",
-        program: "dsh",
-
-        headless_args: &["--profile", "headless"],
-        prompt_positional: true,
-        prompt_flag: None,
-        resume: ResumeStyle::Unsupported,
-        output: OutputFormat::PlainLines,
-        model_flag: None,
-        cwd_flag: None,
-
-        interactive: false,
-        end_of_options: false,
-    },
-    AgentSpec {
         id: "deepcode",
         label: "Deep Code",
         program: "deepcode",
