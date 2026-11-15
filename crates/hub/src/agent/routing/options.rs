@@ -32,6 +32,26 @@ pub struct Choice {
     pub metered: bool,
     pub strong: bool,
     pub first: bool,
+    pub rank: u8,
+}
+
+#[must_use]
+pub fn strength(
+    runtime: &str,
+    model: Option<&str>,
+    effort: Option<&str>,
+    small: Option<&str>,
+) -> u8 {
+    if model.is_some() && model == small {
+        return 1;
+    }
+    let family = model.map(model_family);
+    match (runtime, family.as_deref(), effort) {
+        ("claude", Some("haiku"), _) | ("codex", None, Some("low")) => 1,
+        ("claude", Some("opus"), _) | ("codex", None, Some("high")) => 3,
+        ("claude", Some("fable"), _) | ("codex", None, Some("xhigh")) => 4,
+        _ => 2,
+    }
 }
 
 #[must_use]
@@ -225,10 +245,17 @@ pub async fn of_channel(st: &Shared, ch: &Channel, remote: bool, first: bool) ->
         Some(id) => crate::accounts::get(st, id).await.and_then(|a| a.endpoint),
         None => None,
     };
+    let small = endpoint.as_ref().and_then(|e| e.small_model.clone());
     shapes(endpoint.as_ref(), ch)
         .into_iter()
         .map(|(label, model, effort, about)| {
             let family = model.as_deref().map(model_family).unwrap_or_default();
+            let rank = strength(
+                &ch.runtime,
+                model.as_deref(),
+                effort.as_deref(),
+                small.as_deref(),
+            );
             Choice {
                 key: String::new(),
                 channel: ch.id.clone(),
@@ -245,6 +272,7 @@ pub async fn of_channel(st: &Shared, ch: &Channel, remote: bool, first: bool) ->
                 metered: ch.metered,
                 strong: !ch.metered && ch.runtime != "droid",
                 first,
+                rank,
             }
         })
         .filter(|c| !c.seats.is_empty())

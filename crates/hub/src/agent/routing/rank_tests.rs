@@ -11,6 +11,7 @@ fn verdict(difficulty: f64, kind: &str) -> Verdict {
         pick: None,
         pick_confidence: 0.0,
         probs: BTreeMap::new(),
+        unhappy: None,
         model: None,
         ms: 0,
         cost_usd: None,
@@ -181,6 +182,7 @@ fn a_midway_switch_names_the_new_setup_or_the_new_account() {
             judged: Some(Ok(&tiny)),
             left: None,
             model_changed: true,
+            unhappy: false,
         }),
         "Auto → Claude Code · Haiku · trivial question"
     );
@@ -191,7 +193,32 @@ fn a_midway_switch_names_the_new_setup_or_the_new_account() {
             judged: None,
             left: Some(("work", 0.9)),
             model_changed: false,
+            unhappy: false,
         }),
         "Auto → backup · work at 90% of its limit"
+    );
+}
+
+#[test]
+fn an_unhappy_user_gets_told_why_the_model_went_up() {
+    let task = verdict(2.0, "fix");
+    assert_eq!(
+        shift_note(&Shift {
+            label: "Claude Code · Fable",
+            seat: None,
+            judged: Some(Ok(&task)),
+            left: None,
+            model_changed: true,
+            unhappy: true,
+        }),
+        "Auto → Claude Code · Fable · you seemed unhappy with the last result"
+    );
+    assert_eq!(
+        top_note("Claude Code", Some("/model codex high")),
+        "Already on the strongest Claude Code setup · try /model codex high"
+    );
+    assert_eq!(
+        top_note("Devin", None),
+        "Already on the strongest Devin setup"
     );
 }

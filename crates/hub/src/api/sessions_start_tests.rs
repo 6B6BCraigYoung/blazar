@@ -894,3 +894,138 @@ async fn back_on_auto_after_a_manual_switch_starts_from_the_manual_pick() {
     assert_eq!(stale.model, None);
     assert_eq!(stale.opening, "what does this repo do?");
 }
+
+async fn moody_jev(wanted: &'static str, unhappy: f64) -> String {
+    let app = axum::Router::new().route(
+        "/v1/systemone",
+        axum::routing::post(move |body: axum::Json<serde_json::Value>| async move {
+            let criteria = body.0["questions"]["model"]["criteria"].clone();
+            let keys: Vec<String> = criteria
+                .as_object()
+                .map(|o| o.keys().cloned().collect())
+                .unwrap_or_default();
+            let pick = keys
+                .iter()
+                .find(|k| {
+                    criteria[k.as_str()]
+                        .as_str()
+                        .is_some_and(|a| a.contains(wanted))
+                })
+                .cloned()
+                .unwrap_or_default();
+            let probs: serde_json::Map<String, serde_json::Value> = keys
+                .iter()
+                .map(|k| {
+                    (
+                        k.clone(),
+                        serde_json::json!(if *k == pick { 0.8 } else { 0.01 }),
+                    )
+                })
+                .collect();
+            axum::Json(serde_json::json!({
+                "answers": {
+                    "difficulty": { "score": 2.0, "confidence": 0.9 },
+                    "kind": { "choice": "fix", "confidence": 0.9 },
+                    "model": { "choice": pick, "confidence": 0.8, "probabilities": probs },
+                    "unhappy": { "type": "noul", "noul": unhappy }
+                }
+            }))
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    format!("http://{addr}/v1/systemone")
+}
+
+async fn auto_turn(
+    st: &Shared,
+    ws: WorkspaceId,
+    fake: &Arc<FakeTransport>,
+    thread: &str,
+    text: &str,
+) {
+    let req = serde_json::from_value(serde_json::json!({
+        "text": text, "agent": "auto", "resume": true, "resume_session": thread,
+    }))
+    .unwrap();
+    let transport = fake.clone();
+    let _ = prompt_using(st.clone(), ws.to_string(), req, move |_| transport.clone())
+        .await
+        .unwrap_or_else(|error| panic!("{}", error.message()));
+}
+
+#[tokio::test]
+async fn an_unhappy_followup_climbs_one_step_even_if_jev_leans_lighter() {
+    let (_dir, st, ws, fake) = fixture().await;
+    let thread = auto_prior(&st, ws).await;
+    crate::routing::jev::save_key(&st, "ts-key-123456").unwrap();
+    let url = moody_jev("with Haiku", 0.9).await;
+    crate::office::kv_put(&st, "routing", &serde_json::json!({ "jev_url": url }))
+        .await
+        .unwrap();
+    auto_turn(&st, ws, &fake, &thread, "that is still wrong, redo it").await;
+    let (_, route, events) = latest_turn(&st).await;
+    let route: serde_json::Value = serde_json::from_str(&route.unwrap()).unwrap();
+    assert_eq!(route["model"], "fable");
+    assert!(
+        events
+            .iter()
+            .any(|e| e
+                .contains("Auto → Claude Code · Fable · you seemed unhappy with the last result")),
+        "{events:?}"
+    );
+    assert!(
+        exec_line(&fake).contains("--model fable"),
+        "{}",
+        exec_line(&fake)
+    );
+}
+
+#[tokio::test]
+async fn an_unhappy_followup_at_the_top_names_another_agent_instead() {
+    let (_dir, st, ws, fake) = fixture().await;
+    let thread = auto_prior(&st, ws).await;
+    sqlx::query("UPDATE sessions SET route = ?1 WHERE id = ?2")
+        .bind(r#"{"channel":"claude","runtime":"claude","account":"claude-default","model":"fable","label":"Claude Code · Fable"}"#)
+        .bind(&thread)
+        .execute(st.db.pool())
+        .await
+        .unwrap();
+    crate::routing::jev::save_key(&st, "ts-key-123456").unwrap();
+    let url = moody_jev("with Haiku", 0.95).await;
+    crate::office::kv_put(&st, "routing", &serde_json::json!({ "jev_url": url }))
+        .await
+        .unwrap();
+    auto_turn(&st, ws, &fake, &thread, "no, this is wrong again").await;
+    let (_, route, events) = latest_turn(&st).await;
+    let route: serde_json::Value = serde_json::from_str(&route.unwrap()).unwrap();
+    assert_eq!(route["kept"], true);
+    assert_eq!(route["model"], "fable");
+    assert!(
+        events
+            .iter()
+            .any(|e| e
+                .contains("Already on the strongest Claude Code setup · try /model codex high")),
+        "{events:?}"
+    );
+}
+
+#[tokio::test]
+async fn with_escalation_off_an_unhappy_message_is_routed_as_usual() {
+    let (_dir, st, ws, fake) = fixture().await;
+    let thread = auto_prior(&st, ws).await;
+    crate::routing::jev::save_key(&st, "ts-key-123456").unwrap();
+    let url = moody_jev("with Haiku", 0.9).await;
+    crate::office::kv_put(
+        &st,
+        "routing",
+        &serde_json::json!({ "jev_url": url, "escalate": false }),
+    )
+    .await
+    .unwrap();
+    auto_turn(&st, ws, &fake, &thread, "that is still wrong").await;
+    let (_, route, _) = latest_turn(&st).await;
+    let route: serde_json::Value = serde_json::from_str(&route.unwrap()).unwrap();
+    assert_eq!(route["model"], "haiku");
+}

@@ -41,6 +41,7 @@ fn choice(
         metered: channel.starts_with("acc:"),
         strong: true,
         first: false,
+        rank: options::strength(runtime, model, effort, None),
     }
 }
 
@@ -173,6 +174,7 @@ fn a_followup_recognises_the_setup_it_is_already_on() {
 fn settings_default_to_on_and_ignore_a_remote_jev_address_over_http() {
     let s = settings_of(&Value::Null);
     assert!(s.enabled);
+    assert!(s.escalate);
     assert_eq!(s.channels, ["claude", "codex", "devin"]);
     assert_eq!(s.first, "claude");
     let off = settings_of(&json!({ "enabled": false, "jev_url": "http://example.com/v1" }));
@@ -183,4 +185,62 @@ fn settings_default_to_on_and_ignore_a_remote_jev_address_over_http() {
         local.jev_url.as_deref(),
         Some("http://127.0.0.1:9/v1/systemone")
     );
+}
+
+#[test]
+fn an_unhappy_turn_steps_up_one_level_and_names_the_next_command() {
+    let mut list = vec![
+        choice(
+            "claude",
+            "claude",
+            "Claude Code · Opus",
+            Some("opus"),
+            None,
+            &[],
+        ),
+        choice(
+            "claude",
+            "claude",
+            "Claude Code · Fable",
+            Some("fable"),
+            None,
+            &[],
+        ),
+        choice(
+            "claude",
+            "claude",
+            "Claude Code · Sonnet",
+            Some("sonnet"),
+            None,
+            &[],
+        ),
+        choice(
+            "claude",
+            "claude",
+            "Claude Code · Haiku",
+            Some("haiku"),
+            None,
+            &[],
+        ),
+    ];
+    number(&mut list);
+    assert_eq!(step_up(&list, 2, None).unwrap().label, "Claude Code · Opus");
+    assert_eq!(
+        step_up(&list, 3, None).unwrap().label,
+        "Claude Code · Fable"
+    );
+    assert!(step_up(&list, 4, None).is_none());
+
+    let high = choice(
+        "codex",
+        "codex",
+        "Codex · high effort",
+        None,
+        Some("high"),
+        &[],
+    );
+    assert_eq!(command_for(&high), "/model codex high");
+    assert_eq!(command_for(&list[1]), "/model fable");
+    let devin = choice("devin", "devin", "Devin", None, None, &[]);
+    assert_eq!(command_for(&devin), "/model devin");
 }

@@ -135,6 +135,8 @@ pub const SWITCH_GAP: f64 = 0.3;
 
 pub const SWITCH_CONFIDENCE: f64 = 0.6;
 
+pub const UNHAPPY: f64 = 0.7;
+
 #[must_use]
 pub fn load(peak: Option<f64>, line: f64) -> f64 {
     let p = peak.unwrap_or(SOFT_LINE);
@@ -220,6 +222,7 @@ pub struct Shift<'a> {
     pub judged: Option<Result<&'a Verdict, &'a Failure>>,
     pub left: Option<(&'a str, f64)>,
     pub model_changed: bool,
+    pub unhappy: bool,
 }
 
 #[must_use]
@@ -234,12 +237,24 @@ pub fn shift_note(s: &Shift<'_>) -> String {
     )];
     if s.model_changed {
         parts.extend(s.seat.filter(|x| !x.is_empty()).map(str::to_owned));
-        parts.extend(judged_part(s.judged));
+        if s.unhappy {
+            parts.push("you seemed unhappy with the last result".into());
+        } else {
+            parts.extend(judged_part(s.judged));
+        }
     }
     if let Some((old, peak)) = s.left {
         parts.push(limit_label(old, peak));
     }
     parts.join(" · ")
+}
+
+#[must_use]
+pub fn top_note(label: &str, try_next: Option<&str>) -> String {
+    match try_next {
+        Some(cmd) => format!("Already on the strongest {label} setup · try {cmd}"),
+        None => format!("Already on the strongest {label} setup"),
+    }
 }
 
 #[cfg(test)]

@@ -269,9 +269,15 @@ async fn jev_gets_the_key_and_both_questions() {
         ("m0".to_owned(), "Claude Code with Opus".to_owned()),
         ("m1".to_owned(), "Claude Code with Haiku".to_owned()),
     ];
-    let v = routing::jev::judge_at(&url, "ts-key-123456", "Fix a typo in the README", &two)
-        .await
-        .unwrap();
+    let v = routing::jev::judge_at(
+        &url,
+        "ts-key-123456",
+        "Fix a typo in the README",
+        &two,
+        false,
+    )
+    .await
+    .unwrap();
     assert_eq!(v.kind, "docs");
     assert!(v.difficulty < 0.5);
     assert_eq!(v.model.as_deref(), Some("jev-1.14.0"));
@@ -292,7 +298,7 @@ async fn jev_gets_the_key_and_both_questions() {
     )
     .await;
     assert_eq!(
-        routing::jev::judge_at(&broke, "ts-key-123456", "hi", &[]).await,
+        routing::jev::judge_at(&broke, "ts-key-123456", "hi", &[], false).await,
         Err(Failure::Credits)
     );
 }

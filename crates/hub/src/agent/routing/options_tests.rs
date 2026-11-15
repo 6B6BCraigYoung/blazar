@@ -74,3 +74,23 @@ fn agents_that_pick_their_own_model_are_one_option_each() {
         assert_eq!(got[0].1, None, "{rt}");
     }
 }
+
+#[test]
+fn setups_rank_from_lightest_to_strongest() {
+    assert_eq!(strength("claude", Some("haiku"), None, None), 1);
+    assert_eq!(strength("claude", Some("sonnet"), None, None), 2);
+    assert_eq!(strength("claude", Some("opus"), None, None), 3);
+    assert_eq!(strength("claude", Some("claude-fable-5-2"), None, None), 4);
+    assert_eq!(strength("codex", None, Some("low"), None), 1);
+    assert_eq!(strength("codex", None, Some("medium"), None), 2);
+    assert_eq!(strength("codex", None, Some("high"), None), 3);
+    assert_eq!(
+        strength("claude", Some("small-flash"), None, Some("small-flash")),
+        1
+    );
+    assert_eq!(
+        strength("claude", Some("big-pro"), None, Some("small-flash")),
+        2
+    );
+    assert_eq!(strength("devin", None, None, None), 2);
+}

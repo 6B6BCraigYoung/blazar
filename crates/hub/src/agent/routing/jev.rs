@@ -65,6 +65,7 @@ pub struct Verdict {
     pub pick: Option<String>,
     pub pick_confidence: f64,
     pub probs: BTreeMap<String, f64>,
+    pub unhappy: Option<f64>,
     pub model: Option<String>,
     pub ms: u64,
     pub cost_usd: Option<f64>,
@@ -121,7 +122,7 @@ impl Failure {
 }
 
 #[must_use]
-pub fn body(text: &str, choices: &[(String, String)]) -> Value {
+pub fn body(text: &str, choices: &[(String, String)], unhappy: bool) -> Value {
     let state: String = text.trim().chars().take(MAX_CHARS).collect();
     let kinds: Map<String, Value> = KINDS
         .iter()
@@ -148,6 +149,16 @@ pub fn body(text: &str, choices: &[(String, String)]) -> Value {
             "type": "choice",
             "instructions": "Which of these AI coding setups fits this request best? Prefer a lighter, faster setup whenever it can clearly do the job well.",
             "criteria": options,
+        });
+    }
+    if unhappy {
+        questions["unhappy"] = json!({
+            "type": "noul",
+            "instructions": "Is the user unhappy with the agent's previous result: saying it is wrong, did not work, is not what they asked for, or asking to redo it?",
+            "criteria": {
+                "true": "The user is dissatisfied with the last result or asks for it to be redone.",
+                "false": "The user continues the work, asks something new, or is satisfied.",
+            },
         });
     }
     json!({ "model": MODEL, "state": state, "questions": questions })
@@ -194,6 +205,7 @@ pub fn parse(v: &Value) -> Option<Verdict> {
         pick,
         pick_confidence,
         probs,
+        unhappy: num(&v["answers"]["unhappy"]["noul"]).map(|p| p.clamp(0.0, 1.0)),
         model: v["model"].as_str().map(str::to_owned),
         ms: 0,
         cost_usd: num(&v["usage"]["cost"])
@@ -244,6 +256,7 @@ pub async fn judge_at(
     key: &str,
     text: &str,
     choices: &[(String, String)],
+    unhappy: bool,
 ) -> Result<Verdict, Failure> {
     let client = reqwest::Client::builder()
         .connect_timeout(TIMEOUT)
@@ -255,7 +268,7 @@ pub async fn judge_at(
         .post(url)
         .bearer_auth(key)
         .header(CONTENT_TYPE, "application/json")
-        .body(body(text, choices).to_string())
+        .body(body(text, choices, unhappy).to_string())
         .timeout(TIMEOUT)
         .send()
         .await

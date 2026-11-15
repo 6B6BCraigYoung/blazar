@@ -32,6 +32,8 @@ struct Jev {
 struct Routing {
     #[serde(default)]
     enabled: bool,
+    #[serde(default)]
+    escalate: bool,
     channels: Vec<String>,
     first: String,
     options: Vec<Choice>,
@@ -247,6 +249,20 @@ pub(super) fn RoutingCard() -> impl IntoView {
         });
     };
 
+    let toggle_escalate = move |on: bool| {
+        if busy.get_untracked() {
+            return;
+        }
+        busy.set(true);
+        spawn_local(async move {
+            match api::send::<Value>("PUT", "/api/routing", &json!({ "escalate": on })).await {
+                Ok(_) => flash("已保存"),
+                Err(e) => toast_error("没保存上", &e),
+            }
+            let _ = busy.try_set(false);
+            let _ = rev.try_update(|n| *n += 1);
+        });
+    };
     let toggle_all = move |on: bool| {
         if busy.get_untracked() {
             return;
@@ -390,6 +406,29 @@ pub(super) fn RoutingCard() -> impl IntoView {
                         }}
                     </p>
                 </div>
+                {move || {
+                    data.get()
+                        .and_then(Result::ok)
+                        .map(|r| {
+                            view! {
+                                <div class="route-row route-escalate">
+                                    <span class="route-escalate-text">
+                                        <b>"不满意时自动换更强的型号"</b>
+                                        <span>
+                                            "Auto 对话里你说上次的结果不对、要重做时，Jev 判断出来就在同一个软件里升一档；已经是最强的型号时，只提示可以用 /model 换到哪个软件。要先填 key。"
+                                        </span>
+                                    </span>
+                                    <span class="grow"></span>
+                                    <Switch
+                                        label="不满意时自动换更强的型号"
+                                        checked=r.escalate
+                                        disabled=busy
+                                        on_change=Callback::new(toggle_escalate)
+                                    />
+                                </div>
+                            }
+                        })
+                }}
             </div>
         </section>
     }

@@ -36,12 +36,15 @@ const OPENING_CHARS: usize = 1500;
 
 const MESSAGE_CHARS: usize = 4000;
 
+const REPLY_CHARS: usize = 1500;
+
 const SAMPLE: &str =
     "Add a dark mode toggle to the settings page and remember the choice across restarts.";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Settings {
     pub enabled: bool,
+    pub escalate: bool,
     pub channels: Vec<String>,
     pub first: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -76,6 +79,7 @@ pub fn settings_of(v: &Value) -> Settings {
         .map_or_else(|| channels[0].clone(), str::to_owned);
     Settings {
         enabled: v["enabled"].as_bool().unwrap_or(true),
+        escalate: v["escalate"].as_bool().unwrap_or(true),
         channels,
         first,
         jev_url: v["jev_url"]
@@ -297,6 +301,7 @@ fn plain(choices: &[Choice], channel: &Candidate) -> Option<Choice> {
     c.model = None;
     c.effort = None;
     c.label = channel.label.clone();
+    c.rank = 2;
     Some(c)
 }
 
@@ -327,6 +332,7 @@ fn fallback_of(s: &Settings, all: &[Channel], ask: &Ask<'_>) -> Choice {
         metered: ch.is_some_and(|c| c.metered),
         strong: true,
         first: true,
+        rank: 2,
     }
 }
 
@@ -335,8 +341,9 @@ async fn judge(
     s: &Settings,
     state: &str,
     choices: &[Choice],
+    unhappy: bool,
 ) -> Option<Result<Verdict, Failure>> {
-    if state.trim().is_empty() || choices.len() < 2 {
+    if state.trim().is_empty() || (choices.len() < 2 && !unhappy) {
         return None;
     }
     let key = jev::key(st).await?;
@@ -350,6 +357,7 @@ async fn judge(
             &key,
             state,
             &pairs,
+            unhappy,
         )
         .await,
     )
@@ -389,7 +397,7 @@ pub async fn decide(st: &Shared, ask: Ask<'_>) -> Decision {
     let found = discovered(st, ask.run_node).await;
     let all = channels(st).await;
     let f = field(st, &s, &all, &ask, &found, line).await;
-    let judged = judge(st, &s, ask.text, &f.choices).await;
+    let judged = judge(st, &s, ask.text, &f.choices, false).await;
     let verdict = judged.as_ref().and_then(|r| r.as_ref().ok());
     let tier = rank::tier_of(verdict);
     let view = channel_view(&f.choices, &all, line);
@@ -453,6 +461,7 @@ pub struct Current {
     pub actual: Option<String>,
     pub label: String,
     pub opening: String,
+    pub last_reply: String,
 }
 
 pub async fn current(st: &Shared, thread: &str, runtime: &str, account: Option<&str>) -> Current {
@@ -507,6 +516,19 @@ pub async fn current(st: &Shared, thread: &str, runtime: &str, account: Option<&
     .and_then(|p| serde_json::from_str::<Value>(&p).ok())
     .and_then(|v| v["text"].as_str().map(str::to_owned))
     .unwrap_or_default();
+    let last_reply: String = sqlx::query_scalar::<_, String>(
+        "SELECT e.payload FROM events e JOIN sessions s ON s.id = e.session_id
+         WHERE COALESCE(s.thread_id, s.id) = ?1 AND e.payload LIKE '{\"type\":\"assistant_message\"%'
+         ORDER BY s.created_at DESC, e.seq DESC LIMIT 1",
+    )
+    .bind(thread)
+    .fetch_optional(st.db.pool())
+    .await
+    .ok()
+    .flatten()
+    .and_then(|p| serde_json::from_str::<Value>(&p).ok())
+    .and_then(|v| v["text"].as_str().map(str::to_owned))
+    .unwrap_or_default();
     let text = |k: &str| {
         route[k]
             .as_str()
@@ -530,6 +552,7 @@ pub async fn current(st: &Shared, thread: &str, runtime: &str, account: Option<&
         actual,
         label: text("label").unwrap_or_else(|| label_of(runtime)),
         opening,
+        last_reply,
     }
 }
 
@@ -553,10 +576,81 @@ fn same(c: &Choice, cur: &Current, single: bool) -> bool {
 fn follow_state(cur: &Current, text: &str) -> String {
     let opening: String = cur.opening.trim().chars().take(OPENING_CHARS).collect();
     let message: String = text.trim().chars().take(MESSAGE_CHARS).collect();
+    let reply = cur.last_reply.trim();
+    let skip = reply.chars().count().saturating_sub(REPLY_CHARS);
+    let reply: String = reply.chars().skip(skip).collect();
+    let earlier = if reply.is_empty() {
+        String::new()
+    } else {
+        format!("The agent's last reply ended with: {reply}\n\n")
+    };
     format!(
-        "The conversation started with: {opening}\n\nIt is currently handled by: {}.\n\nThe new message is: {message}",
+        "The conversation started with: {opening}\n\n{earlier}It is currently handled by: {}.\n\nThe new message is: {message}",
         cur.label
     )
+}
+
+#[must_use]
+pub fn step_up(open: &[Choice], from: u8, verdict: Option<&Verdict>) -> Option<Choice> {
+    let target = open
+        .iter()
+        .filter(|c| c.rank > from)
+        .map(|c| c.rank)
+        .min()?;
+    let prob = |c: &Choice| verdict.map_or(0.0, |v| v.prob(&c.key));
+    let mut best: Option<&Choice> = None;
+    for c in open.iter().filter(|c| c.rank == target) {
+        if best.is_none_or(|b| prob(c) > prob(b) + 1e-9) {
+            best = Some(c);
+        }
+    }
+    best.cloned()
+}
+
+#[must_use]
+pub fn command_for(c: &Choice) -> String {
+    match (c.model.as_deref(), c.effort.as_deref()) {
+        (None, Some(e)) => format!("/model {} {e}", c.runtime),
+        (Some(m), _) => format!("/model {m}"),
+        (None, None) => format!("/model {}", c.runtime),
+    }
+}
+
+async fn try_next(
+    st: &Shared,
+    s: &Settings,
+    all: &[Channel],
+    here: &str,
+    ask: &Ask<'_>,
+    line: f64,
+) -> Option<String> {
+    let found = discovered(st, ask.run_node).await;
+    let order = std::iter::once(&s.first).chain(s.channels.iter().filter(|c| **c != s.first));
+    for id in order {
+        if id == here {
+            continue;
+        }
+        let Some(ch) = all.iter().find(|c| &c.id == id) else {
+            continue;
+        };
+        if screen(ch, ask, &found).is_some() {
+            continue;
+        }
+        let mut list = options::of_channel(st, ch, ask.remote, false).await;
+        for c in &mut list {
+            c.seats.retain(|x| x.peak.is_none_or(|p| p < line));
+        }
+        let mut best: Option<&Choice> = None;
+        for c in list.iter().filter(|c| !c.seats.is_empty()) {
+            if best.is_none_or(|b| c.rank > b.rank) {
+                best = Some(c);
+            }
+        }
+        if let Some(b) = best {
+            return Some(command_for(b));
+        }
+    }
+    None
 }
 
 fn kept(cur: &Current, verdict: Option<Verdict>, jev_error: Option<String>) -> Decision {
@@ -602,12 +696,46 @@ pub async fn follow(st: &Shared, ask: Ask<'_>, cur: &Current) -> Decision {
         c.seats.retain(|x| x.peak.is_none_or(|p| p < line));
     }
     open.retain(|c| !c.seats.is_empty());
-    let judged = judge(st, &s, &follow_state(cur, ask.text), &open).await;
+    let judged = judge(st, &s, &follow_state(cur, ask.text), &open, s.escalate).await;
     let verdict = judged.as_ref().and_then(|r| r.as_ref().ok()).cloned();
     let jev_error = judged
         .as_ref()
         .and_then(|r| r.as_ref().err())
         .map(Failure::en);
+    let unhappy = s.escalate
+        && verdict
+            .as_ref()
+            .and_then(|v| v.unhappy)
+            .is_some_and(|p| p >= rank::UNHAPPY);
+    let here_rank = here.as_ref().map_or_else(
+        || {
+            options::strength(
+                &cur.runtime,
+                cur.model.as_deref().or(cur.actual.as_deref()),
+                cur.effort.as_deref(),
+                None,
+            )
+        },
+        |h| h.rank,
+    );
+    let up = if unhappy {
+        step_up(&open, here_rank, verdict.as_ref())
+    } else {
+        None
+    };
+    let hint = if unhappy && up.is_none() {
+        let next = try_next(st, &s, &all, &ch.id, &ask, line).await;
+        Some(rank::top_note(&ch.label, next.as_deref()))
+    } else {
+        None
+    };
+    let stay = |verdict: Option<Verdict>, jev_error: Option<String>| {
+        let mut d = kept(cur, verdict, jev_error);
+        if let Some(h) = &hint {
+            d.note.clone_from(h);
+        }
+        d
+    };
     let top = verdict
         .as_ref()
         .filter(|v| !v.probs.is_empty())
@@ -623,8 +751,9 @@ pub async fn follow(st: &Shared, ask: Ask<'_>, cur: &Current) -> Decision {
     let here_open = here
         .as_ref()
         .and_then(|h| open.iter().find(|c| c.key == h.key).cloned());
-    let switch_to = match (&top, &verdict) {
-        (Some(t), Some(v)) => {
+    let switch_to = match (&up, &top, &verdict) {
+        (Some(u), _, _) => Some(u.clone()),
+        (None, Some(t), Some(v)) if !unhappy => {
             let current_p = here.as_ref().map_or(0.0, |h| v.prob(&h.key));
             (here.as_ref().is_none_or(|h| h.key != t.key)
                 && rank::should_switch(v.prob(&t.key), current_p, v.pick_confidence))
@@ -632,6 +761,7 @@ pub async fn follow(st: &Shared, ask: Ask<'_>, cur: &Current) -> Decision {
         }
         _ => None,
     };
+    let escalated = up.is_some();
     let next = match (switch_to, here_open) {
         (Some(t), _) => Some(t),
         (None, Some(h)) => Some(h),
@@ -639,16 +769,16 @@ pub async fn follow(st: &Shared, ask: Ask<'_>, cur: &Current) -> Decision {
         (None, None) => None,
     };
     let Some(next) = next else {
-        return kept(cur, verdict, jev_error);
+        return stay(verdict, jev_error);
     };
     let keep = (!over).then_some(cur.account.as_deref()).flatten();
     let Some(seat) = seat_for(&next, line, keep) else {
-        return kept(cur, verdict, jev_error);
+        return stay(verdict, jev_error);
     };
     let model_changed = here.as_ref().is_none_or(|h| h.key != next.key);
     let account_changed = seat.pass && seat.account != cur.account;
     if !model_changed && !account_changed {
-        return kept(cur, verdict, jev_error);
+        return stay(verdict, jev_error);
     }
     let seat_label = (account_changed || shown_seat(&next, Some(seat)).is_some())
         .then(|| seat.label.clone())
@@ -662,6 +792,7 @@ pub async fn follow(st: &Shared, ask: Ask<'_>, cur: &Current) -> Decision {
         judged: judged.as_ref().map(Result::as_ref),
         left: left.as_ref().map(|(l, p)| (l.as_str(), *p)),
         model_changed,
+        unhappy: escalated && model_changed,
     });
     Decision {
         channel: next.channel.clone(),
@@ -847,6 +978,7 @@ pub async fn get_settings(State(st): State<Shared>) -> Json<Value> {
     let s = settings(&st).await;
     Json(json!({
         "enabled": s.enabled,
+        "escalate": s.escalate,
         "channels": s.channels,
         "first": s.first,
         "options": channels(&st).await,
@@ -862,6 +994,8 @@ pub async fn get_settings(State(st): State<Shared>) -> Json<Value> {
 pub struct SettingsBody {
     #[serde(default)]
     pub enabled: Option<bool>,
+    #[serde(default)]
+    pub escalate: Option<bool>,
     #[serde(default)]
     pub channels: Option<Vec<String>>,
     #[serde(default)]
@@ -901,6 +1035,7 @@ pub async fn put_settings(State(st): State<Shared>, Json(b): Json<SettingsBody>)
     }
     let mut saved = json!({
         "enabled": b.enabled.unwrap_or(cur.enabled),
+        "escalate": b.escalate.unwrap_or(cur.escalate),
         "channels": list,
         "first": first,
     });
@@ -962,7 +1097,7 @@ pub async fn test(State(st): State<Shared>, Json(b): Json<TestBody>) -> Json<Val
         .filter(|t| !t.trim().is_empty())
         .unwrap_or_else(|| SAMPLE.to_owned());
     let url = s.jev_url.as_deref().unwrap_or(jev::URL);
-    Json(match jev::judge_at(url, &key, &text, &[]).await {
+    Json(match jev::judge_at(url, &key, &text, &[], false).await {
         Ok(v) => json!({
             "ok": true,
             "tier": rank::tier_of(Some(&v)),

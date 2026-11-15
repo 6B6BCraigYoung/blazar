@@ -5,7 +5,7 @@ use super::*;
 #[test]
 fn asks_one_score_and_one_choice_about_the_trimmed_request() {
     let long = "x".repeat(10_000);
-    let b = body(&format!("  {long}  "), &[]);
+    let b = body(&format!("  {long}  "), &[], false);
     assert_eq!(b["model"], MODEL);
     assert_eq!(b["state"].as_str().unwrap().chars().count(), 6000);
     assert_eq!(b["questions"]["difficulty"]["type"], "score");
@@ -102,12 +102,16 @@ fn maps_errors_to_what_the_user_can_do() {
 #[test]
 fn offers_the_setups_as_a_choice_only_when_there_is_a_choice() {
     let one = [("m0".to_owned(), "Claude Code with Opus".to_owned())];
-    assert!(body("fix it", &one)["questions"].get("model").is_none());
+    assert!(
+        body("fix it", &one, false)["questions"]
+            .get("model")
+            .is_none()
+    );
     let two = [
         ("m0".to_owned(), "Claude Code with Opus".to_owned()),
         ("m1".to_owned(), "Claude Code with Sonnet".to_owned()),
     ];
-    let b = body("fix it", &two);
+    let b = body("fix it", &two, false);
     assert_eq!(b["questions"]["model"]["type"], "choice");
     assert_eq!(
         b["questions"]["model"]["criteria"]["m1"],
@@ -143,4 +147,29 @@ fn reads_which_setup_it_picked_and_how_sure_it_was() {
         }
     });
     assert!((parse(&bare).unwrap().prob("m0") - 0.8).abs() < 1e-9);
+}
+
+#[test]
+fn asks_whether_the_user_is_unhappy_only_on_request() {
+    assert!(
+        body("again?", &[], false)["questions"]
+            .get("unhappy")
+            .is_none()
+    );
+    let b = body("that is still wrong", &[], true);
+    assert_eq!(b["questions"]["unhappy"]["type"], "noul");
+    let v = json!({
+        "answers": {
+            "difficulty": { "score": 2 },
+            "kind": { "choice": "fix" },
+            "unhappy": { "type": "noul", "noul": 0.93 }
+        }
+    });
+    assert!((parse(&v).unwrap().unhappy.unwrap() - 0.93).abs() < 1e-9);
+    assert_eq!(
+        parse(&json!({ "answers": { "difficulty": { "score": 1 }, "kind": { "choice": "fix" } } }))
+            .unwrap()
+            .unhappy,
+        None
+    );
 }
