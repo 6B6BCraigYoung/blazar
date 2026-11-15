@@ -614,8 +614,15 @@ pub(super) fn agent_pop(chat: Chat, pop: RwSignal<Option<Pop>>) -> impl IntoView
                 .as_deref()
                 .is_some_and(|b| untrack(|| chat.runtime_of(b) == chat.runtime_of(&v)));
         if !account_only {
-            if bound.as_deref().is_some_and(|b| b != v) {
-                chat.new_chat();
+            let handover = v != AUTO_AGENT
+                && bound.as_deref().is_some_and(|b| {
+                    b != AUTO_AGENT && untrack(|| chat.runtime_of(b) != chat.runtime_of(&v))
+                });
+            if handover {
+                toast(format!(
+                    "The next message hands this conversation to {}; it gets the recent messages as text",
+                    untrack(|| chat.runtime_label(&chat.runtime_of(&v)))
+                ));
             }
             chat.set_agent(v);
         }
@@ -716,8 +723,9 @@ pub(super) fn agent_pop(chat: Chat, pop: RwSignal<Option<Pop>>) -> impl IntoView
     };
     let none = profiles.is_empty() && rts.is_empty();
     let auto_on = cur == AUTO_AGENT;
+    let routing = chat.routing.get_untracked() == Some(true);
     view! {
-        {(!none)
+        {(!none && routing)
             .then(|| {
                 view! {
                     <button class="cp-row" on:click=move |_| pick(AUTO_AGENT.to_owned(), None)>
@@ -725,7 +733,7 @@ pub(super) fn agent_pop(chat: Chat, pop: RwSignal<Option<Pop>>) -> impl IntoView
                         <span class="cp-t">
                             <b>"Auto"</b>
                         </span>
-                        <span class="cp-r">"Picks the agent and model for each new chat"</span>
+                        <span class="cp-r">"Picks the agent and model for each message"</span>
                         {auto_on.then(|| view! { <span class="cp-ok">"✓"</span> })}
                     </button>
                 }

@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use super::*;
 
 fn verdict(difficulty: f64, kind: &str) -> Verdict {
@@ -6,6 +8,9 @@ fn verdict(difficulty: f64, kind: &str) -> Verdict {
         difficulty_confidence: 0.9,
         kind: kind.into(),
         kind_confidence: 0.9,
+        pick: None,
+        pick_confidence: 0.0,
+        probs: BTreeMap::new(),
         model: None,
         ms: 0,
         cost_usd: None,
@@ -85,26 +90,33 @@ fn metered_and_weaker_channels_only_win_light_work() {
 }
 
 #[test]
-fn light_and_heavy_work_tunes_claude_and_codex() {
-    assert_eq!(tuning("claude", Tier::Light), (Some("sonnet"), None));
-    assert_eq!(tuning("claude", Tier::Heavy), (None, None));
-    assert_eq!(tuning("codex", Tier::Light), (None, Some("low")));
-    assert_eq!(tuning("codex", Tier::Medium), (None, None));
-    assert_eq!(tuning("codex", Tier::Heavy), (None, Some("high")));
-    assert_eq!(tuning("devin", Tier::Heavy), (None, None));
-    assert_eq!(tuning("acc:deepseek", Tier::Light), (None, None));
+fn jev_leads_and_a_busy_account_holds_it_back() {
+    let line = 0.85;
+    let fresh = worth(0.55, Some(0.1), false, false, line);
+    let busy = worth(0.6, Some(0.8), false, false, line);
+    assert!(fresh > busy);
+    assert!(worth(0.5, None, true, false, line) > worth(0.5, None, false, false, line));
+    assert!(worth(0.5, None, false, true, line) < worth(0.5, None, false, false, line));
+    assert!(load(Some(0.2), line) < load(Some(0.7), line));
+    assert!(load(None, line) < load(Some(0.6), line));
 }
 
 #[test]
-fn the_note_says_who_and_why_in_one_line() {
+fn switching_midway_needs_a_clear_and_confident_lead() {
+    assert!(should_switch(0.7, 0.2, 0.7));
+    assert!(!should_switch(0.5, 0.3, 0.9));
+    assert!(!should_switch(0.8, 0.1, 0.5));
+}
+
+#[test]
+fn the_first_note_says_who_and_why_in_one_line() {
     let claude = cand("claude", "Claude Code", Some(0.78), true);
-    let codex = cand("codex", "Codex", Some(0.1), false);
     let hard = verdict(3.2, "refactor");
     assert_eq!(
         note(&Story {
-            chosen: &codex,
-            model: None,
-            effort: Some("high"),
+            label: "Codex · high effort",
+            channel: "codex",
+            seat: None,
             judged: Some(Ok(&hard)),
             first: Some(&claude),
             first_skip: None,
@@ -120,9 +132,9 @@ fn the_note_says_who_and_why_in_one_line() {
     };
     assert_eq!(
         note(&Story {
-            chosen: &codex,
-            model: None,
-            effort: None,
+            label: "Codex",
+            channel: "codex",
+            seat: None,
             judged: Some(Err(&Failure::Credits)),
             first: None,
             first_skip: Some(&over),
@@ -131,31 +143,55 @@ fn the_note_says_who_and_why_in_one_line() {
         "Auto → Codex · Jev out of credits · Claude Code is over its usage line"
     );
 
-    let calm = cand("claude", "Claude Code", Some(0.2), true);
     let tiny = verdict(0.2, "question");
     assert_eq!(
         note(&Story {
-            chosen: &calm,
-            model: Some("sonnet"),
-            effort: None,
+            label: "Claude Code · Sonnet",
+            channel: "claude",
+            seat: Some("work"),
             judged: Some(Ok(&tiny)),
-            first: Some(&calm),
+            first: Some(&cand("claude", "Claude Code", Some(0.2), true)),
             first_skip: None,
             fallback: false,
         }),
-        "Auto → Claude Code · Sonnet · trivial question"
+        "Auto → Claude Code · Sonnet · work · trivial question"
     );
 
     assert_eq!(
         note(&Story {
-            chosen: &calm,
-            model: None,
-            effort: None,
+            label: "Claude Code",
+            channel: "claude",
+            seat: None,
             judged: None,
             first: None,
             first_skip: None,
             fallback: true,
         }),
         "Auto → Claude Code · fallback: no channel is available"
+    );
+}
+
+#[test]
+fn a_midway_switch_names_the_new_setup_or_the_new_account() {
+    let tiny = verdict(0.3, "question");
+    assert_eq!(
+        shift_note(&Shift {
+            label: "Claude Code · Haiku",
+            seat: None,
+            judged: Some(Ok(&tiny)),
+            left: None,
+            model_changed: true,
+        }),
+        "Auto → Claude Code · Haiku · trivial question"
+    );
+    assert_eq!(
+        shift_note(&Shift {
+            label: "Claude Code · Opus",
+            seat: Some("backup"),
+            judged: None,
+            left: Some(("work", 0.9)),
+            model_changed: false,
+        }),
+        "Auto → backup · work at 90% of its limit"
     );
 }

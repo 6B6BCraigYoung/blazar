@@ -92,7 +92,8 @@ async fn settings_start_with_the_subscriptions_and_refuse_unknown_channels() {
         .iter()
         .filter_map(|o| o["id"].as_str())
         .collect();
-    assert_eq!(ids, ["claude", "codex", "devin", "droid"]);
+    assert_eq!(ids, ["claude", "codex", "devin", "droid", "grok"]);
+    assert_eq!(v["enabled"], true);
 
     for bad in [
         json!({ "channels": ["claude", "gemini"], "first": "claude" }),
@@ -113,6 +114,18 @@ async fn settings_start_with_the_subscriptions_and_refuse_unknown_channels() {
     let (_, v) = call(&app, "GET", "/api/routing", None).await;
     assert_eq!(v["channels"], json!(["codex", "droid"]));
     assert_eq!(v["first"], "droid");
+
+    let (s, _) = call(
+        &app,
+        "PUT",
+        "/api/routing",
+        Some(json!({ "enabled": false })),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+    let (_, v) = call(&app, "GET", "/api/routing", None).await;
+    assert_eq!(v["enabled"], false);
+    assert_eq!(v["channels"], json!(["codex", "droid"]));
 }
 
 #[tokio::test]
@@ -252,7 +265,11 @@ async fn jev_gets_the_key_and_both_questions() {
         }),
     )
     .await;
-    let v = routing::jev::judge_at(&url, "ts-key-123456", "Fix a typo in the README")
+    let two = [
+        ("m0".to_owned(), "Claude Code with Opus".to_owned()),
+        ("m1".to_owned(), "Claude Code with Haiku".to_owned()),
+    ];
+    let v = routing::jev::judge_at(&url, "ts-key-123456", "Fix a typo in the README", &two)
         .await
         .unwrap();
     assert_eq!(v.kind, "docs");
@@ -264,6 +281,10 @@ async fn jev_gets_the_key_and_both_questions() {
     assert_eq!(body["state"], "Fix a typo in the README");
     assert_eq!(body["questions"]["difficulty"]["type"], "score");
     assert_eq!(body["questions"]["kind"]["type"], "choice");
+    assert_eq!(
+        body["questions"]["model"]["criteria"]["m1"],
+        "Claude Code with Haiku"
+    );
 
     let (broke, _) = fake_jev(
         StatusCode::PAYMENT_REQUIRED,
@@ -271,7 +292,109 @@ async fn jev_gets_the_key_and_both_questions() {
     )
     .await;
     assert_eq!(
-        routing::jev::judge_at(&broke, "ts-key-123456", "hi").await,
+        routing::jev::judge_at(&broke, "ts-key-123456", "hi", &[]).await,
         Err(Failure::Credits)
     );
+}
+
+async fn picking_jev(wanted: &'static str) -> String {
+    let app = axum::Router::new().route(
+        "/v1/systemone",
+        axum::routing::post(move |body: axum::Json<Value>| async move {
+            let criteria = body.0["questions"]["model"]["criteria"].clone();
+            let keys: Vec<String> = criteria
+                .as_object()
+                .map(|o| o.keys().cloned().collect())
+                .unwrap_or_default();
+            let pick = keys
+                .iter()
+                .find(|k| {
+                    criteria[k.as_str()]
+                        .as_str()
+                        .is_some_and(|a| a.contains(wanted))
+                })
+                .cloned()
+                .unwrap_or_default();
+            let probs: serde_json::Map<String, Value> = keys
+                .iter()
+                .map(|k| (k.clone(), json!(if *k == pick { 0.8 } else { 0.01 })))
+                .collect();
+            axum::Json(json!({
+                "model": "jev-1.14.0",
+                "answers": {
+                    "difficulty": { "score": 0.2, "confidence": 0.9 },
+                    "kind": { "choice": "question", "confidence": 0.9 },
+                    "model": { "choice": pick, "confidence": 0.8, "probabilities": probs }
+                },
+                "usage": { "input_tokens": 300, "output_tokens": 0 }
+            }))
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    format!("http://{addr}/v1/systemone")
+}
+
+async fn use_jev(st: &AppState, url: &str) {
+    sqlx::query(
+        "INSERT INTO kv_settings (key, value, updated_at) VALUES ('routing', ?1, '0')
+         ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+    )
+    .bind(json!({ "jev_url": url }).to_string())
+    .execute(st.db.pool())
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn jev_picks_the_model_and_the_account_follows_the_quota() {
+    let (st, _dir) = state().await;
+    routing::jev::save_key(&st, "ts-key-123456").unwrap();
+    use_jev(&st, &picking_jev("with Sonnet").await).await;
+    used(&st, "claude-default", 0.2).await;
+    let d = routing::decide(&st, ask(false)).await;
+    assert_eq!(d.runtime, "claude");
+    assert_eq!(d.model.as_deref(), Some("sonnet"));
+    assert_eq!(d.account.as_deref(), Some("claude-default"));
+    assert_eq!(d.note, "Auto → Claude Code · Sonnet · trivial question");
+    assert!(d.verdict.is_some_and(|v| v.pick.is_some()));
+
+    use_jev(&st, &picking_jev("high reasoning effort").await).await;
+    let d = routing::decide(&st, ask(false)).await;
+    assert_eq!(d.runtime, "codex");
+    assert_eq!(d.effort.as_deref(), Some("high"));
+    assert_eq!(d.account.as_deref(), Some("codex-default"));
+}
+
+#[tokio::test]
+async fn typed_model_names_resolve_across_every_agent() {
+    let (st, _dir) = state().await;
+    let app = common::authenticated_router(st);
+    let (_, v) = call(
+        &app,
+        "POST",
+        "/api/routing/resolve",
+        Some(json!({ "query": "codex high" })),
+    )
+    .await;
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["pick"]["agent"], "r:codex");
+    assert_eq!(v["pick"]["effort"], "high");
+    let (_, v) = call(
+        &app,
+        "POST",
+        "/api/routing/resolve",
+        Some(json!({ "query": "haiku" })),
+    )
+    .await;
+    assert_eq!(v["pick"]["model"], "haiku");
+    let (_, v) = call(
+        &app,
+        "POST",
+        "/api/routing/resolve",
+        Some(json!({ "query": "nothing-like-this" })),
+    )
+    .await;
+    assert_eq!(v["ok"], false);
 }

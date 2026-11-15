@@ -66,6 +66,7 @@ impl Chat {
                 .find(|x| x.id == id)
                 .and_then(|x| match x.profile.as_deref() {
                     Some(p) if !p.is_empty() => Some(format!("p:{p}")),
+                    _ if x.auto => Some(AUTO_AGENT.to_owned()),
                     _ => (!x.runtime.is_empty()).then(|| format!("r:{}", x.runtime)),
                 })
         })
@@ -167,8 +168,7 @@ impl Chat {
 
     pub fn activate(self, id: Option<String>) {
         if id.is_none()
-            && storage::load_raw(&format!("blazar.agent.{}", self.ws_id())).as_deref()
-                == Some(AUTO_AGENT)
+            && self.routing.get_untracked() == Some(true)
             && self.agent.get_untracked() != AUTO_AGENT
         {
             self.agent.set(AUTO_AGENT.to_owned());
@@ -546,16 +546,21 @@ impl Chat {
             }
         });
         Effect::new(move |_| self.rebuild_transcript());
+        let synced = StoredValue::new(None::<String>);
         Effect::new(move |_| {
-            let Some(id) = self.view.get() else { return };
-            if self.fresh.get() {
+            let Some(id) = self.view.get() else {
+                synced.set_value(None);
+                return;
+            };
+            if self.fresh.get() || synced.with_value(|s| s.as_deref() == Some(id.as_str())) {
                 return;
             }
-            if let Some(agent) = self.thread_agent(&id)
-                && agent != self.agent.get_untracked()
-            {
-                self.agent.set(agent);
-                self.perm.set(String::new());
+            if let Some(agent) = self.thread_agent(&id) {
+                synced.set_value(Some(id));
+                if agent != self.agent.get_untracked() {
+                    self.agent.set(agent);
+                    self.perm.set(String::new());
+                }
             }
         });
         Effect::new(move |_| {

@@ -230,6 +230,46 @@ pub(super) async fn model_blocks(st: &Shared) -> HashMap<String, Vec<(String, St
     out
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct SeatInfo {
+    pub id: String,
+    pub label: String,
+    pub kind: String,
+    pub peak: Option<f64>,
+    pub blocked: Vec<String>,
+}
+
+pub async fn seats(st: &Shared, provider: &str, token_only: bool) -> Vec<SeatInfo> {
+    let now = Utc::now();
+    let windows = windows_of(st).await;
+    let blocks = model_blocks(st).await;
+    let list: Vec<Account> = if super::QUOTA_ONLY.contains(&provider) {
+        get(st, &default_id(provider)).await.into_iter().collect()
+    } else {
+        all(st, Some(provider))
+            .await
+            .into_iter()
+            .filter(|a| a.kind != "endpoint" && (!token_only || a.kind == "token"))
+            .collect()
+    };
+    list.into_iter()
+        .filter(Account::usable)
+        .map(|a| SeatInfo {
+            peak: windows
+                .get(&a.id)
+                .filter(|w| w.iter().any(|x| x.live(now)))
+                .map(|w| peak(w, now)),
+            blocked: blocks
+                .get(&a.id)
+                .map(|ms| ms.iter().map(|(m, _)| model_family(m)).collect())
+                .unwrap_or_default(),
+            id: a.id,
+            label: a.label,
+            kind: a.kind,
+        })
+        .collect()
+}
+
 pub async fn outlook(st: &Shared, provider: &str, remote: bool) -> Option<(String, Option<f64>)> {
     let now = Utc::now();
     let windows = windows_of(st).await;

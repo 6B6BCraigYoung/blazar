@@ -4,6 +4,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::api;
+use crate::components::prefs::Switch;
 use crate::components::status::{InlineError, LoadingState, Status, Tone};
 use crate::components::toast::{flash, toast, toast_error};
 use crate::rt_logo;
@@ -29,6 +30,8 @@ struct Jev {
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 struct Routing {
+    #[serde(default)]
+    enabled: bool,
     channels: Vec<String>,
     first: String,
     options: Vec<Choice>,
@@ -244,6 +247,26 @@ pub(super) fn RoutingCard() -> impl IntoView {
         });
     };
 
+    let toggle_all = move |on: bool| {
+        if busy.get_untracked() {
+            return;
+        }
+        busy.set(true);
+        spawn_local(async move {
+            match api::send::<Value>("PUT", "/api/routing", &json!({ "enabled": on })).await {
+                Ok(_) => flash(if on {
+                    "智能路由已打开"
+                } else {
+                    "智能路由已关闭"
+                }),
+                Err(e) => toast_error("没保存上", &e),
+            }
+            let _ = busy.try_set(false);
+            let _ = rev.try_update(|n| *n += 1);
+        });
+    };
+    let off = move || data.get().and_then(Result::ok).is_some_and(|r| !r.enabled);
+
     view! {
         <section class="card routing-card" aria-label="智能路由">
             <div class="card-head">
@@ -253,8 +276,10 @@ pub(super) fn RoutingCard() -> impl IntoView {
                     data.get()
                         .and_then(Result::ok)
                         .map(|r| {
-                            let label = if r.jev.key {
-                                "按难度和额度挑"
+                            let label = if !r.enabled {
+                                "已关闭"
+                            } else if r.jev.key {
+                                "Jev 挑型号"
                             } else {
                                 "只按额度挑"
                             };
@@ -262,91 +287,109 @@ pub(super) fn RoutingCard() -> impl IntoView {
                         })
                 }}
                 <span class="grow"></span>
+                {move || {
+                    data.get()
+                        .and_then(Result::ok)
+                        .map(|r| {
+                            view! {
+                                <Switch
+                                    label="智能路由"
+                                    checked=r.enabled
+                                    disabled=busy
+                                    on_change=Callback::new(toggle_all)
+                                />
+                            }
+                        })
+                }}
             </div>
             <p class="route-lead">
-                "对话里选 Auto 时，Blazar 替你挑软件和型号：平时用首选，它的额度用过一半后逐步分给别家，到了额度线就不再用。只在新对话的第一条消息时挑，挑定后这个对话不再换。"
+                "打开后，新对话默认用 Auto：Jev 判断每条消息该用哪个型号，账号按剩余额度挑。对话中途只在同一个软件里换，要 Jev 很有把握或者账号到了额度线才换。在对话里手动选型号或用 /model 指定，就按你选的来，直到切回 Auto。"
             </p>
-            {move || match data.get() {
-                None => view! { <LoadingState text="正在加载智能路由…" /> }.into_any(),
-                Some(Err(error)) => {
-                    view! {
-                        <InlineError
-                            lead="无法加载智能路由"
-                            error=error
-                            retry=Callback::new(move |_| rev.update(|n| *n += 1))
-                        />
-                    }
-                        .into_any()
-                }
-                Some(Ok(r)) => rows(r, rev).into_any(),
-            }}
-            <div class="route-jev">
-                <div class="route-jev-text">
-                    <b>"难度判断（Jev）"</b>
-                    <span>
-                        "填上 TypeSafe 的 key 后，每个新对话的第一条消息（最多 6000 字）会先发给 Jev 判断难度和类型，约 1 秒、每次约 $0.0001。简单任务改用 Sonnet 或 Codex 低推理，难任务 Codex 用高推理，其余用你的默认型号。不填就只按额度挑。"
-                    </span>
-                </div>
-                <div class="route-jev-act">
-                    {move || {
-                        if has_key() {
-                            view! {
-                                <button
-                                    type="button"
-                                    class="btn small"
-                                    disabled=move || busy.get()
-                                    on:click=test
-                                >
-                                    "测试"
-                                </button>
-                                <button
-                                    type="button"
-                                    class="btn ghost small"
-                                    disabled=move || busy.get()
-                                    on:click=remove_key
-                                >
-                                    "移除 key"
-                                </button>
-                            }
-                                .into_any()
-                        } else {
-                            view! {
-                                <input
-                                    type="password"
-                                    class="settings-input"
-                                    placeholder="TypeSafe API key"
-                                    autocomplete="off"
-                                    aria-label="TypeSafe API key"
-                                    prop:value=move || key.get()
-                                    on:input=move |e| key.set(event_target_value(&e))
-                                />
-                                <button
-                                    type="button"
-                                    class="btn small"
-                                    disabled=move || busy.get() || key.with(|k| k.trim().is_empty())
-                                    on:click=save_key
-                                >
-                                    "保存"
-                                </button>
-                            }
-                                .into_any()
+            <div class="route-body" data-off=move || off().then_some("")>
+                {move || match data.get() {
+                    None => view! { <LoadingState text="正在加载智能路由…" /> }.into_any(),
+                    Some(Err(error)) => {
+                        view! {
+                            <InlineError
+                                lead="无法加载智能路由"
+                                error=error
+                                retry=Callback::new(move |_| rev.update(|n| *n += 1))
+                            />
                         }
-                    }}
-                </div>
-                <p class="route-test" aria-live="polite">
-                    {move || {
-                        result
-                            .get()
-                            .unwrap_or_else(|| {
-                                if has_key() {
-                                    "key 已保存。点「测试」用一条示例任务试一次。"
-                                        .to_owned()
-                                } else {
-                                    "还没填 key，现在只按额度挑。".to_owned()
+                            .into_any()
+                    }
+                    Some(Ok(r)) => rows(r, rev).into_any(),
+                }}
+                <div class="route-jev">
+                    <div class="route-jev-text">
+                        <b>"难度判断（Jev）"</b>
+                        <span>
+                            "填上 TypeSafe 的 key 后，每条 Auto 消息会先发给 Jev，由它在能用的型号里挑一个：新对话发第一条消息的前 6000 字，之后再带上对话开头，约 1 秒、每次约 $0.0001。不填就只按额度挑软件，型号用你的默认。"
+                        </span>
+                    </div>
+                    <div class="route-jev-act">
+                        {move || {
+                            if has_key() {
+                                view! {
+                                    <button
+                                        type="button"
+                                        class="btn small"
+                                        disabled=move || busy.get()
+                                        on:click=test
+                                    >
+                                        "测试"
+                                    </button>
+                                    <button
+                                        type="button"
+                                        class="btn ghost small"
+                                        disabled=move || busy.get()
+                                        on:click=remove_key
+                                    >
+                                        "移除 key"
+                                    </button>
                                 }
-                            })
-                    }}
-                </p>
+                                    .into_any()
+                            } else {
+                                view! {
+                                    <input
+                                        type="password"
+                                        class="settings-input"
+                                        placeholder="TypeSafe API key"
+                                        autocomplete="off"
+                                        aria-label="TypeSafe API key"
+                                        prop:value=move || key.get()
+                                        on:input=move |e| key.set(event_target_value(&e))
+                                    />
+                                    <button
+                                        type="button"
+                                        class="btn small"
+                                        disabled=move || {
+                                            busy.get() || key.with(|k| k.trim().is_empty())
+                                        }
+                                        on:click=save_key
+                                    >
+                                        "保存"
+                                    </button>
+                                }
+                                    .into_any()
+                            }
+                        }}
+                    </div>
+                    <p class="route-test" aria-live="polite">
+                        {move || {
+                            result
+                                .get()
+                                .unwrap_or_else(|| {
+                                    if has_key() {
+                                        "key 已保存。点「测试」用一条示例任务试一次。"
+                                            .to_owned()
+                                    } else {
+                                        "还没填 key，现在只按额度挑。".to_owned()
+                                    }
+                                })
+                        }}
+                    </p>
+                </div>
             </div>
         </section>
     }

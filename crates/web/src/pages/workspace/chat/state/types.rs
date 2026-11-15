@@ -27,6 +27,8 @@ pub struct Thread {
     pub cause: Option<blazar_core_types::failure::FailureCause>,
     #[serde(default)]
     pub handled: bool,
+    #[serde(default)]
+    pub auto: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

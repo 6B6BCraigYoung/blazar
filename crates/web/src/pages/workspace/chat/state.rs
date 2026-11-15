@@ -94,6 +94,7 @@ pub struct Chat {
 
     pub agents: RwSignal<Vec<AgentInfo>>,
     pub installed: RwSignal<Option<Vec<String>>>,
+    pub routing: RwSignal<Option<bool>>,
     /// 本机一个智能体都没装：输入框换成一行说明和「Install」。
     pub no_agent: RwSignal<bool>,
     pub profiles: RwSignal<Vec<Profile>>,
@@ -196,6 +197,7 @@ impl Chat {
             busy: RwSignal::new(0),
             agents: RwSignal::new(Vec::new()),
             installed: RwSignal::new(None),
+            routing: RwSignal::new(None),
             no_agent: RwSignal::new(false),
             profiles: RwSignal::new(Vec::new()),
             accounts: RwSignal::new(None),

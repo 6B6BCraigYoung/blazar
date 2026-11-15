@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -61,9 +62,19 @@ pub struct Verdict {
     pub difficulty_confidence: f64,
     pub kind: String,
     pub kind_confidence: f64,
+    pub pick: Option<String>,
+    pub pick_confidence: f64,
+    pub probs: BTreeMap<String, f64>,
     pub model: Option<String>,
     pub ms: u64,
     pub cost_usd: Option<f64>,
+}
+
+impl Verdict {
+    #[must_use]
+    pub fn prob(&self, key: &str) -> f64 {
+        self.probs.get(key).copied().unwrap_or(0.0)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -110,28 +121,36 @@ impl Failure {
 }
 
 #[must_use]
-pub fn body(text: &str) -> Value {
+pub fn body(text: &str, choices: &[(String, String)]) -> Value {
     let state: String = text.trim().chars().take(MAX_CHARS).collect();
     let kinds: Map<String, Value> = KINDS
         .iter()
         .map(|(k, d)| ((*k).to_owned(), json!(d)))
         .collect();
-    json!({
-        "model": MODEL,
-        "state": state,
-        "questions": {
-            "difficulty": {
-                "type": "score",
-                "instructions": "How hard is this request for an AI coding agent working in a software project?",
-                "criteria": LEVELS,
-            },
-            "kind": {
-                "type": "choice",
-                "instructions": "What kind of work does this request ask for?",
-                "criteria": kinds,
-            },
+    let mut questions = json!({
+        "difficulty": {
+            "type": "score",
+            "instructions": "How hard is this request for an AI coding agent working in a software project?",
+            "criteria": LEVELS,
         },
-    })
+        "kind": {
+            "type": "choice",
+            "instructions": "What kind of work does this request ask for?",
+            "criteria": kinds,
+        },
+    });
+    if choices.len() > 1 {
+        let options: Map<String, Value> = choices
+            .iter()
+            .map(|(k, about)| (k.clone(), json!(about)))
+            .collect();
+        questions["model"] = json!({
+            "type": "choice",
+            "instructions": "Which of these AI coding setups fits this request best? Prefer a lighter, faster setup whenever it can clearly do the job well.",
+            "criteria": options,
+        });
+    }
+    json!({ "model": MODEL, "state": state, "questions": questions })
 }
 
 fn num(v: &Value) -> Option<f64> {
@@ -155,11 +174,26 @@ pub fn parse(v: &Value) -> Option<Verdict> {
     let estimate = v["usage"]["input_tokens"]
         .as_u64()
         .map(|t| t as f64 * PRICE_PER_TOKEN);
+    let m = &v["answers"]["model"];
+    let pick = m["choice"].as_str().map(str::to_owned);
+    let pick_confidence = num(&m["confidence"]).unwrap_or(0.0).clamp(0.0, 1.0);
+    let mut probs: BTreeMap<String, f64> = m["probabilities"]
+        .as_object()
+        .into_iter()
+        .flatten()
+        .filter_map(|(k, p)| num(p).map(|p| (k.clone(), p.clamp(0.0, 1.0))))
+        .collect();
+    if let Some(p) = pick.as_ref().filter(|p| !probs.contains_key(*p)) {
+        probs.insert(p.clone(), pick_confidence);
+    }
     Some(Verdict {
         difficulty,
         difficulty_confidence: num(&d["confidence"]).unwrap_or(1.0).clamp(0.0, 1.0),
         kind,
         kind_confidence: num(&k["confidence"]).unwrap_or(1.0).clamp(0.0, 1.0),
+        pick,
+        pick_confidence,
+        probs,
         model: v["model"].as_str().map(str::to_owned),
         ms: 0,
         cost_usd: num(&v["usage"]["cost"])
@@ -205,11 +239,12 @@ pub fn failure(code: u16, v: &Value) -> Failure {
     }
 }
 
-pub async fn judge(key: &str, text: &str) -> Result<Verdict, Failure> {
-    judge_at(URL, key, text).await
-}
-
-pub async fn judge_at(url: &str, key: &str, text: &str) -> Result<Verdict, Failure> {
+pub async fn judge_at(
+    url: &str,
+    key: &str,
+    text: &str,
+    choices: &[(String, String)],
+) -> Result<Verdict, Failure> {
     let client = reqwest::Client::builder()
         .connect_timeout(TIMEOUT)
         .redirect(reqwest::redirect::Policy::none())
@@ -220,7 +255,7 @@ pub async fn judge_at(url: &str, key: &str, text: &str) -> Result<Verdict, Failu
         .post(url)
         .bearer_auth(key)
         .header(CONTENT_TYPE, "application/json")
-        .body(body(text).to_string())
+        .body(body(text, choices).to_string())
         .timeout(TIMEOUT)
         .send()
         .await

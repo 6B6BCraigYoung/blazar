@@ -714,16 +714,23 @@ pub fn Composer(
         if rt == "auto" {
             return ("Auto".to_owned(), None);
         }
-        let s = chat.model_sel(&rt);
+        let routed = chat.agent.get() == super::state::AUTO_AGENT;
+        let s = if routed {
+            super::state::ModelSel::default()
+        } else {
+            chat.model_sel(&rt)
+        };
         let list = chat.models_for(&rt);
-        let m = list
-            .iter()
-            .find(|x| x.id == s.model.clone().unwrap_or_default())
-            .or_else(|| list.first());
-        let name = m
-            .map(|m| crate::model_pick::short_name(&m.label, &m.desc))
-            .filter(|n| !n.is_empty() && n != "Default")
-            .unwrap_or_else(|| "Default".to_owned());
+        let picked = s.model.clone().filter(|m| !m.is_empty());
+        let found = list.iter().find(|x| picked.as_ref() == Some(&x.id));
+        let name = match (found, picked.as_deref()) {
+            (None, Some(id)) => model_name(id),
+            (found, _) => found
+                .or_else(|| list.first())
+                .map(|m| crate::model_pick::short_name(&m.label, &m.desc))
+                .filter(|n| !n.is_empty() && n != "Default")
+                .unwrap_or_else(|| "Default".to_owned()),
+        };
         let same_runtime = chat.view.get().is_none_or(|id| {
             chat.threads.with(|t| {
                 t.iter()
@@ -742,7 +749,13 @@ pub fn Composer(
                     Some(chat.listed_model(&rt, &m).unwrap_or_else(|| model_name(&m)))
                 }
             });
-        (running.unwrap_or(name), s.effort.map(|e| eff_label(&e)))
+        let shown = running.unwrap_or(name);
+        let shown = if routed {
+            format!("Auto · {shown}")
+        } else {
+            shown
+        };
+        (shown, s.effort.map(|e| eff_label(&e)))
     };
 
     let review_n = move || chat.diff.comments.with(Vec::len);

@@ -412,13 +412,10 @@ async fn prompt_inner(
         None => None,
     };
     let routed = if profile.is_none() && req.agent.as_deref() == Some(crate::routing::AUTO) {
-        match prior.as_ref() {
-            Some(p) => {
-                req.agent = Some(p.4.clone());
-                None
-            }
-            None => {
-                let d = crate::routing::decide(
+        let on = crate::routing::settings(&st).await.enabled;
+        let decision = match (on, prior.as_ref()) {
+            (true, None) => Some(
+                crate::routing::decide(
                     &st,
                     crate::routing::Ask {
                         text: &req.text,
@@ -427,20 +424,46 @@ async fn prompt_inner(
                         run_node: &run_node,
                     },
                 )
-                .await;
-                req.agent = Some(d.runtime.clone());
-                if req.model.as_deref().is_none_or(str::is_empty) {
-                    req.model.clone_from(&d.model);
-                }
-                if req.effort.as_deref().is_none_or(str::is_empty) {
-                    req.effort.clone_from(&d.effort);
-                }
-                if d.account.is_some() {
-                    req.account.clone_from(&d.account);
-                }
-                Some(d)
+                .await,
+            ),
+            (true, Some(p)) => {
+                let cur = crate::routing::current(&st, &p.0, &p.4, p.3.as_deref()).await;
+                Some(
+                    crate::routing::follow(
+                        &st,
+                        crate::routing::Ask {
+                            text: &req.text,
+                            images: !req.images.is_empty(),
+                            remote: node != "local",
+                            run_node: &run_node,
+                        },
+                        &cur,
+                    )
+                    .await,
+                )
+            }
+            (false, Some(p)) => {
+                req.agent = Some(p.4.clone());
+                None
+            }
+            (false, None) => {
+                req.agent = Some(crate::routing::quiet_runtime(&st).await);
+                None
+            }
+        };
+        if let Some(d) = &decision {
+            req.agent = Some(d.runtime.clone());
+            if req.model.as_deref().is_none_or(str::is_empty) {
+                req.model.clone_from(&d.model);
+            }
+            if req.effort.as_deref().is_none_or(str::is_empty) {
+                req.effort.clone_from(&d.effort);
+            }
+            if d.account.is_some() {
+                req.account.clone_from(&d.account);
             }
         }
+        decision
     } else {
         None
     };
@@ -896,7 +919,7 @@ async fn prompt_inner(
             entry: Box::new(user_entry),
         });
         let mut next_seq = 2;
-        if let Some(d) = &routed {
+        if let Some(d) = routed.as_ref().filter(|d| !d.note.is_empty()) {
             crate::routing::announce(&st, session_id, workspace_id, next_seq, &d.note)
                 .await
                 .map_err(ApiError)?;

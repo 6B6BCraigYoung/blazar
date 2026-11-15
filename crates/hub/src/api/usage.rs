@@ -157,6 +157,8 @@ pub async fn workspace_sessions(
                    ORDER BY x.created_at DESC LIMIT 1) AS cause,
                 (SELECT x.handled_at IS NOT NULL FROM sessions x WHERE COALESCE(x.thread_id, x.id) = t.thread
                    ORDER BY x.created_at DESC LIMIT 1) AS handled,
+                (SELECT x.route IS NOT NULL FROM sessions x WHERE COALESCE(x.thread_id, x.id) = t.thread
+                   ORDER BY x.created_at DESC LIMIT 1) AS routed,
                 (SELECT x.summary FROM sessions x WHERE COALESCE(x.thread_id, x.id) = t.thread
                    ORDER BY x.created_at DESC LIMIT 1) AS summary,
                 (SELECT x.ask FROM sessions x WHERE COALESCE(x.thread_id, x.id) = t.thread
@@ -229,6 +231,7 @@ pub async fn workspace_sessions(
                     "status": status,
                     "cause": r.try_get::<Option<String>, _>("cause").unwrap_or(None),
                     "handled": r.try_get::<Option<bool>, _>("handled").unwrap_or(None) == Some(true),
+                    "auto": r.try_get::<Option<bool>, _>("routed").unwrap_or(None) == Some(true),
                     "profile": r.try_get::<Option<String>, _>("agent_profile").unwrap_or(None),
                     "created_at": r.try_get::<String, _>("created_at").unwrap_or_default(),
                     "last_at": r.try_get::<Option<String>, _>("last_at").unwrap_or(None),

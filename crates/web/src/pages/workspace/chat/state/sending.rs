@@ -10,7 +10,9 @@ use crate::storage;
 
 use super::delivery::{steer_request, take_composer};
 use super::send_context::SendContext;
-use super::{ACC_RUNTIMES, CONTINUE_TEXT, Chat, Comment, PendingMsg, Queued, ShellRun};
+use super::{
+    ACC_RUNTIMES, AUTO_AGENT, CONTINUE_TEXT, Chat, Comment, ModelSel, PendingMsg, Queued, ShellRun,
+};
 
 const PROMPT_HISTORY_MAX: usize = 200;
 
@@ -166,10 +168,17 @@ impl Chat {
             let rt = rt.clone();
             untrack(move || self.own_sel(&rt)).unwrap_or_default()
         };
+        let auto = agent == AUTO_AGENT;
         let mut o = serde_json::Map::new();
         o.insert("resume".into(), json!(!self.fresh.get_untracked()));
-        o.insert("model".into(), json!(sel.model));
-        o.insert("effort".into(), json!(sel.effort));
+        o.insert(
+            "model".into(),
+            if auto { Value::Null } else { json!(sel.model) },
+        );
+        o.insert(
+            "effort".into(),
+            if auto { Value::Null } else { json!(sel.effort) },
+        );
         let perm = untrack(move || self.effective_mode()).map(|m| m.0);
         o.insert("permission_mode".into(), json!(perm));
         o.insert("agent".into(), json!(agent.strip_prefix("r:")));
@@ -178,7 +187,7 @@ impl Chat {
             "brain".into(),
             json!(if self.remote() { "node" } else { "local" }),
         );
-        let acc = (agent.starts_with("r:") && ACC_RUNTIMES.contains(&rt.as_str()))
+        let acc = (!auto && agent.starts_with("r:") && ACC_RUNTIMES.contains(&rt.as_str()))
             .then(|| untrack(move || self.acc_sel()))
             .filter(|a| !a.is_empty())
             .filter(|a| {
@@ -289,7 +298,72 @@ impl Chat {
         });
     }
 
+    pub fn pick_named_model(self, query: String) {
+        self.spawn(async move {
+            let v = match api::send::<Value>(
+                "POST",
+                "/api/routing/resolve",
+                &json!({ "query": query }),
+            )
+            .await
+            {
+                Ok(v) => v,
+                Err(e) => {
+                    toast(format!("Couldn't switch the model: {e}"));
+                    return;
+                }
+            };
+            if v["ok"] != true {
+                toast(v["error"].as_str().unwrap_or("No model matches"));
+                return;
+            }
+            let p = &v["pick"];
+            let text = |k: &str| p[k].as_str().filter(|x| !x.is_empty()).map(str::to_owned);
+            let agent = text("agent").unwrap_or_default();
+            if agent == AUTO_AGENT {
+                if self.routing.get_untracked() == Some(true) {
+                    self.agent.set(AUTO_AGENT.to_owned());
+                    toast("Back to Auto: the next message picks its model");
+                } else {
+                    toast("Smart routing is off; turn it on under Accounts first");
+                }
+                return;
+            }
+            let rt = text("runtime").unwrap_or_default();
+            self.set_agent(agent);
+            if let Some(a) = text("account").filter(|_| ACC_RUNTIMES.contains(&rt.as_str())) {
+                self.set_acc_sel(&a, self.view.get_untracked().as_deref());
+            }
+            self.set_model_sel(
+                &rt,
+                &ModelSel {
+                    model: text("model"),
+                    effort: text("effort"),
+                },
+            );
+            self.load_models(&rt, false);
+            toast(format!(
+                "Switched to {}; the next message uses it",
+                text("label").unwrap_or(rt)
+            ));
+        });
+    }
+
     pub fn send(self) {
+        if self.attach.with_untracked(Vec::is_empty)
+            && let Some(query) = self
+                .prompt
+                .with_untracked(|p| {
+                    p.trim()
+                        .strip_prefix("/model ")
+                        .map(|q| q.trim().to_owned())
+                })
+                .filter(|q| !q.is_empty())
+        {
+            self.prompt.set(String::new());
+            self.pick_named_model(query);
+            return;
+        }
         if self.attach.with_untracked(Vec::is_empty)
             && let Some(command) = self
                 .prompt

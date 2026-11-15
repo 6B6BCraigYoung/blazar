@@ -704,3 +704,193 @@ async fn an_auto_turn_runs_where_routing_points_and_says_why_under_the_message()
         "{events:?}"
     );
 }
+
+async fn auto_prior(st: &Shared, ws: WorkspaceId) -> String {
+    let prior = SessionId::new().to_string();
+    sqlx::query(
+        "INSERT INTO sessions (id, workspace_id, runtime_kind, status, created_at, node, provider_session_id, account_id, route)
+         VALUES (?1, ?2, 'claude', 'done', '1', 'local', 'p1', 'claude-default', ?3)",
+    )
+    .bind(&prior)
+    .bind(ws.to_string())
+    .bind(r#"{"channel":"claude","runtime":"claude","account":"claude-default","model":null,"label":"Claude Code"}"#)
+    .execute(st.db.pool())
+    .await
+    .unwrap();
+    for (seq, payload) in [
+        (
+            1,
+            r#"{"type":"user_message","text":"what does this repo do?"}"#,
+        ),
+        (
+            2,
+            r#"{"type":"session_started","provider_session_id":"p1","model":"claude-opus-5-5"}"#,
+        ),
+    ] {
+        sqlx::query("INSERT INTO events (session_id, seq, ts, payload) VALUES (?1, ?2, '1', ?3)")
+            .bind(&prior)
+            .bind(seq)
+            .bind(payload)
+            .execute(st.db.pool())
+            .await
+            .unwrap();
+    }
+    prior
+}
+
+async fn picking_jev(wanted: &'static str) -> String {
+    let app = axum::Router::new().route(
+        "/v1/systemone",
+        axum::routing::post(move |body: axum::Json<serde_json::Value>| async move {
+            let criteria = body.0["questions"]["model"]["criteria"].clone();
+            let keys: Vec<String> = criteria
+                .as_object()
+                .map(|o| o.keys().cloned().collect())
+                .unwrap_or_default();
+            let pick = keys
+                .iter()
+                .find(|k| {
+                    criteria[k.as_str()]
+                        .as_str()
+                        .is_some_and(|a| a.contains(wanted))
+                })
+                .cloned()
+                .unwrap_or_default();
+            let probs: serde_json::Map<String, serde_json::Value> = keys
+                .iter()
+                .map(|k| {
+                    (
+                        k.clone(),
+                        serde_json::json!(if *k == pick { 0.8 } else { 0.01 }),
+                    )
+                })
+                .collect();
+            axum::Json(serde_json::json!({
+                "answers": {
+                    "difficulty": { "score": 0.2, "confidence": 0.9 },
+                    "kind": { "choice": "question", "confidence": 0.9 },
+                    "model": { "choice": pick, "confidence": 0.8, "probabilities": probs }
+                }
+            }))
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    format!("http://{addr}/v1/systemone")
+}
+
+async fn latest_turn(st: &Shared) -> (String, Option<String>, Vec<String>) {
+    let (id, route): (String, Option<String>) =
+        sqlx::query_as("SELECT id, route FROM sessions ORDER BY created_at DESC LIMIT 1")
+            .fetch_one(st.db.pool())
+            .await
+            .unwrap();
+    let events: Vec<String> =
+        sqlx::query_scalar("SELECT payload FROM events WHERE session_id = ?1 ORDER BY seq")
+            .bind(&id)
+            .fetch_all(st.db.pool())
+            .await
+            .unwrap();
+    (id, route, events)
+}
+
+#[tokio::test]
+async fn an_auto_followup_stays_put_without_a_clear_reason_to_move() {
+    let (_dir, st, ws, fake) = fixture().await;
+    let thread = auto_prior(&st, ws).await;
+    let req = serde_json::from_value(serde_json::json!({
+        "text": "and the tests?", "agent": "auto", "resume": true, "resume_session": thread,
+    }))
+    .unwrap();
+    let transport = fake.clone();
+    let _ = prompt_using(st.clone(), ws.to_string(), req, move |_| transport.clone())
+        .await
+        .unwrap_or_else(|error| panic!("{}", error.message()));
+    let (_, route, events) = latest_turn(&st).await;
+    let route: serde_json::Value = serde_json::from_str(&route.unwrap()).unwrap();
+    assert_eq!(route["kept"], true);
+    assert!(events.iter().all(|e| !e.contains("Auto →")), "{events:?}");
+    assert!(
+        !exec_line(&fake).contains("--model"),
+        "{}",
+        exec_line(&fake)
+    );
+}
+
+#[tokio::test]
+async fn an_auto_followup_moves_to_a_lighter_model_when_jev_is_sure() {
+    let (_dir, st, ws, fake) = fixture().await;
+    let thread = auto_prior(&st, ws).await;
+    crate::routing::jev::save_key(&st, "ts-key-123456").unwrap();
+    let url = picking_jev("with Haiku").await;
+    crate::office::kv_put(&st, "routing", &serde_json::json!({ "jev_url": url }))
+        .await
+        .unwrap();
+    let req = serde_json::from_value(serde_json::json!({
+        "text": "what is 2 + 2?", "agent": "auto", "resume": true, "resume_session": thread,
+    }))
+    .unwrap();
+    let transport = fake.clone();
+    let _ = prompt_using(st.clone(), ws.to_string(), req, move |_| transport.clone())
+        .await
+        .unwrap_or_else(|error| panic!("{}", error.message()));
+    let (_, route, events) = latest_turn(&st).await;
+    let route: serde_json::Value = serde_json::from_str(&route.unwrap()).unwrap();
+    assert_eq!(route["model"], "haiku");
+    assert!(
+        events
+            .iter()
+            .any(|e| e.contains("Auto → Claude Code · Haiku · trivial question")),
+        "{events:?}"
+    );
+    assert!(
+        exec_line(&fake).contains("--model haiku"),
+        "{}",
+        exec_line(&fake)
+    );
+}
+
+#[tokio::test]
+async fn naming_a_model_in_an_auto_conversation_takes_it_off_auto() {
+    let (_dir, st, ws, fake) = fixture().await;
+    let thread = auto_prior(&st, ws).await;
+    let req = serde_json::from_value(serde_json::json!({
+        "text": "redo it", "agent": "claude", "model": "sonnet", "resume": true, "resume_session": thread,
+    }))
+    .unwrap();
+    let transport = fake.clone();
+    let _ = prompt_using(st.clone(), ws.to_string(), req, move |_| transport.clone())
+        .await
+        .unwrap_or_else(|error| panic!("{}", error.message()));
+    let (_, route, _) = latest_turn(&st).await;
+    assert_eq!(route, None);
+    assert!(
+        exec_line(&fake).contains("--model sonnet"),
+        "{}",
+        exec_line(&fake)
+    );
+}
+
+#[tokio::test]
+async fn back_on_auto_after_a_manual_switch_starts_from_the_manual_pick() {
+    let (_dir, st, ws, _fake) = fixture().await;
+    let thread = auto_prior(&st, ws).await;
+    sqlx::query(
+        "INSERT INTO sessions (id, workspace_id, runtime_kind, status, created_at, node, thread_id, request)
+         VALUES (?1, ?2, 'codex', 'done', '2', 'local', ?3, ?4)",
+    )
+    .bind(SessionId::new().to_string())
+    .bind(ws.to_string())
+    .bind(&thread)
+    .bind(r#"{"text":"redo","agent":"codex","model":"gpt-5.5-codex"}"#)
+    .execute(st.db.pool())
+    .await
+    .unwrap();
+    let on_codex = crate::routing::current(&st, &thread, "codex", None).await;
+    assert_eq!(on_codex.model.as_deref(), Some("gpt-5.5-codex"));
+    assert_eq!(on_codex.channel, "codex");
+    let stale = crate::routing::current(&st, &thread, "claude", None).await;
+    assert_eq!(stale.model, None);
+    assert_eq!(stale.opening, "what does this repo do?");
+}

@@ -18,7 +18,18 @@ impl Chat {
     }
 
     pub fn runtime(self) -> String {
-        self.runtime_of(&self.agent.get())
+        let a = self.agent.get();
+        if a == AUTO_AGENT {
+            return self.auto_runtime().unwrap_or_else(|| "auto".into());
+        }
+        self.runtime_of(&a)
+    }
+
+    pub fn auto_runtime(self) -> Option<String> {
+        let id = self.view.get()?;
+        self.threads
+            .with(|t| t.iter().find(|x| x.id == id).map(|x| x.runtime.clone()))
+            .filter(|r| !r.is_empty())
     }
 
     pub fn runtime_of(self, a: &str) -> String {
@@ -43,7 +54,10 @@ impl Chat {
             return format!("{} · {}", p.name, p.runtime_label);
         }
         if a == AUTO_AGENT {
-            return "Auto".into();
+            return match self.auto_runtime() {
+                Some(rt) => format!("Auto · {}", self.runtime_label(&rt)),
+                None => "Auto".into(),
+            };
         }
         let rt = a.strip_prefix("r:").unwrap_or("");
         self.agents
@@ -213,6 +227,9 @@ impl Chat {
     /// Changes the model of this conversation only; a new conversation keeps the pick until its
     /// first message.
     pub fn set_model_sel(self, rt: &str, v: &ModelSel) {
+        if rt != "auto" && self.agent.get_untracked() == AUTO_AGENT {
+            self.agent.set(format!("r:{rt}"));
+        }
         let prev = self.model_sel(rt);
         match self.view.get_untracked() {
             Some(t) => {
@@ -420,6 +437,16 @@ impl Chat {
             if let Ok(p) = api::get::<Vec<Profile>>("/api/agent-profiles").await {
                 let _ = self.profiles.try_set(p);
             }
+            if let Ok(r) = api::get::<Value>("/api/routing").await {
+                let on = r["enabled"].as_bool().unwrap_or(false);
+                let _ = self.routing.try_set(Some(on));
+                if on
+                    && self.view.get_untracked().is_none()
+                    && self.agent.get_untracked() != AUTO_AGENT
+                {
+                    let _ = self.agent.try_set(AUTO_AGENT.to_owned());
+                }
+            }
             if let Ok(r) = api::get::<api::Runtimes>("/api/runtimes").await {
                 let ok = r
                     .runtimes
@@ -482,7 +509,7 @@ impl Chat {
         }
         let cur = self.agent.get_untracked();
         let ok = if cur == AUTO_AGENT {
-            true
+            self.routing.get_untracked() != Some(false)
         } else if let Some(id) = cur.strip_prefix("p:") {
             self.profiles
                 .with_untracked(|p| p.iter().any(|x| x.id == id))

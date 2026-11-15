@@ -38,7 +38,9 @@ pub use probe::{
 pub use quota::{
     Quota, parse_codex_rate_limits, parse_oauth_usage, parse_quota_headers, quota, quota_all,
 };
-pub use selection::{Candidate, Chosen, Window, best, model_family, outlook, resolve, score};
+pub use selection::{
+    Candidate, Chosen, SeatInfo, Window, best, model_family, outlook, resolve, score, seats,
+};
 
 pub const PROVIDERS: &[&str] = &["claude", "codex"];
 

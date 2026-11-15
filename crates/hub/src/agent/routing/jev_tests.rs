@@ -5,7 +5,7 @@ use super::*;
 #[test]
 fn asks_one_score_and_one_choice_about_the_trimmed_request() {
     let long = "x".repeat(10_000);
-    let b = body(&format!("  {long}  "));
+    let b = body(&format!("  {long}  "), &[]);
     assert_eq!(b["model"], MODEL);
     assert_eq!(b["state"].as_str().unwrap().chars().count(), 6000);
     assert_eq!(b["questions"]["difficulty"]["type"], "score");
@@ -97,4 +97,50 @@ fn maps_errors_to_what_the_user_can_do() {
     );
     assert!(Failure::Credits.zh().contains("充值"));
     assert_eq!(Failure::Timeout.en(), "timed out");
+}
+
+#[test]
+fn offers_the_setups_as_a_choice_only_when_there_is_a_choice() {
+    let one = [("m0".to_owned(), "Claude Code with Opus".to_owned())];
+    assert!(body("fix it", &one)["questions"].get("model").is_none());
+    let two = [
+        ("m0".to_owned(), "Claude Code with Opus".to_owned()),
+        ("m1".to_owned(), "Claude Code with Sonnet".to_owned()),
+    ];
+    let b = body("fix it", &two);
+    assert_eq!(b["questions"]["model"]["type"], "choice");
+    assert_eq!(
+        b["questions"]["model"]["criteria"]["m1"],
+        "Claude Code with Sonnet"
+    );
+}
+
+#[test]
+fn reads_which_setup_it_picked_and_how_sure_it_was() {
+    let v = json!({
+        "answers": {
+            "difficulty": { "score": 0.4, "confidence": 0.9 },
+            "kind": { "choice": "question", "confidence": 0.9 },
+            "model": {
+                "type": "choice",
+                "choice": "m1",
+                "confidence": 0.72,
+                "probabilities": { "m0": 0.2, "m1": 0.72, "m2": 0.08 }
+            }
+        }
+    });
+    let got = parse(&v).unwrap();
+    assert_eq!(got.pick.as_deref(), Some("m1"));
+    assert!((got.pick_confidence - 0.72).abs() < 1e-9);
+    assert!((got.prob("m0") - 0.2).abs() < 1e-9);
+    assert!(got.prob("m9").abs() < 1e-9);
+
+    let bare = json!({
+        "answers": {
+            "difficulty": { "score": 1 },
+            "kind": { "choice": "fix" },
+            "model": { "choice": "m0", "confidence": 0.8 }
+        }
+    });
+    assert!((parse(&bare).unwrap().prob("m0") - 0.8).abs() < 1e-9);
 }

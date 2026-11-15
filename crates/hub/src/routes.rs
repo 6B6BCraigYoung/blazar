@@ -350,6 +350,7 @@ pub fn build_router(st: Arc<AppState>) -> Router {
             put(routing::put_key).delete(routing::delete_key),
         )
         .route("/api/routing/test", post(routing::test))
+        .route("/api/routing/resolve", post(routing::resolve_query))
         .route("/api/accounts/quota", post(accounts::quota_all))
         .route(
             "/api/accounts/endpoint-test",
