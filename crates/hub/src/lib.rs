@@ -115,6 +115,7 @@ pub async fn build_state_with_services(
     });
     services.spawn(proxy::restore(st.clone()));
     services.spawn(auto_resume::rearm(st.clone()));
+    services.spawn(crate::titles::repair(st.clone()));
     let settle = st.clone();
     services.spawn(async move {
         tokio::time::sleep(std::time::Duration::from_secs(60)).await;

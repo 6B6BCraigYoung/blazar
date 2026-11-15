@@ -36,16 +36,50 @@ pub fn looks_like_error(text: &str) -> bool {
     ERROR_MARKS.iter().any(|m| first.contains(m))
 }
 
-const ECHO_CUES: [&str; 8] = [
+const ECHO_CUES: &[&str] = &[
     "做什么",
     "标题",
     "摘要",
     "概括",
     "总结",
     "一句话",
+    "一句",
+    "建议",
+    "如下",
+    "是",
     "summary",
     "title",
 ];
+
+const CHATTER: &[&str] = &[
+    "起标题",
+    "起个标题",
+    "标签页标题",
+    "标签标题",
+    "标题任务",
+    "只输出标题",
+    "这段对话",
+    "对话的语言",
+    "用户用中文",
+    "用户要的是",
+    "用户的诉求",
+    "我需要",
+    "the user's message",
+    "the user wants",
+    "the user is asking",
+    "this conversation",
+    "i need to",
+    "let me",
+];
+
+fn chatter(line: &str) -> bool {
+    let low = line.to_lowercase();
+    CHATTER.iter().any(|c| low.contains(c))
+}
+
+fn leaked(title: &str) -> bool {
+    chatter(title) || title.contains("**") || strip_echo(title) != title
+}
 
 #[must_use]
 pub fn strip_echo(line: &str) -> &str {
@@ -121,15 +155,38 @@ pub fn fit(text: &str, max: usize) -> String {
     out
 }
 
+fn polish(line: &str) -> &str {
+    line.trim_start_matches(['-', '•'])
+        .trim_matches(|c: char| c.is_whitespace() || "\"'“”「」『』《》。．.*_`#".contains(c))
+}
+
+fn usable(line: &str) -> bool {
+    !line.is_empty() && !line.starts_with('/') && !looks_like_error(line) && !chatter(line)
+}
+
 fn clean(raw: &str) -> Option<String> {
-    let line = raw.lines().map(str::trim).find(|l| !l.is_empty())?;
-    let line = strip_echo(line)
-        .trim_matches(|c: char| "\"'“”「」『』《》。．.".contains(c))
-        .trim();
-    if line.is_empty() || line.starts_with('/') || looks_like_error(line) {
+    if looks_like_error(raw) {
         return None;
     }
-    Some(fit(line, MAX_CHARS))
+    let lines: Vec<&str> = raw
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect();
+    let marked = lines.iter().rev().filter_map(|l| {
+        let rest = strip_echo(l);
+        (rest.len() != l.len()).then_some(rest)
+    });
+    let line = marked
+        .chain(lines.iter().map(|l| strip_echo(l)))
+        .map(polish)
+        .find(|l| usable(l))?;
+    let chars: Vec<char> = line.chars().collect();
+    let line = match unmatched_opener(&chars) {
+        Some(i) if i > 0 => chars[..i].iter().collect::<String>().trim_end().to_owned(),
+        _ => line.to_owned(),
+    };
+    Some(fit(&line, MAX_CHARS))
 }
 
 pub struct Brain {
@@ -207,10 +264,10 @@ async fn opening(st: &Shared, sid: SessionId) -> Option<(String, String)> {
 
 async fn summarize(brain: &Brain, user: &str, assistant: &str) -> Option<String> {
     let prompt = format!(
-        "给下面这段对话起一个标签页标题：用对话本身的语言（用户用中文就用中文），\
+        "给下面这段对话起一个标签页标题：用对话本身的语言，\
          不超过 12 个字或 6 个英文单词，说清楚在做什么。\
-         直接输出标题这几个字，不要加「标题」「这段对话在做什么」之类的前缀，不要引号、句号或解释。\
-         \n\n用户：{user}\n\n助手：{assistant}"
+         \n\n用户：{user}\n\n助手：{assistant}\n\n\
+         只回一行「标题：」加标题本身，不要分析、引号、句号或解释。"
     );
     clean(&ask_haiku(brain, &prompt, 45).await?)
 }
@@ -316,6 +373,41 @@ pub async fn maybe_title(st: Shared, sid: SessionId, ws: WorkspaceId) {
     set_title(&st, sid, ws, &title).await;
 }
 
+pub async fn repair(st: Shared) {
+    for (sid, ws) in salvage(&st).await {
+        maybe_title(st.clone(), sid, ws).await;
+    }
+}
+
+async fn salvage(st: &Shared) -> Vec<(SessionId, WorkspaceId)> {
+    let rows: Vec<(String, String, String)> = sqlx::query_as(
+        "SELECT id, workspace_id, title FROM sessions WHERE title IS NOT NULL AND title <> ''",
+    )
+    .fetch_all(st.db.pool())
+    .await
+    .unwrap_or_default();
+    let mut redo = Vec::new();
+    for (id, ws, title) in rows.into_iter().filter(|(_, _, t)| leaked(t)) {
+        let (Some(sid), Some(ws)) = (
+            id.parse().ok().map(SessionId),
+            ws.parse().ok().map(WorkspaceId),
+        ) else {
+            continue;
+        };
+        match clean(&title) {
+            Some(fixed) if !leaked(&fixed) => set_title(st, sid, ws, &fixed).await,
+            _ => {
+                let _ = sqlx::query("UPDATE sessions SET title = NULL WHERE id = ?1")
+                    .bind(&id)
+                    .execute(st.db.pool())
+                    .await;
+                redo.push((sid, ws));
+            }
+        }
+    }
+    redo
+}
+
 async fn set_title(st: &Shared, sid: SessionId, ws: WorkspaceId, title: &str) {
     let _ = sqlx::query("UPDATE sessions SET title = ?2 WHERE id = ?1")
         .bind(sid.to_string())
@@ -361,6 +453,8 @@ pub async fn rename(
 
 #[cfg(test)]
 mod tests {
+    use blazar_core_types::{SessionId, WorkspaceId};
+
     #[cfg(unix)]
     #[tokio::test]
     async fn background_calls_leave_no_session_behind() {
@@ -423,6 +517,110 @@ mod tests {
         assert_eq!(
             clean("这段对话在做什么：在 lab-3.invalid 上为真机试验做准备").as_deref(),
             Some("在 lab-3.invalid 上为真机试验做准备")
+        );
+    }
+
+    #[test]
+    fn model_chatter_never_becomes_a_title() {
+        assert_eq!(
+            clean("需要为这段对话起标题。用户用中文，我用中文起标题\n修复登录超时").as_deref(),
+            Some("修复登录超时")
+        );
+        assert_eq!(
+            clean("需要给这段对话起标题。用户用中文，所以标题用中文…"),
+            None
+        );
+        assert_eq!(clean("Note: the user's message is a title…"), None);
+        assert_eq!(
+            clean("任务标题可以用这样一句：**中控台三段分工与展示站 null 修复**").as_deref(),
+            Some("中控台三段分工与展示站 null 修复")
+        );
+        assert_eq!(
+            clean("先看看对话讲了什么。\n标题：修复登录超时").as_deref(),
+            Some("修复登录超时")
+        );
+        assert_eq!(
+            clean("- **paginate users**").as_deref(),
+            Some("paginate users")
+        );
+        assert_eq!(
+            clean("这段对话在做什么：请求在 lab-3 上为真机试验做准备（方案丙，A/B/C").as_deref(),
+            Some("请求在 lab-3 上为真机试验做准备")
+        );
+        assert_eq!(
+            clean("修复登录（超时）").as_deref(),
+            Some("修复登录（超时）")
+        );
+        for t in ["修复登录超时", "标题改好了：测试通过", "让用户用飞书派活"]
+        {
+            assert!(!leaked(t), "{t}");
+        }
+        for t in [
+            "标签标题：Blazar 自迭代构建验证",
+            "每个 agent 的提问卡要有选项（标签页标题任务）",
+            "用户要的是给对话起标题，我只输出标题本身",
+        ] {
+            assert!(leaked(t), "{t}");
+        }
+    }
+
+    #[tokio::test]
+    async fn leaked_titles_are_fixed_or_cleared_for_another_try() {
+        let st = crate::AppState::with_services(
+            blazar_db::Db::open_in_memory().await.unwrap(),
+            "local".into(),
+            None,
+            crate::mesh::MeshCtx::new(None, std::env::temp_dir().join("blazar-title-tests")),
+            crate::services::Services::Isolated,
+        );
+        let pool = st.db.pool();
+        sqlx::query("INSERT INTO nodes (id, name, transport, status, created_at) VALUES ('n0', 'local', 'local', 'online', '0')")
+            .execute(pool)
+            .await
+            .unwrap();
+        let ws = WorkspaceId::new();
+        sqlx::query("INSERT INTO workspaces (id, node_id, name, path, activity, created_at) VALUES (?1, 'n0', 'repo', '/home/me/repo', 'idle', '0')")
+            .bind(ws.to_string())
+            .execute(pool)
+            .await
+            .unwrap();
+        let titles = [
+            "标签标题：Blazar 自迭代构建验证",
+            "需要为这段对话起标题。用户用中文，我用中文起标题…",
+            "修复登录超时",
+        ];
+        let mut ids = Vec::new();
+        for (i, t) in titles.iter().enumerate() {
+            let sid = SessionId::new();
+            sqlx::query("INSERT INTO sessions (id, workspace_id, runtime_kind, status, created_at, title) VALUES (?1, ?2, 'claude', 'done', ?3, ?4)")
+                .bind(sid.to_string())
+                .bind(ws.to_string())
+                .bind(i.to_string())
+                .bind(t)
+                .execute(pool)
+                .await
+                .unwrap();
+            ids.push(sid);
+        }
+        let redo = salvage(&st).await;
+        assert_eq!(redo.len(), 1);
+        assert_eq!(redo[0].0, ids[1]);
+        let mut now = Vec::new();
+        for sid in &ids {
+            let t: Option<String> = sqlx::query_scalar("SELECT title FROM sessions WHERE id = ?1")
+                .bind(sid.to_string())
+                .fetch_one(pool)
+                .await
+                .unwrap();
+            now.push(t);
+        }
+        assert_eq!(
+            now,
+            [
+                Some("Blazar 自迭代构建验证".to_owned()),
+                None,
+                Some("修复登录超时".to_owned()),
+            ]
         );
     }
 
