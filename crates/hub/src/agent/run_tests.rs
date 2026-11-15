@@ -1108,6 +1108,7 @@ async fn devin_switches_and_stops_through_its_own_protocol() {
         .is_err()
     );
     interrupt(&ctx.st, ctx.live.clone(), ctx.sid).await;
+    assert!(ctx.live.state.lock().await.interrupt_requested);
     let inputs = fake.inputs.lock().unwrap();
     assert!(
         inputs[0].1.contains("session/set_mode") && inputs[0].1.contains("\"modeId\":\"plan\"")
@@ -1117,7 +1118,6 @@ async fn devin_switches_and_stops_through_its_own_protocol() {
             && inputs[1].1.contains("session/cancel")
             && inputs[1].1.contains("perfect-surgeon")
     );
-    assert!(ctx.live.state.lock().await.interrupt_requested);
 }
 
 #[tokio::test]
