@@ -423,7 +423,10 @@ pub(super) fn model_pop(chat: Chat, pop: RwSignal<Option<Pop>>) -> impl IntoView
                     !m.is_empty() && sel.model.as_deref().is_none_or(str::is_empty)
                         && !chat.fresh.get()
                 })
-                .map(|m| super::presentation::model_name(&m))
+                .map(|m| {
+                    chat.listed_model(&rt, &m)
+                        .unwrap_or_else(|| super::presentation::model_name(&m))
+                })
                 .filter(|m| !m.starts_with(now.as_str()) && !now.starts_with(m.as_str()))?;
             Some(
                 view! {

@@ -16,9 +16,10 @@ pub struct CliRuntime {
     spec: &'static AgentSpec,
     program: String,
     droid: std::sync::Mutex<crate::droid::Turn>,
+    acp: std::sync::Mutex<crate::acp::State>,
 }
 
-fn briefing_of(session: &SessionSpec) -> String {
+pub(crate) fn briefing_of(session: &SessionSpec) -> String {
     [
         session
             .instructions
@@ -43,7 +44,7 @@ fn toml_string(value: &str) -> String {
     serde_json::Value::String(value.to_owned()).to_string()
 }
 
-fn env_reference(value: &str) -> Option<&str> {
+pub(crate) fn env_reference(value: &str) -> Option<&str> {
     value
         .strip_prefix("${")
         .and_then(|value| value.strip_suffix('}'))
@@ -93,40 +94,62 @@ fn codex_mcp_args(server: &crate::McpServerSpec, extra: &mut Vec<String>) {
         }
         return;
     }
+    let stdio = stdio_launch(server);
+    field("command", toml_string(&stdio.command));
+    field("args", serde_json::json!(stdio.args).to_string());
+    if !stdio.forwarded.is_empty() {
+        field("env_vars", serde_json::json!(stdio.forwarded).to_string());
+    }
+    if !stdio.env.is_empty() {
+        field("env", toml_map(stdio.env));
+    }
+}
+
+pub(crate) struct StdioLaunch {
+    pub command: String,
+    pub args: Vec<String>,
+    pub env: Vec<(String, String)>,
+    pub forwarded: std::collections::BTreeSet<String>,
+}
+
+pub(crate) fn stdio_launch(server: &crate::McpServerSpec) -> StdioLaunch {
     let mut forwarded = std::collections::BTreeSet::new();
     let mut script = String::new();
-    let mut literal = Vec::new();
+    let mut env = Vec::new();
     for (key, value) in &server.env {
         if let Some(source) = env_reference(value) {
-            forwarded.insert(source);
+            forwarded.insert(source.to_owned());
             let key = format!("'{}'", key.replace('\'', "'\\''"));
             script.push_str(&format!(
                 "export -- {key}=\"${{{source}?MCP environment variable missing}}\" || exit 1\n"
             ));
         } else {
-            literal.push((key.clone(), value.clone()));
+            env.push((key.clone(), value.clone()));
         }
     }
     if forwarded.is_empty() {
-        field("command", toml_string(&server.command));
-        field("args", serde_json::json!(server.args).to_string());
-    } else {
-        script.push_str("exec -- \"$@\"");
-        let mut args = vec![
-            "--noprofile".to_owned(),
-            "--norc".to_owned(),
-            "-c".to_owned(),
-            script,
-            "blazar-mcp".to_owned(),
-            server.command.clone(),
-        ];
-        args.extend(server.args.iter().cloned());
-        field("command", toml_string("bash"));
-        field("args", serde_json::json!(args).to_string());
-        field("env_vars", serde_json::json!(forwarded).to_string());
+        return StdioLaunch {
+            command: server.command.clone(),
+            args: server.args.clone(),
+            env,
+            forwarded,
+        };
     }
-    if !literal.is_empty() {
-        field("env", toml_map(literal));
+    script.push_str("exec -- \"$@\"");
+    let mut args = vec![
+        "--noprofile".to_owned(),
+        "--norc".to_owned(),
+        "-c".to_owned(),
+        script,
+        "blazar-mcp".to_owned(),
+        server.command.clone(),
+    ];
+    args.extend(server.args.iter().cloned());
+    StdioLaunch {
+        command: "bash".to_owned(),
+        args,
+        env,
+        forwarded,
     }
 }
 
@@ -137,6 +160,7 @@ impl CliRuntime {
             spec,
             program: spec.program.to_owned(),
             droid: std::sync::Mutex::default(),
+            acp: std::sync::Mutex::default(),
         }
     }
 
@@ -396,12 +420,51 @@ impl CliRuntime {
 
     #[must_use]
     pub fn interactive(&self) -> bool {
-        self.spec.interactive || self.app_server()
+        self.spec.interactive || self.app_server() || self.acp()
     }
 
     #[must_use]
     pub fn app_server(&self) -> bool {
         self.spec.id == "codex"
+    }
+
+    #[must_use]
+    pub fn acp(&self) -> bool {
+        self.spec.output == OutputFormat::Acp
+    }
+
+    fn acp_plan(&self, session: &SessionSpec, resume: Option<&ProviderSessionId>) -> DetachedPlan {
+        let mut spec = self
+            .program_exec()
+            .args(self.spec.headless_args.iter().map(|a| (*a).to_owned()))
+            .cwd(&session.cwd);
+        for (k, v) in &session.env {
+            spec = spec.env(k, v);
+        }
+        for (k, p) in &session.env_files {
+            spec = spec.env_file(k, p);
+        }
+        for k in &session.env_unset {
+            spec = spec.env_unset(k);
+        }
+        DetachedPlan {
+            spec,
+            mode: RunMode::Relay,
+            first_input: Some(crate::acp::first_input(
+                session,
+                resume.map(|r| r.0.as_str()),
+            )),
+        }
+    }
+
+    pub fn recover(&self, line: &str) {
+        if self.acp() {
+            let mut state = self
+                .acp
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let _ = crate::acp::parse_line(&mut state, line);
+        }
     }
 
     fn app_server_plan(
@@ -440,6 +503,9 @@ impl CliRuntime {
     ) -> DetachedPlan {
         if self.app_server() {
             return self.app_server_plan(session, resume);
+        }
+        if self.acp() {
+            return self.acp_plan(session, resume);
         }
         if !self.spec.interactive {
             return DetachedPlan {
@@ -493,6 +559,16 @@ impl CliRuntime {
     pub fn parse_line(&self, line: &str) -> Vec<(EntryKind, Option<blazar_core_types::ToolId>)> {
         if self.app_server() {
             return crate::codex_app::parse_line(line)
+                .into_iter()
+                .map(|k| (k, None))
+                .collect();
+        }
+        if self.acp() {
+            let mut state = self
+                .acp
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            return crate::acp::parse_line(&mut state, line)
                 .into_iter()
                 .map(|k| (k, None))
                 .collect();
@@ -634,6 +710,11 @@ impl CliRuntime {
         if resume.is_some() && !self.spec.resume.is_supported() {
             return Err(RuntimeError::Unsupported("resuming a session"));
         }
+        if self.acp() {
+            return Err(RuntimeError::Unsupported(
+                "running an ACP agent outside a detached session",
+            ));
+        }
 
         let mut lines = self
             .transport
@@ -726,6 +807,10 @@ fn parse_by_format(format: OutputFormat, line: &str) -> Parsed {
                 .map(|k| (k, None))
                 .collect()
         }
+        OutputFormat::Acp => crate::acp::parse_line(&mut crate::acp::State::default(), line)
+            .into_iter()
+            .map(|k| (k, None))
+            .collect(),
         OutputFormat::PlainLines => {
             vec![(
                 EntryKind::AssistantMessage {
@@ -1388,6 +1473,31 @@ mod tests {
             serde_json::from_str(&approval_response_json("r1", false, None, "别碰它")).unwrap();
         assert_eq!(deny["response"]["response"]["behavior"], "deny");
         assert_eq!(deny["response"]["response"]["message"], "别碰它");
+    }
+
+    #[test]
+    fn devin_runs_as_a_resident_acp_server() {
+        let mut s = SessionSpec::new("/repo", "hi");
+        s.model = Some("swe-1-6-slow".into());
+        s.permission_mode = Some("auto".into());
+        s.env.insert("LANG".into(), "en_US.UTF-8".into());
+        let r = rt("devin");
+        assert!(r.interactive() && r.acp() && !r.app_server());
+        let plan = r.detached_plan(&s, None, Some("ignored"));
+        assert_eq!(plan.mode, RunMode::Relay);
+        assert_eq!(plan.spec.program, "devin");
+        assert_eq!(plan.spec.args, ["acp"], "型号和档位在会话里设，不走参数");
+        let first = plan.first_input.unwrap();
+        assert!(first.contains("\"method\":\"initialize\""));
+        assert!(first.contains("\"method\":\"session/new\""));
+        assert!(!first.contains("session/prompt"), "等会话建好再发第一轮");
+        let resumed = r.detached_plan(&s, Some(&ProviderSessionId("perfect-surgeon".into())), None);
+        assert!(
+            resumed
+                .first_input
+                .unwrap()
+                .contains("\"id\":\"blazar-load:perfect-surgeon\"")
+        );
     }
 
     #[test]

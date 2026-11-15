@@ -733,7 +733,7 @@ pub fn Composer(
                 if m.is_empty() {
                     chat.default_model_now(&rt)
                 } else {
-                    Some(model_name(&m))
+                    Some(chat.listed_model(&rt, &m).unwrap_or_else(|| model_name(&m)))
                 }
             });
         (running.unwrap_or(name), s.effort.map(|e| eff_label(&e)))

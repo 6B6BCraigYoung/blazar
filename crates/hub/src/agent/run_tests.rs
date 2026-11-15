@@ -943,3 +943,218 @@ async fn endpoint_turns_keep_their_tokens_but_not_the_cli_price() {
         );
     }
 }
+
+fn devin_ctx(dir: &tempfile::TempDir, ctx: &Ctx, fake: &Arc<FakeTransport>) -> Ctx {
+    let mut ctx = ctx.clone();
+    ctx.runtime = Arc::new(CliRuntime::by_id(fake.clone(), "devin").unwrap());
+    ctx.live = Arc::new(Live {
+        run: DetachedRun::attach(
+            fake.clone(),
+            dir.path().join("run").display().to_string(),
+            ctx.sid.to_string(),
+        ),
+        interactive: true,
+        state: Mutex::new(LiveState {
+            next_seq: 1,
+            pending_user: 1,
+            unreplayed: Vec::new(),
+            user_no: 1,
+            eof_sent: false,
+            interrupt_requested: false,
+            interrupted_at: None,
+            bg: Default::default(),
+            idle: false,
+            app: AppTurn {
+                acp: true,
+                first: Some(("fix calc.py".into(), Vec::new())),
+                mode: Some("auto".into()),
+                model: Some("swe-1-6-slow".into()),
+                ..AppTurn::default()
+            },
+        }),
+    });
+    ctx
+}
+
+async fn running(ctx: &Ctx) {
+    ctx.st.running.write().await.insert(
+        ctx.sid,
+        RunningSession {
+            workspace_id: ctx.ws,
+            task: tokio::spawn(std::future::pending()),
+            killer: None,
+            live: Some(ctx.live.clone()),
+        },
+    );
+}
+
+async fn kinds(ctx: &Ctx, kind: &str) -> i64 {
+    sqlx::query_scalar("SELECT COUNT(*) FROM events WHERE session_id = ?1 AND payload LIKE ?2")
+        .bind(ctx.sid.to_string())
+        .bind(format!("{{\"type\":\"{kind}\"%"))
+        .fetch_one(ctx.st.db.pool())
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn devin_turns_open_with_the_session_and_end_on_the_last_prompt() {
+    let (dir, base, fake) = fixture(String::new()).await;
+    let ctx = devin_ctx(&dir, &base, &fake);
+    running(&ctx).await;
+    let mut p = progress();
+    let mut at = 0;
+    let mut feed = async |ctx: &Ctx, v: serde_json::Value| {
+        let l = v.to_string();
+        let r = process_line(ctx, &l, at, &mut p).await;
+        at += l.len() as u64 + 1;
+        assert!(matches!(r, Line::Done));
+    };
+    feed(
+        &ctx,
+        serde_json::json!({ "jsonrpc": "2.0", "id": "blazar-new", "result": { "sessionId": "maddening-mallet",
+            "modes": { "currentModeId": "accept-edits" },
+            "configOptions": [{ "id": "model", "currentValue": "swe-2-flash-medium", "options": [] }] } }),
+    )
+    .await;
+    {
+        let inputs = fake.inputs.lock().unwrap();
+        let ids: Vec<&str> = inputs.iter().map(|(id, _)| id.as_str()).collect();
+        assert_eq!(ids, ["mode", "model", "blazar-prompt-u-1"]);
+        let prompt: serde_json::Value = serde_json::from_str(&inputs[2].1).unwrap();
+        assert_eq!(prompt["params"]["sessionId"], "maddening-mallet");
+        assert_eq!(prompt["params"]["prompt"][0]["text"], "fix calc.py");
+        assert!(inputs[0].1.contains("\"modeId\":\"smart\""));
+    }
+    assert_eq!(kinds(&ctx, "session_started").await, 1);
+    interject(&ctx.st, ctx.sid, "also add a test", "also add a test", &[])
+        .await
+        .unwrap();
+    {
+        let inputs = fake.inputs.lock().unwrap();
+        let (id, steer) = inputs.last().unwrap();
+        assert_eq!(id, "u-2");
+        assert!(steer.contains("\"id\":\"blazar-prompt-u-2\""));
+        assert!(steer.contains("also add a test"));
+    }
+    feed(
+        &ctx,
+        serde_json::json!({ "jsonrpc": "2.0", "id": 7, "method": "fs/read_text_file", "params": { "path": "/etc/hosts" } }),
+    )
+    .await;
+    assert!(
+        fake.inputs
+            .lock()
+            .unwrap()
+            .last()
+            .unwrap()
+            .1
+            .contains("-32601"),
+        "不支持的请求要回错误，免得 Devin 干等"
+    );
+    feed(
+        &ctx,
+        serde_json::json!({ "jsonrpc": "2.0", "id": "blazar-prompt-u-2", "result": { "stopReason": "end_turn" } }),
+    )
+    .await;
+    assert_eq!(
+        kinds(&ctx, "finished").await,
+        0,
+        "插话的回执先到，这一轮还没完"
+    );
+    assert!(!ctx.live.state.lock().await.eof_sent);
+    feed(
+        &ctx,
+        serde_json::json!({ "jsonrpc": "2.0", "id": "blazar-prompt-u-1", "result": { "stopReason": "end_turn" } }),
+    )
+    .await;
+    assert_eq!(kinds(&ctx, "finished").await, 1);
+    let s = ctx.live.state.lock().await;
+    assert!(s.eof_sent, "两条都回了，关掉输入让 Devin 退出");
+    assert_eq!(s.app.outstanding, 0);
+    assert_eq!(fake.inputs.lock().unwrap().last().unwrap().0, "EOF");
+}
+
+#[tokio::test]
+async fn devin_switches_and_stops_through_its_own_protocol() {
+    let (dir, base, fake) = fixture(String::new()).await;
+    let ctx = devin_ctx(&dir, &base, &fake);
+    running(&ctx).await;
+    assert!(
+        control(
+            &ctx.st,
+            ctx.sid,
+            serde_json::json!({ "subtype": "set_permission_mode", "mode": "plan" })
+        )
+        .await
+        .is_err(),
+        "会话还没建好"
+    );
+    ctx.live.state.lock().await.app.thread = Some("perfect-surgeon".into());
+    control(
+        &ctx.st,
+        ctx.sid,
+        serde_json::json!({ "subtype": "set_permission_mode", "mode": "plan" }),
+    )
+    .await
+    .unwrap();
+    assert!(
+        control(
+            &ctx.st,
+            ctx.sid,
+            serde_json::json!({ "subtype": "set_max_thinking_tokens", "max_thinking_tokens": 1 })
+        )
+        .await
+        .is_err()
+    );
+    interrupt(&ctx.st, ctx.live.clone(), ctx.sid).await;
+    let inputs = fake.inputs.lock().unwrap();
+    assert!(
+        inputs[0].1.contains("session/set_mode") && inputs[0].1.contains("\"modeId\":\"plan\"")
+    );
+    assert!(
+        inputs[1].0.starts_with("i-")
+            && inputs[1].1.contains("session/cancel")
+            && inputs[1].1.contains("perfect-surgeon")
+    );
+    assert!(ctx.live.state.lock().await.interrupt_requested);
+}
+
+#[tokio::test]
+async fn a_devin_approval_is_answered_with_the_option_it_offered() {
+    let raw = serde_json::json!({ "jsonrpc": "2.0", "id": "339c8c09", "method": "session/request_permission",
+        "params": { "sessionId": "perfect-surgeon", "toolCall": { "toolCallId": "call_1" },
+                    "options": [
+                        { "optionId": "allow_once", "name": "Allow", "kind": "allow_once" },
+                        { "optionId": "allow_session", "name": "Yes, allow `rm` commands (this session)", "kind": "allow_always" },
+                        { "optionId": "reject_once", "name": "Reject", "kind": "reject_once" }
+                    ] } });
+    let (dir, base, fake) = fixture(format!("{raw}\n")).await;
+    let ctx = devin_ctx(&dir, &base, &fake);
+    let id = ApprovalId::from_provider("devin:339c8c09");
+    ctx.st
+        .db
+        .record_line(
+            ctx.sid,
+            ctx.ws,
+            &[],
+            &[NewApproval {
+                id,
+                provider_request_id: "339c8c09".into(),
+                src_offset: 0,
+                request: serde_json::json!({ "tool_name": "Bash", "input": { "command": "rm note.txt" } }),
+            }],
+            raw.to_string().len() as u64 + 1,
+        )
+        .await
+        .unwrap();
+    running(&ctx).await;
+    assert_eq!(decide(&ctx, id, false, "", None).await["delivered"], true);
+    let inputs = fake.inputs.lock().unwrap();
+    let reply: serde_json::Value = serde_json::from_str(&inputs[0].1).unwrap();
+    assert_eq!(reply["id"], "339c8c09");
+    assert_eq!(
+        reply["result"]["outcome"],
+        serde_json::json!({ "outcome": "selected", "optionId": "reject_once" })
+    );
+}

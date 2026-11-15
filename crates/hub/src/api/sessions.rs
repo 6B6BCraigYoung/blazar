@@ -804,7 +804,12 @@ async fn prompt_inner(
 
         let interactive = runtime.interactive();
         let app_server = runtime.app_server();
-        let first_text = spec.prompt.clone();
+        let acp = runtime.acp();
+        let first_text = if acp {
+            blazar_runtime::acp::first_text(&spec, resume_id.is_some())
+        } else {
+            spec.prompt.clone()
+        };
         let first_images = spec.images.clone();
         let resume_pid = resume_id.clone().map(ProviderSessionId);
         let new_pid = resume_pid
@@ -877,7 +882,10 @@ async fn prompt_inner(
                 idle: false,
                 app: crate::run::AppTurn {
                     enabled: app_server,
-                    first: app_server.then(|| (first_text.clone(), first_images.clone())),
+                    acp,
+                    first: (app_server || acp).then(|| (first_text.clone(), first_images.clone())),
+                    mode: spec.permission_mode.clone().filter(|_| acp),
+                    model: spec.model.clone().filter(|_| acp),
                     ..crate::run::AppTurn::default()
                 },
             }),

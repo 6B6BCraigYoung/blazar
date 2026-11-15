@@ -1352,3 +1352,49 @@ B 的第三部分。出网络故障时要能一眼看出是机器、组网还是
 - 重开后核对：迁移仍是 50；hub 就绪，两段正在跑的会话都重新附着上、继续在跑；启动时检查了 4 个账号；只有组网刷新那条原有的警告；Spotlight 只剩 `/Applications/Blazar.app`。
 - `/api/runtimes` 每次都在本机现场探测，所以账号菜单和「账号与额度」看到的已经是 Factory Droid、没有 DSH；机器页用的是存下的探测结果，里面还是上次的（含用户用 npm 装的 dsh 0.2.0-rc.2），下次探测这台机器时会更新。
 - 回滚：这次没有新迁移，换回 `Blazar-20261113.024541.app` 即可，数据库不用动。
+
+## b63 · 接入 Devin 的命令行（走 ACP 协议结构化接入，先只做本机）
+
+用户要接 Devin 的命令行，看完分析后选了「ACP 协议结构化接入」，自己用官方脚本装好了 Devin for Terminal（`devin 3000.12.57`，已登录）；权限档位选了「Auto 对应 Smart」。
+
+- **找得到**：官方安装器把 `devin` 链到 `~/.local/bin`，本来就在统一的 PATH 设置里。登录状态只看 `${XDG_DATA_HOME:-~/.local/share}/devin/credentials.toml` 在不在、`WINDSURF_API_KEY` 有没有设，不读内容。
+- **运行**：常驻一个 `devin acp`（Devin 自己的界面和 `devin -p` 也是在子进程里跑 `devin acp`），按 ACP 的 JSON-RPC 走：
+  - **开会话**：先 `initialize`，再 `session/new`；续接用 `session/load`，会话 id 编进请求 id 里，回执不带 id 也认得出是哪个会话。会话里带上 Blazar 给的 MCP 服务：HTTP 的请求头若引用了环境变量，取会话环境里的值；本地命令的环境变量照旧由 shell 在启动时从环境里取，这段跟 Codex 共用一个函数，密钥不写进消息。
+  - **每轮开始**：会话建好后依次发 `session/set_mode`、`session/set_config_option`（型号）、`session/prompt`。Blazar 的指令拼在新会话第一条消息前面，续接时不重复发。
+  - **中途插话**：再发一条 `session/prompt`，Devin 会把它并进正在跑的这一轮（它声明了 `midTurnPrompts`）。hub 记着还有几条消息没回执，只有最后一条回执才算这一轮结束。
+  - **打断**：发 `session/cancel`。
+  - **审批**：Devin 的 `session/request_permission` 进 Blazar 的审批卡片，回复时从它给的选项里挑「允许一次」或「拒绝一次」，不替用户记规则；它用 `$/cancel_request` 撤回的审批，卡片跟着关掉。
+  - **收尾**：Devin 发来的其他请求一律回「不支持」，免得它干等。一轮结束关掉输入，Devin 就退出。hub 重启后用已处理过的输出把解析状态补回来。
+- **权限档位**：Ask（只答不改）、Code（`accept-edits`，改文件不问、`rm` 这类命令要点头）、Plan、Smart（`smart`，默认）、Bypass permissions（`bypass`）。别的运行时传来的 `default` 按 Code 处理。名字和说明照 Devin 的说法写。
+- **显示**：新写 `acp.rs` 解析 `session/update`：
+  - **正文和思考**：分块到达的正文、思考攒到边界再出一条。
+  - **工具**：`tool_call` / `tool_call_update` 配成工具调用和结果，工具名换成 Blazar 已经会显示的（exec→Bash、write→Write、edit→Edit（参数里没有就从 diff 取）、read→Read、grep→Grep、find_file_by_name→Glob），命令的退出码算进成败。`plan` 显示成待办清单。
+  - **用量**：`usage_update` 记用量，输入不含缓存命中，同一次调用的子代理副本不重复记。
+  - **型号和档位**：变了就重新报一次，底栏跟着变。
+  - **读回旧会话**：Devin 会先把整段历史重放一遍，这部分不进对话。
+  - **结束原因**：cancelled 算打断，refusal 算失败；max_tokens / max_turn_requests 给一条说明。
+- **型号菜单**：标题写「Devin 3000.12.57」。
+  - **列表来源**：照会话报上来的 `configOptions` 列，什么账号就列什么：用户这台机器在组织里，只有 SWE-2 Flash Medium 和 SWE-1.6 Slow；没有组织配置时 Devin 给 145 个（含 Fusion 组合），弹层可以滚动。`devin models list` 列的是整个目录，菜单里没有的型号设了会被拒（「Invalid value … for config option 'model'」），所以不用它。
+  - **怎么拿到**：做一次短握手，新建一个会话读出列表，马上 `session/delete`。结果缓存 10 分钟，每跑一轮 Devin 也顺手刷新。
+  - **看图**：每个型号能不能看图也从这里来。SWE-2 Flash Medium 看不了图，发过去会被悄悄丢掉（实测过），所以选它时「+」菜单里的加图置灰，写「SWE-2 Flash can't read images」。
+  - **显示名**：输入框里的型号名改为先用菜单里的显示名。
+- **图标**：用 Devin 官方标志，取自 Devin 命令行登录成功页里内嵌的那份 SVG，按真实曲线的包围盒缩放到 24×24。
+
+分析时查清的（先拿临时 HOME 看帮助，再在空目录里用真实账号做最小握手）：
+
+- **能力**：`initialize` 回 `loadSession`、可发图、HTTP/SSE 的 MCP、会话的列出/删除/关闭；模式列表里没有 CLI 的 normal，设 normal 会被当成 accept-edits。
+- **插话和打断**：插话时 Devin 停掉当前生成，接着处理新消息，两条请求在这一轮结束时一起回（后发的先回）。打断时若有审批没答，Devin 自己把那次工具调用标失败、发 `$/cancel_request`，再把这轮回成 cancelled。
+- **组织设置**：组织设置不只在 `~/.config/devin/config.json` 里。临时 HOME 里接上真实的登录凭据和配置，拿到的仍是个人账号那 145 个型号；只有真实 HOME 里是组织的 2 个。
+- **桌面版的锁**：用户开着 Devin 桌面版（`/Applications/Devin.app`），它自己也跑着一个 `devin acp`，会打开它看到的会话。这时 `session/delete` 会报「already open in another process」，`session/load` 仍然正常，续接不受影响。实测留下的 3 个会话因此没删掉，标题是「Reply with exactly: OK」「Create a file named ask.txt…」「Fix calc.add…」。
+
+实测（临时实例：隔离的 HOME、全新的库，只把 devin 程序和它的数据目录、配置目录链接进去；为了不花额度，型号选免费的 SWE-2 Flash）：
+
+- 探测找到 Devin 3000.12.57、已登录；「账号与额度」里有 Devin；型号菜单、档位菜单、加图置灰如上。
+- **第一轮**（Code）：让它修 calc.py。读文件、改文件自动放行，跑 `python3 -c …` 弹审批，批准后输出 5，回复、本轮完成，进程退出。
+- **第二轮**（续接，Bypass）：对话里没有重放的历史。跑的时候插了一句「再加个 multiply」，并进了这一轮，Devin 照做，最后只记一次完成。
+- **第三轮**：长输出中途打断，已经写出的部分留下，标成 Interrupted。
+- 截图在 `target/shots/devin-*.png`（不进仓库）。
+
+验证：`cargo fmt --check`、`leptosfmt --check crates/web/src`、`cargo clippy --workspace --all-targets -- -D warnings`、wasm 的 clippy、`cargo test --workspace`（1194 个全过）、node 测试。第一次全量跑时 `bots::jobs::tests::kill_marks_killed_and_workers_cannot_stop_others` 报过一次「运行进程组身份不匹配」，单独跑和重跑都能过，是机器忙时偶发的，跟这次改动无关。新增的测试覆盖事件解析（用实测抓到的消息）、握手和每轮开头的请求、读回时隐藏重放、工具名换算、审批回复、打断、失败原因、型号和档位变化、hub 里插话后按最后一条回执结束、中途切档位和打断走 ACP、审批按 Devin 的选项回、型号菜单只列账号能用的。
+
+还没做：远端机器；个人账号才有的思考档位（`thought_level`）和快速模式（`speed`），它们跟着型号变，要先选中型号才知道有哪几档；Devin 的斜杠命令菜单；多目录（`additionalDirectories`）；`--cloud`。

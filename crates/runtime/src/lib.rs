@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use blazar_core_types::{NormalizedEntry, ProviderSessionId, RuntimeKind};
 use futures::stream::BoxStream;
 
+pub mod acp;
 pub mod claude;
 pub mod cli_runtime;
 pub mod codex;

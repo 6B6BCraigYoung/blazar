@@ -6,6 +6,7 @@ pub mod catalog;
 pub mod chat;
 pub mod checkpoint;
 pub mod codex_proxy;
+pub mod devin_models;
 pub mod droid_models;
 pub mod global_login;
 pub mod leftover;

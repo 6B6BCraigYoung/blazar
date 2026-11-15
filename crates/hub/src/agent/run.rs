@@ -46,10 +46,14 @@ pub struct LiveState {
 #[derive(Debug, Default, Clone)]
 pub struct AppTurn {
     pub enabled: bool,
+    pub acp: bool,
     pub thread: Option<String>,
     pub turn: Option<String>,
     pub first: Option<(String, Vec<ImageInput>)>,
     pub steers: std::collections::HashMap<String, (String, Vec<ImageInput>)>,
+    pub mode: Option<String>,
+    pub model: Option<String>,
+    pub outstanding: u32,
 }
 
 pub fn apply_ids(app: &mut AppTurn, ids: &blazar_runtime::codex_app::Ids) {
@@ -113,6 +117,52 @@ async fn drive_app(ctx: &Ctx, line: &str) {
             tracing::warn!(target: "blazar::run", "发不出第一轮：{e}");
         }
     }
+}
+
+async fn drive_acp(ctx: &Ctx, line: &str) -> bool {
+    let ids = blazar_runtime::acp::ids(line);
+    if ids.request {
+        if let Some(reply) = blazar_runtime::acp::unsupported_reply(line) {
+            let id = format!("r-{}", uuid::Uuid::now_v7());
+            if let Err(e) = ctx.live.run.append(&id, &reply).await {
+                tracing::warn!(target: "blazar::run", "回不了 Devin 的请求：{e}");
+            }
+        }
+        return true;
+    }
+    if let Some(session) = ids.session {
+        crate::agent::devin_models::remember(line);
+        let opening = {
+            let mut s = ctx.live.state.lock().await;
+            s.app.thread = Some(session.clone());
+            let first = s.app.first.take();
+            first.map(|(text, images)| {
+                s.app.outstanding += 1;
+                blazar_runtime::acp::opening(
+                    &session,
+                    s.app.mode.as_deref(),
+                    s.app.model.as_deref(),
+                    &text,
+                    &images,
+                    &format!("{}u-1", blazar_runtime::acp::PROMPT_PREFIX),
+                )
+            })
+        };
+        for (id, json) in opening.unwrap_or_default() {
+            if let Err(e) = ctx.live.run.append(&id, &json).await {
+                tracing::warn!(target: "blazar::run", "发不出第一轮：{e}");
+                break;
+            }
+        }
+        return true;
+    }
+    if ids.prompt_done {
+        let mut s = ctx.live.state.lock().await;
+        s.app.outstanding = s.app.outstanding.saturating_sub(1);
+        return s.app.outstanding == 0;
+    }
+    crate::agent::devin_models::remember(line);
+    true
 }
 
 pub async fn sessions_in(st: &Shared, ws: WorkspaceId) -> Vec<(SessionId, Option<Arc<Live>>)> {
@@ -360,10 +410,18 @@ async fn process_line(ctx: &Ctx, line: &str, at: u64, p: &mut Progress) -> Line 
         tracing::warn!(target: "blazar::run", "偏移 {at} 处的行反复解析失败，跳过");
     }
 
-    if ctx.runtime.app_server() {
-        drive_app(ctx, t).await;
-    }
+    let turn_over = if ctx.runtime.acp() {
+        drive_acp(ctx, t).await
+    } else {
+        if ctx.runtime.app_server() {
+            drive_app(ctx, t).await;
+        }
+        true
+    };
     let mut parsed = ctx.runtime.parse_line(line);
+    if !turn_over {
+        parsed.retain(|(k, _)| !matches!(k, EntryKind::Finished(_)));
+    }
     if parsed.iter().any(|(k, _)| carries_cost(k))
         && crate::accounts::endpoint::unpriced(&ctx.st, ctx.sid).await
     {
@@ -974,7 +1032,18 @@ pub async fn interject(
         s.user_no += 1;
         let id = format!("u-{}", s.user_no);
 
-        let json = if s.app.enabled {
+        let json = if s.app.acp {
+            let Some(session) = s.app.thread.clone() else {
+                return Err("Devin hasn't opened this session yet; try again in a moment".into());
+            };
+            s.app.outstanding += 1;
+            blazar_runtime::acp::prompt(
+                &session,
+                sent,
+                images,
+                &format!("{}{id}", blazar_runtime::acp::PROMPT_PREFIX),
+            )
+        } else if s.app.enabled {
             if crate::api::is_slash_command(text) {
                 return Err(
                     "Codex can't run slash commands mid-turn; send it after this turn ends".into(),
@@ -1097,8 +1166,9 @@ pub(crate) async fn deliver_saved_approval(
         if a.provider_request_id.as_deref() != Some(rid.as_str()) {
             return Err("The original approval request has changed; interrupt the session and make the request again".into());
         }
-        blazar_runtime::codex_app::approval_reply(&raw, allow)
-            .ok_or("This is not a Codex approval request")?
+        blazar_runtime::acp::permission_reply(&raw, allow)
+            .or_else(|| blazar_runtime::codex_app::approval_reply(&raw, allow))
+            .ok_or("This agent didn't send an approval request here")?
     } else {
         let rid = v["request_id"]
             .as_str()
@@ -1311,12 +1381,35 @@ pub async fn control(
     if s.eof_sent {
         return Err("This turn has already finished".into());
     }
+    let id = format!("c-{}", uuid::Uuid::now_v7());
+    if s.app.acp {
+        let session = s
+            .app
+            .thread
+            .clone()
+            .ok_or("Devin hasn't opened this session yet")?;
+        let line = match request["subtype"].as_str() {
+            Some("set_permission_mode") => request["mode"]
+                .as_str()
+                .and_then(|m| blazar_runtime::acp::set_mode(&session, m, &id)),
+            Some("set_model") => request["model"]
+                .as_str()
+                .and_then(|m| blazar_runtime::acp::set_model(&session, m)),
+            _ => None,
+        }
+        .ok_or("Devin can't switch this mid-turn; the next message will use the new settings")?;
+        return live
+            .run
+            .append(&id, &line)
+            .await
+            .map(|_| ())
+            .map_err(|e| format!("Write failed: {e}"));
+    }
     if s.app.enabled {
         return Err(
             "Codex can't switch mid-turn; the next message will use the new settings".into(),
         );
     }
-    let id = format!("c-{}", uuid::Uuid::now_v7());
     live.run
         .append(&id, &control_json(&id, request))
         .await
@@ -1332,7 +1425,16 @@ pub async fn interrupt(st: &Shared, live: Arc<Live>, sid: SessionId) {
             .get_or_insert_with(|| Utc::now().to_rfc3339());
         if live.interactive && !s.eof_sent {
             let id = format!("i-{}", uuid::Uuid::now_v7());
-            if s.app.enabled {
+            if s.app.acp {
+                match s.app.thread.clone() {
+                    Some(session) => live
+                        .run
+                        .append(&id, &blazar_runtime::acp::cancel(&session))
+                        .await
+                        .is_ok(),
+                    None => false,
+                }
+            } else if s.app.enabled {
                 match (s.app.thread.clone(), s.app.turn.clone()) {
                     (Some(thread), Some(turn)) => live
                         .run
@@ -1489,11 +1591,22 @@ pub(crate) async fn rejoin(st: &Shared, r: Rejoin, adopted: bool) -> bool {
     let next_seq = st.db.max_seq(sid).await.unwrap_or(0) + 1;
     let mut recovered = AppTurn {
         enabled: runtime.app_server(),
+        acp: runtime.acp(),
         ..AppTurn::default()
     };
     if recovered.enabled {
         for line in run.drain(0).await.unwrap_or_default().lines() {
             apply_ids(&mut recovered, &blazar_runtime::codex_app::ids(line));
+        }
+    }
+    if recovered.acp {
+        let seen = run.drain(0).await.unwrap_or_default();
+        let done = usize::try_from(off).unwrap_or(usize::MAX).min(seen.len());
+        for line in seen.get(..done).unwrap_or_default().lines() {
+            runtime.recover(line);
+            if let Some(session) = blazar_runtime::acp::ids(line).session {
+                recovered.thread = Some(session);
+            }
         }
     }
 

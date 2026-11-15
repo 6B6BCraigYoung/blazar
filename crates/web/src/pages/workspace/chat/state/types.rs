@@ -93,6 +93,8 @@ pub struct ModelInfo {
     pub desc: String,
     #[serde(default)]
     pub efforts: Vec<String>,
+    #[serde(default)]
+    pub images: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Deserialize)]
@@ -293,6 +295,38 @@ pub const MODES_DROID: [Mode; 5] = [
         "warn",
     ),
 ];
+pub const MODES_DEVIN: [Mode; 5] = [
+    (
+        "ask",
+        "Ask",
+        "Devin answers questions without changing any code",
+        "hand",
+    ),
+    (
+        "acceptEdits",
+        "Code",
+        "Devin edits files without asking and asks before risky commands",
+        "code",
+    ),
+    (
+        "plan",
+        "Plan",
+        "Devin plans the changes before it implements them",
+        "plan",
+    ),
+    (
+        "auto",
+        "Smart",
+        "Devin approves the actions its model judges safe and asks about the rest",
+        "bolt",
+    ),
+    (
+        "bypassPermissions",
+        "Bypass permissions",
+        "Devin will not ask about anything. Use with care.",
+        "warn",
+    ),
+];
 pub const MODES_CODEX: [Mode; 3] = [
     (
         "read-only",
@@ -326,6 +360,7 @@ pub fn modes_for(rt: &str) -> &'static [Mode] {
         "claude" => &MODES_CLAUDE,
         "codex" => &MODES_CODEX,
         "droid" => &MODES_DROID,
+        "devin" => &MODES_DEVIN,
         _ => &[],
     }
 }

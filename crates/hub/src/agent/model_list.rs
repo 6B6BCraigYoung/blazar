@@ -704,7 +704,7 @@ pub async fn workspace_models(
         .clone()
         .filter(|r| !r.is_empty())
         .unwrap_or_else(|| "claude".to_owned());
-    if runtime != "claude" && runtime != "droid" {
+    if !matches!(runtime.as_str(), "claude" | "droid" | "devin") {
         return Ok(Json(crate::api::fixed_models(&runtime)));
     }
     let (node, _) = crate::api::locate(&st, &ws).await?;
@@ -716,6 +716,11 @@ pub async fn workspace_models(
     if runtime == "droid" {
         return Ok(Json(
             crate::agent::droid_models::models(&st, &run_node).await,
+        ));
+    }
+    if runtime == "devin" {
+        return Ok(Json(
+            crate::agent::devin_models::models(&st, &run_node, q.refresh).await,
         ));
     }
     let thread = q.thread.as_deref().filter(|t| !t.is_empty());

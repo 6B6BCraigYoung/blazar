@@ -68,6 +68,7 @@ const PERMISSION_MODES: &[&str] = &[
     "auto",
     "plan",
     "bypassPermissions",
+    "ask",
     "read-only",
     "workspace-write",
     "danger-full-access",

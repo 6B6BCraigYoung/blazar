@@ -386,6 +386,7 @@ pub(crate) fn control_requests(
             "auto",
             "plan",
             "bypassPermissions",
+            "ask",
         ]
         .contains(&mode.as_str())
         {

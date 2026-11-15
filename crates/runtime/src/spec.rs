@@ -9,6 +9,8 @@ pub enum OutputFormat {
 
     DroidStreamJson,
 
+    Acp,
+
     PlainLines,
 }
 
@@ -237,6 +239,21 @@ pub const BUILTIN: &[AgentSpec] = &[
 
         interactive: false,
         end_of_options: true,
+    },
+    AgentSpec {
+        id: "devin",
+        label: "Devin",
+        program: "devin",
+        headless_args: &["acp"],
+        prompt_positional: true,
+        prompt_flag: None,
+        resume: ResumeStyle::FlagSpace("--resume"),
+        output: OutputFormat::Acp,
+        model_flag: None,
+        cwd_flag: None,
+
+        interactive: false,
+        end_of_options: false,
     },
     AgentSpec {
         id: "deepcode",

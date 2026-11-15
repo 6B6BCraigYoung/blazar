@@ -184,6 +184,17 @@ impl Chat {
         }
     }
 
+    pub fn listed_model(self, rt: &str, id: &str) -> Option<String> {
+        (!id.is_empty())
+            .then(|| {
+                self.models_for(rt)
+                    .into_iter()
+                    .find(|m| m.id == id)
+                    .map(|m| m.label)
+            })
+            .flatten()
+    }
+
     pub fn default_model_now(self, rt: &str) -> Option<String> {
         let desc = self
             .models_for(rt)
@@ -274,6 +285,21 @@ impl Chat {
     pub fn image_block(self) -> Option<String> {
         if self.runtime() == "droid" {
             return Some("Factory Droid can't take images here".into());
+        }
+        if self.runtime() == "devin" {
+            let chosen = self.model_sel("devin").model.unwrap_or_default();
+            return self
+                .models_for("devin")
+                .into_iter()
+                .find(|m| m.id == chosen)
+                .filter(|m| m.images == Some(false))
+                .map(|m| {
+                    if m.id.is_empty() {
+                        "Devin's default model can't read images".to_owned()
+                    } else {
+                        format!("{} can't read images", m.label)
+                    }
+                });
         }
         let id = self.current_account(&self.runtime())?;
         let a = self.account(&id)?;

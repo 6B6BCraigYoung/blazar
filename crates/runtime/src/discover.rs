@@ -96,6 +96,8 @@ fi
 [ -f "$HOME/.deepcode/settings.json" ] && echo "AUTH|deepcode|?|有 settings.json（API key 写在里面，不读取）"
 [ -n "$FACTORY_API_KEY" ] && echo "AUTH|droid|1|FACTORY_API_KEY"
 [ -f "$HOME/.factory/auth.v2.loginkeychain" ] && echo "AUTH|droid|1|已登录 Factory"
+[ -f "${{XDG_DATA_HOME:-$HOME/.local/share}}/devin/credentials.toml" ] && echo "AUTH|devin|1|已登录 Devin"
+[ -n "$WINDSURF_API_KEY" ] && echo "AUTH|devin|1|WINDSURF_API_KEY"
 "#,
         prelude = PATH_PRELUDE,
         names = names.join(" "),
@@ -179,6 +181,10 @@ mod tests {
     fn version_is_extracted_from_varied_formats() {
         assert_eq!(clean_version("2.1.274 (Claude Code)"), "2.1.274");
         assert_eq!(clean_version("codex-cli 0.154.0"), "0.154.0");
+        assert_eq!(
+            clean_version("devin 3000.12.57 (96542e930752)"),
+            "3000.12.57"
+        );
         assert_eq!(clean_version("v1.2.3"), "1.2.3");
         assert_eq!(clean_version("1.0"), "1.0");
 
