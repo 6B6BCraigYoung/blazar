@@ -27,6 +27,8 @@ use overview::RuntimeCard;
 
 pub const WITH_ACCOUNTS: [(&str, &str); 2] = [("claude", "Claude Code"), ("codex", "Codex")];
 
+pub const CLI_QUOTA: [&str; 2] = ["devin", "droid"];
+
 const CHECK_FRESH_SECS: f64 = 3600.0;
 
 pub fn check_is_stale(a: &Account) -> bool {

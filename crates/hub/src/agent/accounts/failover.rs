@@ -6,9 +6,9 @@ use serde_json::{Value, json};
 use crate::api::Shared;
 use crate::state::ServerEvent;
 
-use super::get;
 use super::quota::refresh_quota;
 use super::selection::{resolve, windows_of};
+use super::{QUOTA_ONLY, default_id, get};
 
 async fn account_of_session(st: &Shared, sid: blazar_core_types::SessionId) -> Option<String> {
     sqlx::query_scalar::<_, Option<String>>("SELECT account_id FROM sessions WHERE id = ?1")
@@ -142,6 +142,21 @@ pub async fn on_run_finished(st: Shared, sid: blazar_core_types::SessionId, stat
         tokio::spawn(async move {
             if let Err(e) = refresh_quota(&st, &a).await {
                 tracing::info!(target: "blazar::accounts", "更新 Codex 额度失败：{e}");
+            }
+        });
+    }
+    if let Ok(Some(rt)) =
+        sqlx::query_scalar::<_, String>("SELECT runtime_kind FROM sessions WHERE id = ?1")
+            .bind(sid.to_string())
+            .fetch_optional(st.db.pool())
+            .await
+        && QUOTA_ONLY.contains(&rt.as_str())
+        && let Some(a) = get(&st, &default_id(&rt)).await.filter(|a| !a.disabled)
+    {
+        let st = st.clone();
+        tokio::spawn(async move {
+            if let Err(e) = refresh_quota(&st, &a).await {
+                tracing::info!(target: "blazar::accounts", "更新 {} 额度失败：{e}", a.provider);
             }
         });
     }

@@ -239,11 +239,11 @@ fn summary_line(t: &Value, days: u32) -> String {
 fn QuotaBlock() -> impl IntoView {
     let res = LocalResource::new(|| api::get::<api::Accounts>("/api/accounts"));
     move || {
-        let mut list = res
-            .get()?
-            .ok()?
+        let all = res.get()?.ok()?;
+        let mut list = all
             .accounts
             .into_iter()
+            .chain(all.cli)
             .filter(|a| !a.disabled && !a.windows.is_empty())
             .collect::<Vec<_>>();
         if list.is_empty() {

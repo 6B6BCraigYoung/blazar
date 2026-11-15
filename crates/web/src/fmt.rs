@@ -99,6 +99,9 @@ pub fn window_label_en(name: &str) -> String {
     match name {
         "five_hour" => "5-hour".into(),
         "seven_day" => "Weekly".into(),
+        "one_day" => "Daily".into(),
+        "monthly" => "Monthly".into(),
+        "monthly_premium" => "Monthly Premium".into(),
         "blocked" => "Rate limited".into(),
         other => match other.strip_prefix("seven_day_") {
             Some(model) => {
@@ -117,6 +120,9 @@ pub fn window_label(name: &str) -> String {
         "seven_day" => "7 天".into(),
         "seven_day_overage_included" => "7 天 · 含超额".into(),
         "seven_day_oauth_apps" => "7 天 · 第三方应用".into(),
+        "one_day" => "每天".into(),
+        "monthly" => "每月".into(),
+        "monthly_premium" => "每月 · Premium".into(),
         "blocked" => "已限流".into(),
         other => match other.strip_prefix("seven_day_") {
             Some(model) => {

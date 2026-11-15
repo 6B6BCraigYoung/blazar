@@ -1,10 +1,63 @@
 use leptos::prelude::*;
+use leptos::task::spawn_local;
 
-use crate::api::{self, Accounts, Runtime};
+use crate::api::{self, Account, Accounts, Runtime};
 use crate::components::status::Status;
+use crate::components::toast::toast_error;
+use crate::fmt;
 use crate::rt_logo;
 
+use super::accounts::{plan_label, quota};
 use super::{AccountsSection, WITH_ACCOUNTS, active_account, runtime_status};
+
+#[component]
+fn CliQuotaRow(a: Account) -> impl IntoView {
+    let busy = RwSignal::new(false);
+    let id = a.id.clone();
+    let refresh = move |_| {
+        if busy.get_untracked() {
+            return;
+        }
+        let id = id.clone();
+        busy.set(true);
+        spawn_local(async move {
+            if let Err(e) = api::refresh_quota(&id).await {
+                toast_error("没查到额度", &e);
+            }
+            let _ = busy.try_set(false);
+        });
+    };
+    let sub = [
+        a.email.clone().unwrap_or_default(),
+        a.plan
+            .as_deref()
+            .map(|p| plan_label(p).to_owned())
+            .unwrap_or_default(),
+    ]
+    .into_iter()
+    .filter(|s| !s.is_empty())
+    .collect::<Vec<_>>()
+    .join(" · ");
+    view! {
+        <div class="acc-row">
+            <span class="acc-check"></span>
+            <span class="name">
+                <b>"本机登录"</b>
+                {(!sub.is_empty()).then(|| view! { <div class="acc-sub">{sub}</div> })}
+            </span>
+            <span class="acc-state"></span>
+            <div class="quota">{quota(&a)}</div>
+            <span class="last">
+                {a.last_used_at.as_deref().map_or_else(|| "—".to_owned(), fmt::ago)}
+            </span>
+            <span class="act">
+                <button class="btn small" disabled=move || busy.get() on:click=refresh>
+                    {move || if busy.get() { "查询中…" } else { "刷新额度" }}
+                </button>
+            </span>
+        </div>
+    }
+}
 
 #[component]
 pub(super) fn RuntimeCard(
@@ -19,6 +72,13 @@ pub(super) fn RuntimeCard(
             .get()
             .and_then(Result::ok)
             .and_then(|a| active_account(&a, &pid))
+    };
+    let cid = id.clone();
+    let cli = move || {
+        accounts
+            .get()
+            .and_then(Result::ok)
+            .and_then(|a| a.cli.into_iter().find(|x| x.provider == cid && !x.disabled))
     };
     let rt_s = StoredValue::new(rt.clone());
     let title = [
@@ -52,6 +112,7 @@ pub(super) fn RuntimeCard(
                 </a>
             </div>
             {multi.then(|| view! { <AccountsSection provider=id.clone() accounts /> })}
+            {move || cli().map(|a| view! { <CliQuotaRow a /> })}
         </section>
     }
 }

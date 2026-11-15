@@ -63,6 +63,15 @@ async fn default_logins_are_listed_and_cannot_be_deleted() {
         .map(|a| a["id"].as_str().unwrap())
         .collect();
     assert_eq!(ids, ["claude-default", "codex-default"]);
+    let cli: Vec<&str> = v["cli"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|a| a["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(cli, ["devin-default", "droid-default"]);
+    let (s, _) = call(&app, "POST", "/api/accounts/devin-default/quota", None).await;
+    assert_eq!(s, StatusCode::BAD_GATEWAY);
     assert!(v["accounts"][0]["builtin"].as_bool().unwrap());
     assert_eq!(v["modes"]["claude"], "");
 

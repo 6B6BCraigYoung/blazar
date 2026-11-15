@@ -10,9 +10,10 @@ use serde_json::{Value, json};
 use crate::api::Shared;
 use crate::state::ServerEvent;
 
+use super::cli_quota::{refresh_devin, refresh_droid};
 use super::failover::upsert_window;
 use super::probe::shell;
-use super::{Account, all, fail, get};
+use super::{Account, QUOTA_ONLY, all, fail, get};
 
 const QUOTA_MODEL: &str = "claude-haiku-4-5-20251001";
 
@@ -117,17 +118,21 @@ pub fn parse_quota_headers(raw: &str) -> Quota {
 }
 
 pub(super) fn can_query_quota(a: &Account) -> bool {
-    (a.provider == "claude" && a.kind == "token") || a.provider == "codex"
+    (a.provider == "claude" && a.kind == "token")
+        || a.provider == "codex"
+        || QUOTA_ONLY.contains(&a.provider.as_str())
 }
 
 pub(super) async fn refresh_quota(st: &Shared, a: &Account) -> Result<(), String> {
     match a.provider.as_str() {
         "codex" => refresh_codex_quota(st, a).await,
+        "devin" => refresh_devin(st, a).await,
+        "droid" => refresh_droid(st, a).await,
         _ => refresh_claude_quota(st, a).await,
     }
 }
 
-async fn store_quota(st: &Shared, a: &Account, q: &Quota) {
+pub(super) async fn store_quota(st: &Shared, a: &Account, q: &Quota) {
     let _ = sqlx::query("DELETE FROM rate_limit_snapshots WHERE account_id = ?1")
         .bind(&a.id)
         .execute(st.db.pool())
@@ -300,7 +305,7 @@ async fn claude_curl(token: &str, args: &[&str]) -> Result<(String, String, Stri
     ))
 }
 
-async fn mark_logged_out(st: &Shared, a: &Account) {
+pub(super) async fn mark_logged_out(st: &Shared, a: &Account) {
     let _ = sqlx::query("UPDATE accounts SET status = 'logged_out', checked_at = ?2 WHERE id = ?1")
         .bind(&a.id)
         .bind(Utc::now().to_rfc3339())

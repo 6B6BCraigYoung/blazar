@@ -354,6 +354,8 @@ impl Account {
 pub struct Accounts {
     pub accounts: Vec<Account>,
     #[serde(default)]
+    pub cli: Vec<Account>,
+    #[serde(default)]
     pub modes: std::collections::HashMap<String, String>,
     #[serde(default)]
     pub root: String,

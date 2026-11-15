@@ -12,7 +12,11 @@ use crate::fmt;
 use super::{Form, WITH_ACCOUNTS, account_status, account_status_hint, login, patch};
 
 pub(crate) fn provider_label(p: &str) -> &str {
-    WITH_ACCOUNTS.iter().find(|x| x.0 == p).map_or(p, |x| x.1)
+    match p {
+        "devin" => "Devin",
+        "droid" => "Factory Droid",
+        _ => WITH_ACCOUNTS.iter().find(|x| x.0 == p).map_or(p, |x| x.1),
+    }
 }
 
 pub(crate) fn plan_label(p: &str) -> &str {
@@ -97,7 +101,9 @@ pub(crate) fn quota(a: &Account) -> AnyView {
         };
     }
     if a.windows.is_empty() {
-        let hint = if a.kind == "token" || a.provider == "codex" {
+        let hint = if super::CLI_QUOTA.contains(&a.provider.as_str()) {
+            "还没查到 —— 点右边的「刷新额度」"
+        } else if a.kind == "token" || a.provider == "codex" {
             "还没查过 —— 「⋯」里点「刷新额度」"
         } else {
             "还没有数据 —— 用它跑一次对话就有了"

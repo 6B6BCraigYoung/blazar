@@ -18,8 +18,8 @@ use super::probe::{check, shell};
 use super::quota::{can_query_quota, refresh_quota};
 use super::selection::{model_blocks, running_of, score, windows_of};
 use super::{
-    Account, Endpoint, KEY_FILE, PROVIDERS, TOKEN_FILE, all, default_home, fail, get, mode_key,
-    mode_of, prepare_dir, root,
+    Account, Endpoint, KEY_FILE, PROVIDERS, QUOTA_ONLY, TOKEN_FILE, all, default_home, fail, get,
+    mode_key, mode_of, prepare_dir, root,
 };
 
 const QUOTA_FRESH_MINUTES: i64 = 5;
@@ -37,7 +37,16 @@ pub async fn list(State(st): State<Shared>) -> Response {
     .unwrap_or_default()
     .into_iter()
     .collect();
+    let last_run: HashMap<String, String> = sqlx::query_as::<_, (String, String)>(
+        "SELECT runtime_kind, MAX(created_at) FROM sessions GROUP BY runtime_kind",
+    )
+    .fetch_all(st.db.pool())
+    .await
+    .unwrap_or_default()
+    .into_iter()
+    .collect();
     let mut accounts = Vec::new();
+    let mut cli = Vec::new();
     for a in all(&st, None).await {
         let w = windows.get(&a.id).cloned().unwrap_or_default();
         let mut v = serde_json::to_value(&a).unwrap_or_default();
@@ -58,7 +67,12 @@ pub async fn list(State(st): State<Shared>) -> Response {
                     .collect::<Vec<_>>())
                 .unwrap_or_default()
         );
-        accounts.push(v);
+        if QUOTA_ONLY.contains(&a.provider.as_str()) {
+            v["last_used_at"] = json!(last_run.get(&a.provider));
+            cli.push(v);
+        } else {
+            accounts.push(v);
+        }
     }
     let mut modes = serde_json::Map::new();
     for p in PROVIDERS {
@@ -66,6 +80,7 @@ pub async fn list(State(st): State<Shared>) -> Response {
     }
     Json(json!({
         "accounts": accounts,
+        "cli": cli,
         "modes": modes,
         "root": root(&st).display().to_string(),
         "endpoint_presets": PRESETS,

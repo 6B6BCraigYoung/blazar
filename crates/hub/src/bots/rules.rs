@@ -851,6 +851,8 @@ fn window_label(name: &str) -> String {
         "five_hour" => "5 小时窗口".into(),
         "seven_day" => "7 天窗口".into(),
         "seven_day_opus" => "7 天 Opus 窗口".into(),
+        "one_day" => "每天的窗口".into(),
+        "monthly" => "每月的窗口".into(),
         "blocked" => "额度（已被限流）".into(),
         other => other.to_owned(),
     }

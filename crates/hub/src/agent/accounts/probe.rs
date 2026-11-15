@@ -9,7 +9,7 @@ use crate::api::Shared;
 use crate::state::ServerEvent;
 
 use super::quota::{can_query_quota, refresh_quota};
-use super::{Account, TOKEN_ENV, default_home, get};
+use super::{Account, QUOTA_ONLY, TOKEN_ENV, default_home, get};
 
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Probe {
@@ -121,6 +121,15 @@ pub async fn check_on_start(st: Shared) {
     if n > 0 {
         tracing::info!(target: "blazar::accounts", "启动时重新检查了 {n} 个账号的登录状态");
     }
+    for a in super::all(&st, None)
+        .await
+        .iter()
+        .filter(|a| QUOTA_ONLY.contains(&a.provider.as_str()) && !a.disabled)
+    {
+        if let Err(e) = refresh_quota(&st, a).await {
+            tracing::info!(target: "blazar::accounts", "启动时没查到 {} 的额度：{e}", a.provider);
+        }
+    }
 }
 
 fn credential_files(a: &Account) -> Vec<PathBuf> {
@@ -218,6 +227,9 @@ pub(super) async fn check_after_login(st: &Shared, a: &Account) -> Option<Accoun
 async fn check_as(st: &Shared, a: &Account, just_signed_in: bool) -> Option<Account> {
     if st.services == crate::services::Services::Isolated {
         return None;
+    }
+    if QUOTA_ONLY.contains(&a.provider.as_str()) {
+        return get(st, &a.id).await;
     }
     if a.kind == "endpoint" {
         let r = super::endpoint::probe(a).await;

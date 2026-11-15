@@ -9,6 +9,7 @@ use sqlx::Row;
 
 use crate::api::Shared;
 
+mod cli_quota;
 pub mod endpoint;
 mod failover;
 mod login;
@@ -40,6 +41,8 @@ pub use quota::{
 pub use selection::{Candidate, Chosen, Window, best, model_family, resolve, score};
 
 pub const PROVIDERS: &[&str] = &["claude", "codex"];
+
+pub const QUOTA_ONLY: &[&str] = &["devin", "droid"];
 
 pub const TOKEN_FILE: &str = ".blazar-oauth-token";
 const TOKEN_ENV: &str = "CLAUDE_CODE_OAUTH_TOKEN";
