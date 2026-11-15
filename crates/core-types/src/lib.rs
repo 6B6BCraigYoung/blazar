@@ -5,6 +5,7 @@ pub mod denial;
 pub mod failure;
 pub mod http;
 pub mod keymap;
+pub mod place;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod private_storage;
 pub mod sanitize;

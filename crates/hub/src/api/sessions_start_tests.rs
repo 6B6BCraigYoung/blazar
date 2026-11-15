@@ -1029,3 +1029,23 @@ async fn with_escalation_off_an_unhappy_message_is_routed_as_usual() {
     let route: serde_json::Value = serde_json::from_str(&route.unwrap()).unwrap();
     assert_eq!(route["model"], "haiku");
 }
+
+#[test]
+fn remote_hands_show_pictures_only_to_models_that_take_them() {
+    let blind = crate::accounts::Endpoint {
+        base_url: "https://api.example.com/anthropic".into(),
+        models: vec!["m".into()],
+        default_model: "m".into(),
+        small_model: None,
+        preset: None,
+        images: false,
+    };
+    let sighted = crate::accounts::Endpoint {
+        images: true,
+        ..blind.clone()
+    };
+    assert!(sees_images("claude", None));
+    assert!(sees_images("claude", Some(&sighted)));
+    assert!(!sees_images("claude", Some(&blind)));
+    assert!(!sees_images("codex", None));
+}

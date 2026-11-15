@@ -65,6 +65,8 @@ const WORKER_OWN_JOB_TOOLS: &[&str] = &["job_log", "job_kill"];
 const WORKER_DENIED_TOOLS: &[&str] = &[
     "spawn_bot",
     "create_workspace",
+    "update_workspace",
+    "tidy_workspaces",
     "create_task",
     "update_task",
     "start_task",
@@ -718,11 +720,11 @@ async fn call(st: &Shared, grant: Option<&Grant>, params: Option<&Value>) -> Res
         allowed(st, c, name, &args).await?;
     }
     let tool = blazar_mcp::tools::find(name).ok_or_else(|| format!("Unknown tool: {name}"))?;
-    let (method, mut path, mut body) = (tool.build)(&args).map_err(|error| error.to_string())?;
+    let (method, path, mut body) = (tool.build)(&args).map_err(|error| error.to_string())?;
     if let Some(g) = grant
         && caller.is_none()
     {
-        inherit(st, g.session, name, &args, &mut path, &mut body).await;
+        inherit(st, g.session, name, &args, &mut body).await;
     }
     let mut extra = Vec::new();
     if let Some(c) = &caller {
@@ -744,16 +746,14 @@ async fn call(st: &Shared, grant: Option<&Grant>, params: Option<&Value>) -> Res
 
 struct Origin {
     workspace: String,
-    node: String,
-    path: String,
     assistant: bool,
     mode: Option<String>,
 }
 
 async fn origin(st: &Shared, session: SessionId) -> Option<Origin> {
     let row = sqlx::query(
-        "SELECT w.id, w.path, w.kind, n.name AS node FROM sessions s
-         JOIN workspaces w ON w.id = s.workspace_id JOIN nodes n ON n.id = w.node_id
+        "SELECT w.id, w.kind FROM sessions s
+         JOIN workspaces w ON w.id = s.workspace_id
          WHERE s.id = ?1",
     )
     .bind(session.to_string())
@@ -776,8 +776,6 @@ async fn origin(st: &Shared, session: SessionId) -> Option<Origin> {
     });
     Some(Origin {
         workspace: row.try_get("id").ok()?,
-        node: row.try_get("node").ok()?,
-        path: row.try_get("path").ok()?,
         assistant: row.try_get::<String, _>("kind").ok()? == "assistant",
         mode,
     })
@@ -789,7 +787,6 @@ async fn inherit(
     session: SessionId,
     name: &str,
     args: &Value,
-    path: &mut String,
     body: &mut Option<Value>,
 ) {
     if !matches!(name, "send_prompt" | "create_workspace") {
@@ -806,12 +803,26 @@ async fn inherit(
         }
         ("create_workspace", Some(b)) => {
             let standalone = args["standalone"].as_bool().unwrap_or(false);
-            let node = b["node"].as_str().unwrap_or_default();
-            let dir = b["path"].as_str().unwrap_or_default().trim_end_matches('/');
-            let same = node == o.node && dir == o.path.trim_end_matches('/');
-            if !standalone && !o.assistant && !same {
-                *path = format!("/api/workspaces/{}/children", o.workspace);
-                *body = Some(json!({ "node": node, "path": dir, "name": b["name"] }));
+            b["agent"] = json!(true);
+            if let Some(fields) = b.as_object_mut() {
+                fields.remove("standalone");
+            }
+            if !o.assistant && !standalone {
+                b["parent"] = json!(o.workspace);
+            }
+            if standalone
+                && !o.assistant
+                && b["project"].as_str().is_none_or(str::is_empty)
+                && let Some(p) = sqlx::query_scalar::<_, String>(
+                    "SELECT p.name FROM workspaces w JOIN projects p ON p.id = w.project_id WHERE w.id = ?1",
+                )
+                .bind(&o.workspace)
+                .fetch_optional(st.db.pool())
+                .await
+                .ok()
+                .flatten()
+            {
+                b["project"] = json!(p);
             }
         }
         _ => {}

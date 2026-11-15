@@ -248,6 +248,9 @@ pub struct WorkspaceView {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent: Option<String>,
 
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub archived: bool,
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub step: Option<WorkspaceStep>,
 
@@ -259,6 +262,64 @@ pub struct WorkspaceView {
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ask: Option<Ask>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub progress: Option<Progress>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Progress {
+    pub done: u32,
+    pub total: u32,
+    #[serde(default)]
+    pub unit: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub at: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct BoardRow {
+    pub id: String,
+    pub name: String,
+    pub node: String,
+    pub path: String,
+    #[serde(default)]
+    pub parent: Option<String>,
+    #[serde(default)]
+    pub archived: bool,
+    pub activity: String,
+    #[serde(default)]
+    pub doing: Option<String>,
+    #[serde(default)]
+    pub latest: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
+    #[serde(default)]
+    pub waiting: u32,
+    #[serde(default)]
+    pub progress: Option<Progress>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct BoardNote {
+    pub id: String,
+    pub workspace_id: String,
+    pub workspace: String,
+    pub node: String,
+    pub title: String,
+    #[serde(default)]
+    pub body: String,
+    pub at: String,
+    #[serde(default)]
+    pub progress: Option<Progress>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct Board {
+    pub rows: Vec<BoardRow>,
+    pub recent: Vec<BoardNote>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

@@ -1,12 +1,31 @@
 use super::*;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 pub struct CreateWorkspace {
     pub node: String,
     pub path: String,
     pub name: Option<String>,
 
     pub project: Option<String>,
+
+    #[serde(default)]
+    pub parent: Option<String>,
+
+    #[serde(default)]
+    pub top: bool,
+
+    #[serde(default)]
+    pub agent: bool,
+
+    #[serde(default)]
+    pub worktree: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Placed {
+    pub id: String,
+    pub parent: Option<String>,
+    pub reused: bool,
 }
 
 pub(crate) async fn ensure_node(st: &AppState, node: &str, now: &str) -> ApiResult<String> {
@@ -63,54 +82,356 @@ fn folder_name(path: &str) -> &str {
         .unwrap_or(path)
 }
 
-async fn insert_workspace(st: &AppState, req: &CreateWorkspace) -> ApiResult<String> {
+async fn project_name(st: &AppState, project_id: Option<&str>) -> sqlx::Result<Option<String>> {
+    match project_id {
+        Some(pid) => {
+            sqlx::query_scalar("SELECT name FROM projects WHERE id = ?1")
+                .bind(pid)
+                .fetch_optional(st.db.pool())
+                .await
+        }
+        None => Ok(None),
+    }
+}
+
+async fn make_worktree(st: &AppState, node: &str, repo: &str, path: &str) -> ApiResult<()> {
+    let script = format!(
+        "git -C {} worktree add --detach {} 2>&1",
+        blazar_transport::shell_quote(repo),
+        blazar_transport::shell_quote(path)
+    );
+    let out = st
+        .transport(node)
+        .exec(
+            blazar_transport::ExecSpec::new("bash")
+                .arg("-c")
+                .arg(script),
+        )
+        .await
+        .map_err(|e| ApiError::bad_request(format!("建 worktree 失败：{e}")))?;
+    if out.code != 0 {
+        return Err(ApiError::bad_request(format!(
+            "建 worktree 失败：{}",
+            out.stdout.trim()
+        )));
+    }
+    Ok(())
+}
+
+async fn insert_workspace(st: &AppState, req: &CreateWorkspace) -> ApiResult<Placed> {
     let now = Utc::now().to_rfc3339();
     let pool = st.db.pool();
     let node_id = ensure_node(st, &req.node, &now).await?;
-    let project_id = project_id_of(st, req.project.as_deref(), &now).await?;
-    let name = req
+    let asked = req
+        .project
+        .as_deref()
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+        .map(str::to_owned);
+    let named = req
         .name
-        .clone()
-        .unwrap_or_else(|| folder_name(&req.path).to_owned());
-
-    sqlx::query(
-        "INSERT INTO workspaces (id, project_id, node_id, name, path, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-         ON CONFLICT (node_id, path) DO UPDATE SET
-            name = excluded.name, project_id = excluded.project_id",
+        .as_deref()
+        .map(str::trim)
+        .filter(|n| !n.is_empty())
+        .map(str::to_owned);
+    let bare = blazar_core_types::place::trim(&req.path).to_owned();
+    let existing: Option<(String, Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT id, parent_id, archived_at FROM workspaces
+         WHERE node_id = ?1 AND (path = ?2 OR path = ?3)",
     )
-    .bind(WorkspaceId::new().to_string())
+    .bind(&node_id)
+    .bind(&req.path)
+    .bind(if bare == req.path {
+        format!("{bare}/")
+    } else {
+        bare.clone()
+    })
+    .fetch_optional(pool)
+    .await?;
+    if let Some((id, parent, archived)) = existing {
+        if let Some(name) = &named {
+            sqlx::query("UPDATE workspaces SET name = ?2 WHERE id = ?1")
+                .bind(&id)
+                .bind(name)
+                .execute(pool)
+                .await?;
+        }
+        if let Some(project) = &asked {
+            let old = project_of(st, &id).await?;
+            let new = project_id_of(st, Some(project), &now).await?;
+            spread_project(st, &id, old.as_deref(), new.as_deref()).await?;
+        }
+        if archived.is_some() {
+            restore(st, &id).await?;
+        }
+        st.emit(ServerEvent::WorkspacesChanged);
+        return Ok(Placed {
+            id,
+            parent,
+            reused: true,
+        });
+    }
+    let spots: Vec<(String, String, Option<String>)> = sqlx::query_as(
+        "SELECT id, path, project_id FROM workspaces
+         WHERE node_id = ?1 AND archived_at IS NULL AND kind <> 'assistant'",
+    )
+    .bind(&node_id)
+    .fetch_all(pool)
+    .await?;
+    let mut parent: Option<(String, String, Option<String>)> = None;
+    if !req.top
+        && let Some(cid) = blazar_core_types::place::container(
+            spots
+                .iter()
+                .map(|(id, path, _)| (id.as_str(), req.node.as_str(), path.as_str())),
+            &req.node,
+            &req.path,
+        )
+        && let Some((id, path, pid)) = spots.iter().find(|(id, ..)| id == cid)
+    {
+        let theirs = project_name(st, pid.as_deref()).await?;
+        if asked.is_none() || asked == theirs {
+            parent = Some((id.clone(), path.clone(), pid.clone()));
+        }
+    }
+    if parent.is_none()
+        && !req.top
+        && let Some(hint) = req.parent.as_deref().filter(|h| !h.is_empty())
+    {
+        parent = sqlx::query_as::<_, (String, String, Option<String>)>(
+            "SELECT id, path, project_id FROM workspaces WHERE id = ?1 AND archived_at IS NULL",
+        )
+        .bind(hint)
+        .fetch_optional(pool)
+        .await?;
+    }
+    let inherited = match &parent {
+        Some((_, _, pid)) => project_name(st, pid.as_deref()).await?,
+        None => None,
+    };
+    let project = asked.clone().or(inherited);
+    if req.agent && parent.is_none() && project.is_none() {
+        let known: Vec<String> = sqlx::query_scalar("SELECT name FROM projects ORDER BY name")
+            .fetch_all(pool)
+            .await?;
+        let hint = if known.is_empty() {
+            String::new()
+        } else {
+            format!("已有项目：{}。", known.join("、"))
+        };
+        return Err(ApiError::bad_request(format!(
+            "新建顶层工作区要带 project。{hint}或者把目录建在已有工作区的目录里，它会自动挂成那个工作区的子工作区"
+        )));
+    }
+    if req.worktree {
+        let Some((pid, repo, _)) = &parent else {
+            return Err(ApiError::bad_request("worktree 要建在某个工作区下面"));
+        };
+        let same_node: Option<String> =
+            sqlx::query_scalar("SELECT id FROM workspaces WHERE id = ?1 AND node_id = ?2")
+                .bind(pid)
+                .bind(&node_id)
+                .fetch_optional(pool)
+                .await?;
+        if same_node.is_none() {
+            return Err(ApiError::bad_request("worktree 要和父工作区在同一台机器上"));
+        }
+        make_worktree(st, &req.node, repo, &req.path).await?;
+    }
+    let project_id = project_id_of(st, project.as_deref(), &now).await?;
+    let id = WorkspaceId::new().to_string();
+    sqlx::query(
+        "INSERT INTO workspaces (id, project_id, node_id, name, path, created_at, parent_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+    )
+    .bind(&id)
     .bind(&project_id)
     .bind(&node_id)
-    .bind(&name)
+    .bind(named.unwrap_or_else(|| folder_name(&req.path).to_owned()))
     .bind(&req.path)
     .bind(&now)
+    .bind(parent.as_ref().map(|(p, ..)| p.clone()))
     .execute(pool)
     .await?;
-
-    let id: String = sqlx::query_scalar("SELECT id FROM workspaces WHERE node_id=?1 AND path=?2")
-        .bind(&node_id)
-        .bind(&req.path)
-        .fetch_one(pool)
-        .await?;
     st.emit(ServerEvent::WorkspacesChanged);
-    Ok(id)
+    Ok(Placed {
+        id,
+        parent: parent.map(|(p, ..)| p),
+        reused: false,
+    })
 }
 
 pub async fn create_workspace(
     State(st): State<Shared>,
     Json(req): Json<CreateWorkspace>,
 ) -> ApiResult<Json<serde_json::Value>> {
-    let id = insert_workspace(&st, &req).await?;
-    Ok(Json(serde_json::json!({ "id": id })))
+    let placed = insert_workspace(&st, &req).await?;
+    Ok(Json(serde_json::json!({
+        "id": placed.id,
+        "parent": placed.parent,
+        "reused": placed.reused,
+    })))
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 pub struct UpdateWorkspace {
     #[serde(default)]
     pub name: Option<String>,
     #[serde(default)]
     pub project: Option<String>,
+    #[serde(default)]
+    pub parent: Option<String>,
+    #[serde(default)]
+    pub archived: Option<bool>,
+}
+
+pub(crate) async fn family(st: &AppState, id: &str) -> sqlx::Result<Vec<String>> {
+    sqlx::query_scalar(
+        "WITH RECURSIVE down(id) AS (
+            SELECT ?1 UNION SELECT w.id FROM workspaces w JOIN down d ON w.parent_id = d.id)
+         SELECT id FROM down",
+    )
+    .bind(id)
+    .fetch_all(st.db.pool())
+    .await
+}
+
+async fn lineage(st: &AppState, id: &str) -> sqlx::Result<Vec<String>> {
+    sqlx::query_scalar(
+        "WITH RECURSIVE up(id, parent) AS (
+            SELECT id, parent_id FROM workspaces WHERE id = ?1
+            UNION SELECT w.id, w.parent_id FROM workspaces w JOIN up u ON w.id = u.parent)
+         SELECT id FROM up",
+    )
+    .bind(id)
+    .fetch_all(st.db.pool())
+    .await
+}
+
+async fn project_of(st: &AppState, id: &str) -> sqlx::Result<Option<String>> {
+    Ok(
+        sqlx::query_scalar::<_, Option<String>>("SELECT project_id FROM workspaces WHERE id = ?1")
+            .bind(id)
+            .fetch_optional(st.db.pool())
+            .await?
+            .flatten(),
+    )
+}
+
+async fn spread_project(
+    st: &AppState,
+    id: &str,
+    old: Option<&str>,
+    new: Option<&str>,
+) -> sqlx::Result<()> {
+    for member in family(st, id).await? {
+        let mine = project_of(st, &member).await?;
+        if member == id || mine.is_none() || mine.as_deref() == old {
+            sqlx::query("UPDATE workspaces SET project_id = ?2 WHERE id = ?1")
+                .bind(&member)
+                .bind(new)
+                .execute(st.db.pool())
+                .await?;
+        }
+    }
+    Ok(())
+}
+
+pub(crate) async fn reshape(st: &AppState, id: &str, req: &UpdateWorkspace) -> ApiResult<()> {
+    let now = Utc::now().to_rfc3339();
+    let pool = st.db.pool();
+    locate(st, id).await?;
+    if let Some(name) = req.name.as_deref().map(str::trim) {
+        if name.is_empty() {
+            return Err(ApiError::bad_request("名称不能为空"));
+        }
+        sqlx::query("UPDATE workspaces SET name = ?2 WHERE id = ?1")
+            .bind(id)
+            .bind(name)
+            .execute(pool)
+            .await?;
+    }
+    if let Some(parent) = req.parent.as_deref().map(str::trim) {
+        if parent.is_empty() {
+            sqlx::query("UPDATE workspaces SET parent_id = NULL WHERE id = ?1")
+                .bind(id)
+                .execute(pool)
+                .await?;
+        } else {
+            let row: Option<(Option<String>, Option<String>)> =
+                sqlx::query_as("SELECT project_id, archived_at FROM workspaces WHERE id = ?1")
+                    .bind(parent)
+                    .fetch_optional(pool)
+                    .await?;
+            let Some((parent_project, parent_archived)) = row else {
+                return Err(ApiError::bad_request("要挂到的工作区不存在"));
+            };
+            if parent_archived.is_some() {
+                return Err(ApiError::bad_request(
+                    "不能挂到已归档的工作区下面，先恢复它",
+                ));
+            }
+            if family(st, id).await?.iter().any(|m| m == parent) {
+                return Err(ApiError::bad_request("不能挂到自己或自己下面的工作区"));
+            }
+            sqlx::query("UPDATE workspaces SET parent_id = ?2 WHERE id = ?1")
+                .bind(id)
+                .bind(parent)
+                .execute(pool)
+                .await?;
+            if req.project.is_none() && project_of(st, id).await?.is_none() {
+                spread_project(st, id, None, parent_project.as_deref()).await?;
+            }
+        }
+    }
+    if let Some(project) = req.project.as_deref() {
+        let old = project_of(st, id).await?;
+        let new = project_id_of(st, Some(project), &now).await?;
+        spread_project(st, id, old.as_deref(), new.as_deref()).await?;
+    }
+    match req.archived {
+        Some(true) => {
+            let members = family(st, id).await?;
+            for m in &members {
+                let running: i64 = sqlx::query_scalar(
+                    "SELECT COUNT(*) FROM sessions WHERE workspace_id = ?1 AND status = 'running'",
+                )
+                .bind(m)
+                .fetch_one(pool)
+                .await?;
+                if running > 0 {
+                    return Err(ApiError::bad_request(
+                        "这个工作区或它下面的工作区还有会话在跑，停下后再归档",
+                    ));
+                }
+            }
+            for m in &members {
+                sqlx::query(
+                    "UPDATE workspaces SET archived_at = ?2 WHERE id = ?1 AND archived_at IS NULL",
+                )
+                .bind(m)
+                .bind(&now)
+                .execute(pool)
+                .await?;
+            }
+        }
+        Some(false) => restore(st, id).await?,
+        None => {}
+    }
+    st.emit(ServerEvent::WorkspacesChanged);
+    Ok(())
+}
+
+pub(crate) async fn restore(st: &AppState, id: &str) -> sqlx::Result<()> {
+    let mut members = family(st, id).await?;
+    members.extend(lineage(st, id).await?);
+    for m in members {
+        sqlx::query("UPDATE workspaces SET archived_at = NULL WHERE id = ?1")
+            .bind(&m)
+            .execute(st.db.pool())
+            .await?;
+    }
+    Ok(())
 }
 
 pub async fn update_workspace(
@@ -118,28 +439,7 @@ pub async fn update_workspace(
     Path(id): Path<String>,
     Json(req): Json<UpdateWorkspace>,
 ) -> ApiResult<Json<serde_json::Value>> {
-    let now = Utc::now().to_rfc3339();
-    let pool = st.db.pool();
-    locate(&st, &id).await?;
-    if let Some(name) = req.name.as_deref().map(str::trim) {
-        if name.is_empty() {
-            return Err(ApiError::bad_request("名称不能为空"));
-        }
-        sqlx::query("UPDATE workspaces SET name = ?2 WHERE id = ?1")
-            .bind(&id)
-            .bind(name)
-            .execute(pool)
-            .await?;
-    }
-    if let Some(project) = req.project.as_deref() {
-        let project_id = project_id_of(&st, Some(project), &now).await?;
-        sqlx::query("UPDATE workspaces SET project_id = ?2 WHERE id = ?1")
-            .bind(&id)
-            .bind(&project_id)
-            .execute(pool)
-            .await?;
-    }
-    st.emit(ServerEvent::WorkspacesChanged);
+    reshape(&st, &id, &req).await?;
     Ok(Json(serde_json::json!({ "id": id })))
 }
 
@@ -330,9 +630,11 @@ pub async fn clone_workspace(
             path: path.clone(),
             name: Some(name),
             project: req.project.clone(),
+            ..Default::default()
         },
     )
-    .await?;
+    .await?
+    .id;
     Ok(Json(serde_json::json!({ "id": id, "path": path })))
 }
 
@@ -471,6 +773,7 @@ pub async fn create_child_workspace(
             path: path.clone(),
             name: Some(name.clone()),
             project: None,
+            ..Default::default()
         }),
     )
     .await?;
@@ -956,6 +1259,7 @@ mod tests {
                 path: path.to_string_lossy().into_owned(),
                 name: None,
                 project: None,
+                ..Default::default()
             }),
         )
         .await
@@ -979,6 +1283,7 @@ mod tests {
                 path: a.path().to_string_lossy().into_owned(),
                 name: Some("orbit".into()),
                 project: Some("Orbit".into()),
+                ..Default::default()
             }),
         )
         .await

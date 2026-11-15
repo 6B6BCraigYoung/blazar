@@ -29,6 +29,12 @@ pub struct ReportRequest {
     pub detail: String,
     #[serde(default)]
     pub options: Vec<String>,
+    #[serde(default)]
+    pub done: Option<u32>,
+    #[serde(default)]
+    pub total: Option<u32>,
+    #[serde(default)]
+    pub unit: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -159,6 +165,18 @@ pub async fn create_report(
             )
             .await
             .ok_or_else(|| ApiError(anyhow::anyhow!("汇报没有存进收件箱")))?;
+            if let Some(total) = req.total.filter(|t| *t > 0) {
+                sqlx::query(
+                    "UPDATE inbox SET progress_done = ?2, progress_total = ?3, progress_unit = ?4 WHERE id = ?1",
+                )
+                .bind(&id)
+                .bind(i64::from(req.done.unwrap_or(0).min(total)))
+                .bind(i64::from(total))
+                .bind(req.unit.trim())
+                .execute(st.db.pool())
+                .await?;
+                st.emit(crate::state::ServerEvent::WorkspacesChanged);
+            }
             Ok(Json(serde_json::json!({
                 "id": id,
                 "level": "info",

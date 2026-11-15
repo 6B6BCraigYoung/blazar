@@ -771,6 +771,10 @@ pub fn Palette() -> impl IntoView {
                         });
                     }));
                 }
+                let i4 = i3.clone();
+                list.push(Action::new("归档", icon::ARCHIVE, move || {
+                    crate::pages::workspaces::archive_workspace(app, i4.clone())
+                }));
                 list.push(
                     Action::new("移除…", icon::TRASH, move || {
                         crate::pages::workspaces::remove_workspace(app, i3.clone())

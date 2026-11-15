@@ -27,6 +27,12 @@ struct Listing {
     home: Option<String>,
 }
 
+#[derive(Clone, PartialEq)]
+enum Holder {
+    Same(String),
+    Inside(String, Option<String>),
+}
+
 fn remembered_dir(node: &str) -> String {
     crate::storage::load_raw(&format!("blazar.new-ws.dir.{node}")).unwrap_or_default()
 }
@@ -188,6 +194,32 @@ fn Dialog() -> impl IntoView {
             .or_else(|| touched.get().then(|| path.get()))
             .filter(|p| !p.is_empty())
     };
+    let top = RwSignal::new(false);
+    let holder = Memo::new(move |_| {
+        if is_child || iso.get() {
+            return None;
+        }
+        let p = target()?;
+        let n = node.get();
+        let asked = project.with(|s| Some(s.trim().to_owned()).filter(|s| !s.is_empty()));
+        let list = app.workspaces();
+        let bare = blazar_core_types::place::trim(&p);
+        if let Some(w) = list
+            .iter()
+            .find(|w| w.node == n && blazar_core_types::place::trim(&w.path) == bare)
+        {
+            return Some(Holder::Same(fmt::ws_label(&w.name, &w.node)));
+        }
+        let id = blazar_core_types::place::container(
+            list.iter()
+                .map(|w| (w.id.as_str(), w.node.as_str(), w.path.as_str())),
+            &n,
+            &p,
+        )?;
+        let w = list.iter().find(|w| w.id == id)?;
+        (asked.is_none() || asked == w.project)
+            .then(|| Holder::Inside(fmt::ws_label(&w.name, &w.node), w.project.clone()))
+    });
     let bseq = StoredValue::new(0u32);
     let load_branches = move || {
         branches.set(None);
@@ -415,6 +447,7 @@ fn Dialog() -> impl IntoView {
         let nm = Some(name.get_untracked().trim().to_owned()).filter(|x| !x.is_empty());
         let pj = Some(project.get_untracked().trim().to_owned()).filter(|x| !x.is_empty());
         let isolated = iso.get_untracked();
+        let alone = top.get_untracked();
         let from = Some(pick.get_untracked()).filter(|x| !x.is_empty());
         let navigate = navigate.clone();
         if let Some((pid, _)) = parent.clone() {
@@ -467,7 +500,7 @@ fn Dialog() -> impl IntoView {
                 api::send::<Value>(
                     "POST",
                     "/api/workspaces",
-                    &json!({ "node": n, "path": p, "name": nm, "project": pj }),
+                    &json!({ "node": n, "path": p, "name": nm, "project": pj, "top": alone }),
                 )
                 .await
             };
@@ -479,6 +512,10 @@ fn Dialog() -> impl IntoView {
                     app.load_state();
                     if let Some(b) = v["branch"].as_str() {
                         toast(format!("副本建好了，在分支 {b} 上"));
+                    } else if v["reused"].as_bool() == Some(true) {
+                        toast("这个文件夹已经是工作区了，直接打开它");
+                    } else if let Some(w) = v["parent"].as_str().and_then(|id| app.workspace(id)) {
+                        toast(format!("挂到了「{}」名下", fmt::ws_label(&w.name, &w.node)));
                     }
                     if let Some(id) = v["id"].as_str() {
                         navigate(&format!("/w/{id}"), Default::default());
@@ -1051,6 +1088,32 @@ fn Dialog() -> impl IntoView {
                     </Show>
                 </Show>
                 {name_more}
+                <Show when=move || matches!(holder.get(), Some(Holder::Inside(..)))>
+                    <label class="chk block">
+                        <input
+                            type="checkbox"
+                            aria-label="单独建成顶层"
+                            prop:checked=move || top.get()
+                            on:change=move |_| top.update(|t| *t = !*t)
+                        />
+                        <span>
+                            <b>"单独建成顶层"</b>
+                            <span class="muted small">
+                                {move || match holder.get() {
+                                    Some(Holder::Inside(w, Some(pj))) => {
+                                        format!(
+                                            " 不选的话挂到「{w}」名下，归到项目「{pj}」。",
+                                        )
+                                    }
+                                    Some(Holder::Inside(w, None)) => {
+                                        format!(" 不选的话挂到「{w}」名下。")
+                                    }
+                                    _ => String::new(),
+                                }}
+                            </span>
+                        </span>
+                    </label>
+                </Show>
                 {(!is_child)
                     .then(|| {
                         view! {
@@ -1082,7 +1145,17 @@ fn Dialog() -> impl IntoView {
                                         || {
                                             "单击选中一个文件夹，双击打开它".to_owned()
                                         },
-                                        |p| format!("用「{p}」"),
+                                        |p| match holder.get() {
+                                            Some(Holder::Same(w)) => {
+                                                format!(
+                                                    "「{p}」已经是工作区「{w}」，会直接打开它",
+                                                )
+                                            }
+                                            Some(Holder::Inside(w, _)) if !top.get() => {
+                                                format!("用「{p}」，挂到「{w}」名下")
+                                            }
+                                            _ => format!("用「{p}」"),
+                                        },
                                     ),
                             )
                         }

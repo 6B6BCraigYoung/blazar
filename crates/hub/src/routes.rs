@@ -146,6 +146,11 @@ pub fn build_router(st: Arc<AppState>) -> Router {
         .route("/api/tasks/{id}/comments", post(tasks::comment))
         .route("/api/checkpoints/{id}/restore", post(checkpoint::restore))
         .route("/api/nodes/{name}/sweep", post(api::sweep_node))
+        .route("/api/projects/board", get(api::project_board))
+        .route(
+            "/api/workspaces/tidy",
+            get(api::tidy_preview).post(api::tidy_apply),
+        )
         .route(
             "/api/workspaces/{id}",
             delete(api::delete_workspace).patch(api::update_workspace),

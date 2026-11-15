@@ -1,4 +1,6 @@
+mod archived;
 mod inspector;
+mod project;
 mod start;
 
 use leptos::ev;
@@ -16,9 +18,8 @@ use crate::components::empty::{self, Blank};
 use crate::components::group::ListGroup;
 use crate::components::icon;
 use crate::components::page_head::PageHead;
-use crate::components::prefs::{PrefGroup, PrefRow};
 use crate::components::rows::{MenuAt, RowAction, RowMenu};
-use crate::components::status::{InlineError, LoadingState, StateOf, Status, Tone};
+use crate::components::status::{InlineError, LoadingState};
 use crate::components::undo;
 use crate::failure::{self, Failure};
 use crate::fmt;
@@ -29,8 +30,10 @@ use super::work_shared::{
     list_keys_apply,
 };
 pub use inspector::{
-    Inspector, InspectorHost, remove_workspace, rename_workspace, retry_workspace,
+    Inspector, InspectorHost, archive_workspace, remove_workspace, rename_workspace,
+    restore_workspace, retry_workspace,
 };
+use project::ProjectDetail;
 pub use start::HomePage;
 use start::Start;
 
@@ -69,127 +72,6 @@ pub fn ProjectPage() -> impl IntoView {
             .filter(|n| !n.is_empty())
     });
     view! { <ProjectDetail project /> }
-}
-
-#[component]
-fn ProjectDetail(project: Signal<Option<String>>) -> impl IntoView {
-    let app = use_app();
-    let title = Signal::derive(move || project.get().unwrap_or_else(|| "项目".to_owned()));
-    let members = Memo::new(move |_| {
-        let p = project.get();
-        let mut list = app
-            .top_workspaces()
-            .into_iter()
-            .filter(|w| {
-                p.as_deref()
-                    .is_some_and(|p| w.project.as_deref() == Some(p))
-            })
-            .collect::<Vec<_>>();
-        list.sort_by(|a, b| b.last_active_at.cmp(&a.last_active_at));
-        list
-    });
-    let machines = Memo::new(move |_| {
-        let mut m = members
-            .get()
-            .into_iter()
-            .map(|w| fmt::machine(&w.node))
-            .collect::<Vec<_>>();
-        m.sort();
-        m.dedup();
-        m
-    });
-    view! {
-        <div class="page project-page detail-page">
-            <PageHead
-                parent=("工作区", "/")
-                icon=|| view! { <span class="ic" inner_html=icon::svg(icon::FOLDER)></span> }
-                title
-                status=move || {
-                    view! {
-                        {move || {
-                            view! {
-                                <Status
-                                    tone=Tone::Other
-                                    label=format!("{} 个工作区", members.get().len())
-                                />
-                            }
-                        }}
-                    }
-                }
-            >
-                <button
-                    type="button"
-                    class="btn primary"
-                    aria-haspopup="dialog"
-                    on:click=move |_| app.new_ws.set(true)
-                >
-                    "新建"
-                    {new_keys()}
-                </button>
-            </PageHead>
-            {move || {
-                app.state_error
-                    .get()
-                    .map(|message| {
-                        view! {
-                            <InlineError message retry=Callback::new(move |_| app.load_state()) />
-                        }
-                    })
-            }}
-            <div class="detail-body">
-                <PrefGroup title="工作区">
-                    {move || {
-                        if app.state.with(Option::is_none) {
-                            return view! { <LoadingState text="加载工作区…" /> }.into_any();
-                        }
-                        let list = members.get();
-                        if list.is_empty() {
-                            return view! {
-                                <PrefRow
-                                    label="还没有工作区"
-                                    detail="新建工作区时填上这个项目名，就会归到这里。"
-                                />
-                            }
-                                .into_any();
-                        }
-                        list.into_iter()
-                            .map(|w| {
-                                let activity = app.shown_activity(&w);
-                                view! {
-                                    <PrefRow
-                                        label=fmt::ws_title(&w.name, &w.node)
-                                        detail=format!("{}:{}", fmt::machine(&w.node), w.path)
-                                    >
-                                        <StateOf state=activity />
-                                        <a class="btn" href=format!("/w/{}", w.id)>
-                                            "打开"
-                                        </a>
-                                    </PrefRow>
-                                }
-                            })
-                            .collect_view()
-                            .into_any()
-                    }}
-                </PrefGroup>
-                <PrefGroup
-                    title="项目"
-                    note="同名项目的工作区归为一组，在侧栏里可以直接跳到。"
-                >
-                    <PrefRow label="名称">
-                        <span class="pref-text">{move || title.get()}</span>
-                    </PrefRow>
-                    <PrefRow label="机器">
-                        <span class="pref-text">
-                            {move || {
-                                let m = machines.get();
-                                if m.is_empty() { "—".to_owned() } else { m.join("、") }
-                            }}
-                        </span>
-                    </PrefRow>
-                </PrefGroup>
-            </div>
-        </div>
-    }
 }
 
 #[derive(Clone, Copy)]
@@ -239,6 +121,33 @@ fn new_keys() -> Option<AnyView> {
     })
 }
 
+const HOME_BY: &str = "blazar.home.by";
+
+fn band_stats(b: home_rows::Band) -> ViewFn {
+    ViewFn::from(move || {
+        let mut parts = Vec::new();
+        if b.running > 0 {
+            parts.push(format!("{} 个在跑", b.running));
+        }
+        if b.needs > 0 {
+            parts.push(format!("{} 个等你", b.needs));
+        }
+        let bar = b.progress.map(|(done, total)| {
+            let pct = (done.min(total) * 100).checked_div(total).unwrap_or(0);
+            view! {
+                <span class="band-progress" title=format!("{done}/{total}")>
+                    <i style=format!("width:{pct}%")></i>
+                </span>
+                <span class="band-pct">{format!("{pct}%")}</span>
+            }
+        });
+        view! {
+            <span class="band-stats">{parts.join(" · ")}</span>
+            {bar}
+        }
+    })
+}
+
 #[component]
 fn Home() -> impl IntoView {
     let app = use_app();
@@ -251,16 +160,27 @@ fn Home() -> impl IntoView {
     let list_el = NodeRef::<html::Div>::new();
     let cols = RwSignal::new(4usize);
     let all_recent = RwSignal::new(false);
-    let rows = Memo::new(move |_| {
+    let by_project = RwSignal::new(crate::storage::load_raw(HOME_BY).as_deref() == Some("project"));
+    let arranged = Memo::new(move |_| {
         let all = app.workspaces();
         let top = app
             .top_workspaces()
             .into_iter()
             .filter(|w| undo::shows(&w.id))
             .collect();
-        home_rows::group_rows(top, &all, |w| app.shown_activity(w))
+        let rows = home_rows::group_rows(top, &all, |w| app.shown_activity(w));
+        if by_project.get() {
+            home_rows::by_project(rows, &all, |w| app.shown_activity(w))
+        } else {
+            (rows, Vec::new())
+        }
     });
+    let rows = Memo::new(move |_| arranged.with(|a| a.0.clone()));
+    let bands = Memo::new(move |_| arranged.with(|a| a.1.clone()));
     let shown = Memo::new(move |_| {
+        if by_project.get() {
+            return bands.with(|b| b.iter().map(|b| b.count).collect::<Vec<_>>());
+        }
         let mut counts = [0usize; 2];
         rows.with(|r| {
             for row in r {
@@ -268,7 +188,7 @@ fn Home() -> impl IntoView {
                 counts[g] += 1;
             }
         });
-        home_rows::shown_counts(counts, cols.get(), all_recent.get())
+        home_rows::shown_counts(counts, cols.get(), all_recent.get()).to_vec()
     });
     let measure = move || {
         if let Some(list) = list_el.try_get_untracked().flatten()
@@ -455,9 +375,36 @@ fn Home() -> impl IntoView {
             .into_any();
         }
         let shown = shown.get();
-        // 同一屏最多一处脉冲：只有第一张“在跑”的卡片的点在闪，其余的只亮着。
         let pulsed = std::cell::Cell::new(false);
         let pulsed = &pulsed;
+        if by_project.get() {
+            let mut start = 0;
+            return bands
+                .get()
+                .into_iter()
+                .map(|b| {
+                    let cards = r
+                        .iter()
+                        .enumerate()
+                        .skip(start)
+                        .take(b.count)
+                        .map(|(i, row)| {
+                            let pending = pending_of(row);
+                            card_view(ctx, i, row.clone(), pending, pulsed)
+                        })
+                        .collect_view();
+                    start += b.count;
+                    let key = format!("project-{}", b.key);
+                    let stats = band_stats(b.clone());
+                    view! {
+                        <ListGroup title=b.title count=b.count key class="home-group" actions=stats>
+                            {cards}
+                        </ListGroup>
+                    }
+                })
+                .collect_view()
+                .into_any();
+        }
         Group::ALL
             .iter()
             .enumerate()
@@ -513,6 +460,30 @@ fn Home() -> impl IntoView {
             <Show when=move || mode.get() != "start">
                 <PageHead title="工作区">
                     <NeedsLine />
+                    <div class="seg home-by" role="group" aria-label="分组方式">
+                        {[(false, "按状态"), (true, "按项目")]
+                            .into_iter()
+                            .map(|(p, label)| {
+                                view! {
+                                    <button
+                                        type="button"
+                                        aria-pressed=move || by_project.get() == p
+                                        data-on=move || (by_project.get() == p).to_string()
+                                        on:click=move |_| {
+                                            crate::storage::save_raw(
+                                                HOME_BY,
+                                                if p { "project" } else { "status" },
+                                            );
+                                            ctx.sel.set(None);
+                                            by_project.set(p);
+                                        }
+                                    >
+                                        {label}
+                                    </button>
+                                }
+                            })
+                            .collect_view()}
+                    </div>
                     <button
                         type="button"
                         class="btn primary"
@@ -546,6 +517,9 @@ fn Home() -> impl IntoView {
                     _ => groups(),
                 }}
             </div>
+            <Show when=move || mode.get() != "start">
+                <archived::ArchivedShelf />
+            </Show>
             {move || {
                 ctx.menu
                     .get()
@@ -812,7 +786,7 @@ fn home_menu(ctx: Ctx, row: &Row, pending: Option<Value>) -> Vec<Vec<RowAction>>
     let href = format!("/w/{}", row.subject().id);
     let approval = pending.filter(|a| !is_question(a));
     let subject = row.subject().id.clone();
-    let (id_detail, id_rename, id_remove) = (id.clone(), id.clone(), id);
+    let (id_detail, id_rename, id_archive, id_remove) = (id.clone(), id.clone(), id.clone(), id);
     let mut groups = failure_menu(app, row);
     groups.extend([
         approval
@@ -837,6 +811,7 @@ fn home_menu(ctx: Ctx, row: &Row, pending: Option<Value>) -> Vec<Vec<RowAction>>
             RowAction::new("改名…", move || {
                 rename_workspace(app, id_rename.clone())
             }),
+            RowAction::new("归档", move || archive_workspace(app, id_archive.clone())),
         ],
         vec![RowAction::delete("移除…", move || {
             remove_workspace(app, id_remove.clone())

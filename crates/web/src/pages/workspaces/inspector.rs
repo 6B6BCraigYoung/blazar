@@ -12,7 +12,6 @@ use crate::components::modal::Modal;
 use crate::components::prefs::{PrefGroup, PrefRow};
 use crate::components::status::{InlineError, LoadingState, Status};
 use crate::components::toast::{toast, toast_error};
-use crate::components::undo::{self, Request};
 use crate::fmt;
 use crate::vocab::{self, Tone};
 
@@ -44,13 +43,22 @@ fn outcome_text(head: &str, r: &Value) -> String {
     }
 }
 
-async fn confirm_remove(label: &str, isolated: bool, kids: usize, busy: bool) -> bool {
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Removal {
+    Keep,
+    Archive,
+    Remove,
+}
+
+async fn confirm_remove(label: &str, isolated: bool, kids: usize, busy: bool) -> Removal {
     let mut msg = if isolated {
         format!(
-            "销毁工作区「{label}」？这份副本的目录和它的分支会一起删掉，没提交的改动也会丢失，不能撤销。"
+            "销毁工作区「{label}」？这份副本的目录和它的分支会一起删掉，没提交的改动和对话历史也会丢失，不能撤销。"
         )
     } else {
-        format!("从 Blazar 移除「{label}」？只删记录，不会动机器上的目录。")
+        format!(
+            "从 Blazar 移除「{label}」？它的对话历史会一起删掉，机器上的目录不动。只是不想再看到它，可以改用归档，随时能恢复。"
+        )
     };
     if busy {
         msg.push_str("正在跑的对话会被停掉。");
@@ -59,13 +67,59 @@ async fn confirm_remove(label: &str, isolated: bool, kids: usize, busy: bool) ->
         msg.push_str(&format!("它的 {kids} 个子工作区会变成独立的工作区。"));
     }
     let verb = if isolated { "销毁" } else { "移除" };
-    dialog::ask(
-        verb,
-        &msg,
-        vec![Choice::plain("取消"), Choice::danger(verb)],
-    )
-    .await
-        == Some(1)
+    let mut choices = vec![Choice::plain("取消")];
+    if !busy {
+        choices.push(Choice::plain("归档"));
+    }
+    choices.push(Choice::danger(verb));
+    match dialog::ask(verb, &msg, choices).await {
+        Some(1) if !busy => Removal::Archive,
+        Some(n) if n >= 1 => Removal::Remove,
+        _ => Removal::Keep,
+    }
+}
+
+pub fn archive_workspace(app: AppData, id: String) {
+    spawn_local(async move {
+        let label = app
+            .workspace(&id)
+            .map(|w| fmt::ws_label(&w.name, &w.node))
+            .unwrap_or_default();
+        match api::send::<Value>(
+            "PATCH",
+            &format!("/api/workspaces/{}", api::enc(&id)),
+            &json!({ "archived": true }),
+        )
+        .await
+        {
+            Ok(_) => {
+                toast(format!(
+                    "已归档「{label}」，可以在工作区页底部的「已归档」里恢复"
+                ));
+                app.load_state();
+            }
+            Err(e) => toast_error("没归档上", &e),
+        }
+    });
+}
+
+pub fn restore_workspace(app: AppData, id: String, label: String, done: impl Fn() + 'static) {
+    spawn_local(async move {
+        match api::send::<Value>(
+            "PATCH",
+            &format!("/api/workspaces/{}", api::enc(&id)),
+            &json!({ "archived": false }),
+        )
+        .await
+        {
+            Ok(_) => {
+                toast(format!("已恢复「{label}」"));
+                app.load_state();
+                done();
+            }
+            Err(e) => toast_error("没恢复上", &e),
+        }
+    });
 }
 
 pub fn rename_workspace(app: AppData, id: String) {
@@ -154,19 +208,13 @@ pub fn remove_workspace(app: AppData, id: String) {
             "running" | "starting" | "awaiting_approval"
         );
         let path = format!("/api/workspaces/{id}/destroy");
-        if !(isolated || busy || kids > 0) {
-            undo::remove_row(
-                format!("已移除「{label}」"),
-                id,
-                Request::post(path),
-                move || {
-                    app.load_state();
-                },
-            );
-            return;
-        }
-        if !confirm_remove(&label, isolated, kids, busy).await {
-            return;
+        match confirm_remove(&label, isolated, kids, busy).await {
+            Removal::Keep => return,
+            Removal::Archive => {
+                archive_workspace(app, id);
+                return;
+            }
+            Removal::Remove => {}
         }
         match api::send::<Value>("POST", &path, &json!({})).await {
             Ok(r) => {

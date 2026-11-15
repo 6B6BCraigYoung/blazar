@@ -308,7 +308,8 @@ mod tests {
                 .workspace_count,
             1
         );
-        let listed = ok(super::super::list_workspaces(State(st.clone())).await).0;
+        let listed =
+            ok(super::super::list_workspaces(State(st.clone()), Query(Default::default())).await).0;
         assert!(listed.iter().all(|w| w.id != id));
         let described = ok(get_assistant(State(st.clone())).await).0;
         assert_eq!(described["id"], id);
@@ -525,6 +526,8 @@ mod tests {
                 diff: None,
                 diff_at: None,
                 parent: None,
+                archived: false,
+                progress: None,
                 step,
                 failure: None,
                 summary: None,

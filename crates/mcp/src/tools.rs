@@ -44,9 +44,77 @@ const WAIT_CAP_SECS: u64 = 50;
 pub const TOOLS: &[Tool] = &[
     Tool {
         name: "list_workspaces",
-        description: "列出所有工作区（跨机器），含活动状态、所在机器、项目归属。",
-        schema: || obj(json!({}), &[]),
-        build: |_| Ok(("GET", "/api/workspaces".into(), None)),
+        description: "列出所有工作区（跨机器），含活动状态、所在机器、项目归属。已归档的默认不列。",
+        schema: || {
+            obj(
+                json!({ "include_archived": { "type": "boolean", "description": "连已归档的一起列出" } }),
+                &[],
+            )
+        },
+        build: |v| {
+            let all = v
+                .get("include_archived")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            Ok((
+                "GET",
+                if all {
+                    "/api/workspaces?archived=true".into()
+                } else {
+                    "/api/workspaces".into()
+                },
+                None,
+            ))
+        },
+    },
+    Tool {
+        name: "update_workspace",
+        description: "改一个工作区：改名、改项目、挂到别的工作区下面、归档或恢复。只改给了的字段。改项目时子工作区跟着改；归档时子工作区一起归档，会话和历史都保留，可以恢复。",
+        schema: || {
+            obj(
+                json!({
+                    "workspace_id": s("string", "工作区 id"),
+                    "name": s("string", "新的显示名"),
+                    "project": s("string", "项目名；传空字符串清掉项目"),
+                    "parent": s("string", "挂到哪个工作区下面（工作区 id）；传空字符串改回顶层"),
+                    "archived": { "type": "boolean", "description": "true 归档，false 恢复" },
+                }),
+                &["workspace_id"],
+            )
+        },
+        build: |v| {
+            let id = enc(arg(v, "workspace_id")?);
+            let mut body = v.clone();
+            if let Some(o) = body.as_object_mut() {
+                o.remove("workspace_id");
+            }
+            Ok(("PATCH", format!("/api/workspaces/{id}"), Some(body)))
+        },
+    },
+    Tool {
+        name: "tidy_workspaces",
+        description: "整理工作区。不带 apply 只出预览：哪些挪到所在目录树的工作区下面、哪些归到同一个项目、哪些归档（本机中转目录、目录已不存在的）。先把预览用 ask_user 给用户确认，再带 apply=true 执行；only 只执行预览里列出的这些 key。",
+        schema: || {
+            obj(
+                json!({
+                    "apply": { "type": "boolean", "description": "true 时执行，默认只预览" },
+                    "only": { "type": "array", "items": { "type": "string" }, "description": "只执行这些 key" },
+                }),
+                &[],
+            )
+        },
+        build: |v| {
+            if v.get("apply").and_then(Value::as_bool).unwrap_or(false) {
+                let only = v.get("only").cloned().unwrap_or(Value::Null);
+                Ok((
+                    "POST",
+                    "/api/workspaces/tidy".into(),
+                    Some(json!({ "only": only })),
+                ))
+            } else {
+                Ok(("GET", "/api/workspaces/tidy".into(), None))
+            }
+        },
     },
     Tool {
         name: "list_nodes",
@@ -80,7 +148,7 @@ pub const TOOLS: &[Tool] = &[
     },
     Tool {
         name: "create_workspace",
-        description: "在某台机器的某个目录上建一个工作区。从会话里调用时，默认建成这个会话所在工作区的子工作区。",
+        description: "在某台机器的某个目录上建一个工作区。目录落在已有工作区的目录树里，会自动建成那个工作区的子工作区并继承项目；这个目录已经是工作区就直接复用。从会话里调用时，其余情况建成这个会话所在工作区的子工作区。建顶层工作区（中控台调用，或 standalone）必须带 project。要并行干活，就在当前工作区下建一个子目录当子工作区；git 仓库要隔离改动可以加 worktree。",
         schema: || {
             obj(
                 json!({
@@ -88,7 +156,8 @@ pub const TOOLS: &[Tool] = &[
                     "path": s("string", "该机器上的绝对路径"),
                     "name": s("string", "显示名，留空取目录名"),
                     "project": s("string", "项目名；同名项目下的多个工作区即多机副本"),
-                    "standalone": { "type": "boolean", "description": "建成独立工作区，不挂在调用方名下" },
+                    "standalone": { "type": "boolean", "description": "建成独立工作区，不挂在调用方名下（仍要带 project，没给就用调用方的项目）" },
+                    "worktree": { "type": "boolean", "description": "在父工作区的 git 仓库里用 git worktree 建这个目录，作为隔离改动的并行副本" },
                 }),
                 &["node", "path"],
             )
@@ -861,7 +930,7 @@ pub const TOOLS: &[Tool] = &[
     },
     Tool {
         name: "report",
-        description: "向中控台汇报。level=info：一句话进中控台的汇报流，不打扰用户，用在阶段完成（上线了、跑完了、渲完了、方案出来了）或发现异常时；level=decision：要用户拍板，发一张带选项的卡片进「需要你处理」，等同于 ask_user。普通的中间进展不用汇报。",
+        description: "向中控台汇报。level=info：一句话进中控台的汇报流，不打扰用户，用在阶段完成（上线了、跑完了、渲完了、方案出来了）或发现异常时；level=decision：要用户拍板，发一张带选项的卡片进「需要你处理」，等同于 ask_user。普通的中间进展不用汇报。有数可数时带上进度：做完 5 件，共 30 件就写 done=5、total=30、unit=件，项目页按最近一条带进度的汇报画进度条。",
         schema: || {
             obj(
                 json!({
@@ -877,6 +946,9 @@ pub const TOOLS: &[Tool] = &[
                         "description": "level=decision 时的选项，2～6 个短句",
                         "items": { "type": "string" },
                     },
+                    "done": s("integer", "可选进度：已经做完的数量"),
+                    "total": s("integer", "可选进度：一共多少；带上它项目页才画进度条"),
+                    "unit": s("string", "可选进度的单位，比如 件、页、个"),
                 }),
                 &["level", "text"],
             )
@@ -886,16 +958,28 @@ pub const TOOLS: &[Tool] = &[
             if !matches!(level, "info" | "decision") {
                 anyhow::bail!("level must be info or decision");
             }
-            Ok((
-                "POST",
-                "/api/reports".into(),
-                Some(json!({
-                    "level": level,
-                    "text": arg(v, "text")?,
-                    "detail": v.get("detail").and_then(Value::as_str).unwrap_or_default(),
-                    "options": v.get("options").cloned().unwrap_or_else(|| json!([])),
-                })),
-            ))
+            let num = |k: &str| {
+                v.get(k)
+                    .and_then(|x| {
+                        x.as_u64()
+                            .or_else(|| x.as_str().and_then(|s| s.trim().parse().ok()))
+                    })
+                    .map(|n| n.min(u64::from(u32::MAX)))
+            };
+            let mut body = json!({
+                "level": level,
+                "text": arg(v, "text")?,
+                "detail": v.get("detail").and_then(Value::as_str).unwrap_or_default(),
+                "options": v.get("options").cloned().unwrap_or_else(|| json!([])),
+            });
+            if let Some(total) = num("total") {
+                body["total"] = json!(total);
+                body["done"] = json!(num("done").unwrap_or(0));
+                if let Some(unit) = v.get("unit").and_then(Value::as_str) {
+                    body["unit"] = json!(unit.trim());
+                }
+            }
+            Ok(("POST", "/api/reports".into(), Some(body)))
         },
     },
 ];
@@ -999,6 +1083,35 @@ mod tests {
     }
 
     #[test]
+    fn workspace_tools_shape_their_requests() {
+        let (method, url, body) = (find("update_workspace").unwrap().build)(&json!({
+            "workspace_id": "w 1", "parent": "", "archived": true
+        }))
+        .unwrap();
+        assert_eq!((method, url.as_str()), ("PATCH", "/api/workspaces/w%201"));
+        let body = body.unwrap();
+        assert!(body.get("workspace_id").is_none());
+        assert_eq!(body["parent"], "");
+        assert_eq!(body["archived"], true);
+
+        let (method, url, body) = (find("tidy_workspaces").unwrap().build)(&json!({})).unwrap();
+        assert_eq!(
+            (method, url.as_str(), body),
+            ("GET", "/api/workspaces/tidy", None)
+        );
+        let (method, _, body) = (find("tidy_workspaces").unwrap().build)(&json!({
+            "apply": true, "only": ["nest:a"]
+        }))
+        .unwrap();
+        assert_eq!(method, "POST");
+        assert_eq!(body.unwrap()["only"], json!(["nest:a"]));
+
+        let (_, url, _) =
+            (find("list_workspaces").unwrap().build)(&json!({ "include_archived": true })).unwrap();
+        assert_eq!(url, "/api/workspaces?archived=true");
+    }
+
+    #[test]
     fn lists_ask_only_for_what_they_list() {
         for (name, path) in [
             ("list_workspaces", "/api/workspaces"),
@@ -1051,7 +1164,18 @@ mod tests {
         }))
         .unwrap();
         assert_eq!((m, url.as_str()), ("POST", "/api/reports"));
-        assert_eq!(body.unwrap()["level"], "info");
+        let body = body.unwrap();
+        assert_eq!(body["level"], "info");
+        assert!(body.get("total").is_none());
+        let (_, _, counted) = (find("report").unwrap().build)(&json!({
+            "level": "info", "text": "图纸转好一批", "done": "5", "total": 30, "unit": " 件 ",
+        }))
+        .unwrap();
+        let counted = counted.unwrap();
+        assert_eq!(
+            (&counted["done"], &counted["total"], &counted["unit"]),
+            (&json!(5), &json!(30), &json!("件"))
+        );
         assert!((find("report").unwrap().build)(&json!({ "level": "loud", "text": "x" })).is_err());
         assert!((find("report").unwrap().build)(&json!({ "level": "info" })).is_err());
     }

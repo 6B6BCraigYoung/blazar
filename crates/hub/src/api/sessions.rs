@@ -99,6 +99,10 @@ pub(crate) fn with_editor_context(text: &str, file: Option<&str>) -> String {
     }
 }
 
+pub(crate) fn sees_images(runtime: &str, endpoint: Option<&crate::accounts::Endpoint>) -> bool {
+    runtime == "claude" && endpoint.is_none_or(|e| e.images)
+}
+
 pub(crate) fn check_images(images: &[blazar_runtime::ImageInput]) -> Result<(), String> {
     const TYPES: &[&str] = &["image/png", "image/jpeg", "image/gif", "image/webp"];
     if images.len() > 8 {
@@ -252,6 +256,16 @@ async fn prompt_inner(
     }
     let (node, path) = locate(&st, &id).await?;
     let workspace_id = WorkspaceId(id.parse()?);
+    let shelved: Option<String> =
+        sqlx::query_scalar("SELECT archived_at FROM workspaces WHERE id = ?1")
+            .bind(&id)
+            .fetch_optional(st.db.pool())
+            .await?
+            .flatten();
+    if shelved.is_some() {
+        super::workspaces::restore(&st, &id).await?;
+        st.emit(ServerEvent::WorkspacesChanged);
+    }
     let assistant = super::assistant::is_assistant(&st, &id).await;
     if let Err(e) = check_images(&req.images) {
         return Err(ApiError(anyhow::anyhow!(e)));
@@ -835,17 +849,21 @@ async fn prompt_inner(
         if local_brain {
             let exe = std::env::current_exe()
                 .map_err(|e| ApiError(anyhow::anyhow!("Can't find this program's path to attach remote tools: {e}")))?;
+            let mut args = vec![
+                blazar_mcp::remote::SUBCOMMAND.to_owned(),
+                "--node".into(),
+                node.clone(),
+                "--root".into(),
+                path.clone(),
+            ];
+            if !sees_images(agent_id, account.as_ref().and_then(|a| a.endpoint.as_ref())) {
+                args.push("--no-images".into());
+            }
             spec.remote_hands = Some(blazar_runtime::RemoteHands {
                 node: node.clone(),
                 root: path.clone(),
                 command: exe.display().to_string(),
-                args: vec![
-                    blazar_mcp::remote::SUBCOMMAND.to_owned(),
-                    "--node".into(),
-                    node.clone(),
-                    "--root".into(),
-                    path.clone(),
-                ],
+                args,
             });
         }
 

@@ -194,6 +194,72 @@ pub fn group_rows(
     rows
 }
 
+pub const UNASSIGNED: &str = "未归项目";
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Band {
+    pub key: String,
+    pub title: String,
+    pub count: usize,
+    pub running: usize,
+    pub needs: usize,
+    pub progress: Option<(u64, u64)>,
+}
+
+#[must_use]
+pub fn by_project(
+    rows: Vec<Row>,
+    all: &[WorkspaceView],
+    shown: impl Fn(&WorkspaceView) -> String,
+) -> (Vec<Row>, Vec<Band>) {
+    let key = |r: &Row| r.ws.project.clone().unwrap_or_default();
+    let mut keys: Vec<String> = rows.iter().map(key).collect();
+    keys.sort_by(|a, b| a.is_empty().cmp(&b.is_empty()).then_with(|| a.cmp(b)));
+    keys.dedup();
+    let mut sorted = rows;
+    sorted.sort_by_key(|r| {
+        let k = key(r);
+        keys.iter().position(|x| *x == k).unwrap_or(usize::MAX)
+    });
+    let bands = keys
+        .into_iter()
+        .map(|k| {
+            let members: Vec<&Row> = sorted.iter().filter(|r| key(r) == k).collect();
+            let family: Vec<&WorkspaceView> = all
+                .iter()
+                .filter(|w| !k.is_empty() && w.project.as_deref() == Some(k.as_str()))
+                .collect();
+            let states: Vec<String> = if k.is_empty() {
+                members.iter().map(|r| r.state.clone()).collect()
+            } else {
+                family.iter().map(|w| shown(w)).collect()
+            };
+            let (done, total) = family
+                .iter()
+                .filter_map(|w| w.progress.as_ref())
+                .fold((0u64, 0u64), |(d, t), p| {
+                    (d + u64::from(p.done.min(p.total)), t + u64::from(p.total))
+                });
+            Band {
+                title: if k.is_empty() {
+                    UNASSIGNED.to_owned()
+                } else {
+                    k.clone()
+                },
+                count: members.len(),
+                running: states
+                    .iter()
+                    .filter(|s| vocab::state(s).1 == Tone::Run)
+                    .count(),
+                needs: states.iter().filter(|s| needs_you(s)).count(),
+                progress: (total > 0).then_some((done, total)),
+                key: k,
+            }
+        })
+        .collect();
+    (sorted, bands)
+}
+
 pub const RECENT_ROWS: usize = 2;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -368,11 +434,58 @@ mod tests {
             failure: None,
             summary: None,
             ask: None,
+            archived: false,
+            progress: None,
         }
     }
 
     fn shown(w: &WorkspaceView) -> String {
         w.activity.clone()
+    }
+
+    #[test]
+    fn project_bands_list_named_projects_first_and_sum_their_progress() {
+        let mut all = vec![
+            ws("cad", "running", Some("3"), None),
+            ws("render", "idle", Some("2"), None),
+            ws("lane", "running", Some("1"), Some("cad")),
+            ws("misc", "asking", Some("4"), None),
+        ];
+        for w in &mut all[..3] {
+            w.project = Some("byte".into());
+        }
+        all[1].project = Some("art".into());
+        all[1].progress = Some(blazar_core_types::api::Progress {
+            done: 2,
+            total: 4,
+            ..Default::default()
+        });
+        all[2].progress = Some(blazar_core_types::api::Progress {
+            done: 9,
+            total: 6,
+            ..Default::default()
+        });
+        let top: Vec<WorkspaceView> = all.iter().filter(|w| w.parent.is_none()).cloned().collect();
+        let (rows, bands) = by_project(group_rows(top, &all, shown), &all, shown);
+        let order: Vec<&str> = rows.iter().map(|r| r.ws.id.as_str()).collect();
+        assert_eq!(order, ["render", "cad", "misc"]);
+        let heads: Vec<String> = bands
+            .iter()
+            .map(|b| {
+                format!(
+                    "{} {} {} {} {:?}",
+                    b.title, b.count, b.running, b.needs, b.progress
+                )
+            })
+            .collect();
+        assert_eq!(
+            heads,
+            [
+                "art 1 0 0 Some((2, 4))",
+                "byte 1 2 0 Some((6, 6))",
+                &format!("{UNASSIGNED} 1 0 1 None"),
+            ]
+        );
     }
 
     #[test]

@@ -20,6 +20,7 @@ async fn workspace(st: &Shared, path: &std::path::Path) -> String {
             path: path.to_string_lossy().into_owned(),
             name: None,
             project: None,
+            ..Default::default()
         }),
     )
     .await

@@ -6,8 +6,17 @@ pub async fn get_state(State(st): State<Shared>) -> ApiResult<Json<StateSnapshot
     Ok(Json(snapshot(&st).await?))
 }
 
-pub async fn list_workspaces(State(st): State<Shared>) -> ApiResult<Json<Vec<WorkspaceView>>> {
-    Ok(Json(snapshot(&st).await?.workspaces))
+#[derive(Debug, Default, Deserialize)]
+pub struct ListQuery {
+    #[serde(default)]
+    pub archived: bool,
+}
+
+pub async fn list_workspaces(
+    State(st): State<Shared>,
+    Query(q): Query<ListQuery>,
+) -> ApiResult<Json<Vec<WorkspaceView>>> {
+    Ok(Json(snapshot_with(&st, q.archived).await?.workspaces))
 }
 
 pub async fn list_nodes(State(st): State<Shared>) -> ApiResult<Json<Vec<NodeView>>> {
@@ -149,6 +158,21 @@ async fn latest_step(st: &AppState, session_id: &str) -> Option<WorkspaceStep> {
 }
 
 pub(crate) async fn snapshot(st: &AppState) -> anyhow::Result<StateSnapshot> {
+    snapshot_with(st, false).await
+}
+
+pub(crate) const PROGRESS: &str = "(SELECT json_object('done', i.progress_done, 'total', i.progress_total, 'unit', COALESCE(i.progress_unit, ''), 'title', i.title, 'at', i.created_at)
+     FROM inbox i WHERE i.workspace_id = w.id AND i.kind = 'report' AND i.progress_total IS NOT NULL
+     ORDER BY i.created_at DESC LIMIT 1) AS progress";
+
+pub(crate) fn progress_of(r: &sqlx::sqlite::SqliteRow) -> Option<blazar_core_types::api::Progress> {
+    r.try_get::<Option<String>, _>("progress")
+        .ok()
+        .flatten()
+        .and_then(|s| serde_json::from_str(&s).ok())
+}
+
+pub(crate) async fn snapshot_with(st: &AppState, archived: bool) -> anyhow::Result<StateSnapshot> {
     let nodes: Vec<NodeView> = sqlx::query(
         "SELECT n.name, n.transport, n.endpoint, n.status, n.labels, n.capabilities, n.network, n.role, n.last_seen_at,
                 (SELECT COUNT(*) FROM workspaces w WHERE w.node_id = n.id AND w.kind = 'project') AS wc
@@ -185,10 +209,10 @@ pub(crate) async fn snapshot(st: &AppState) -> anyhow::Result<StateSnapshot> {
     })
     .collect();
 
-    let rows = sqlx::query(
-        "SELECT w.id, w.name, w.path, w.activity, w.last_active_at, w.parent_id, w.kind,
+    let sql = format!(
+        "SELECT w.id, w.name, w.path, w.activity, w.last_active_at, w.parent_id, w.kind, w.archived_at,
                 w.diff_added, w.diff_removed, w.diff_files, w.diff_at,
-                n.name AS node, p.name AS project,
+                n.name AS node, p.name AS project, {PROGRESS},
                 (SELECT s.id FROM sessions s WHERE s.workspace_id = w.id
                  ORDER BY s.created_at DESC LIMIT 1) AS session_id,
                 (SELECT s.summary FROM sessions s WHERE s.workspace_id = w.id
@@ -200,10 +224,13 @@ pub(crate) async fn snapshot(st: &AppState) -> anyhow::Result<StateSnapshot> {
          FROM workspaces w
          JOIN nodes n ON n.id = w.node_id
          LEFT JOIN projects p ON p.id = w.project_id
-         ORDER BY p.name IS NULL, p.name, n.name, w.name",
-    )
-    .fetch_all(st.db.pool())
-    .await?;
+         WHERE ?1 OR w.archived_at IS NULL
+         ORDER BY p.name IS NULL, p.name, n.name, w.name"
+    );
+    let rows = sqlx::query(&sql)
+        .bind(archived)
+        .fetch_all(st.db.pool())
+        .await?;
     let mut assistant = None;
     let mut workspaces: Vec<WorkspaceView> = Vec::with_capacity(rows.len());
     for r in rows {
@@ -241,10 +268,15 @@ pub(crate) async fn snapshot(st: &AppState) -> anyhow::Result<StateSnapshot> {
             },
             diff_at: r.try_get("diff_at").unwrap_or(None),
             parent: r.try_get("parent_id").unwrap_or(None),
+            archived: r
+                .try_get::<Option<String>, _>("archived_at")
+                .unwrap_or(None)
+                .is_some(),
             step: None,
             failure: None,
             summary,
             ask: crate::brief::ask_from_row(&r, "ask"),
+            progress: progress_of(&r),
         };
         if r.try_get::<String, _>("kind").unwrap_or_default() == super::assistant::KIND {
             assistant.get_or_insert(view);

@@ -14,11 +14,17 @@ const PROTOCOL_VERSION: &str = "2025-06-18";
 const MAX_OUTPUT: usize = 30_000;
 const MAX_EDIT_BYTES: usize = 8 * 1024 * 1024;
 
+const MAX_IMAGE_BYTES: u64 = 20 * 1024 * 1024;
+
+const HEAD_BYTES: usize = 65_536;
+
 #[derive(Debug, Clone)]
 pub struct RemoteTarget {
     pub node: String,
 
     pub root: String,
+
+    pub images: bool,
 }
 
 pub struct Remote {
@@ -78,6 +84,96 @@ impl Remote {
                 p.trim_start_matches("./")
             ))
         }
+    }
+
+    pub async fn reply(&self, name: &str, args: &Value) -> Result<(bool, Vec<Value>)> {
+        if name == "Read"
+            && let Some(path) = args
+                .get("file_path")
+                .and_then(Value::as_str)
+                .filter(|p| crate::picture::is_image(p))
+        {
+            return self.read_image(path).await;
+        }
+        let (ok, text) = self.call(name, args).await?;
+        Ok((ok, vec![json!({ "type": "text", "text": text })]))
+    }
+
+    async fn read_image(&self, path: &str) -> Result<(bool, Vec<Value>)> {
+        let text = |t: String| vec![json!({ "type": "text", "text": t })];
+        let body = if self.target.images {
+            format!("[ \"$n\" -le {MAX_IMAGE_BYTES} ] || exit 7\nbase64 < \"$f\"")
+        } else {
+            format!("head -c {HEAD_BYTES} \"$f\" | base64")
+        };
+        let script = format!(
+            "f={p}\n\
+             [ -e \"$f\" ] || {{ echo \"File does not exist: $f\"; exit 3; }}\n\
+             [ -d \"$f\" ] && {{ echo \"EISDIR: illegal operation on a directory, read: $f\"; exit 4; }}\n\
+             n=$(wc -c < \"$f\" | tr -d ' ')\n\
+             echo \"__BLAZAR_SIZE__ $n\"\n\
+             {body}\n",
+            p = self.path(path),
+        );
+        let (code, out) = self.run(script, Duration::from_secs(120)).await?;
+        let (head, rest) = out.split_once('\n').unwrap_or((out.as_str(), ""));
+        let size = head
+            .strip_prefix("__BLAZAR_SIZE__ ")
+            .and_then(|n| n.trim().parse::<u64>().ok());
+        let Some(size) = size else {
+            return Ok((false, text(clip(&out))));
+        };
+        let mb = |n: u64| format!("{:.1} MB", n as f64 / 1_048_576.0);
+        if code == 7 {
+            return Ok((
+                false,
+                text(format!(
+                    "Image {path} is {}, larger than {}; save a smaller copy (for example with ImageMagick or Python) and read that instead.",
+                    mb(size),
+                    mb(MAX_IMAGE_BYTES)
+                )),
+            ));
+        }
+        if code != 0 {
+            return Ok((false, text(clip(&out))));
+        }
+        let packed: String = rest.chars().filter(|c| !c.is_whitespace()).collect();
+        let bytes = B64.decode(packed.as_bytes())?;
+        if !self.target.images {
+            let dims = crate::picture::dimensions(&bytes)
+                .map(|(w, h)| format!("{w}×{h}, "))
+                .unwrap_or_default();
+            return Ok((
+                true,
+                text(format!(
+                    "Image file {path} ({dims}{}). This model can't view images, so it is not shown; describe what you need from it, or ask the user to look.",
+                    mb(size)
+                )),
+            ));
+        }
+        let pic = match crate::picture::prepare(
+            &bytes,
+            crate::picture::MAX_SIDE,
+            crate::picture::PASS_BYTES,
+        ) {
+            Ok(p) => p,
+            Err(e) => return Ok((false, text(format!("{path}: {e:#}")))),
+        };
+        let shown = if pic.shown == (pic.width, pic.height) {
+            String::new()
+        } else {
+            format!(", shown at {}×{}", pic.shown.0, pic.shown.1)
+        };
+        Ok((
+            true,
+            vec![
+                json!({
+                    "type": "text",
+                    "text": format!("{path} · {}×{}{shown}", pic.width, pic.height),
+                }),
+                json!({ "type": "image", "data": B64.encode(&pic.data), "mimeType": pic.mime }),
+            ],
+        ))
     }
 
     pub async fn call(&self, name: &str, args: &Value) -> Result<(bool, String)> {
@@ -482,6 +578,7 @@ pub fn target_from_args(args: &[String]) -> Option<RemoteTarget> {
     Some(RemoteTarget {
         node: get("--node")?,
         root: get("--root")?,
+        images: !args.iter().any(|a| a == "--no-images"),
     })
 }
 
@@ -500,7 +597,7 @@ pub fn manifest(t: &RemoteTarget) -> Value {
               "description": p("5–10 个字说明这条命令做什么"),
               "timeout": { "type": "number", "description": "超时毫秒数，默认 120000，最大 600000" } }), &["command"]) },
         { "name": "Read", "annotations": { "readOnlyHint": true },
-          "description": format!("读取 {loc} 上的文件，带行号输出。相对路径相对工作区根目录。"),
+          "description": format!("读取 {loc} 上的文件，带行号输出。相对路径相对工作区根目录。png、jpg、webp、gif 图片会直接以图片返回，过大的自动缩小。"),
           "inputSchema": obj(json!({
               "file_path": p("文件路径"),
               "offset": { "type": "number", "description": "从第几行开始（1 起）" },
@@ -557,10 +654,8 @@ pub async fn handle(remote: &Remote, req: &Value) -> Option<Value> {
                 .to_owned();
             let args = p.get("arguments").cloned().unwrap_or(json!({}));
 
-            Ok(match remote.call(&name, &args).await {
-                Ok((ok, text)) => {
-                    json!({ "content": [{ "type": "text", "text": text }], "isError": !ok })
-                }
+            Ok(match remote.reply(&name, &args).await {
+                Ok((ok, content)) => json!({ "content": content, "isError": !ok }),
                 Err(e) => {
                     json!({ "content": [{ "type": "text", "text": format!("{e:#}") }], "isError": true })
                 }
@@ -613,6 +708,7 @@ mod tests {
         Remote::new(RemoteTarget {
             node: "local".into(),
             root: root.display().to_string(),
+            images: true,
         })
     }
 
@@ -811,5 +907,103 @@ mod tests {
                 .await
                 .is_none()
         );
+    }
+
+    fn png(width: u32, height: u32) -> Vec<u8> {
+        let img = image::RgbaImage::from_pixel(width, height, image::Rgba([10, 120, 200, 255]));
+        let mut out = Vec::new();
+        img.write_to(&mut std::io::Cursor::new(&mut out), image::ImageFormat::Png)
+            .unwrap();
+        out
+    }
+
+    #[tokio::test]
+    async fn read_hands_images_to_the_model() {
+        let d = tempfile::tempdir().unwrap();
+        let bytes = png(40, 20);
+        std::fs::write(d.path().join("shot.png"), &bytes).unwrap();
+        let (ok, blocks) = local(d.path())
+            .reply("Read", &json!({ "file_path": "shot.png" }))
+            .await
+            .unwrap();
+        assert!(ok, "{blocks:?}");
+        assert!(
+            blocks[0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("shot.png · 40×20")
+        );
+        assert_eq!(blocks[1]["type"], "image");
+        assert_eq!(blocks[1]["mimeType"], "image/png");
+        assert_eq!(
+            B64.decode(blocks[1]["data"].as_str().unwrap()).unwrap(),
+            bytes
+        );
+    }
+
+    #[tokio::test]
+    async fn read_shrinks_large_images() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(d.path().join("big.png"), png(2000, 1000)).unwrap();
+        let (ok, blocks) = local(d.path())
+            .reply("Read", &json!({ "file_path": "big.png" }))
+            .await
+            .unwrap();
+        assert!(ok, "{blocks:?}");
+        assert!(
+            blocks[0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("shown at 1568×784")
+        );
+        assert_eq!(blocks[1]["mimeType"], "image/jpeg");
+    }
+
+    #[tokio::test]
+    async fn read_describes_images_when_the_model_cannot_see_them() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(d.path().join("shot.png"), png(40, 20)).unwrap();
+        let r = Remote::new(RemoteTarget {
+            node: "local".into(),
+            root: d.path().display().to_string(),
+            images: false,
+        });
+        let (ok, blocks) = r
+            .reply("Read", &json!({ "file_path": "shot.png" }))
+            .await
+            .unwrap();
+        assert!(ok);
+        assert_eq!(blocks.len(), 1);
+        let text = blocks[0]["text"].as_str().unwrap();
+        assert!(
+            text.contains("40×20") && text.contains("can't view images"),
+            "{text}"
+        );
+    }
+
+    #[tokio::test]
+    async fn read_reports_a_missing_image() {
+        let d = tempfile::tempdir().unwrap();
+        let (ok, blocks) = local(d.path())
+            .reply("Read", &json!({ "file_path": "nope.png" }))
+            .await
+            .unwrap();
+        assert!(!ok);
+        assert!(
+            blocks[0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("File does not exist")
+        );
+    }
+
+    #[test]
+    fn the_no_images_flag_turns_pictures_off() {
+        let args: Vec<String> = ["__mcp-remote", "--node", "n", "--root", "/r", "--no-images"]
+            .iter()
+            .map(|s| (*s).to_owned())
+            .collect();
+        assert!(!target_from_args(&args).unwrap().images);
+        assert!(target_from_args(&args[..5]).unwrap().images);
     }
 }

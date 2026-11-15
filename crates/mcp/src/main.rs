@@ -12,6 +12,9 @@ struct Cli {
 
     #[arg(long, requires = "remote_node")]
     remote_root: Option<String>,
+
+    #[arg(long)]
+    no_images: bool,
 }
 
 #[tokio::main]
@@ -25,7 +28,12 @@ async fn main() -> Result<()> {
         .init();
     let cli = Cli::parse();
     if let (Some(node), Some(root)) = (cli.remote_node.clone(), cli.remote_root.clone()) {
-        return blazar_mcp::remote::serve(blazar_mcp::remote::RemoteTarget { node, root }).await;
+        return blazar_mcp::remote::serve(blazar_mcp::remote::RemoteTarget {
+            node,
+            root,
+            images: !cli.no_images,
+        })
+        .await;
     }
     blazar_mcp::fleet::serve(&cli.hub).await
 }
