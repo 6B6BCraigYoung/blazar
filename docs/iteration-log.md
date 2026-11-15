@@ -1374,7 +1374,7 @@ B 的第三部分。出网络故障时要能一眼看出是机器、组网还是
   - **读回旧会话**：Devin 会先把整段历史重放一遍，这部分不进对话。
   - **结束原因**：cancelled 算打断，refusal 算失败；max_tokens / max_turn_requests 给一条说明。
 - **型号菜单**：标题写「Devin 3000.12.57」。
-  - **列表来源**：照会话报上来的 `configOptions` 列，什么账号就列什么：用户这台机器在组织里，只有 SWE-2 Flash Medium 和 SWE-1.6 Slow；没有组织配置时 Devin 给 145 个（含 Fusion 组合），弹层可以滚动。`devin models list` 列的是整个目录，菜单里没有的型号设了会被拒（「Invalid value … for config option 'model'」），所以不用它。
+  - **列表来源**：照会话报上来的 `configOptions` 列，Devin 给什么就列什么：用户开着 Devin 桌面版时只有组织的 SWE-2 Flash Medium 和 SWE-1.6 Slow；桌面版关着、或者换个 HOME 时，Devin 给 145 个（含 Fusion 组合），弹层可以滚动。`devin models list` 列的是整个目录，菜单里没有的型号设了会被拒（「Invalid value … for config option 'model'」），所以不用它。
   - **怎么拿到**：做一次短握手，新建一个会话读出列表，马上 `session/delete`。结果缓存 10 分钟，每跑一轮 Devin 也顺手刷新。
   - **看图**：每个型号能不能看图也从这里来。SWE-2 Flash Medium 看不了图，发过去会被悄悄丢掉（实测过），所以选它时「+」菜单里的加图置灰，写「SWE-2 Flash can't read images」。
   - **显示名**：输入框里的型号名改为先用菜单里的显示名。
@@ -1384,8 +1384,8 @@ B 的第三部分。出网络故障时要能一眼看出是机器、组网还是
 
 - **能力**：`initialize` 回 `loadSession`、可发图、HTTP/SSE 的 MCP、会话的列出/删除/关闭；模式列表里没有 CLI 的 normal，设 normal 会被当成 accept-edits。
 - **插话和打断**：插话时 Devin 停掉当前生成，接着处理新消息，两条请求在这一轮结束时一起回（后发的先回）。打断时若有审批没答，Devin 自己把那次工具调用标失败、发 `$/cancel_request`，再把这轮回成 cancelled。
-- **组织设置**：组织设置不只在 `~/.config/devin/config.json` 里。临时 HOME 里接上真实的登录凭据和配置，拿到的仍是个人账号那 145 个型号；只有真实 HOME 里是组织的 2 个。
-- **桌面版的锁**：用户开着 Devin 桌面版（`/Applications/Devin.app`），它自己也跑着一个 `devin acp`，会打开它看到的会话。这时 `session/delete` 会报「already open in another process」，`session/load` 仍然正常，续接不受影响。实测留下的 3 个会话因此没删掉，标题是「Reply with exactly: OK」「Create a file named ask.txt…」「Fix calc.add…」。
+- **组织设置**：型号表跟着 Devin 桌面版走。桌面版开着时，真实 HOME 里是组织的 2 个；临时 HOME（接上真实的凭据和配置）或者桌面版退出以后，都是 145 个，而 `~/.config/devin/config.json`（里面有 org_id）和凭据都没变，看来命令行的组织设置要从桌面版拿（推测，没验证）。
+- **桌面版的锁**：用户开着 Devin 桌面版（`/Applications/Devin.app`），它自己也跑着一个 `devin acp`，会打开它看到的会话。这时 `session/delete` 会报「already open in another process」，`session/load` 仍然正常，续接不受影响。实测留下的 3 个会话当时因此删不掉，用户退出桌面版后删了。
 
 实测（临时实例：隔离的 HOME、全新的库，只把 devin 程序和它的数据目录、配置目录链接进去；为了不花额度，型号选免费的 SWE-2 Flash）：
 
@@ -1398,3 +1398,12 @@ B 的第三部分。出网络故障时要能一眼看出是机器、组网还是
 验证：`cargo fmt --check`、`leptosfmt --check crates/web/src`、`cargo clippy --workspace --all-targets -- -D warnings`、wasm 的 clippy、`cargo test --workspace`（1194 个全过）、node 测试。第一次全量跑时 `bots::jobs::tests::kill_marks_killed_and_workers_cannot_stop_others` 报过一次「运行进程组身份不匹配」，单独跑和重跑都能过，是机器忙时偶发的，跟这次改动无关。新增的测试覆盖事件解析（用实测抓到的消息）、握手和每轮开头的请求、读回时隐藏重放、工具名换算、审批回复、打断、失败原因、型号和档位变化、hub 里插话后按最后一条回执结束、中途切档位和打断走 ACP、审批按 Devin 的选项回、型号菜单只列账号能用的。
 
 还没做：远端机器；个人账号才有的思考档位（`thought_level`）和快速模式（`speed`），它们跟着型号变，要先选中型号才知道有哪几档；Devin 的斜杠命令菜单；多目录（`additionalDirectories`）；`--cloud`。
+
+## 11-15 装到本机（4550ece：b63 接入 Devin）
+
+用户选了「等 5090x2 上那一轮停了就装」。后台每 30 秒查一次正式库里有没有智能体在远端跑，12:23:39 XiePhysics 那一轮停了，随即运行装机脚本，装上构建 20261115.035944（只打了 app）。
+
+- 装机脚本一路走完：在线备份数据库（`blazar.sqlite.bak-20261115-122339`），回滚副本换成上一版 `Blazar-20261114.084956.app`（更早那份进了废纸篓），换上新版，删掉暂存副本；新进程 pid 53801（12:23:42）。
+- 重开后核对：迁移仍是 50；hub 就绪，5 段正在跑的本机会话都重新附着上；启动时检查了 4 个账号；只有组网刷新那条原有的警告；Spotlight 只剩 `/Applications/Blazar.app`；进程环境里没有会话带进来的变量。
+- `/api/runtimes` 认出 Devin 3000.12.57、已登录（`~/.local/bin/devin`）。这时打开型号菜单是 145 个：用户刚退出 Devin 桌面版（为了删测试会话），见上面「组织设置」一条。
+- 回滚：这次没有新迁移，换回 `Blazar-20261114.084956.app` 即可，数据库不用动。
