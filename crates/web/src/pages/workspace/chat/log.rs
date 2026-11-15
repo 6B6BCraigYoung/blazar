@@ -2240,12 +2240,11 @@ fn Empty(chat: Chat) -> impl IntoView {
             None if chat.no_agent.get() => return ().into_any(),
             None => {
                 let rt = chat.runtime();
-                let name = match rt.as_str() {
-                    "claude" => "Claude Code",
-                    "codex" => "Codex",
-                    other => other,
-                }
-                .to_owned();
+                let name = if rt == "auto" {
+                    "Auto".to_owned()
+                } else {
+                    chat.runtime_label(&rt)
+                };
                 (Some(crate::rt_logo::glyph(&rt)), name, String::new())
             }
         };
@@ -2329,12 +2328,17 @@ pub(super) fn Starters(chat: Chat, blank: Memo<bool>) -> impl IntoView {
             </div>
             <Show when=move || blank.get() && !chat.no_agent.get()>
                 <p class="cc-keys">
-                    <kbd>"Shift"</kbd>
-                    " "
-                    <kbd>"Tab"</kbd>
-                    " permission modes · "
-                    <kbd>"/"</kbd>
-                    " commands"
+                    {move || {
+                        (!chat.modes().is_empty())
+                            .then(|| {
+                                view! {
+                                    <kbd>"Shift"</kbd>
+                                    " "
+                                    <kbd>"Tab"</kbd>
+                                    " permission modes · "
+                                }
+                            })
+                    }} <kbd>"/"</kbd> " commands"
                 </p>
             </Show>
         </div>

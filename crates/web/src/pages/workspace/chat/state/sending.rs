@@ -185,7 +185,7 @@ impl Chat {
                 a == "auto" || untrack(|| self.account(a)).is_none_or(|x| x.provider == rt)
             });
         o.insert("account".into(), json!(acc));
-        if rt == "claude" {
+        if rt == "claude" || rt == "auto" {
             let p = self.prefs.get_untracked();
             o.insert(
                 "thinking".into(),

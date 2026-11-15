@@ -14,5 +14,6 @@ pub mod model_list;
 pub mod proxy;
 pub mod remote_cli;
 pub mod resume;
+pub mod routing;
 pub mod run;
 pub mod titles;

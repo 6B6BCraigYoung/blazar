@@ -563,6 +563,22 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 .runtimes-page .acc-row { grid-template-columns: 1.25rem minmax(9rem, 1fr) 9.5rem minmax(10rem, 1.618fr) 6rem 8rem; gap: var(--space-lg); }
 .runtimes-page .acc-row .name { min-width: 0; overflow-wrap: anywhere; }
 .runtimes-page .runtime-details { padding: var(--space-md) var(--space-xl); background: var(--bg-group); }
+.routing-card .route-lead { margin: 0; padding: var(--space-md) var(--space-section) var(--space-sm); color: var(--fg-3); font-size: var(--font-size-label-readable); line-height: var(--line-height-compact); }
+.route-row { display: flex; align-items: center; gap: var(--space-md); min-height: 44px; padding: var(--space-sm) var(--space-section); border-bottom: 1px solid var(--line); }
+.route-row .rt-ic { display: inline-flex; width: 16px; height: 16px; color: var(--fg-2); }
+.route-row .rt-ic svg { width: 16px; height: 16px; }
+.route-row b { font-weight: var(--font-weight-medium); }
+.route-row[data-off] b, .route-row[data-off] .rt-ic { color: var(--fg-4); }
+.route-row .route-note { color: var(--fg-3); font-size: var(--font-size-caption); }
+.route-row .route-first { padding: 0 calc(var(--space-control) + 1px); color: var(--fg-3); font-size: var(--font-size-caption-readable); }
+.route-row .grow { flex: 1; }
+.route-jev { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--space-sm) var(--space-xl); padding: var(--space-lg) var(--space-section); }
+.route-jev-text { display: flex; flex-direction: column; gap: var(--space-xs); min-width: 0; }
+.route-jev-text b { font-weight: var(--font-weight-medium); }
+.route-jev-text span { color: var(--fg-3); font-size: var(--font-size-label-readable); line-height: var(--line-height-compact); }
+.route-jev-act { display: flex; align-items: center; gap: var(--space-sm); }
+.route-jev-act .settings-input { width: 200px; }
+.route-test { grid-column: 1 / -1; margin: 0; min-height: 1.5em; color: var(--fg-3); font-size: var(--font-size-caption); }
 .runtimes-page .runtime-details:not(.runtime-details + .runtime-details) { margin-top: var(--space-xl); border-top-left-radius: var(--r-group); border-top-right-radius: var(--r-group); }
 .runtimes-page .runtime-details + .runtime-details { border-top: 1px solid var(--line); }
 .runtimes-page .runtime-details:not(:has(+ .runtime-details)) { border-bottom-left-radius: var(--r-group); border-bottom-right-radius: var(--r-group); }

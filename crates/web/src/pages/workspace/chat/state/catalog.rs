@@ -5,8 +5,8 @@ use crate::api::{self, Account, Accounts};
 use crate::storage;
 
 use super::{
-    ACC_RUNTIMES, AgentInfo, Catalog, Chat, Mode, ModelInfo, ModelList, ModelSel, Prefs, Profile,
-    Snippet, default_mode, modes_for,
+    ACC_RUNTIMES, AUTO_AGENT, AgentInfo, Catalog, Chat, Mode, ModelInfo, ModelList, ModelSel,
+    Prefs, Profile, Snippet, default_mode, modes_for,
 };
 
 impl Chat {
@@ -41,6 +41,9 @@ impl Chat {
         let a = self.agent.get();
         if let Some(p) = self.profile() {
             return format!("{} · {}", p.name, p.runtime_label);
+        }
+        if a == AUTO_AGENT {
+            return "Auto".into();
         }
         let rt = a.strip_prefix("r:").unwrap_or("");
         self.agents
@@ -478,7 +481,9 @@ impl Chat {
             return;
         }
         let cur = self.agent.get_untracked();
-        let ok = if let Some(id) = cur.strip_prefix("p:") {
+        let ok = if cur == AUTO_AGENT {
+            true
+        } else if let Some(id) = cur.strip_prefix("p:") {
             self.profiles
                 .with_untracked(|p| p.iter().any(|x| x.id == id))
         } else if let Some(id) = cur.strip_prefix("r:") {

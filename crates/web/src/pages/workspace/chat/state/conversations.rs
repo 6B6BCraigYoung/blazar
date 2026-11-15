@@ -14,7 +14,7 @@ use crate::storage;
 use super::approval_delivery::ApprovalDeliveries;
 use super::history::{RowKey, merge_history};
 use super::send_context::clear_view_pending;
-use super::{Chat, Deliveries, Queued, SubLoad, Thread, unsent_key};
+use super::{AUTO_AGENT, Chat, Deliveries, Queued, SubLoad, Thread, unsent_key};
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct SavedTabs {
@@ -166,6 +166,14 @@ impl Chat {
     }
 
     pub fn activate(self, id: Option<String>) {
+        if id.is_none()
+            && storage::load_raw(&format!("blazar.agent.{}", self.ws_id())).as_deref()
+                == Some(AUTO_AGENT)
+            && self.agent.get_untracked() != AUTO_AGENT
+        {
+            self.agent.set(AUTO_AGENT.to_owned());
+            self.perm.set(String::new());
+        }
         self.view_revision.update_value(|r| *r = r.wrapping_add(1));
         clear_view_pending(&mut self.pending.write(), &mut self.orphans.write_value());
         self.tabs.update(|t| {

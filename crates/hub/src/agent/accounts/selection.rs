@@ -230,6 +230,51 @@ pub(super) async fn model_blocks(st: &Shared) -> HashMap<String, Vec<(String, St
     out
 }
 
+pub async fn outlook(st: &Shared, provider: &str, remote: bool) -> Option<(String, Option<f64>)> {
+    let now = Utc::now();
+    let windows = windows_of(st).await;
+    let live = |id: &str| {
+        windows
+            .get(id)
+            .filter(|w| w.iter().any(|x| x.live(now)))
+            .map(|w| peak(w, now))
+    };
+    if super::QUOTA_ONLY.contains(&provider) {
+        let a = get(st, &default_id(provider))
+            .await
+            .filter(Account::usable)?;
+        return Some((a.id.clone(), live(&a.id)));
+    }
+    let token_only = remote && provider == "claude";
+    let mode = mode_of(st, provider).await;
+    let a = match mode.as_str() {
+        "auto" => {
+            let running = running_of(st).await;
+            let cands: Vec<Candidate> = all(st, Some(provider))
+                .await
+                .into_iter()
+                .filter(|a| {
+                    a.usable() && a.kind != "endpoint" && (!token_only || a.kind == "token")
+                })
+                .map(|a| Candidate {
+                    score: windows.get(&a.id).map_or(0.0, |w| score(w, now)),
+                    peak: windows.get(&a.id).map_or(0.0, |w| peak(w, now)),
+                    running: running.get(&a.id).copied().unwrap_or(0),
+                    id: a.id,
+                })
+                .collect();
+            let id = spread(&cands, threshold(st).await)?.id.clone();
+            return Some((id.clone(), live(&id)));
+        }
+        "" | "default" => get(st, &default_id(provider)).await?,
+        id => get(st, id).await?,
+    };
+    let fits = a.usable()
+        && a.provider == provider
+        && (!token_only || a.kind == "token" || a.kind == "endpoint");
+    fits.then(|| (a.id.clone(), live(&a.id)))
+}
+
 pub async fn resolve(
     st: &Shared,
     provider: &str,

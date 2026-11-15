@@ -654,3 +654,53 @@ async fn an_endpoint_model_is_not_sent_to_a_claude_account() {
     assert!(!exec.contains("deepseek-flash"), "{exec}");
     assert!(!launched_command(&fake).contains("api.deepseek.com"));
 }
+
+#[tokio::test]
+async fn an_auto_turn_runs_where_routing_points_and_says_why_under_the_message() {
+    let (_dir, st, ws, fake) = fixture().await;
+    crate::office::kv_put(
+        &st,
+        "routing",
+        &serde_json::json!({ "channels": ["codex", "claude"], "first": "codex" }),
+    )
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO rate_limit_snapshots (account_id, window_name, utilization, resets_at, observed_at)
+         VALUES ('codex-default', 'five_hour', 0.9, ?1, ?2)",
+    )
+    .bind((Utc::now() + chrono::Duration::hours(2)).to_rfc3339())
+    .bind(Utc::now().to_rfc3339())
+    .execute(st.db.pool())
+    .await
+    .unwrap();
+    let req = serde_json::from_value(serde_json::json!({ "text": "hi", "agent": "auto" })).unwrap();
+    let transport = fake.clone();
+    let _ = prompt_using(st.clone(), ws.to_string(), req, move |_| transport.clone())
+        .await
+        .unwrap_or_else(|error| panic!("{}", error.message()));
+    assert!(fake.launched.load(Ordering::SeqCst));
+    let (runtime, route, request): (String, Option<String>, Option<String>) =
+        sqlx::query_as("SELECT runtime_kind, route, request FROM sessions")
+            .fetch_one(st.db.pool())
+            .await
+            .unwrap();
+    assert_eq!(runtime, "claude");
+    let route: serde_json::Value = serde_json::from_str(&route.unwrap()).unwrap();
+    assert_eq!(route["channel"], "claude");
+    assert_eq!(route["skipped"][0]["why"], "over_line");
+    let request: serde_json::Value = serde_json::from_str(&request.unwrap()).unwrap();
+    assert_eq!(request["agent"], "claude");
+    let events: Vec<(i64, String)> = sqlx::query_as("SELECT seq, payload FROM events ORDER BY seq")
+        .fetch_all(st.db.pool())
+        .await
+        .unwrap();
+    assert!(events[0].1.contains("user_message"), "{events:?}");
+    assert_eq!(events[1].0, 2);
+    assert!(
+        events[1]
+            .1
+            .contains("Auto → Claude Code · Codex is over its usage line"),
+        "{events:?}"
+    );
+}

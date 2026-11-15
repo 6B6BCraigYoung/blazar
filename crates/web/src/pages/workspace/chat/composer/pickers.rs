@@ -5,7 +5,7 @@ use serde_json::json;
 use crate::components::status::EmptyState;
 use crate::components::toast::toast;
 
-use super::super::state::{ACC_RUNTIMES, Chat, ModelSel};
+use super::super::state::{ACC_RUNTIMES, AUTO_AGENT, Chat, ModelSel};
 use super::presentation::{editor_url, eff_label, icon};
 use super::{Pop, SlashItem};
 
@@ -715,7 +715,21 @@ pub(super) fn agent_pop(chat: Chat, pop: RwSignal<Option<Pop>>) -> impl IntoView
         .into_any()
     };
     let none = profiles.is_empty() && rts.is_empty();
+    let auto_on = cur == AUTO_AGENT;
     view! {
+        {(!none)
+            .then(|| {
+                view! {
+                    <button class="cp-row" on:click=move |_| pick(AUTO_AGENT.to_owned(), None)>
+                        <span class="rt-ic" inner_html=crate::rt_logo::glyph("auto")></span>
+                        <span class="cp-t">
+                            <b>"Auto"</b>
+                        </span>
+                        <span class="cp-r">"Picks the agent and model for each new chat"</span>
+                        {auto_on.then(|| view! { <span class="cp-ok">"✓"</span> })}
+                    </button>
+                }
+            })}
         {(!profiles.is_empty()).then(|| view! { <div class="cp-sec">"My agents"</div> })}
         {profiles
             .into_iter()

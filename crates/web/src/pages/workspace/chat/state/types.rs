@@ -4,6 +4,7 @@ use std::collections::HashMap;
 
 pub const CONTINUE_TEXT: &str = crate::failure::SWITCHED;
 pub const ACC_RUNTIMES: [&str; 2] = ["claude", "codex"];
+pub const AUTO_AGENT: &str = "r:auto";
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct Thread {

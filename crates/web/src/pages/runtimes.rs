@@ -18,12 +18,14 @@ mod detail;
 mod global_sync;
 mod overview;
 mod quota_line;
+mod routing;
 
 use account_form::AccountForm;
 use accounts::AccountRow;
 use detail::RuntimeDetail;
 use global_sync::GlobalSync;
 use overview::RuntimeCard;
+use routing::RoutingCard;
 
 pub const WITH_ACCOUNTS: [(&str, &str); 2] = [("claude", "Claude Code"), ("codex", "Codex")];
 
@@ -157,6 +159,7 @@ pub fn RuntimesPage() -> impl IntoView {
                             .into_iter()
                             .map(|rt| view! { <RuntimeCard rt accounts /> })
                             .collect_view()}
+                        {(!empty).then(|| view! { <RoutingCard /> })}
                         {(!brains && !empty)
                             .then(|| {
                                 view! {

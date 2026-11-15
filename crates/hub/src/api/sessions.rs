@@ -243,7 +243,7 @@ async fn requested_runtime(st: &Shared, req: &PromptRequest) -> String {
 async fn prompt_inner(
     st: Shared,
     id: String,
-    req: PromptRequest,
+    mut req: PromptRequest,
     transport_for: impl Fn(&str) -> Arc<dyn blazar_transport::NodeTransport> + Send + Sync,
 ) -> ApiResult<Json<serde_json::Value>> {
     for key in req.env.keys() {
@@ -273,7 +273,7 @@ async fn prompt_inner(
                     &st,
                     workspace_id,
                     req.resume_session.as_deref().filter(|s| !s.is_empty()),
-                    Some(&wanted),
+                    (wanted != crate::routing::AUTO).then_some(wanted.as_str()),
                     &req.text,
                     &with_editor_context(&req.text, req.context_file.as_deref()),
                     &req.images,
@@ -411,6 +411,39 @@ async fn prompt_inner(
         }
         None => None,
     };
+    let routed = if profile.is_none() && req.agent.as_deref() == Some(crate::routing::AUTO) {
+        match prior.as_ref() {
+            Some(p) => {
+                req.agent = Some(p.4.clone());
+                None
+            }
+            None => {
+                let d = crate::routing::decide(
+                    &st,
+                    crate::routing::Ask {
+                        text: &req.text,
+                        images: !req.images.is_empty(),
+                        remote: node != "local",
+                        run_node: &run_node,
+                    },
+                )
+                .await;
+                req.agent = Some(d.runtime.clone());
+                if req.model.as_deref().is_none_or(str::is_empty) {
+                    req.model.clone_from(&d.model);
+                }
+                if req.effort.as_deref().is_none_or(str::is_empty) {
+                    req.effort.clone_from(&d.effort);
+                }
+                if d.account.is_some() {
+                    req.account.clone_from(&d.account);
+                }
+                Some(d)
+            }
+        }
+    } else {
+        None
+    };
     let agent_id: String = profile
         .as_ref()
         .map(|p| p.runtime.clone())
@@ -542,8 +575,8 @@ async fn prompt_inner(
     }
     sqlx::query(
         "INSERT INTO sessions (id, workspace_id, runtime_kind, status, created_at, agent_profile, thread_id,
-                               account_id, account_auto, request)
-         VALUES (?1, ?2, ?4, 'running', ?3, ?5, ?6, ?7, ?8, ?9)",
+                               account_id, account_auto, request, route)
+         VALUES (?1, ?2, ?4, 'running', ?3, ?5, ?6, ?7, ?8, ?9, ?10)",
     )
     .bind(session_id.to_string())
     .bind(&id)
@@ -554,6 +587,7 @@ async fn prompt_inner(
     .bind(account.as_ref().map(|a| a.id.clone()))
     .bind(i64::from(account.as_ref().is_some_and(|a| a.auto)))
     .bind(&stored_request)
+    .bind(routed.as_ref().and_then(|d| serde_json::to_string(d).ok()))
     .execute(st.db.pool())
     .await?;
     super::model_choice::remember_turn(&st, &thread_id, agent_id, &chosen).await;
@@ -862,6 +896,12 @@ async fn prompt_inner(
             entry: Box::new(user_entry),
         });
         let mut next_seq = 2;
+        if let Some(d) = &routed {
+            crate::routing::announce(&st, session_id, workspace_id, next_seq, &d.note)
+                .await
+                .map_err(ApiError)?;
+            next_seq += 1;
+        }
         if needs_install {
             install_agent(&st, session_id, workspace_id, &run_node, agent_id, &mut next_seq).await?;
         }

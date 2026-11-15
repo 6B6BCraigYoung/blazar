@@ -454,6 +454,9 @@ pub fn Composer(
                     chat.load_snippets();
                     pop.set(Some(Pop::Files));
                 }
+                "model" | "effort" if chat.runtime() == "auto" => {
+                    toast("Auto picks the model when the chat starts");
+                }
                 "model" | "effort" => pop.set(Some(Pop::Model)),
                 "permissions" => pop.set(Some(Pop::Mode)),
                 "fast" => toggle_fast(),
@@ -708,6 +711,9 @@ pub fn Composer(
 
     let model_label = move || {
         let rt = chat.runtime();
+        if rt == "auto" {
+            return ("Auto".to_owned(), None);
+        }
         let s = chat.model_sel(&rt);
         let list = chat.models_for(&rt);
         let m = list
@@ -1234,8 +1240,11 @@ pub fn Composer(
                     <button
                         class="cb-btn cb-trigger cb-model"
                         aria-label="Model"
+                        disabled=move || chat.runtime() == "auto"
                         title=move || {
-                            if chat.running_model().is_some() && !chat.fresh.get() {
+                            if chat.runtime() == "auto" {
+                                "Auto picks the model when the chat starts".to_owned()
+                            } else if chat.running_model().is_some() && !chat.fresh.get() {
                                 format!("Running {} · switch model and effort", model_label().0)
                             } else {
                                 "Switch model and effort".to_owned()

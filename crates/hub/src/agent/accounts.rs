@@ -38,7 +38,7 @@ pub use probe::{
 pub use quota::{
     Quota, parse_codex_rate_limits, parse_oauth_usage, parse_quota_headers, quota, quota_all,
 };
-pub use selection::{Candidate, Chosen, Window, best, model_family, resolve, score};
+pub use selection::{Candidate, Chosen, Window, best, model_family, outlook, resolve, score};
 
 pub const PROVIDERS: &[&str] = &["claude", "codex"];
 
@@ -174,7 +174,7 @@ pub struct Account {
 }
 
 impl Account {
-    fn usable(&self) -> bool {
+    pub(crate) fn usable(&self) -> bool {
         !self.disabled && self.status != "logged_out"
     }
 
@@ -252,6 +252,14 @@ pub async fn get(st: &Shared, id: &str) -> Option<Account> {
         .ok()
         .flatten()
         .map(|r| from_row(&r))
+}
+
+pub(crate) async fn endpoints(st: &Shared) -> Vec<Account> {
+    all(st, Some("claude"))
+        .await
+        .into_iter()
+        .filter(|a| a.kind == "endpoint")
+        .collect()
 }
 
 async fn all(st: &Shared, provider: Option<&str>) -> Vec<Account> {
